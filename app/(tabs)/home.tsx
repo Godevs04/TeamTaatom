@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { onSnapshot, collection, orderBy, query } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { theme } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 interface PostItem {
   postId: string;
@@ -16,6 +16,7 @@ interface PostItem {
 export default function HomeScreen() {
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const { theme } = useTheme();
 
   useEffect(() => {
     const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
@@ -30,7 +31,7 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}> 
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg }}>
         <ActivityIndicator color={theme.colors.primary} />
       </View>
     );
@@ -38,9 +39,9 @@ export default function HomeScreen() {
 
   if (posts.length === 0) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyTitle}>No photos found</Text>
-        <Text style={styles.emptySubtitle}>Share your first photo from the Post tab.</Text>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg }}>
+        <Text style={{ color: theme.colors.text, fontSize: theme.typography.h2.fontSize, fontWeight: '700', marginBottom: theme.spacing.xs }}>No photos found</Text>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, textAlign: 'center' }}>Share your first photo from the Post tab.</Text>
       </View>
     );
   }
@@ -49,52 +50,15 @@ export default function HomeScreen() {
     <FlatList
       data={posts}
       keyExtractor={(item) => item.postId}
-      contentContainerStyle={styles.list}
+      contentContainerStyle={{ backgroundColor: theme.colors.background, padding: theme.spacing.md }}
       renderItem={({ item }) => (
-        <View style={styles.card}>
-          {/* Lightweight preview without image component to avoid layout overhead here */}
-          <Text style={styles.place}>{item.placeName || 'Unknown place'}</Text>
-          <Text style={styles.comment}>{item.comment}</Text>
+        <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.md }}>
+          <Text style={{ color: theme.colors.textSecondary, marginBottom: 4 }}>{item.placeName || 'Unknown place'}</Text>
+          <Text style={{ color: theme.colors.text }}>{item.comment}</Text>
         </View>
       )}
     />
   );
 }
 
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: theme.spacing.lg,
-  },
-  emptyTitle: {
-    color: theme.colors.text,
-    fontSize: theme.typography.h2.fontSize,
-    fontWeight: '700',
-    marginBottom: theme.spacing.xs,
-  },
-  emptySubtitle: {
-    color: theme.colors.textSecondary,
-    fontSize: theme.typography.body.fontSize,
-    textAlign: 'center',
-  },
-  list: {
-    backgroundColor: theme.colors.background,
-    padding: theme.spacing.md,
-  },
-  card: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.md,
-  },
-  place: {
-    color: theme.colors.textSecondary,
-    marginBottom: 4,
-  },
-  comment: {
-    color: theme.colors.text,
-  },
-});
+// styles removed, now handled inline with theme context
