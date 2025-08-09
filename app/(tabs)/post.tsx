@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -9,18 +9,18 @@ import {
   TextInput,
   Image,
   ActivityIndicator,
-} from 'react-native';
-import { Formik } from 'formik';
-import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { theme } from '../../constants/theme';
-import { NavBar } from '../../components/NavBar';
-import { postSchema } from '../../utils/validation';
-import { getCurrentLocation, getAddressFromCoords } from '../../utils/geo';
-import { uploadPostImage } from '../../services/storage';
-import { createPost } from '../../services/firestore';
-import { getCurrentUser } from '../../services/auth';
+} from "react-native";
+import { Formik } from "formik";
+import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { theme } from "../../constants/theme";
+import { NavBar } from "../../components/NavBar";
+import { postSchema } from "../../utils/validation";
+import { getCurrentLocation, getAddressFromCoords } from "../../utils/geo";
+import { uploadPostImage } from "../../services/storage";
+import { createPost } from "../../services/firestore";
+import { getCurrentUser } from "../../services/auth";
 
 interface PostFormValues {
   comment: string;
@@ -29,16 +29,18 @@ interface PostFormValues {
 
 export default function PostScreen() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [address, setAddress] = useState<string>('');
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
+  const [address, setAddress] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant camera roll permissions to upload photos.');
+
+    if (status !== ImagePicker.PermissionStatus.GRANTED) {
+      Alert.alert('Permission needed', 'Please grant photo library permissions.');
       return;
     }
 
@@ -49,7 +51,7 @@ export default function PostScreen() {
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!result.canceled && result.assets?.[0]) {
       setSelectedImage(result.assets[0].uri);
       await getLocation();
     }
@@ -57,8 +59,8 @@ export default function PostScreen() {
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    
-    if (status !== 'granted') {
+
+    if (status !== ImagePicker.PermissionStatus.GRANTED) {
       Alert.alert('Permission needed', 'Please grant camera permissions to take photos.');
       return;
     }
@@ -69,12 +71,19 @@ export default function PostScreen() {
       quality: 0.8,
     });
 
-    if (!result.canceled && result.assets[0]) {
+    if (!result.canceled && result.assets?.[0]) {
       setSelectedImage(result.assets[0].uri);
       await getLocation();
     }
   };
 
+  // Throttle geocoding to avoid rate limit
+  let lastCoords: { lat: number | null; lng: number | null } = {
+    lat: null,
+    lng: null,
+  };
+  let lastAddress = "";
+  let lastGeocodeTime = 0;
   const getLocation = async () => {
     try {
       const currentLocation = await getCurrentLocation();
@@ -84,38 +93,54 @@ export default function PostScreen() {
           lng: currentLocation.coords.longitude,
         };
         setLocation(coords);
-        
-        const addressText = await getAddressFromCoords(coords.lat, coords.lng);
-        setAddress(addressText);
+        // Only geocode if location changed or 30 seconds passed
+        const now = Date.now();
+        if (
+          !lastCoords.lat ||
+          !lastCoords.lng ||
+          lastCoords.lat !== coords.lat ||
+          lastCoords.lng !== coords.lng ||
+          now - lastGeocodeTime > 30000
+        ) {
+          const addressText = await getAddressFromCoords(
+            coords.lat,
+            coords.lng
+          );
+          setAddress(addressText);
+          lastCoords = coords;
+          lastAddress = addressText;
+          lastGeocodeTime = now;
+        } else {
+          setAddress(lastAddress);
+        }
       }
     } catch (error) {
-      console.error('Error getting location:', error);
+      console.error("Error getting location:", error);
     }
   };
 
   const handlePost = async (values: PostFormValues) => {
     if (!selectedImage) {
-      Alert.alert('Error', 'Please select an image first.');
+      Alert.alert("Error", "Please select an image first.");
       return;
     }
 
     if (!location) {
-      Alert.alert('Error', 'Location is required. Please try again.');
+      Alert.alert("Error", "Location is required. Please try again.");
       return;
     }
 
     const currentUser = getCurrentUser();
     if (!currentUser) {
-      Alert.alert('Error', 'You must be signed in to post.');
+      Alert.alert("Error", "You must be signed in to post.");
       return;
     }
 
     setIsLoading(true);
     try {
-      // Upload image to Firebase Storage
+      console.log('Uploading image with URI:', selectedImage);
       const photoUrl = await uploadPostImage(selectedImage, Date.now().toString());
-      
-      // Create post in Firestore
+
       await createPost({
         uid: currentUser.uid,
         photoUrl,
@@ -132,12 +157,13 @@ export default function PostScreen() {
             setSelectedImage(null);
             setLocation(null);
             setAddress('');
-            router.push('/(tabs)/home');
+            router.replace('/(tabs)/home');
           },
         },
       ]);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      console.error('Upload failed:', error);
+      Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -146,7 +172,7 @@ export default function PostScreen() {
   return (
     <View style={styles.container}>
       <NavBar title="New Post" />
-      
+
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {!selectedImage ? (
           <View style={styles.uploadContainer}>
@@ -154,7 +180,7 @@ export default function PostScreen() {
               <Ionicons name="images" size={48} color={theme.colors.primary} />
               <Text style={styles.uploadText}>Choose from Library</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity style={styles.uploadButton} onPress={takePhoto}>
               <Ionicons name="camera" size={48} color={theme.colors.primary} />
               <Text style={styles.uploadText}>Take Photo</Text>
@@ -162,16 +188,23 @@ export default function PostScreen() {
           </View>
         ) : (
           <View style={styles.imageContainer}>
-            <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+            <Image
+              source={{ uri: selectedImage }}
+              style={styles.selectedImage}
+            />
             <TouchableOpacity
               style={styles.removeButton}
               onPress={() => {
                 setSelectedImage(null);
                 setLocation(null);
-                setAddress('');
+                setAddress("");
               }}
             >
-              <Ionicons name="close-circle" size={32} color={theme.colors.error} />
+              <Ionicons
+                name="close-circle"
+                size={32}
+                color={theme.colors.error}
+              />
             </TouchableOpacity>
           </View>
         )}
@@ -180,13 +213,20 @@ export default function PostScreen() {
           <View style={styles.formContainer}>
             <Formik
               initialValues={{
-                comment: '',
-                placeName: '',
+                comment: "",
+                placeName: "",
               }}
               validationSchema={postSchema}
               onSubmit={handlePost}
             >
-              {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
+              {({
+                handleChange,
+                handleBlur,
+                handleSubmit,
+                values,
+                errors,
+                touched,
+              }) => (
                 <View>
                   <View style={styles.inputContainer}>
                     <Text style={styles.label}>Comment</Text>
@@ -195,8 +235,8 @@ export default function PostScreen() {
                       placeholder="What's happening?"
                       placeholderTextColor={theme.colors.textSecondary}
                       value={values.comment}
-                      onChangeText={handleChange('comment')}
-                      onBlur={handleBlur('comment')}
+                      onChangeText={handleChange("comment")}
+                      onBlur={handleBlur("comment")}
                       multiline
                       numberOfLines={4}
                     />
@@ -212,8 +252,8 @@ export default function PostScreen() {
                       placeholder="Add a place name"
                       placeholderTextColor={theme.colors.textSecondary}
                       value={values.placeName}
-                      onChangeText={handleChange('placeName')}
-                      onBlur={handleBlur('placeName')}
+                      onChangeText={handleChange("placeName")}
+                      onBlur={handleBlur("placeName")}
                     />
                     {errors.placeName && touched.placeName && (
                       <Text style={styles.errorText}>{errors.placeName}</Text>
@@ -222,13 +262,20 @@ export default function PostScreen() {
 
                   {address && (
                     <View style={styles.locationContainer}>
-                      <Ionicons name="location" size={16} color={theme.colors.textSecondary} />
+                      <Ionicons
+                        name="location"
+                        size={16}
+                        color={theme.colors.textSecondary}
+                      />
                       <Text style={styles.locationText}>{address}</Text>
                     </View>
                   )}
 
                   <TouchableOpacity
-                    style={[styles.postButton, isLoading && styles.postButtonDisabled]}
+                    style={[
+                      styles.postButton,
+                      isLoading && styles.postButtonDisabled,
+                    ]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
                   >
@@ -258,36 +305,36 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
   },
   uploadContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    justifyContent: "space-around",
     marginVertical: theme.spacing.xl,
   },
   uploadButton: {
-    alignItems: 'center',
+    alignItems: "center",
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    width: '45%',
+    width: "45%",
     ...theme.shadows.medium,
   },
   uploadText: {
     color: theme.colors.text,
     fontSize: theme.typography.body.fontSize,
     marginTop: theme.spacing.sm,
-    textAlign: 'center',
+    textAlign: "center",
   },
   imageContainer: {
-    position: 'relative',
+    position: "relative",
     marginVertical: theme.spacing.md,
   },
   selectedImage: {
-    width: '100%',
+    width: "100%",
     height: 300,
     borderRadius: theme.borderRadius.lg,
-    resizeMode: 'cover',
+    resizeMode: "cover",
   },
   removeButton: {
-    position: 'absolute',
+    position: "absolute",
     top: theme.spacing.sm,
     right: theme.spacing.sm,
     backgroundColor: theme.colors.background,
@@ -305,7 +352,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: theme.typography.body.fontSize,
-    fontWeight: '600',
+    fontWeight: "600",
     color: theme.colors.text,
     marginBottom: theme.spacing.xs,
   },
@@ -325,8 +372,8 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xs,
   },
   locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: theme.colors.surfaceSecondary,
     borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
@@ -342,7 +389,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     borderRadius: theme.borderRadius.md,
     paddingVertical: theme.spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: theme.spacing.lg,
     ...theme.shadows.medium,
   },
@@ -352,6 +399,6 @@ const styles = StyleSheet.create({
   postButtonText: {
     color: theme.colors.text,
     fontSize: theme.typography.body.fontSize,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

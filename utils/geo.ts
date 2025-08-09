@@ -1,45 +1,25 @@
 import * as Location from 'expo-location';
 
-export const getCurrentLocation = async (): Promise<Location.LocationObject | null> => {
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      throw new Error('Location permission denied');
-    }
-
-    const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-    });
-    
-    return location;
-  } catch (error) {
-    console.error('Error getting location:', error);
-    return null;
+export const getCurrentLocation = async () => {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    throw new Error('Location permission denied');
   }
+  return Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
 };
 
 export const getAddressFromCoords = async (latitude: number, longitude: number): Promise<string> => {
   try {
-    const reverseGeocode = await Location.reverseGeocodeAsync({
-      latitude,
-      longitude,
-    });
-
-    if (reverseGeocode.length > 0) {
-      const address = reverseGeocode[0];
-      const parts = [
-        address.street,
-        address.city,
-        address.region,
-        address.country,
-      ].filter(Boolean);
-      
+    const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+    if (results.length > 0) {
+      const a = results[0];
+      const parts = [a.name || a.street, a.city, a.region, a.country].filter(Boolean);
       return parts.join(', ');
     }
-    
     return 'Unknown Location';
-  } catch (error) {
-    console.error('Error getting address:', error);
+  } catch (e) {
+    console.error('Error getting address:', e);
+    // Fall back gracefully when rate-limited
     return 'Unknown Location';
   }
 };
