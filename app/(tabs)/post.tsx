@@ -15,7 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "../../constants/theme";
-import { NavBar } from "../../components/NavBar";
+import  NavBar from "../../components/NavBar";
 import { postSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/geo";
 import { uploadPostImage } from "../../services/storage";
