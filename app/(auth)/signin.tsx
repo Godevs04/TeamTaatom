@@ -44,7 +44,7 @@ export default function SignInScreen() {
 
   return (
     <LinearGradient
-      colors={theme.colors.gradient.dark}
+      colors={theme.colors.gradient.dark as [string, string, ...string[]]}
       style={styles.container}
     >
       <KeyboardAvoidingView
