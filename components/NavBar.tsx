@@ -15,6 +15,8 @@ interface NavBarProps {
 export default function NavBar(props: NavBarProps) {
   const { theme } = useTheme();
   const { title, showBack = false, onBack, rightComponent } = props;
+  // Use elegant black font for title in light theme, else use primary color
+  const titleColor = theme.colors.background === '#F5F7FA' ? '#181A20' : theme.colors.primary;
   return (
     <SafeAreaView style={{
       backgroundColor: theme.colors.surface,
@@ -47,7 +49,7 @@ export default function NavBar(props: NavBarProps) {
           flex: 1,
           fontSize: 22,
           fontWeight: 'bold',
-          color: theme.colors.primary,
+          color: titleColor,
           textAlign: 'center',
           letterSpacing: 0.5,
         }}>{title}</Text>

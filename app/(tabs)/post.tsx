@@ -164,16 +164,28 @@ export default function PostScreen() {
       <NavBar title="New Post" />
       <ScrollView style={{ flex: 1, padding: theme.spacing.md }} showsVerticalScrollIndicator={false}>
         {!selectedImage ? (
-          <View style={{ flexDirection: "row", justifyContent: "space-around", marginVertical: theme.spacing.xl }}>
-            <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={pickImage}>
-              <Ionicons name="images" size={48} color={theme.colors.primary} />
-              <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginTop: theme.spacing.sm, textAlign: "center" }}>Choose from Library</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={takePhoto}>
-              <Ionicons name="camera" size={48} color={theme.colors.primary} />
-              <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginTop: theme.spacing.sm, textAlign: "center" }}>Take Photo</Text>
-            </TouchableOpacity>
-          </View>
+          <>
+            <View style={{ alignItems: 'center', marginTop: theme.spacing.xl, marginBottom: theme.spacing.xl }}>
+              <Ionicons name="image-outline" size={80} color={theme.colors.textSecondary} style={{ marginBottom: theme.spacing.md }} />
+              <Ionicons name="cloud-upload-outline" size={60} color={theme.colors.primary} style={{ marginBottom: theme.spacing.md }} />
+              <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.h2.fontSize, fontWeight: '700', marginBottom: theme.spacing.sm, textAlign: 'center' }}>
+                No Post Yet
+              </Text>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, textAlign: 'center', marginBottom: theme.spacing.lg }}>
+                Share your first moment by uploading a photo or taking one now!
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-around", marginVertical: theme.spacing.xl }}>
+              <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={pickImage}>
+                <Ionicons name="images" size={48} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginTop: theme.spacing.sm, textAlign: "center" }}>Choose from Library</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={takePhoto}>
+                <Ionicons name="camera" size={48} color={theme.colors.primary} />
+                <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginTop: theme.spacing.sm, textAlign: "center" }}>Take Photo</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         ) : (
           <View style={{ position: "relative", marginVertical: theme.spacing.md }}>
             <Image source={{ uri: selectedImage }} style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
