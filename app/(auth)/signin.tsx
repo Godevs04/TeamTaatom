@@ -30,9 +30,12 @@ export default function SignInScreen() {
   const handleSignIn = async (values: SignInFormValues) => {
     setIsLoading(true);
     try {
-      await signIn(values.email, values.password);
+      const user = await signIn(values.email, values.password);
+      console.log('Sign-in successful:', user);
       // Navigation will be handled by the auth state listener in _layout.tsx
+      router.push('/(tabs)/home');
     } catch (error: any) {
+      console.log('Sign-in error:', error);
       Alert.alert('Error', error.message);
     } finally {
       setIsLoading(false);

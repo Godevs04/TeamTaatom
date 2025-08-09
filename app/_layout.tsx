@@ -15,6 +15,7 @@ export default function RootLayout() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setIsAuthenticated(!!user);
+      console.log('Auth state changed:', !!user, user);
       // Hide the splash screen after auth state is determined
       SplashScreen.hideAsync();
     });
