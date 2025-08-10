@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Pressable, Alert, Image, TextInput } from 'react-native';
 // import { NavBar } from '../../components/NavBar';
 import NavBar from '../../components/NavBar';
 import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { getAuth } from 'firebase/auth';
+import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { signOutUser } from '../../services/auth';
@@ -20,6 +21,14 @@ interface PostItem {
 export default function ProfileScreen() {
   const user = getAuth().currentUser;
   const uid = user?.uid;
+  const [avatar, setAvatar] = useState<string | null>(null);
+  const [gender, setGender] = useState<'male' | 'female'>('male');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [editModal, setEditModal] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [saving, setSaving] = useState(false);
   const router = useRouter();
   const [menuVisible, setMenuVisible] = useState(false);
   const { theme, mode, toggleTheme } = useTheme();
@@ -30,12 +39,26 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (!uid) return;
+    // Fetch posts
     const q = query(collection(db, 'posts'), where('uid', '==', uid));
     const unsub = onSnapshot(q, (snap) => {
       const list: PostItem[] = [];
       snap.forEach((doc) => list.push({ postId: doc.id, ...(doc.data() as any) }));
       setPosts(list);
     });
+    // Fetch user data (avatar, gender, followers, following)
+    (async () => {
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        if (data.profilePic) setAvatar(data.profilePic);
+        if (data.gender === 'female' || data.gender === 'male') setGender(data.gender);
+        setFollowers(typeof data.followers === 'number' ? data.followers : 0);
+        setFollowing(typeof data.following === 'number' ? data.following : 0);
+        setFullName(data.fullName || '');
+        setEmail(data.email || '');
+      }
+    })();
     return unsub;
   }, [uid]);
 
@@ -68,6 +91,70 @@ export default function ProfileScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <NavBar title="Profile" rightComponent={menuButton} />
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={editModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.18)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: theme.colors.surface, borderRadius: 16, padding: 24, width: '85%' }}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: theme.colors.text, marginBottom: 18 }}>Edit Profile</Text>
+            <Text style={{ color: theme.colors.textSecondary, marginBottom: 6 }}>Full Name</Text>
+            <View style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: 8, marginBottom: 12 }}>
+              <TextInput
+                style={{ color: theme.colors.text, fontSize: 16, padding: 10 }}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Full Name"
+                placeholderTextColor={theme.colors.textSecondary}
+                autoCapitalize="words"
+              />
+            </View>
+            <Text style={{ color: theme.colors.textSecondary, marginBottom: 6 }}>Email</Text>
+            <View style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: 8, marginBottom: 18 }}>
+              <TextInput
+                style={{ color: theme.colors.text, fontSize: 16, padding: 10 }}
+                value={editEmail}
+                onChangeText={setEditEmail}
+                placeholder="Email"
+                placeholderTextColor={theme.colors.textSecondary}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+              <TouchableOpacity onPress={() => setEditModal(false)} style={{ padding: 10 }}>
+                <Text style={{ color: theme.colors.textSecondary, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  setSaving(true);
+                  try {
+                    if (!uid) return;
+                    const userRef = doc(db, 'users', uid);
+                    await updateDoc(userRef, { fullName: editName, email: editEmail });
+                    setFullName(editName);
+                    setEmail(editEmail);
+                    setEditModal(false);
+                  } catch (e) {
+                    Alert.alert('Error', 'Failed to update profile.');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                style={{ backgroundColor: theme.colors.primary, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 10 }}
+                disabled={saving}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>{saving ? 'Saving...' : 'Save'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Menu Modal */}
       <Modal
         visible={menuVisible}
         transparent
@@ -116,6 +203,18 @@ export default function ProfileScreen() {
         </Pressable>
       </Modal>
       <ScrollView style={{ flex: 1, backgroundColor: theme.colors.background }} contentContainerStyle={{ padding: theme.spacing.md, marginTop: 0 }}>
+        {/* Edit Profile Button */}
+        <TouchableOpacity
+          style={{ alignSelf: 'flex-end', marginBottom: 10, backgroundColor: theme.colors.primary, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 }}
+          onPress={() => {
+            setEditName(fullName);
+            setEditEmail(email);
+            setEditModal(true);
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>Edit Profile</Text>
+        </TouchableOpacity>
+        {/* Profile Card */}
         <View style={{
           backgroundColor: theme.colors.surface,
           borderRadius: theme.borderRadius.lg,
@@ -127,26 +226,35 @@ export default function ProfileScreen() {
           ...theme.shadows.medium,
         }}>
           <View style={{
-            width: 92,
-            height: 92,
-            borderRadius: 46,
+            width: 90,
+            height: 90,
+            borderRadius: 60,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: theme.colors.surfaceSecondary,
-            borderWidth: 1,
-            borderColor: theme.colors.secondary,
+            borderWidth: 2,
+            borderColor: theme.colors.primary,
+            overflow: 'hidden',
           }}>
-            <View style={{
-              width: 80,
-              height: 80,
-              borderRadius: 40,
-              backgroundColor: theme.colors.surface,
-              borderWidth: 2,
-              borderColor: theme.colors.primary,
-            }} />
+            <Image
+              source={
+                avatar === 'avatars/male_avatar.png'
+                  ? require('../../assets/avatars/male_avatar.png')
+                  : avatar === 'avatars/female_avatar.png'
+                  ? require('../../assets/avatars/female_avatar.png')
+                  : require('../../assets/avatars/male_avatar.png')
+              }
+              style={{ width: 102, height: 122, borderRadius: 56 }}
+              resizeMode="cover"
+            />
+              {gender && (
+                <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 15, fontWeight: '600', position: 'absolute', bottom: 8, left: 0, right: 0, textAlign: 'center' }}>
+                  {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                </Text>
+              )}
           </View>
-          <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '700', marginTop: theme.spacing.sm }}>{user?.email?.split('@')[0] || 'User'}</Text>
-          <Text style={{ color: theme.colors.textSecondary, marginTop: 2 }}>{user?.email}</Text>
+          <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '700', marginTop: theme.spacing.sm }}>{fullName || user?.email?.split('@')[0] || 'User'}</Text>
+          <Text style={{ color: theme.colors.textSecondary, marginTop: 2 }}>{email || user?.email}</Text>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: theme.spacing.lg }}>

@@ -124,13 +124,11 @@ export const followUser = async (currentUserId: string, targetUserId: string): P
   try {
     const currentUserRef = doc(db, 'users', currentUserId);
     const targetUserRef = doc(db, 'users', targetUserId);
-    
     await updateDoc(currentUserRef, {
-      following: arrayUnion(targetUserId)
+      following: (await getDoc(currentUserRef)).data()?.following + 1 || 1
     });
-    
     await updateDoc(targetUserRef, {
-      followers: arrayUnion(currentUserId)
+      followers: (await getDoc(targetUserRef)).data()?.followers + 1 || 1
     });
   } catch (error: any) {
     throw new Error(error.message);
@@ -141,13 +139,15 @@ export const unfollowUser = async (currentUserId: string, targetUserId: string):
   try {
     const currentUserRef = doc(db, 'users', currentUserId);
     const targetUserRef = doc(db, 'users', targetUserId);
-    
+    const currentUserSnap = await getDoc(currentUserRef);
+    const targetUserSnap = await getDoc(targetUserRef);
+    const currentFollowing = currentUserSnap.data()?.following || 0;
+    const targetFollowers = targetUserSnap.data()?.followers || 0;
     await updateDoc(currentUserRef, {
-      following: arrayRemove(targetUserId)
+      following: currentFollowing > 0 ? currentFollowing - 1 : 0
     });
-    
     await updateDoc(targetUserRef, {
-      followers: arrayRemove(currentUserId)
+      followers: targetFollowers > 0 ? targetFollowers - 1 : 0
     });
   } catch (error: any) {
     throw new Error(error.message);
