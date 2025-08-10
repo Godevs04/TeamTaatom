@@ -3,8 +3,9 @@ export interface UserType {
   fullName: string;
   email: string;
   profilePic: string;
-  followers: string[];
-  following: string[];
+  gender?: 'male' | 'female';
+  followers: number;
+  following: number;
   createdAt: string;
 }
 

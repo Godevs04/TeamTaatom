@@ -23,6 +23,7 @@ interface SignUpFormValues {
   email: string;
   password: string;
   confirmPassword: string;
+  gender: 'male' | 'female';
 }
 
 export default function SignUpScreen() {
@@ -32,8 +33,19 @@ export default function SignUpScreen() {
   const handleSignUp = async (values: SignUpFormValues) => {
     setIsLoading(true);
     try {
-      await signUp(values.email, values.password, values.fullName);
-      // Move into the authenticated tabs and prevent going back to auth
+      // Assign avatar path based on gender
+      const avatarPath = values.gender === 'male'
+        ? 'avatars/male_avatar.png'
+        : 'avatars/female_avatar.png';
+      // Create user
+      const user = await signUp(values.email, values.password, values.fullName);
+      // Save avatar path to Firestore
+      if (user?.uid) {
+        const { doc, updateDoc } = await import('firebase/firestore');
+        const { db } = await import('../../services/firebase');
+        const userDocRef = doc(db, 'users', user.uid);
+        await updateDoc(userDocRef, { profilePic: avatarPath });
+      }
       router.replace('/(tabs)/home');
     } catch (error: any) {
       Alert.alert('Error', error.message);
@@ -44,7 +56,7 @@ export default function SignUpScreen() {
 
   return (
     <LinearGradient
-      colors={theme.colors.gradient.dark}
+      colors={[theme.colors.gradient.dark[0], theme.colors.gradient.dark[1]]}
       style={styles.container}
     >
       <KeyboardAvoidingView
@@ -68,11 +80,12 @@ export default function SignUpScreen() {
                 email: '',
                 password: '',
                 confirmPassword: '',
+                gender: 'male',
               }}
               validationSchema={signUpSchema}
               onSubmit={handleSignUp}
             >
-              {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
+              {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => (
                 <View>
                   <AuthInput
                     label="Full Name"
@@ -108,6 +121,7 @@ export default function SignUpScreen() {
                     secureTextEntry
                   />
 
+
                   <AuthInput
                     label="Confirm Password"
                     placeholder="Confirm your password"
@@ -118,6 +132,34 @@ export default function SignUpScreen() {
                     touched={touched.confirmPassword}
                     secureTextEntry
                   />
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
+                    <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, fontWeight: '600', marginRight: theme.spacing.md }}>Gender:</Text>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.lg }}
+                      onPress={() => setFieldValue('gender', 'male')}
+                    >
+                      <Ionicons
+                        name={values.gender === 'male' ? 'radio-button-on' : 'radio-button-off'}
+                        size={22}
+                        color={theme.colors.primary}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={{ color: theme.colors.text }}>Male</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center' }}
+                      onPress={() => setFieldValue('gender', 'female')}
+                    >
+                      <Ionicons
+                        name={values.gender === 'female' ? 'radio-button-on' : 'radio-button-off'}
+                        size={22}
+                        color={theme.colors.primary}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={{ color: theme.colors.text }}>Female</Text>
+                    </TouchableOpacity>
+                  </View>
 
                   <TouchableOpacity
                     style={[styles.signUpButton, isLoading && styles.signUpButtonDisabled]}

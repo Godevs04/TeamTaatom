@@ -26,19 +26,21 @@ const auth = (() => {
   }
 })();
 
-export const signUp = async (email: string, password: string, fullName: string): Promise<User> => {
+export const signUp = async (email: string, password: string, fullName: string, gender?: 'male' | 'female'): Promise<User> => {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
 
-  const userData: UserType = {
+  // Only include gender if defined
+  const userData: any = {
     uid: user.uid,
     fullName,
     email,
     profilePic: '',
-    followers: [],
-    following: [],
+    followers: 0,
+    following: 0,
     createdAt: new Date().toISOString()
   };
+  if (gender) userData.gender = gender;
 
   await setDoc(doc(db, 'users', user.uid), userData);
 
