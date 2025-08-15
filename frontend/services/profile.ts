@@ -61,12 +61,19 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     }
     
     if (data.profilePic) {
+      // For React Native, we need to structure the file object properly
       formData.append('profilePic', {
         uri: data.profilePic.uri,
-        type: data.profilePic.type,
-        name: data.profilePic.name,
+        type: data.profilePic.type || 'image/jpeg',
+        name: data.profilePic.name || `profile_${Date.now()}.jpg`,
       } as any);
     }
+
+    console.log('Updating profile with data:', {
+      userId,
+      hasFullName: !!data.fullName,
+      hasProfilePic: !!data.profilePic,
+    });
 
     const response = await api.put(`/profile/${userId}`, formData, {
       headers: {
@@ -74,8 +81,10 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       },
     });
 
+    console.log('Profile update response:', response.data);
     return response.data;
   } catch (error: any) {
+    console.error('Profile update error:', error.response?.data || error.message);
     throw new Error(error.response?.data?.message || 'Failed to update profile');
   }
 };

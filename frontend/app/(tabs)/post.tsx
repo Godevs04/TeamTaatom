@@ -180,6 +180,37 @@ export default function PostScreen() {
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <NavBar title="New Post" />
       <ScrollView style={{ flex: 1, padding: theme.spacing.md }} showsVerticalScrollIndicator={false}>
+        {/* User Profile Section */}
+        {user && (
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            backgroundColor: theme.colors.surface, 
+            borderRadius: theme.borderRadius.lg, 
+            padding: theme.spacing.md, 
+            marginBottom: theme.spacing.md,
+            ...theme.shadows.small
+          }}>
+            <Image
+              source={user.profilePic ? { uri: user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+              style={{ 
+                width: 40, 
+                height: 40, 
+                borderRadius: 20, 
+                marginRight: theme.spacing.sm,
+                borderWidth: 2,
+                borderColor: theme.colors.border
+              }}
+            />
+            <Text style={{ 
+              fontSize: theme.typography.body.fontSize, 
+              fontWeight: '600', 
+              color: theme.colors.text 
+            }}>
+              {user.fullName}
+            </Text>
+          </View>
+        )}
         {!selectedImage ? (
           <>
             <View style={{ alignItems: 'center', marginTop: theme.spacing.xl, marginBottom: theme.spacing.xl }}>

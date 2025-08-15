@@ -28,11 +28,12 @@
         "backgroundColor": "#000000"
       },
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -54,6 +55,15 @@
         }
       ]
     ],
-    "scheme": "taatom"
+    "scheme": "taatom",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "10a6919b-ba8b-4dfb-b379-d36909e67701"
+      },
+      "googleWebClientId": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
+      "redirectUri": "https://auth.expo.io/@teamgodevs/taatom"
+    },
+    "owner": "teamgodevs"
   }
 }

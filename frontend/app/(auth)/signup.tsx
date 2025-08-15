@@ -17,6 +17,7 @@ import { theme } from '../../constants/theme';
 import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
 import { signUp } from '../../services/auth';
+import { signInWithGoogle } from '../../services/googleAuth';
 
 interface SignUpFormValues {
   fullName: string;
@@ -27,6 +28,7 @@ interface SignUpFormValues {
 
 export default function SignUpScreen() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
 
   const handleSignUp = async (values: SignUpFormValues) => {
@@ -55,6 +57,20 @@ export default function SignUpScreen() {
       Alert.alert('Error', error.message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    try {
+      const response = await signInWithGoogle();
+      console.log('Google sign-in successful:', response.user);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      console.log('Google sign-in error:', error);
+      Alert.alert('Google Sign-In Failed', error.message);
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -147,6 +163,25 @@ export default function SignUpScreen() {
                       {isLoading ? 'Creating Account...' : 'Create Account'}
                     </Text>
                   </TouchableOpacity>
+
+                  {/* Divider */}
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>OR</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  {/* Google Sign In Button */}
+                  <TouchableOpacity
+                    style={[styles.googleButton, isGoogleLoading && styles.signUpButtonDisabled]}
+                    onPress={handleGoogleSignIn}
+                    disabled={isGoogleLoading}
+                  >
+                    <Ionicons name="logo-google" size={20} color="#4285F4" style={styles.googleIcon} />
+                    <Text style={styles.googleButtonText}>
+                      {isGoogleLoading ? 'Signing In...' : 'Continue with Google'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </Formik>
@@ -224,6 +259,40 @@ const styles = StyleSheet.create({
   },
   linkText: {
     color: theme.colors.primary,
+    fontSize: theme.typography.body.fontSize,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: theme.spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.border,
+  },
+  dividerText: {
+    color: theme.colors.textSecondary,
+    fontSize: theme.typography.small.fontSize,
+    marginHorizontal: theme.spacing.md,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadows.small,
+  },
+  googleIcon: {
+    marginRight: theme.spacing.sm,
+  },
+  googleButtonText: {
+    color: theme.colors.text,
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
   },
