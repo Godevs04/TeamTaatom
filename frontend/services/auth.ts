@@ -104,9 +104,37 @@ export const getUserFromStorage = async (): Promise<UserType | null> => {
 export const isAuthenticated = async (): Promise<boolean> => {
   try {
     const token = await AsyncStorage.getItem('authToken');
-    return !!token;
+    if (!token) return false;
+    
+    // Validate token with server
+    const user = await getCurrentUser();
+    return !!user;
   } catch (error) {
+    // If token is invalid, clear storage
+    await signOut();
     return false;
+  }
+};
+
+// Initialize auth state on app launch
+export const initializeAuth = async (): Promise<UserType | null> => {
+  try {
+    const token = await AsyncStorage.getItem('authToken');
+    if (!token) return null;
+    
+    // Validate token and get current user
+    const user = await getCurrentUser();
+    if (!user) {
+      // Token is invalid, clear storage
+      await signOut();
+      return null;
+    }
+    
+    return user;
+  } catch (error) {
+    console.error('Auth initialization error:', error);
+    await signOut();
+    return null;
   }
 };
 
