@@ -5,13 +5,12 @@ import api from './api';
 import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const GOOGLE_CLIENT_ID = Constants.expoConfig?.extra?.googleWebClientId || 
-                        process.env.GOOGLE_WEB_CLIENT_ID || 
-                        '236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = Constants.expoConfig?.extra?.GOOGLE_CLIENT_SECRET;
+const PROD_REDIRECT_URI = Constants.expoConfig?.extra?.GOOGLE_REDIRECT_URI;
 
-const REDIRECT_URI = Constants.expoConfig?.extra?.redirectUri || 
-                    process.env.EXPO_REDIRECT_URI || 
-                    'https://auth.expo.io/@teamgodevs/taatom';
+// Use proxy for local testing
+const REDIRECT_URI = AuthSession.makeRedirectUri({ useProxy: true }) || PROD_REDIRECT_URI;
 
 interface GoogleAuthResponse {
   message: string;
@@ -43,32 +42,27 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
 
     // Make the authentication request
     const authResponse = await authRequest.promptAsync({
-      authorizationEndpoint: 'https://accounts.google.com/oauth/v2/auth',
+      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     });
 
     if (authResponse.type === 'success') {
       const { code, state: returnedState } = authResponse.params;
-      
       // Verify state parameter
       if (returnedState !== state) {
         throw new Error('State parameter mismatch');
       }
-
       // Exchange authorization code for tokens on our backend
       const response = await api.post('/auth/google', {
         code,
         redirectUri: REDIRECT_URI,
       });
-
       const { token, user } = response.data;
-
       // Store the JWT token
       await AsyncStorage.setItem('authToken', token);
       await AsyncStorage.setItem('userData', JSON.stringify(user));
-
       return response.data;
     } else if (authResponse.type === 'cancel') {
-      throw new Error('Google sign-in was cancelled');
+      throw new Error('Google sign-in was cancelled by user');
     } else {
       throw new Error('Google sign-in failed');
     }
