@@ -11,11 +11,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, addComment } from '../services/posts';
+import { toggleLike, addComment, deletePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
 import CommentBox from './CommentBox';
 import RotatingGlobe from './RotatingGlobe';
 import WorldMap from './WorldMap';
+import { useRouter } from 'expo-router';
 
 interface PhotoCardProps {
   post: PostType;
@@ -29,6 +30,7 @@ export default function PhotoCard({
   onPress,
 }: PhotoCardProps) {
   const { theme } = useTheme();
+  const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
   const [showComments, setShowComments] = useState(false);
@@ -78,7 +80,7 @@ export default function PhotoCard({
           style: 'destructive',
           onPress: async () => {
             try {
-              // TODO: Implement delete post API call
+              await deletePost(post._id);
               Alert.alert('Success', 'Post deleted successfully');
               if (onRefresh) onRefresh();
             } catch (error: any) {
@@ -195,12 +197,16 @@ export default function PhotoCard({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Image
-          source={post.user?.profilePic ? { uri: post.user.profilePic } : require('../assets/avatars/male_avatar.png')}
-          style={styles.avatar}
-        />
+        <TouchableOpacity onPress={() => router.push(`/profile/${post.user._id}`)}>
+          <Image
+            source={post.user?.profilePic ? { uri: post.user.profilePic } : require('../assets/avatars/male_avatar.png')}
+            style={styles.avatar}
+          />
+        </TouchableOpacity>
         <View style={styles.headerText}>
-          <Text style={styles.username}>{post.user?.fullName || 'Unknown User'}</Text>
+          <TouchableOpacity onPress={() => router.push(`/profile/${post.user._id}`)}>
+            <Text style={styles.username}>{post.user?.fullName || 'Unknown User'}</Text>
+          </TouchableOpacity>
           {post.location?.address && (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
               <TouchableOpacity 

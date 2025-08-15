@@ -57,12 +57,10 @@
     ],
     "scheme": "taatom",
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "10a6919b-ba8b-4dfb-b379-d36909e67701"
-      },
-      "googleWebClientId": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
-      "redirectUri": "https://auth.expo.io/@teamgodevs/taatom"
+      "GOOGLE_CLIENT_ID": "236289534770-a6be8j239t504vq9o8mt8qgeh2nsu9h0.apps.googleusercontent.com",
+      "GOOGLE_CLIENT_SECRET": "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",
+      "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@teamgodevs/taatom",
+      "GOOGLE_MAPS_API_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
     },
     "owner": "teamgodevs"
   }
