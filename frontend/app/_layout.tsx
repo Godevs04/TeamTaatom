@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { isAuthenticated as checkAuthStatus, getCurrentUser } from '../services/auth';
+import { initializeAuth } from '../services/auth';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 
 // Keep the splash screen visible while we fetch resources
@@ -12,16 +12,10 @@ function RootLayoutInner() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const initializeAuth = async () => {
+    const initialize = async () => {
       try {
-        const authenticated = await checkAuthStatus();
-        if (authenticated) {
-          // Verify the user data is still valid
-          const user = await getCurrentUser();
-          setIsAuthenticated(!!user);
-        } else {
-          setIsAuthenticated(false);
-        }
+        const user = await initializeAuth();
+        setIsAuthenticated(!!user);
       } catch (error) {
         console.error('Auth initialization error:', error);
         setIsAuthenticated(false);
@@ -31,7 +25,7 @@ function RootLayoutInner() {
       }
     };
 
-    initializeAuth();
+    initialize();
   }, []);
 
   const { theme } = useTheme();

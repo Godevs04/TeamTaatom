@@ -19,6 +19,8 @@ import { getProfile } from '../../services/profile';
 import { getUserPosts } from '../../services/posts';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
+import EditProfile from '../../components/EditProfile';
+import RotatingGlobe from '../../components/RotatingGlobe';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -40,6 +42,7 @@ export default function ProfileScreen() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
 
@@ -102,6 +105,11 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleProfileUpdate = (updatedUser: UserType) => {
+    setUser(updatedUser);
+    setProfileData(prev => prev ? { ...prev, ...updatedUser } : null);
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -160,9 +168,7 @@ export default function ProfileScreen() {
         <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}>
           <View style={styles.profileInfo}>
             <Image
-              source={{
-                uri: profileData.profilePic || 'https://via.placeholder.com/80'
-              }}
+              source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
               style={styles.avatar}
             />
             <Text style={[styles.name, { color: theme.colors.text }]}>
@@ -208,20 +214,45 @@ export default function ProfileScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Edit Profile Button */}
+          <TouchableOpacity
+            style={{
+              backgroundColor: theme.colors.primary,
+              borderRadius: theme.borderRadius.md,
+              paddingVertical: theme.spacing.sm,
+              paddingHorizontal: theme.spacing.lg,
+              marginTop: theme.spacing.md,
+              alignItems: 'center',
+              ...theme.shadows.small,
+            }}
+            onPress={() => setShowEditProfile(true)}
+          >
+            <Text style={{
+              color: theme.colors.text,
+              fontSize: theme.typography.body.fontSize,
+              fontWeight: '600',
+            }}>
+              Edit Profile
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Location Map Placeholder */}
         {profileData.locations.length > 0 && (
-          <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+          <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}> 
               Posted Locations
             </Text>
-            <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
-              <Ionicons name="map" size={48} color={theme.colors.primary} />
-              <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}>
-                {profileData.locations.length} locations visited
-              </Text>
+            <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
+              <RotatingGlobe locations={profileData.locations} size={40} />
             </View>
+            <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
+              <Ionicons name="map" size={48} color={theme.colors.primary} /> 
+              <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
+                {profileData.locations.length} locations visited 
+              </Text> 
+            </View> 
           </View>
         )}
 
@@ -282,6 +313,16 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Edit Profile Modal */}
+      {user && (
+        <EditProfile
+          visible={showEditProfile}
+          user={user}
+          onClose={() => setShowEditProfile(false)}
+          onSuccess={handleProfileUpdate}
+        />
+      )}
     </View>
   );
 }
