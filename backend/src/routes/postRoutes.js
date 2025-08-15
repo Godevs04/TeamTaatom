@@ -1,0 +1,65 @@
+const express = require('express');
+const { body } = require('express-validator');
+const multer = require('multer');
+const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
+const {
+  getPosts,
+  createPost,
+  getUserPosts,
+  toggleLike,
+  addComment,
+  deleteComment,
+  deletePost
+} = require('../controllers/postController');
+
+const router = express.Router();
+
+// Multer configuration for image uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
+
+// Validation rules
+const createPostValidation = [
+  body('caption')
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage('Caption must be between 1 and 1000 characters'),
+  body('latitude')
+    .optional()
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('Latitude must be between -90 and 90'),
+  body('longitude')
+    .optional()
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('Longitude must be between -180 and 180')
+];
+
+const addCommentValidation = [
+  body('text')
+    .trim()
+    .isLength({ min: 1, max: 500 })
+    .withMessage('Comment must be between 1 and 500 characters')
+];
+
+// Routes
+router.get('/', optionalAuth, getPosts);
+router.post('/', authMiddleware, upload.single('image'), createPostValidation, createPost);
+router.get('/user/:userId', optionalAuth, getUserPosts);
+router.post('/:id/like', authMiddleware, toggleLike);
+router.post('/:id/comments', authMiddleware, addCommentValidation, addComment);
+router.delete('/:id/comments/:commentId', authMiddleware, deleteComment);
+router.delete('/:id', authMiddleware, deletePost);
+
+module.exports = router;
