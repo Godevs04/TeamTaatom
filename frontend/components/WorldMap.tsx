@@ -27,6 +27,10 @@ interface WorldMapProps {
 
 const { width, height } = Dimensions.get('window');
 
+function getPolylineCoordinates(locations: Location[]) {
+  return locations.map(loc => ({ latitude: loc.latitude, longitude: loc.longitude }));
+}
+
 export default function WorldMap({ visible, locations, onClose }: WorldMapProps) {
   const { theme, mode } = useTheme();
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -237,7 +241,7 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>
               {locations.length > 1 ? 
-                Math.round(getPolylineCoordinates().reduce((acc, curr, index, arr) => {
+                Math.round(getPolylineCoordinates(locations).reduce((acc, curr, index, arr) => {
                   if (index === 0) return 0;
                   const prev = arr[index - 1];
                   // Simple distance calculation (not exact but gives an idea)

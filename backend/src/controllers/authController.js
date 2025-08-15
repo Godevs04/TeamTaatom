@@ -5,7 +5,11 @@ const User = require('../models/User');
 const { sendOTPEmail, sendWelcomeEmail } = require('../utils/sendOtp');
 
 // Google OAuth client
-const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
+const googleClient = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -295,13 +299,13 @@ const googleSignIn = async (req, res) => {
     // Exchange authorization code for tokens
     const { tokens } = await googleClient.getToken({
       code,
-      redirect_uri: redirectUri,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
     });
 
     // Verify the ID token
     const ticket = await googleClient.verifyIdToken({
       idToken: tokens.id_token,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
