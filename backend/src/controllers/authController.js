@@ -1,7 +1,11 @@
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const { sendOTPEmail, sendWelcomeEmail } = require('../utils/sendOtp');
+
+// Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -274,10 +278,96 @@ const getMe = async (req, res) => {
   }
 };
 
+// @desc    Google OAuth sign-in
+// @route   POST /auth/google
+// @access  Public
+const googleSignIn = async (req, res) => {
+  try {
+    const { code, redirectUri } = req.body;
+
+    if (!code || !redirectUri) {
+      return res.status(400).json({
+        error: 'Missing parameters',
+        message: 'Authorization code and redirect URI are required'
+      });
+    }
+
+    // Exchange authorization code for tokens
+    const { tokens } = await googleClient.getToken({
+      code,
+      redirect_uri: redirectUri,
+    });
+
+    // Verify the ID token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload) {
+      return res.status(400).json({
+        error: 'Invalid token',
+        message: 'Failed to verify Google ID token'
+      });
+    }
+
+    const { sub: googleId, email, name, picture } = payload;
+
+    // Check if user already exists
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // User exists, update Google ID if not set
+      if (!user.googleId) {
+        user.googleId = googleId;
+        await user.save();
+      }
+    } else {
+      // Create new user
+      user = new User({
+        fullName: name || 'Google User',
+        email,
+        googleId,
+        profilePic: picture || '',
+        isVerified: true, // Google accounts are pre-verified
+        password: 'google_oauth_placeholder', // Placeholder password for Google users
+      });
+      await user.save();
+
+      // Send welcome email (don't await to avoid delays)
+      sendWelcomeEmail(email, user.fullName).catch(err => 
+        console.error('Welcome email failed:', err)
+      );
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate JWT token
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      message: 'Google sign-in successful',
+      token,
+      user: user.getPublicProfile()
+    });
+
+  } catch (error) {
+    console.error('Google sign-in error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error processing Google sign-in'
+    });
+  }
+};
+
 module.exports = {
   signup,
   verifyOTP,
   resendOTP,
   signin,
-  getMe
+  getMe,
+  googleSignIn
 };
