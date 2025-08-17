@@ -10,6 +10,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const postRoutes = require('./routes/postRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const chatRoutes = require('./routes/chat.routes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -42,6 +43,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/auth', authRoutes);
 app.use('/posts', postRoutes);
 app.use('/profile', profileRoutes);
+app.use('/chat', chatRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -21,7 +21,7 @@ import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
 import RotatingGlobe from '../../components/RotatingGlobe';
-import ThreeDotMenu from '../../components/ThreeDotMenu';
+import KebabMenu from '../../components/common/KebabMenu';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -148,7 +148,7 @@ export default function ProfileScreen() {
       <NavBar
         title="Profile"
         rightComponent={
-          <ThreeDotMenu
+          <KebabMenu
             items={[
               {
                 label: 'Edit Profile',
@@ -196,32 +196,44 @@ export default function ProfileScreen() {
               {profileData.email}
             </Text>
           </View>
-          {/* Removed Edit Profile Button here */}
-        </View>
-
-        {/* Location Map Placeholder */}
-        {profileData.locations.length > 0 && (
-          <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}> 
-              Posted Locations
-            </Text>
-            <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
-              <RotatingGlobe locations={profileData.locations} size={40} />
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
-            <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
-              <Ionicons name="map" size={48} color={theme.colors.primary} /> 
-              <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
-                {profileData.locations.length} locations visited 
-              </Text> 
-            </View> 
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.totalLikes || 0}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
+            </View>
           </View>
-        )}
+          {profileData?.locations && profileData.locations.length > 0 && (
+            <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
+              <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
+                <RotatingGlobe locations={profileData.locations} size={40} />
+              </View>
+              <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
+                <Ionicons name="map" size={48} color={theme.colors.primary} /> 
+                <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
+                  {profileData.locations.length} locations visited 
+                </Text> 
+              </View> 
+            </View>
+          )}
+        </View>
+        {/* End Profile Header */}
 
         {/* Recent Posts */}
-        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Recent Posts
-          </Text>
+        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
           {posts.length > 0 ? (
             <View style={styles.postsGrid}>
               {posts.slice(0, 6).map((post) => (
@@ -242,165 +254,159 @@ export default function ProfileScreen() {
           ) : (
             <View style={styles.noPostsContainer}>
               <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
-              <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>
-                No posts yet
-              </Text>
+              <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No posts yet</Text>
             </View>
           )}
         </View>
-
-        {/* Settings */}
-        {/* Removed Settings section here */}
+        {/* Edit Profile Modal */}
+        {user && (
+          <EditProfile
+            visible={showEditProfile}
+            user={user}
+            onClose={() => setShowEditProfile(false)}
+            onSuccess={handleProfileUpdate}
+          />
+        )}
       </ScrollView>
-
-      {/* Edit Profile Modal */}
-      {user && (
-        <EditProfile
-          visible={showEditProfile}
-          user={user}
-          onClose={() => setShowEditProfile(false)}
-          onSuccess={handleProfileUpdate}
-        />
-      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  headerContainer: {
-    padding: 20,
-    margin: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  profileInfo: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginBottom: 12,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-  },
-  mapContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  mapPlaceholder: {
-    height: 150,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mapText: {
-    marginTop: 8,
-    fontSize: 14,
-  },
-  postsContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  postsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  postThumbnail: {
-    width: '30%',
-    aspectRatio: 1,
-    marginBottom: 8,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  thumbnailImage: {
-    width: '100%',
-    height: '100%',
-  },
-  noPostsContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noPostsText: {
-    marginTop: 8,
-    fontSize: 14,
-  },
-  settingsContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 32,
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  settingText: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
-  },
-});
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    errorContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    errorText: {
+      fontSize: 16,
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    retryButton: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    retryButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    headerContainer: {
+      padding: 20,
+      margin: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    profileInfo: {
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    avatar: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      marginBottom: 12,
+    },
+    name: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      marginBottom: 4,
+    },
+    email: {
+      fontSize: 14,
+    },
+    statsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      width: '100%',
+    },
+    statItem: {
+      alignItems: 'center',
+    },
+    statNumber: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 4,
+    },
+    statLabel: {
+      fontSize: 12,
+    },
+    mapContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 16,
+    },
+    mapPlaceholder: {
+      height: 150,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    mapText: {
+      marginTop: 8,
+      fontSize: 14,
+    },
+    postsContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+    },
+    postsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+    },
+    postThumbnail: {
+      width: '30%',
+      aspectRatio: 1,
+      marginBottom: 8,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
+    thumbnailImage: {
+      width: '100%',
+      height: '100%',
+    },
+    noPostsContainer: {
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    noPostsText: {
+      marginTop: 8,
+      fontSize: 14,
+    },
+    settingsContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+      marginBottom: 32,
+    },
+    settingItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    settingText: {
+      flex: 1,
+      marginLeft: 12,
+      fontSize: 16,
+    },
+  });
