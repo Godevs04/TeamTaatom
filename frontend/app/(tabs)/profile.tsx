@@ -21,6 +21,7 @@ import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
 import RotatingGlobe from '../../components/RotatingGlobe';
+import ThreeDotMenu from '../../components/ThreeDotMenu';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -143,13 +144,30 @@ export default function ProfileScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <NavBar
         title="Profile"
         rightComponent={
-          <TouchableOpacity onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
+          <ThreeDotMenu
+            items={[
+              {
+                label: 'Edit Profile',
+                icon: 'person-circle-outline',
+                onPress: () => setShowEditProfile(true),
+              },
+              {
+                label: 'Toggle Theme',
+                icon: 'moon-outline',
+                onPress: toggleTheme,
+              },
+              {
+                label: 'Sign Out',
+                icon: 'log-out-outline',
+                onPress: handleSignOut,
+                destructive: true,
+              },
+            ]}
+          />
         }
       />
       
@@ -165,77 +183,20 @@ export default function ProfileScreen() {
         }
       >
         {/* Profile Header */}
-        <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}>
+        <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}> 
           <View style={styles.profileInfo}>
             <Image
               source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
               style={styles.avatar}
             />
-            <Text style={[styles.name, { color: theme.colors.text }]}>
+            <Text style={[styles.name, { color: theme.colors.text }]}> 
               {profileData.fullName}
             </Text>
-            <Text style={[styles.email, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.email, { color: theme.colors.textSecondary }]}> 
               {profileData.email}
             </Text>
           </View>
-
-          {/* Stats */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.postsCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Posts
-              </Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.followersCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Followers
-              </Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.followingCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Following
-              </Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.totalLikes}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Likes
-              </Text>
-            </View>
-          </View>
-
-          {/* Edit Profile Button */}
-          <TouchableOpacity
-            style={{
-              backgroundColor: theme.colors.primary,
-              borderRadius: theme.borderRadius.md,
-              paddingVertical: theme.spacing.sm,
-              paddingHorizontal: theme.spacing.lg,
-              marginTop: theme.spacing.md,
-              alignItems: 'center',
-              ...theme.shadows.small,
-            }}
-            onPress={() => setShowEditProfile(true)}
-          >
-            <Text style={{
-              color: theme.colors.text,
-              fontSize: theme.typography.body.fontSize,
-              fontWeight: '600',
-            }}>
-              Edit Profile
-            </Text>
-          </TouchableOpacity>
+          {/* Removed Edit Profile Button here */}
         </View>
 
         {/* Location Map Placeholder */}
@@ -289,29 +250,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Settings */}
-        <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Settings
-          </Text>
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={toggleTheme}
-          >
-            <Ionicons 
-              name="moon-outline" 
-              size={24} 
-              color={theme.colors.text} 
-            />
-            <Text style={[styles.settingText, { color: theme.colors.text }]}>
-              Toggle Theme
-            </Text>
-            <Ionicons 
-              name="chevron-forward" 
-              size={20} 
-              color={theme.colors.textSecondary} 
-            />
-          </TouchableOpacity>
-        </View>
+        {/* Removed Settings section here */}
       </ScrollView>
 
       {/* Edit Profile Modal */}
