@@ -10,11 +10,15 @@ async function canChat(userId, otherId) {
 }
 
 exports.listChats = async (req, res) => {
+  console.log('Request headers:', req.headers);
+  console.log('req.user in /chat:', req.user);
   const userId = req.user._id;
+  console.log('Fetching chats for user:', userId, 'at', new Date().toISOString());
   const chats = await Chat.find({ participants: userId })
     .populate('participants', 'fullName profilePic')
     .sort('-updatedAt')
     .lean();
+  console.log('Chats found:', chats.length);
   res.json({ chats });
 };
 

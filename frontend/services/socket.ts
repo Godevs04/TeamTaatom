@@ -11,7 +11,7 @@ const listeners: Record<string, Set<(...args: any[]) => void>> = {};
 const getToken = async () => {
   return await AsyncStorage.getItem('authToken');
 };
-
+  
 const connectSocket = async () => {
   if (socket && socket.connected) return socket;
   const token = await getToken();
@@ -30,13 +30,13 @@ const connectSocket = async () => {
   });
 
   socket.on('connect', () => {
-    // console.log('Socket connected');
+    console.log('Socket connected');
   });
   socket.on('disconnect', () => {
-    // console.log('Socket disconnected');
+    console.log('Socket disconnected');
   });
   socket.on('connect_error', (err) => {
-    // console.error('Socket connect error:', err);
+    console.error('Socket connect error:', err);
   });
 
   // Forward all events to listeners
