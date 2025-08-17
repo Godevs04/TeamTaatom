@@ -21,6 +21,7 @@ import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
 import RotatingGlobe from '../../components/RotatingGlobe';
+import KebabMenu from '../../components/common/KebabMenu';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -147,9 +148,26 @@ export default function ProfileScreen() {
       <NavBar
         title="Profile"
         rightComponent={
-          <TouchableOpacity onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
+          <KebabMenu
+            items={[
+              {
+                label: 'Edit Profile',
+                icon: 'person-circle-outline',
+                onPress: () => setShowEditProfile(true),
+              },
+              {
+                label: 'Toggle Theme',
+                icon: 'moon-outline',
+                onPress: toggleTheme,
+              },
+              {
+                label: 'Sign Out',
+                icon: 'log-out-outline',
+                onPress: handleSignOut,
+                destructive: true,
+              },
+            ]}
+          />
         }
       />
       
@@ -165,102 +183,57 @@ export default function ProfileScreen() {
         }
       >
         {/* Profile Header */}
-        <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}>
+        <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}> 
           <View style={styles.profileInfo}>
             <Image
               source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
               style={styles.avatar}
             />
-            <Text style={[styles.name, { color: theme.colors.text }]}>
+            <Text style={[styles.name, { color: theme.colors.text }]}> 
               {profileData.fullName}
             </Text>
-            <Text style={[styles.email, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.email, { color: theme.colors.textSecondary }]}> 
               {profileData.email}
             </Text>
           </View>
-
-          {/* Stats */}
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.postsCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Posts
-              </Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.postsCount}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.followersCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Followers
-              </Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.followersCount}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.followingCount}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Following
-              </Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.followingCount}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>
-                {profileData.totalLikes}
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                Likes
-              </Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.totalLikes}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
             </View>
           </View>
-
-          {/* Edit Profile Button */}
-          <TouchableOpacity
-            style={{
-              backgroundColor: theme.colors.primary,
-              borderRadius: theme.borderRadius.md,
-              paddingVertical: theme.spacing.sm,
-              paddingHorizontal: theme.spacing.lg,
-              marginTop: theme.spacing.md,
-              alignItems: 'center',
-              ...theme.shadows.small,
-            }}
-            onPress={() => setShowEditProfile(true)}
-          >
-            <Text style={{
-              color: theme.colors.text,
-              fontSize: theme.typography.body.fontSize,
-              fontWeight: '600',
-            }}>
-              Edit Profile
-            </Text>
-          </TouchableOpacity>
+          {profileData.locations.length > 0 && (
+            <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
+              <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
+                <RotatingGlobe locations={profileData.locations} size={40} />
+              </View>
+              <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
+                <Ionicons name="map" size={48} color={theme.colors.primary} /> 
+                <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
+                  {profileData.locations.length} locations visited 
+                </Text> 
+              </View> 
+            </View>
+          )}
         </View>
-
-        {/* Location Map Placeholder */}
-        {profileData.locations.length > 0 && (
-          <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}> 
-              Posted Locations
-            </Text>
-            <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
-              <RotatingGlobe locations={profileData.locations} size={40} />
-            </View>
-            <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
-              <Ionicons name="map" size={48} color={theme.colors.primary} /> 
-              <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
-                {profileData.locations.length} locations visited 
-              </Text> 
-            </View> 
-          </View>
-        )}
+        {/* End Profile Header */}
 
         {/* Recent Posts */}
-        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Recent Posts
-          </Text>
+        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
           {posts.length > 0 ? (
             <View style={styles.postsGrid}>
               {posts.slice(0, 6).map((post) => (
@@ -281,187 +254,159 @@ export default function ProfileScreen() {
           ) : (
             <View style={styles.noPostsContainer}>
               <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
-              <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>
-                No posts yet
-              </Text>
+              <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No posts yet</Text>
             </View>
           )}
         </View>
-
-        {/* Settings */}
-        <View style={[styles.settingsContainer, { backgroundColor: theme.colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Settings
-          </Text>
-          <TouchableOpacity
-            style={styles.settingItem}
-            onPress={toggleTheme}
-          >
-            <Ionicons 
-              name="moon-outline" 
-              size={24} 
-              color={theme.colors.text} 
-            />
-            <Text style={[styles.settingText, { color: theme.colors.text }]}>
-              Toggle Theme
-            </Text>
-            <Ionicons 
-              name="chevron-forward" 
-              size={20} 
-              color={theme.colors.textSecondary} 
-            />
-          </TouchableOpacity>
-        </View>
+        {/* Edit Profile Modal */}
+        {user && (
+          <EditProfile
+            visible={showEditProfile}
+            user={user}
+            onClose={() => setShowEditProfile(false)}
+            onSuccess={handleProfileUpdate}
+          />
+        )}
       </ScrollView>
-
-      {/* Edit Profile Modal */}
-      {user && (
-        <EditProfile
-          visible={showEditProfile}
-          user={user}
-          onClose={() => setShowEditProfile(false)}
-          onSuccess={handleProfileUpdate}
-        />
-      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  headerContainer: {
-    padding: 20,
-    margin: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  profileInfo: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginBottom: 12,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-  },
-  mapContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-  },
-  mapPlaceholder: {
-    height: 150,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mapText: {
-    marginTop: 8,
-    fontSize: 14,
-  },
-  postsContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-  },
-  postsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  postThumbnail: {
-    width: '30%',
-    aspectRatio: 1,
-    marginBottom: 8,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  thumbnailImage: {
-    width: '100%',
-    height: '100%',
-  },
-  noPostsContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noPostsText: {
-    marginTop: 8,
-    fontSize: 14,
-  },
-  settingsContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 32,
-  },
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  settingText: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
-  },
-});
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    scrollView: {
+      flex: 1,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    errorContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    errorText: {
+      fontSize: 16,
+      marginBottom: 20,
+      textAlign: 'center',
+    },
+    retryButton: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 8,
+    },
+    retryButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    headerContainer: {
+      padding: 20,
+      margin: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+    },
+    profileInfo: {
+      alignItems: 'center',
+      marginBottom: 20,
+    },
+    avatar: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      marginBottom: 12,
+    },
+    name: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      marginBottom: 4,
+    },
+    email: {
+      fontSize: 14,
+    },
+    statsContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-around',
+      width: '100%',
+    },
+    statItem: {
+      alignItems: 'center',
+    },
+    statNumber: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 4,
+    },
+    statLabel: {
+      fontSize: 12,
+    },
+    mapContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 16,
+    },
+    mapPlaceholder: {
+      height: 150,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    mapText: {
+      marginTop: 8,
+      fontSize: 14,
+    },
+    postsContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+    },
+    postsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+    },
+    postThumbnail: {
+      width: '30%',
+      aspectRatio: 1,
+      marginBottom: 8,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
+    thumbnailImage: {
+      width: '100%',
+      height: '100%',
+    },
+    noPostsContainer: {
+      alignItems: 'center',
+      paddingVertical: 40,
+    },
+    noPostsText: {
+      marginTop: 8,
+      fontSize: 14,
+    },
+    settingsContainer: {
+      margin: 16,
+      padding: 20,
+      borderRadius: 12,
+      marginBottom: 32,
+    },
+    settingItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    settingText: {
+      flex: 1,
+      marginLeft: 12,
+      fontSize: 16,
+    },
+  });
