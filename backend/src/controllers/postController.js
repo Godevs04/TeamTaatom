@@ -2,6 +2,8 @@ const { validationResult } = require('express-validator');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { getFollowers } = require('../utils/socketBus');
+const { getIO } = require('../socket');
 
 // @desc    Get all posts
 // @route   GET /posts
@@ -101,6 +103,17 @@ const createPost = async (req, res) => {
 
     // Populate user data for response
     await post.populate('user', 'fullName profilePic');
+
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(req.user._id);
+      const audience = [req.user._id.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(req.user._id.toString());
+      nsp.emitEvent('post:created', audience, { postId: post._id });
+    }
 
     res.status(201).json({
       message: 'Post created successfully',
@@ -203,6 +216,17 @@ const toggleLike = async (req, res) => {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
 
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(post.user);
+      const audience = [post.user.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(post.user.toString());
+      nsp.emitEvent('post:liked', audience, { postId: post._id });
+    }
+
     res.status(200).json({
       message: isLiked ? 'Post liked' : 'Post unliked',
       isLiked,
@@ -246,6 +270,17 @@ const addComment = async (req, res) => {
     // Populate the new comment with user data
     await post.populate('comments.user', 'fullName profilePic');
     const populatedComment = post.comments.id(newComment._id);
+
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(post.user);
+      const audience = [post.user.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(post.user.toString());
+      nsp.emitEvent('comment:created', audience, { postId: post._id });
+    }
 
     res.status(201).json({
       message: 'Comment added successfully',
@@ -346,6 +381,17 @@ const deletePost = async (req, res) => {
     // Soft delete (mark as inactive)
     post.isActive = false;
     await post.save();
+
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(post.user);
+      const audience = [post.user.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(post.user.toString());
+      nsp.emitEvent('post:deleted', audience, { postId: post._id });
+    }
 
     res.status(200).json({
       message: 'Post deleted successfully'

@@ -19,6 +19,7 @@ import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
 import PhotoCard from '../../components/PhotoCard';
 import { getUserFromStorage } from '../../services/auth';
+import { useRouter } from 'expo-router';
 
 export default function HomeScreen() {
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -28,6 +29,7 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const { theme, mode } = useTheme();
+  const router = useRouter();
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
     try {
@@ -157,6 +159,9 @@ export default function HomeScreen() {
   const renderHeader = () => (
     <View style={styles.header}>
       <Text style={styles.logo}>Taatom</Text>
+      <TouchableOpacity onPress={() => router.push('/chat')} style={{ position: 'absolute', right: 16 }}>
+        <Ionicons name="chatbubble-ellipses-outline" size={26} color={theme.colors.primary} />
+      </TouchableOpacity>
     </View>
   );
 
