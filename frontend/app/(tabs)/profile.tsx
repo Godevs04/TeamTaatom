@@ -144,7 +144,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <NavBar
         title="Profile"
         rightComponent={
@@ -198,23 +198,23 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.postsCount}</Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.followersCount}</Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.followingCount}</Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData.totalLikes}</Text>
+              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.totalLikes || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
             </View>
           </View>
-          {profileData.locations.length > 0 && (
+          {profileData?.locations && profileData.locations.length > 0 && (
             <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
               <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
               <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
