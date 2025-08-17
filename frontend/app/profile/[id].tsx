@@ -132,6 +132,14 @@ export default function UserProfileScreen() {
                 <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>{isFollowing ? 'Following' : 'Follow'}</Text>
               </TouchableOpacity>
             )}
+            {currentUser && currentUser._id !== profile._id && isFollowing && (
+              <TouchableOpacity
+                style={{ marginTop: theme.spacing.sm, backgroundColor: theme.colors.primary, borderRadius: 20, paddingHorizontal: 32, paddingVertical: 10 }}
+                onPress={() => router.push(`/chat?userId=${profile._id}`)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Message</Text>
+              </TouchableOpacity>
+            )}
             {/* 3D Globe (WorldMap) */}
             {profile.locations && profile.locations.length > 0 &&
               ((currentUser && currentUser._id === profile._id) || isFollowing) ? (
