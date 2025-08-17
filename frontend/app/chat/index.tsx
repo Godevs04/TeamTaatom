@@ -5,8 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { socketService } from '../../services/socket';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+// REMOVE: import { useAuth } from '../../context/AuthContext';
 
-function ChatWindow({ otherUser, onClose, messages }: { otherUser: any, onClose: () => void, messages: any[] }) {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage }: { otherUser: any, onClose: () => void, messages: any[], onSendMessage: (msg: any) => void }) {
   const { theme } = useTheme();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -76,10 +79,7 @@ function ChatWindow({ otherUser, onClose, messages }: { otherUser: any, onClose:
     if (!input.trim()) return;
     try {
       const res = await api.post(`/chat/${otherUser._id}/messages`, { text: input });
-      // Only add if it's not a duplicate from initial load
-      if (!messages.some(msg => msg._id === res.data.message._id)) {
-        // setMessages(prev => [...prev, res.data.message]); // Removed setMessages
-      }
+      onSendMessage(res.data.message);
       setInput('');
     } catch (e) {}
   };
@@ -153,21 +153,24 @@ function ChatWindow({ otherUser, onClose, messages }: { otherUser: any, onClose:
 }
 
 export default function ChatModal() {
+  console.log('ChatModal rendered');
   const { theme } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
+  // Hardcode user ID for immediate fix
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  // Add state for new message mode
   const [showNewMessage, setShowNewMessage] = useState(false);
-  // Add state for chat and chat messages
   const [activeChat, setActiveChat] = useState<any>(null);
   const [activeMessages, setActiveMessages] = useState<any[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
+
+  // Move handleNewMessage here
+  const handleNewMessage = (msg: any) => setActiveMessages((prev: any[]) => [...prev, msg]);
 
   // Helper to fetch chat and messages
   const openChatWithUser = async (user: any) => {
@@ -209,21 +212,49 @@ export default function ChatModal() {
 
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
-    if (!params.userId) {
+    console.log('Fetching chats useEffect running');
+    const loadChats = async () => {
       setLoading(true);
-      Promise.all([
-        api.get('/chat'),
-        api.get('/profile/following'),
-      ])
-        .then(([chatsRes, followRes]) => {
-          setConversations(chatsRes.data.chats || []);
-          setUsers(followRes.data.users || []);
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      let myUserId = '';
+      if (userData) {
+        try {
+          myUserId = JSON.parse(userData)._id;
+        } catch {}
+      }
+      console.log('Requesting chats for user:', myUserId);
+      const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+      fetch(`${API_BASE_URL}/chat`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('Fetch /chat data:', data);
+          let chats = data.chats || [];
+          chats = chats.map((chat: any) => ({
+            ...chat,
+            me: myUserId,
+          }));
+          setConversations(chats);
+          // Optionally fetch following users as before
+          api.get('/profile/following')
+            .then(followRes => setUsers(followRes.data.users || []))
+            .catch(() => setUsers([]))
+            .finally(() => setLoading(false));
         })
-        .catch(() => {
+        .catch(err => {
+          console.log('Fetch /chat error:', err);
           setConversations([]);
           setUsers([]);
-        })
-        .finally(() => setLoading(false));
+          setLoading(false);
+        });
+    };
+    if (!params.userId) {
+      loadChats();
     }
   }, [params.userId]);
 
@@ -242,7 +273,7 @@ export default function ChatModal() {
       setActiveChat(null);
       setActiveMessages([]);
       if (params.userId) router.back();
-    }} messages={activeMessages} />;
+    }} messages={activeMessages} onSendMessage={handleNewMessage} />;
   }
   if (chatLoading || loading) {
     return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.colors.primary} size="large" /></SafeAreaView>;
@@ -262,6 +293,7 @@ export default function ChatModal() {
     const other = c.participants.find((u: any) => u._id !== c.me);
     return other?.fullName?.toLowerCase().includes(search.trim().toLowerCase());
   });
+  console.log('Rendering chat inbox, conversations:', conversations);
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <View style={styles(theme).header}>
@@ -288,32 +320,42 @@ export default function ChatModal() {
       {filtered.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 48 }}>
           <Text style={{ color: theme.colors.textSecondary, fontSize: 16 }}>No conversations yet.</Text>
+          <Text style={{ color: theme.colors.textSecondary, fontSize: 10 }}>{JSON.stringify(conversations)}</Text>
         </View>
       ) : (
         <FlatList
           data={filtered}
           keyExtractor={item => item._id}
           renderItem={({ item }) => {
-            const other = item.participants.find((u: any) => u._id !== item.me);
-            const unreadCount = item.messages?.filter((m: any) => !m.seen && m.sender === other._id).length || 0;
+            console.log('Rendering chat item:', item);
+            let other = item.participants.find((u: any) => u._id !== item.me);
+            // If participants is array of ObjectIds, fallback
+            if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
+              other = item.participants.find((id: string) => id !== item.me);
+            }
+            const unreadCount = item.messages?.filter((m: any) => other && m.sender === (other._id || other) && !m.seen).length || 0;
             return (
               <TouchableOpacity
                 style={styles(theme).item}
                 onPress={() => openChatWithUser(other)}
               >
-                {other?.profilePic ? (
+                {/* Show avatar or fallback */}
+                {other && other.profilePic ? (
                   <Image source={{ uri: other.profilePic }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }} />
                 ) : (
                   <Ionicons name="person-circle" size={40} color={theme.colors.textSecondary} style={{ marginRight: 12 }} />
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={styles(theme).name}>{String(other?.fullName || 'Unknown')}</Text>
+                  <Text style={styles(theme).name}>{other ? String(other.fullName || other._id || other) : '[No other user found]'}</Text>
                   <Text style={styles(theme).lastMsg} numberOfLines={1}>{String(item.messages?.[item.messages.length-1]?.text || '')}</Text>
                 </View>
                 {unreadCount > 0 && (
                   <View style={{ backgroundColor: '#2196f3', borderRadius: 10, minWidth: 20, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>{unreadCount}</Text>
                   </View>
+                )}
+                {!other && (
+                  <Text style={{ color: 'red', fontSize: 10, marginLeft: 8 }}>[Mapping error: no other user]</Text>
                 )}
               </TouchableOpacity>
             );
