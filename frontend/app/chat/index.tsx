@@ -158,7 +158,6 @@ export default function ChatModal() {
   const router = useRouter();
   const params = useLocalSearchParams();
   // Hardcode user ID for immediate fix
-  const myUserId = '689f1ceb8cc7779086cdb071';
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
@@ -214,7 +213,6 @@ export default function ChatModal() {
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
     console.log('Fetching chats useEffect running');
-    console.log('Requesting chats for user:', myUserId);
     const loadChats = async () => {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -225,6 +223,7 @@ export default function ChatModal() {
           myUserId = JSON.parse(userData)._id;
         } catch {}
       }
+      console.log('Requesting chats for user:', myUserId);
       const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
       fetch(`${API_BASE_URL}/chat`, {
         headers: {
@@ -329,10 +328,10 @@ export default function ChatModal() {
           keyExtractor={item => item._id}
           renderItem={({ item }) => {
             console.log('Rendering chat item:', item);
-            let other = item.participants.find((u: any) => u._id !== myUserId);
+            let other = item.participants.find((u: any) => u._id !== item.me);
             // If participants is array of ObjectIds, fallback
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
-              other = item.participants.find((id: string) => id !== myUserId);
+              other = item.participants.find((id: string) => id !== item.me);
             }
             const unreadCount = item.messages?.filter((m: any) => other && m.sender === (other._id || other) && !m.seen).length || 0;
             return (
