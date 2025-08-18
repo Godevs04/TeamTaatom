@@ -7,15 +7,19 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { io, Socket } from 'socket.io-client';
 // REMOVE: import { useAuth } from '../../context/AuthContext';
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage }: { otherUser: any, onClose: () => void, messages: any[], onSendMessage: (msg: any) => void }) {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { otherUser: any, onClose: () => void, messages: any[], onSendMessage: (msg: any) => void, chatId: string }) {
   const { theme } = useTheme();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeenId, setLastSeenId] = useState<string | null>(null);
   const flatListRef = React.useRef<FlatList>(null);
+
+  // Sort messages ascending by timestamp (oldest first)
+  const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
@@ -67,13 +71,43 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage }: { otherUser
 
   // Emit seen event when chat is opened or scrolled to bottom
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
+    if (sortedMessages.length > 0) {
+      const lastMsg = sortedMessages[sortedMessages.length - 1];
+      console.log('lastMsg:', lastMsg);
       if (lastMsg && lastMsg.sender !== otherUser._id) {
-        socketService.emit('seen', { to: otherUser._id, messageId: lastMsg._id });
+        console.log('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: lastMsg._id, chatId });
+        socketService.emit('seen', { to: otherUser._id, messageId: lastMsg._id, chatId });
       }
     }
-  }, [messages, otherUser]);
+  }, [sortedMessages, otherUser, chatId]);
+
+  // --- 1. When opening a chat, emit 'seen' for all unseen messages from the other user ---
+  useEffect(() => {
+    if (sortedMessages.length > 0) {
+      const unseen = sortedMessages.filter(m => m.sender === otherUser._id && !m.seen);
+      unseen.forEach(msg => {
+        console.log('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: msg._id, chatId });
+        socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+      });
+    }
+  }, [sortedMessages, otherUser, chatId]);
+
+  // --- 2. When a 'seen' event is received, update the 'seen' property for the correct message(s) in both the open chat and the chat list ---
+  // REMOVE the following useEffect from ChatWindow:
+  // useEffect(() => {
+  //   const onSeenGlobal = (payload: any) => {
+  //     setActiveMessages((prevMsgs: any[]) => prevMsgs.map((m: any) => m._id === payload.messageId ? { ...m, seen: true } : m));
+  //     setConversations((prev: any[]) => prev.map((chat: any) => {
+  //       if (!chat.messages) return chat;
+  //       const updatedMessages = chat.messages.map((m: any) =>
+  //         m._id === payload.messageId ? { ...m, seen: true } : m
+  //       );
+  //       return { ...chat, messages: updatedMessages };
+  //     }));
+  //   };
+  //   socketService.subscribe('seen', onSeenGlobal);
+  //   return () => { socketService.unsubscribe('seen', onSeenGlobal); };
+  // }, []);
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -109,26 +143,33 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage }: { otherUser
         </View>
         <FlatList
           ref={flatListRef}
-          data={messages}
+          data={sortedMessages}
           keyExtractor={(_, idx) => idx.toString()}
           renderItem={({ item, index }) => {
             const isOwn = item.sender !== otherUser._id;
-            const isLastOwn = isOwn && index === messages.length - 1;
+            const isLastOwn = isOwn && index === sortedMessages.length - 1;
+            // --- Ticks: single for sent, double for seen ---
             return (
               <View style={[styles(theme).bubble, item.sender === otherUser._id ? styles(theme).bubbleOther : styles(theme).bubbleOwn]}>
                 <Text style={styles(theme).bubbleText}>{String(item.text || '')}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
                   <Text style={styles(theme).bubbleTime}>{item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</Text>
-                  {isLastOwn && item._id === lastSeenId ? (
-                    <Ionicons name="checkmark-done" size={16} color="#2196f3" style={{ marginLeft: 4 }} />
-                  ) : null}
+                  {isOwn && (
+                    isLastOwn && item._id === lastSeenId ? (
+                      // Double tick (seen)
+                      <Ionicons name="checkmark-done" size={16} color="#2196f3" style={{ marginLeft: 4 }} />
+                    ) : (
+                      // Single tick (sent)
+                      <Ionicons name="checkmark" size={16} color="#aaa" style={{ marginLeft: 4 }} />
+                    )
+                  )}
                 </View>
               </View>
             );
           }}
           contentContainerStyle={{ padding: 12 }}
-          inverted
-          onContentSizeChange={() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+          // removed inverted
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
         {isTyping && (
           <View style={{ marginLeft: 16, marginBottom: 4 }}>
@@ -179,8 +220,13 @@ export default function ChatModal() {
     try {
       const chatRes = await api.get(`/chat/${user._id}`);
       const messagesRes = await api.get(`/chat/${user._id}/messages`);
+      // Mark all messages from other user as seen locally
+      const myUserId = chatRes.data.chat.participants.find((id: string) => id !== user._id) || '';
+      const updatedMessages = (messagesRes.data.messages || []).map((msg: any) =>
+        msg.sender === user._id ? { ...msg, seen: true } : msg
+      );
       setActiveChat(chatRes.data.chat);
-      setActiveMessages(messagesRes.data.messages || []);
+      setActiveMessages(updatedMessages);
       setSelectedUser(user);
     } catch (e) {
       setError('Failed to load chat.');
@@ -225,6 +271,14 @@ export default function ChatModal() {
       }
       console.log('Requesting chats for user:', myUserId);
       const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+      const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
+      socket.on('connect', () => {
+        console.log('[SOCKET] connected to backend');
+        socket.emit('test', { hello: 'world' });
+      });
+      socket.on('connect_error', (err) => {
+        console.log('[SOCKET] connect_error:', err);
+      });
       fetch(`${API_BASE_URL}/chat`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -233,7 +287,7 @@ export default function ChatModal() {
       })
         .then(res => res.json())
         .then(data => {
-          console.log('Fetch /chat data:', data);
+          console.log('Fetch /chat data:', JSON.stringify(data, null, 2));
           let chats = data.chats || [];
           chats = chats.map((chat: any) => ({
             ...chat,
@@ -273,7 +327,39 @@ export default function ChatModal() {
       setActiveChat(null);
       setActiveMessages([]);
       if (params.userId) router.back();
-    }} messages={activeMessages} onSendMessage={handleNewMessage} />;
+      // Refresh chat list after closing chat
+      const reloadChats = async () => {
+        const token = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('userData');
+        let myUserId = '';
+        if (userData) {
+          try { myUserId = JSON.parse(userData)._id; } catch {}
+        }
+        const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+        const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
+        socket.on('connect', () => {
+          console.log('[SOCKET] connected to backend');
+          socket.emit('test', { hello: 'world' });
+        });
+        socket.on('connect_error', (err) => {
+          console.log('[SOCKET] connect_error:', err);
+        });
+        fetch(`${API_BASE_URL}/chat`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json'
+          }
+        })
+          .then(res => res.json())
+          .then(data => {
+            console.log('Reloaded /chat data:', JSON.stringify(data, null, 2));
+            let chats = data.chats || [];
+            chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
+            setConversations(chats);
+          });
+      };
+      reloadChats();
+    }} messages={activeMessages} onSendMessage={handleNewMessage} chatId={activeChat?._id} />;
   }
   if (chatLoading || loading) {
     return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.colors.primary} size="large" /></SafeAreaView>;
@@ -327,7 +413,7 @@ export default function ChatModal() {
           data={filtered}
           keyExtractor={item => item._id}
           renderItem={({ item }) => {
-            console.log('Rendering chat item:', item);
+            console.log('Chat:', item._id, 'Messages:', item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })));
             let other = item.participants.find((u: any) => u._id !== item.me);
             // If participants is array of ObjectIds, fallback
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {

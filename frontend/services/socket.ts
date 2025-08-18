@@ -15,7 +15,7 @@ const getToken = async () => {
 const connectSocket = async () => {
   if (socket && socket.connected) return socket;
   const token = await getToken();
-  socket = io(API_BASE_URL, {
+  socket = io(API_BASE_URL + '/app', {
     path: WS_PATH,
     transports: ['websocket'],
     autoConnect: false,
