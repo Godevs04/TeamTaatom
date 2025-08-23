@@ -2,6 +2,9 @@ const { validationResult } = require('express-validator');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { getFollowers } = require('../utils/socketBus');
+const { getIO } = require('../socket');
+const mongoose = require('mongoose');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -9,6 +12,9 @@ const { uploadImage, deleteImage } = require('../config/cloudinary');
 const getProfile = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user id', message: 'User id must be a valid ObjectId' });
+    }
 
     const user = await User.findById(id)
       .populate('followers', 'fullName profilePic')
@@ -141,7 +147,16 @@ const updateProfile = async (req, res) => {
       message: 'Profile updated successfully',
       user: updatedUser.getPublicProfile()
     });
-
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(id);
+      const audience = [id, ...followers];
+      nsp.emitInvalidateProfile(id);
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitEvent('profile:updated', audience, { userId: id });
+    }
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({
@@ -196,7 +211,16 @@ const toggleFollow = async (req, res) => {
       followersCount: targetUser.followers.length,
       followingCount: currentUser.following.length
     });
-
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(id);
+      const audience = [id, ...followers, currentUserId.toString()];
+      nsp.emitInvalidateProfile(id);
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitEvent('follow:updated', audience, { userId: id });
+    }
   } catch (error) {
     console.error('Toggle follow error:', error);
     res.status(500).json({
