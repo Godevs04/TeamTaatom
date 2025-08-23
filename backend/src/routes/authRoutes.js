@@ -7,7 +7,9 @@ const {
   resendOTP,
   signin,
   getMe,
-  googleSignIn
+  googleSignIn,  
+  forgotPassword,
+  resetPassword
 } = require('../controllers/authController');
 
 const router = express.Router();
@@ -55,5 +57,7 @@ router.post('/resend-otp', resendOTP);
 router.post('/signin', signinValidation, signin);
 router.post('/google', googleSignIn);
 router.get('/me', authMiddleware, getMe);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 module.exports = router;
