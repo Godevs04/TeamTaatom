@@ -59,6 +59,9 @@ export const resendOTP = async (email: string): Promise<AuthResponse> => {
 // Sign in user
 export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   try {
+    // Debug: Log the API base URL being used
+    // @ts-ignore
+    console.log('API_BASE_URL:', require('./api').default.defaults.baseURL);
     const response = await api.post('/auth/signin', data);
     const { token, user } = response.data;
     
