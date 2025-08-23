@@ -18,7 +18,7 @@ transporter.verify((error, success) => {
   }
 });
 
-const sendOTPEmail = async (email, otp, fullName) => {
+const sendOTPEmail = async (email, resetLink, fullName) => {
   try {
     const mailOptions = {
       from: {
@@ -26,7 +26,7 @@ const sendOTPEmail = async (email, otp, fullName) => {
         address: process.env.EMAIL_USER
       },
       to: email,
-      subject: 'Verify Your Taatom Account - OTP Code',
+      subject: 'Reset Password Taatom Account - OTP Code',
       html: `
         <!DOCTYPE html>
         <html lang="en">
@@ -102,7 +102,7 @@ const sendOTPEmail = async (email, otp, fullName) => {
             
             <div class="otp-box">
               <h3>Your Verification Code</h3>
-              <div class="otp-code">${otp}</div>
+              <div class="otp-code">${resetLink}</div>
               <p>This code will expire in 10 minutes</p>
             </div>
             
@@ -261,7 +261,66 @@ const sendWelcomeEmail = async (email, fullName) => {
   }
 };
 
+// Send welcome email after verification
+const sendForgotPasswordMail = async (email, resetLink, fullName) => {
+  try {
+    const mailOptions = {
+      from: {
+      name: 'Taatom App',
+      address: process.env.EMAIL_USER
+      },
+      to: email,
+      subject: '🔐 Reset Your Taatom Password',
+      html: `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Reset Password</title>
+      <style>
+        /* ... keeping same styles ... */
+      </style>
+      </head>
+      <body>
+      <div class="container">
+      <div class="header">
+        <div class="logo">📸 Taatom</div>
+        <h2>Reset Your Password, ${fullName}</h2>
+      </div>
+      
+      <div class="welcome-box">
+        <h3>Password Reset Link</h3>
+        <a href="${resetLink}" class="reset-link">Click here to reset your password</a>
+        <p>This link will expire in 10 minutes for security reasons.</p>
+      </div>
+
+      <p>If you can't click the link, open the Taatom app and enter this code:</p>
+      <div style="text-align: center; padding: 15px; background: #f5f5f5; margin: 15px 0;">
+        <code style="font-size: 18px; font-weight: bold;">${resetLink}</code>
+      </div>
+
+      <p>If you didn't request this reset, please ignore this email.</p>
+      <p>If you need help, contact us at support@taatom.com</p>
+      <p>&copy; 2024 Taatom. All rights reserved.</p>
+      </div>
+      </body>
+      </html>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Password Reset email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error sending welcome email:', error);
+    // Don't throw error for welcome email, it's not critical
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   sendOTPEmail,
-  sendWelcomeEmail
+  sendWelcomeEmail,
+  sendForgotPasswordMail
 };
