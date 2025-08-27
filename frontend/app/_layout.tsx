@@ -6,6 +6,7 @@ import { initializeAuth } from '../services/auth';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { socketService } from '../services/socket';
 
+
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 

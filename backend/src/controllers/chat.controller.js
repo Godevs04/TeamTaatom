@@ -5,8 +5,9 @@ const mongoose = require('mongoose');
 
 // Helper: check if user is following the other
 async function canChat(userId, otherId) {
-  const user = await User.findById(userId);
-  return user && user.following.includes(otherId);
+  // const user = await User.findById(userId);
+  // return user && user.following.includes(otherId);
+  return true;
 }
 
 exports.listChats = async (req, res) => {
@@ -100,4 +101,21 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
   } else {
     console.log('[markMessageSeen] message already seen');
   }
+};
+
+// Mark all messages from the other user as seen
+exports.markAllMessagesSeen = async (req, res) => {
+  const userId = req.user._id;
+  const { otherUserId } = req.params;
+  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+  if (!chat) return res.status(404).json({ message: 'Chat not found' });
+  let updated = false;
+  chat.messages.forEach(msg => {
+    if (msg.sender.toString() === otherUserId && !msg.seen) {
+      msg.seen = true;
+      updated = true;
+    }
+  });
+  if (updated) await chat.save();
+  res.json({ success: true });
 };
