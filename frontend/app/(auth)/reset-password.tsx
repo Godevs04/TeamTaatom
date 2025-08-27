@@ -1,48 +1,34 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { Formik } from 'formik';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import React, { useState } from "react";
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, ColorValue } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import axios from "../../services/api";
 import { theme } from '../../constants/theme';
-import AuthInput from '../../components/AuthInput';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from "@expo/vector-icons";
+import { Formik } from "formik";
+import AuthInput from "../../components/AuthInput";
 import { forgotPasswordSchema } from '../../utils/validation';
-import { forgotPassword } from '../../services/auth';
-import { ColorValue } from "react-native";
-interface ForgotPasswordFormValues {
-  email: string;
-}
 
-export default function ForgotPasswordScreen() {
+export default function ResetPassword() {
+  const params = useLocalSearchParams();
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+  const [message, setMessage] = useState("");
 
-  const handleForgotPassword = async (values: ForgotPasswordFormValues) => {
+  // Updated handler to actually reset password
+  const handleForgotPassword = async (values: any) => {
     setIsLoading(true);
+    setMessage("");
     try {
-      await forgotPassword(values.email);
-      Alert.alert(
-        'Email Sent!',
-        'Password reset instructions have been sent to your email.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.push('/(auth)/reset-password'),
-          },
-        ]
-      );
-    } catch (error: any) {
-      console.log("something went wrong", error);
-      Alert.alert('Error', error.message);
+      const res = await axios.post("/auth/reset-password", {
+        token: values.token,
+        newPassword: values.newPassword,
+        confirmPassword: values.confirmPassword,
+        email: values.email,
+      });
+      setMessage(res.data.message || "Password reset successful!");
+      router.push('/(auth)/signin')
+    } catch (err: any) {
+      setMessage(err.response?.data?.message || "Error resetting password");
     } finally {
       setIsLoading(false);
     }
@@ -50,7 +36,7 @@ export default function ForgotPasswordScreen() {
 
   return (
     <LinearGradient
-       colors={theme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
+      colors={theme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
       style={styles.container}
     >
       <KeyboardAvoidingView
@@ -70,22 +56,35 @@ export default function ForgotPasswordScreen() {
 
           <View style={styles.header}>
             <Ionicons name="lock-open" size={60} color={theme.colors.primary} />
-            <Text style={styles.title}>Reset Password</Text>
+            <Text style={styles.title}>Create New Password</Text>
             <Text style={styles.subtitle}>
-              Enter your email address and we'll send you instructions to reset your password.
+              Enter your new Password and confirm to reset your password.
             </Text>
           </View>
 
           <View style={styles.formContainer}>
             <Formik
               initialValues={{
+                token: '',
                 email: '',
+                newPassword: '',
+                confirmPassword: '',
               }}
               validationSchema={forgotPasswordSchema}
               onSubmit={handleForgotPassword}
             >
               {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
                 <View>
+                  <AuthInput
+                    label="Token"
+                    placeholder="Enter token from email address"
+                    value={values.token}
+                    onChangeText={handleChange('token')}
+                    onBlur={handleBlur('token')}
+                    error={errors.token}
+                    touched={touched.token}
+                    autoCapitalize="none"
+                  />
                   <AuthInput
                     label="Email"
                     placeholder="Enter your email address"
@@ -97,6 +96,32 @@ export default function ForgotPasswordScreen() {
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
+                  <AuthInput
+                    label="New Password"
+                    placeholder="Enter your new password"
+                    value={values.newPassword}
+                    onChangeText={handleChange('newPassword')}
+                    onBlur={handleBlur('newPassword')}
+                    error={errors.newPassword}
+                    touched={touched.newPassword}
+                    autoCapitalize="none"
+                  />
+                  <AuthInput
+                    label="Confirm Password"
+                    placeholder="Enter your confirm password"
+                    value={values.confirmPassword}
+                    onChangeText={handleChange('confirmPassword')}
+                    onBlur={handleBlur('confirmPassword')}
+                    error={errors.confirmPassword}
+                    touched={touched.confirmPassword}
+                    autoCapitalize="none"
+                  />
+
+                  {message ? (
+                    <Text style={message.includes("success") ? styles.success : styles.error}>
+                      {message}
+                    </Text>
+                  ) : null}
 
                   <TouchableOpacity
                     style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
@@ -104,7 +129,7 @@ export default function ForgotPasswordScreen() {
                     disabled={isLoading}
                   >
                     <Text style={styles.resetButtonText}>
-                      {isLoading ? 'Sending...' : 'Send Reset Email'}
+                      {isLoading ? 'Resetting...' : 'Reset Password'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -180,6 +205,16 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: theme.typography.body.fontSize,
     fontWeight: '600',
+  },
+  error: {
+    color: "red",
+    marginTop: 10,
+    textAlign: "center",
+  },
+  success: {
+    color: "green",
+    marginTop: 10,
+    textAlign: "center",
   },
   footer: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { UserType } from '../types/user';
+import { Platform } from 'react-native';
 
 export interface SignUpData {
   fullName: string;
@@ -151,13 +152,18 @@ export const signOut = async (): Promise<void> => {
   }
 };
 
-// Forgot password (if needed for future)
+// Forgot password
 export const forgotPassword = async (email: string): Promise<AuthResponse> => {
   try {
-    // This endpoint would need to be implemented in the backend
+    console.log("Forgot password request for email:", email);
+    api.defaults.headers['User-Agent'] = Platform.OS === 'ios' ? 'iOS-App/1.0' : 'Android-App/1.0';
     const response = await api.post('/auth/forgot-password', { email });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to send password reset email');
+    if (error.response?.status === 404) {
+      throw new Error('Email not found');
+    }
+    console.error("Error in forgotPassword:", error);
+    throw new Error(error.response?.data?.message || 'An error occurred while processing your request');
   }
 };
