@@ -9,7 +9,7 @@ const WS_PATH = process.env.WS_PATH || '/socket.io';
 const WS_ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || 'http://localhost:19006';
 
 let io;
-const onlineUsers = new Map(); // userId -> socket.id
+const onlineUsers = new Map(); // userId -> Set<socketId>
 
 function setupSocket(server) {
   io = new Server(server, {
@@ -21,6 +21,12 @@ function setupSocket(server) {
   });
 
   const nsp = io.of('/app');
+
+  // Helper to emit to all sockets of a user
+  function emitToUser(userId, event, payload) {
+    const sockets = onlineUsers.get(userId) || new Set();
+    for (const sid of sockets) nsp.to(sid).emit(event, payload);
+  }
 
   nsp.use(async (socket, next) => {
     try {
@@ -34,7 +40,9 @@ function setupSocket(server) {
       socket.user = payload;
       socket.userId = payload.userId || payload._id || payload.id;
       socket.join(`user:${socket.userId}`);
-      onlineUsers.set(socket.userId, socket.id);
+      // Add this socket to the user's set
+      if (!onlineUsers.has(socket.userId)) onlineUsers.set(socket.userId, new Set());
+      onlineUsers.get(socket.userId).add(socket.id);
       // Notify chat partners this user is online
       nsp.to(`user:${socket.userId}`).emit('user:online', { userId: socket.userId });
       return next();
@@ -44,19 +52,15 @@ function setupSocket(server) {
   });
 
   nsp.on('connection', (socket) => {
-    console.log('[SOCKET] client connected:', socket.userId);
     // Test event
     socket.on('test', (data) => {
-      console.log('[SOCKET] test event received:', data);
     });
     // Typing event
     socket.on('typing', ({ to }) => {
-      if (to) nsp.to(`user:${to}`).emit('typing', { from: socket.userId });
+      if (to) emitToUser(to, 'typing', { from: socket.userId });
     });
     // Seen event
     socket.on('seen', async ({ to, messageId, chatId }) => {
-      console.log('[SOCKET] seen event received:', { to, messageId, chatId, from: socket.userId });
-      // Find the chatId if not provided (fallback)
       let chatIdToUse = chatId;
       if (!chatIdToUse && to && messageId) {
         const Chat = require('../models/Chat');
@@ -66,28 +70,37 @@ function setupSocket(server) {
       if (chatIdToUse && messageId) {
         await chatController.markMessageSeen(chatIdToUse, messageId, socket.userId);
       }
-      if (to) nsp.to(`user:${to}`).emit('seen', { from: socket.userId, messageId });
+      if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
     });
     // Send message event (for real-time)
     socket.on('sendMessage', async ({ to, text }) => {
       if (!to || !text) return;
-      // Find or create chat
-      const Chat = require('../models/Chat');
-      let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] } });
-      if (!chat) {
-        chat = await Chat.create({ participants: [socket.userId, to], messages: [] });
+      try {
+        const Chat = require('../models/Chat');
+        let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] } });
+        if (!chat) {
+          chat = await Chat.create({ participants: [socket.userId, to], messages: [] });
+        }
+        const message = { sender: socket.userId, text, timestamp: new Date() };
+        chat.messages.push(message);
+        await chat.save();
+        // Emit to recipient (all devices)
+        emitToUser(to, 'message:new', { chatId: chat._id, message });
+        // Emit ack to sender (all devices)
+        emitToUser(socket.userId, 'message:sent', { chatId: chat._id, message });
+        // Emit chat list update to both
+        emitToUser(to, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        emitToUser(socket.userId, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+      } catch (err) {
+        emitToUser(socket.userId, 'message:error', { error: 'Failed to send message', details: err.message });
       }
-      const message = { sender: socket.userId, text, timestamp: new Date() };
-      chat.messages.push(message);
-      await chat.save();
-      // Emit to both users
-      nsp.to(`user:${socket.userId}`).emit('receiveMessage', { chatId: chat._id, message });
-      nsp.to(`user:${to}`).emit('receiveMessage', { chatId: chat._id, message });
     });
     // Presence
     socket.on('disconnect', () => {
-      console.log('[SOCKET] client disconnected:', socket.userId);
-      onlineUsers.delete(socket.userId);
+      if (onlineUsers.has(socket.userId)) {
+        onlineUsers.get(socket.userId).delete(socket.id);
+        if (onlineUsers.get(socket.userId).size === 0) onlineUsers.delete(socket.userId);
+      }
       nsp.to(`user:${socket.userId}`).emit('user:offline', { userId: socket.userId });
     });
   });

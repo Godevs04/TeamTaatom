@@ -23,14 +23,18 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
 
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
-    const onMessage = (payload: any) => {
-      if (payload.message && payload.message.sender === otherUser._id) {
-        // Only update messages if they are not already present (e.g., from initial load)
-        // This prevents duplicates if the user is already in the chat window
-        if (!messages.some(msg => msg._id === payload.message._id)) {
-          // setMessages(prev => [...prev, payload.message]); // Removed setMessages
-        }
+    const onMessageNew = (payload: any) => {
+      if (payload.message && payload.chatId === chatId) {
+        // Append to active chat if open
+        onSendMessage(payload.message);
+      } else {
+        // Optionally: update chat list preview/unread here
+        // (You may want to trigger a chat list refresh or update state)
       }
+    };
+    const onMessageSent = (payload: any) => {
+      // Optionally: update message status in UI (e.g., from 'pending' to 'sent')
+      // You may want to update the message in your state by _id
     };
     const onTyping = (payload: any) => {
       if (payload.from === otherUser._id) {
@@ -49,19 +53,21 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
     const onOffline = (payload: any) => {
       if (payload.userId === otherUser._id) setIsOnline(false);
     };
-    socketService.subscribe('receiveMessage', onMessage);
+    socketService.subscribe('message:new', onMessageNew);
+    socketService.subscribe('message:sent', onMessageSent);
     socketService.subscribe('typing', onTyping);
     socketService.subscribe('seen', onSeen);
     socketService.subscribe('user:online', onOnline);
     socketService.subscribe('user:offline', onOffline);
     return () => {
-      socketService.unsubscribe('receiveMessage', onMessage);
+      socketService.unsubscribe('message:new', onMessageNew);
+      socketService.unsubscribe('message:sent', onMessageSent);
       socketService.unsubscribe('typing', onTyping);
       socketService.unsubscribe('seen', onSeen);
       socketService.unsubscribe('user:online', onOnline);
       socketService.unsubscribe('user:offline', onOffline);
     };
-  }, [otherUser, messages]); // Add messages to dependency array
+  }, [otherUser, chatId]); // Add chatId to dependency array
 
   // Emit typing event
   const handleInput = (text: string) => {
@@ -109,6 +115,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
   //   return () => { socketService.unsubscribe('seen', onSeenGlobal); };
   // }, []);
 
+  // In handleSend, update local state via onSendMessage
   const handleSend = async () => {
     if (!input.trim()) return;
     try {
@@ -198,7 +205,7 @@ export default function ChatModal() {
   const { theme } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
-  // Hardcode user ID for immediate fix
+  // Restore local state for conversations, activeChat, activeMessages
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
@@ -218,6 +225,8 @@ export default function ChatModal() {
     setChatLoading(true);
     setError(null);
     try {
+      // Mark all messages as seen in the backend first
+      await api.post(`/chat/${user._id}/mark-all-seen`);
       const chatRes = await api.get(`/chat/${user._id}`);
       const messagesRes = await api.get(`/chat/${user._id}/messages`);
       // Mark all messages from other user as seen locally
@@ -228,6 +237,13 @@ export default function ChatModal() {
       setActiveChat(chatRes.data.chat);
       setActiveMessages(updatedMessages);
       setSelectedUser(user);
+      setConversations(prev => prev.map(chat => {
+        if (chat._id !== chatRes.data.chat._id) return chat;
+        const updatedMsgs = (chat.messages || []).map((msg: any) =>
+          msg.sender === user._id ? { ...msg, seen: true } : msg
+        );
+        return { ...chat, messages: updatedMsgs };
+      }));
     } catch (e) {
       setError('Failed to load chat.');
     } finally {
@@ -419,7 +435,7 @@ export default function ChatModal() {
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
               other = item.participants.find((id: string) => id !== item.me);
             }
-            const unreadCount = item.messages?.filter((m: any) => other && m.sender === (other._id || other) && !m.seen).length || 0;
+            const unreadCount = item.messages?.filter((m: any) => m.sender === (other._id || other) && !m.seen).length || 0;
             return (
               <TouchableOpacity
                 style={styles(theme).item}

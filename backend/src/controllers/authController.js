@@ -2,7 +2,8 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
-const { sendOTPEmail, sendWelcomeEmail } = require('../utils/sendOtp');
+const ForgotSignIn = require('../models/ForgotSignIn');
+const { sendOTPEmail, sendWelcomeEmail , sendForgotPasswordMail} = require('../utils/sendOtp');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -367,11 +368,180 @@ const googleSignIn = async (req, res) => {
   }
 };
 
+// @desc    Forgot password
+// @route   POST /auth/forgot-password
+// @access  Private
+const forgotPassword = async (req, res) => {
+  console.log('In Forgot Password Controller');
+  const isMobile = /iphone|android|ipad/i.test(req.headers['user-agent'] || "");
+
+  const prefix = isMobile ? 'myapp://reset?token=' : 'http://localhost:19006/reset?token=';
+  console.log('Prefix for reset link:', prefix);
+
+
+  try {
+    console.log('Forgot password request:', req.body  );
+    
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'Email required',
+        message: 'Email is required to reset password'
+      });
+    }
+
+    const user = await User.findOne({ email });
+    console.log("user - ");
+    console.log(user);
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'No account found with this email'
+      });
+    }
+
+
+
+    // Generate reset token
+    const resetToken = generateResetToken();
+    const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    console.log("resetToken - ");
+    console.log(resetToken);
+    console.log("user - ");
+    console.log(user);
+    
+    const saveToken = await User.findOneAndUpdate(
+      { email },               // find by email
+      { $set: { code: resetToken,
+      resetTokenExpiry: resetTokenExpiry } }, // update only name
+      { new: true }            // return updated document
+    )
+
+
+    console.log(`Reset token for ${email}: ${resetToken}`); // For debugging, remove in production
+    console.log(`Reset token expiry for ${email}: ${user.resetTokenExpiry}`); // For debugging, remove in production
+    
+    const existingForgot = new User({ 
+      code: resetToken,
+      resetTokenExpiry: resetTokenExpiry 
+    });
+// NewPassword@123
+
+    const updatedUser = await User.findOneAndUpdate(
+      { email },               // find by email
+      { $set: { resetToken: resetToken,
+      resetTokenExpiry: resetTokenExpiry } }, // update only name
+      { new: true }            // return updated document
+    )
+    
+    // Send reset email (implement sendResetEmail function)
+    const resetLink = `${prefix}${resetToken}`;
+    console.log(`Reset link for ${email}: ${resetLink}`); // For debugging,
+    await sendForgotPasswordMail(email, resetLink, user.fullName);
+    // await sendResetEmail(email, resetToken, user.fullName);
+
+    res.status(200).json({
+      message: 'Password reset link sent to your email',
+      email: email
+    });
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error processing password reset'
+    });
+  }
+};
+
+const generateResetToken = () => {
+  const digits = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let token = '';
+  for (let i = 0; i < 6; i++) {
+    token += digits[Math.floor(Math.random() * digits.length)];
+  }
+  return token;
+};
+// ...existing code...
+
+// @desc    Reset password using token
+// @route   POST /auth/reset-password
+// @access  Public
+const resetPassword = async (req, res) => {
+  try {
+    console.log('In Reset Password Controller');
+    console.log('Reset password request:', req.body);
+    const { email, token, newPassword } = req.body;
+
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({
+        error: 'Missing parameters',
+        message: 'Email, token, and new password are required'
+      });
+    }
+
+    console.log('Finding user by email:', email);
+
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'No account found with this email'
+      });
+    }
+console.log('User found:', user);
+    // Check if token and expiry exist
+    if (!user.resetToken || !user.resetTokenExpiry) {
+      return res.status(400).json({
+        error: 'No reset token',
+        message: 'No password reset request found for this user'
+      });
+    }
+
+    // Validate token and expiry
+    if (user.resetToken !== token || user.resetTokenExpiry < new Date()) {
+      console.log('Token mismatch or expired');
+      return res.status(400).json({
+        error: 'Invalid or expired token',
+        message: 'The reset token is invalid or has expired'
+      });
+    }
+
+    // Update password
+    user.email = email;
+    user.password = newPassword;
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+
+    res.status(200).json({
+      message: 'Password reset successful. You can now sign in with your new password.',
+      email: email
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error resetting password'
+    });
+  }
+};
+
+// ...existing code...
+
 module.exports = {
   signup,
   verifyOTP,
   resendOTP,
   signin,
   getMe,
-  googleSignIn
+  googleSignIn,
+  forgotPassword,
+  resetPassword
 };
+
+// balajisankar0202@gmail.com
