@@ -262,59 +262,124 @@ const sendWelcomeEmail = async (email, fullName) => {
 };
 
 // Send welcome email after verification
-const sendForgotPasswordMail = async (email, resetLink, fullName) => {
+const sendForgotPasswordMail = async (email, token, fullName) => {
   try {
     const mailOptions = {
       from: {
-      name: 'Taatom App',
-      address: process.env.EMAIL_USER
+        name: 'Taatom App',
+        address: process.env.EMAIL_USER
       },
       to: email,
-      subject: '🔐 Reset Your Taatom Password',
+      subject: '🔐 Taatom Password Reset Code',
       html: `
       <!DOCTYPE html>
       <html lang="en">
       <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Reset Password</title>
-      <style>
-        /* ... keeping same styles ... */
-      </style>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Password Reset Code</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f4; color: #333; }
+          .container { background: #fff; border-radius: 10px; max-width: 500px; margin: 40px auto; padding: 32px; box-shadow: 0 0 20px rgba(0,0,0,0.08); }
+          .logo { font-size: 32px; font-weight: bold; color: #4A90E2; text-align: center; margin-bottom: 10px; }
+          .header { text-align: center; margin-bottom: 24px; }
+          .code-box { background: linear-gradient(135deg, #4A90E2, #50C878); color: #fff; padding: 24px; border-radius: 10px; text-align: center; margin: 32px 0; }
+          .reset-code { font-size: 36px; font-weight: bold; letter-spacing: 8px; margin: 10px 0; }
+          .footer { text-align: center; margin-top: 32px; color: #666; font-size: 14px; }
+        </style>
       </head>
       <body>
-      <div class="container">
-      <div class="header">
-        <div class="logo">📸 Taatom</div>
-        <h2>Reset Your Password, ${fullName}</h2>
-      </div>
-      
-      <div class="welcome-box">
-        <h3>Password Reset Link</h3>
-        <a href="${resetLink}" class="reset-link">Click here to reset your password</a>
-        <p>This link will expire in 10 minutes for security reasons.</p>
-      </div>
-
-      <p>If you can't click the link, open the Taatom app and enter this code:</p>
-      <div style="text-align: center; padding: 15px; background: #f5f5f5; margin: 15px 0;">
-        <code style="font-size: 18px; font-weight: bold;">${resetLink}</code>
-      </div>
-
-      <p>If you didn't request this reset, please ignore this email.</p>
-      <p>If you need help, contact us at support@taatom.com</p>
-      <p>&copy; 2024 Taatom. All rights reserved.</p>
-      </div>
+        <div class="container">
+          <div class="logo">📸 Taatom</div>
+          <div class="header">
+            <h2>Password Reset Request</h2>
+            <p>Hi ${fullName},</p>
+            <p>We received a request to reset your Taatom account password.</p>
+          </div>
+          <div class="code-box">
+            <h3>Your Password Reset Code</h3>
+            <div class="reset-code">${token}</div>
+            <p>This code will expire in 10 minutes.</p>
+          </div>
+          <p style="text-align:center;">Enter this code in the Taatom app to reset your password.</p>
+          <div class="footer">
+            <p>If you did not request this, you can safely ignore this email.</p>
+            <p>Need help? Contact us at support@taatom.com</p>
+            <p>&copy; 2024 Taatom. All rights reserved.</p>
+          </div>
+        </div>
       </body>
       </html>
       `
     };
-
     const info = await transporter.sendMail(mailOptions);
     console.log('✅ Password Reset email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending welcome email:', error);
-    // Don't throw error for welcome email, it's not critical
+    console.error('❌ Error sending password reset email:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Send password reset confirmation email
+const sendPasswordResetConfirmationEmail = async (email, fullName) => {
+  try {
+    const mailOptions = {
+      from: {
+        name: 'Taatom App',
+        address: process.env.EMAIL_USER
+      },
+      to: email,
+      subject: '✅ Your Taatom Password Has Been Reset',
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Password Reset Confirmation</title>
+          <style>
+            body { background: #f4f8fb; color: #222; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; }
+            .container { background: #fff; border-radius: 16px; max-width: 480px; margin: 48px auto; padding: 40px 32px 32px 32px; box-shadow: 0 8px 32px rgba(74,144,226,0.10), 0 1.5px 6px rgba(80,200,120,0.08); }
+            .logo { font-size: 32px; font-weight: bold; color: #4A90E2; text-align: center; margin-bottom: 8px; }
+            .success-icon { text-align: center; margin-bottom: 18px; }
+            .success-icon span { display: inline-block; background: linear-gradient(135deg, #4A90E2, #50C878); border-radius: 50%; width: 64px; height: 64px; line-height: 64px; font-size: 36px; color: #fff; }
+            .headline { text-align: center; font-size: 26px; font-weight: 700; color: #222; margin-bottom: 8px; }
+            .greeting { text-align: center; font-size: 18px; color: #4A90E2; margin-bottom: 18px; }
+            .message { text-align: center; font-size: 16px; color: #333; margin-bottom: 24px; }
+            .divider { border-top: 1px solid #e6eaf0; margin: 32px 0 16px 0; }
+            .footer { text-align: center; color: #888; font-size: 13px; margin-top: 8px; }
+            .support { color: #4A90E2; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="logo">📸 Taatom</div>
+            <div class="success-icon">
+              <span>✔️</span>
+            </div>
+            <div class="headline">Password Reset Successful</div>
+            <div class="greeting">Hi ${fullName},</div>
+            <div class="message">
+              Your password for your Taatom account has been <b>securely reset</b>.<br>
+              You can now sign in with your new password.<br><br>
+              If you did <b>not</b> request this change, please <a href="mailto:support@taatom.com" class="support">contact our support team</a> immediately.
+            </div>
+            <div class="divider"></div>
+            <div class="footer">
+              &copy; 2024 Taatom. All rights reserved.<br>
+              Need help? <a href="mailto:support@taatom.com" class="support">support@taatom.com</a>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Password reset confirmation email sent:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error sending password reset confirmation email:', error);
     return { success: false, error: error.message };
   }
 };
@@ -322,5 +387,6 @@ const sendForgotPasswordMail = async (email, resetLink, fullName) => {
 module.exports = {
   sendOTPEmail,
   sendWelcomeEmail,
-  sendForgotPasswordMail
+  sendForgotPasswordMail,
+  sendPasswordResetConfirmationEmail
 };
