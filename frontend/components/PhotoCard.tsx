@@ -144,7 +144,7 @@ export default function PhotoCard({
     },
     likesText: {
       fontSize: theme.typography.body.fontSize,
-      fontWeight: '600',
+      fontWeight: '500',
       color: theme.colors.text,
       marginLeft: -15,
       marginTop: 5,
