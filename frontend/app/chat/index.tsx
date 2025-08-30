@@ -423,7 +423,7 @@ export default function ChatModal() {
       {filtered.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 48 }}>
           <Text style={{ color: theme.colors.textSecondary, fontSize: 16 }}>No conversations yet.</Text>
-          <Text style={{ color: theme.colors.textSecondary, fontSize: 10 }}>{JSON.stringify(conversations)}</Text>
+          {/* <Text style={{ color: theme.colors.textSecondary, fontSize: 10 }}>{JSON.stringify(conversations)}</Text> */}
         </View>
       ) : (
         <FlatList
