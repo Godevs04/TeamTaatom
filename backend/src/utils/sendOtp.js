@@ -95,7 +95,7 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">📸 Taatom</div>
+              <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
               <h2>Welcome to Taatom!</h2>
               <p>Hi ${fullName}, please verify your account to get started.</p>
             </div>
@@ -206,7 +206,7 @@ const sendWelcomeEmail = async (email, fullName) => {
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">📸 Taatom</div>
+              <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
               <h2>🎉 Welcome to Taatom, ${fullName}!</h2>
             </div>
             
@@ -291,6 +291,7 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
       <body>
         <div class="container">
           <div class="logo">📸 Taatom</div>
+          <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
           <div class="header">
             <h2>Password Reset Request</h2>
             <p>Hi ${fullName},</p>
@@ -355,6 +356,7 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
         <body>
           <div class="container">
             <div class="logo">📸 Taatom</div>
+            <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
             <div class="success-icon">
               <span>✔️</span>
             </div>

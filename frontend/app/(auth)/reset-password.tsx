@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, ColorValue } from "react-native";
+import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity, ColorValue, Image } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import axios from "../../services/api";
 import { theme } from '../../constants/theme';
@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Formik } from "formik";
 import AuthInput from "../../components/AuthInput";
 import { resetPasswordSchema } from '../../utils/validation';
+import Constants from 'expo-constants';
 
 export default function ResetPassword() {
   const params = useLocalSearchParams();
@@ -70,7 +71,11 @@ export default function ResetPassword() {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <Ionicons name="lock-open" size={60} color={theme.colors.primary} />
+            <Image
+              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
+              accessibilityLabel="Taatom Logo"
+            />
             <Text style={styles.title}>Create New Password</Text>
             <Text style={styles.subtitle}>
               Enter your new Password and confirm to reset your password.
