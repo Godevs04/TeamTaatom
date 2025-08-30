@@ -38,7 +38,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    if (
+      error.response?.status === 401 &&
+      error.config?.url &&
+      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh'))
+    ) {
       // Token expired or invalid, clear storage
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');

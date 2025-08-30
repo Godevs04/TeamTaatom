@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { initializeAuth } from '../services/auth';
+import { initializeAuth, getLastAuthError } from '../services/auth';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { socketService } from '../services/socket';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -12,6 +14,10 @@ SplashScreen.preventAutoHideAsync();
 
 function RootLayoutInner() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [showSessionBanner, setShowSessionBanner] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     let unsubFeed: (() => void) | null = null;
@@ -46,20 +52,63 @@ function RootLayoutInner() {
     const initialize = async () => {
       try {
         const user = await initializeAuth();
-        setIsAuthenticated(!!user);
+        console.log('[RootLayoutInner] initializeAuth returned:', user);
+        const lastAuthError = getLastAuthError();
+        if (user === 'network-error') {
+          setIsAuthenticated(true);
+          setIsOffline(true);
+          setSessionExpired(false);
+          console.warn('Network error during auth initialization. User kept signed in.');
+        } else if (lastAuthError === 'Session expired. Please sign in again.') {
+          setIsAuthenticated(false);
+          setIsOffline(false);
+          setSessionExpired(true);
+        } else {
+          setIsAuthenticated(!!user);
+          setIsOffline(false);
+          setSessionExpired(false);
+        }
+        console.log('[RootLayoutInner] isAuthenticated set to:', !!user);
       } catch (error) {
         console.error('Auth initialization error:', error);
-        setIsAuthenticated(false);
+        try {
+          const token = await AsyncStorage.getItem('authToken');
+          console.log('[RootLayoutInner] Fallback token in storage:', token);
+          if (token) {
+            setIsAuthenticated(true);
+            setIsOffline(true);
+            setSessionExpired(false);
+          } else {
+            setIsAuthenticated(false);
+            setIsOffline(false);
+            setSessionExpired(false);
+          }
+        } catch {
+          setIsAuthenticated(false);
+          setIsOffline(false);
+          setSessionExpired(false);
+        }
       } finally {
-        // Hide the splash screen after auth state is determined
         SplashScreen.hideAsync();
       }
     };
-
     initialize();
   }, []);
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Force navigation to home tab after auth
+      // setTimeout(() => {
+        router.replace('/home');
+      // }, 100);
+    }
+  }, [isAuthenticated, router]);
+
   const { theme } = useTheme();
+  useEffect(() => {
+    console.log('[RootLayoutInner] Render: isAuthenticated:', isAuthenticated, 'isOffline:', isOffline, 'sessionExpired:', sessionExpired);
+  });
+
   if (isAuthenticated === null) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
@@ -69,20 +118,32 @@ function RootLayoutInner() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: theme.colors.background },
-      }}
-    >
-      {!isAuthenticated ? (
-        <>
-          <Stack.Screen name="(auth)" />
-        </>
-      ) : (
-        <Stack.Screen name="(tabs)" />
+    <>
+      {isOffline && (
+        <View style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100 }}>
+          <Text style={{ color: '#222', fontWeight: 'bold' }}>You are offline. Some features may not work.</Text>
+        </View>
       )}
-    </Stack>
+      {sessionExpired && showSessionBanner && (
+        <View style={{ backgroundColor: '#ff5252', padding: 8, alignItems: 'center', zIndex: 101, flexDirection: 'row', justifyContent: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>Session expired. Please sign in again.</Text>
+          <TouchableOpacity onPress={() => setShowSessionBanner(false)} style={{ marginLeft: 8 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
+        {!isAuthenticated
+          ? <Stack.Screen name="(auth)" />
+          : <Stack.Screen name="(tabs)" />
+        }
+      </Stack>
+    </>
   );
 }
 
