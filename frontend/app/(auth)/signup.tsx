@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Formik } from 'formik';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
 import { signUp } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import Constants from 'expo-constants';
 
 interface SignUpFormValues {
   fullName: string;
@@ -29,6 +31,8 @@ interface SignUpFormValues {
 export default function SignUpScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
 
   const handleSignUp = async (values: SignUpFormValues) => {
@@ -88,7 +92,11 @@ export default function SignUpScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Ionicons name="camera" size={60} color={theme.colors.primary} />
+            <Image
+              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
+              accessibilityLabel="Taatom Logo"
+            />
             <Text style={styles.title}>Taatom</Text>
             <Text style={styles.subtitle}>Share your world</Text>
           </View>
@@ -137,7 +145,16 @@ export default function SignUpScreen() {
                     onBlur={handleBlur('password')}
                     error={errors.password}
                     touched={touched.password}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
+                    rightIcon={
+                      <TouchableOpacity onPress={() => setShowPassword((prev) => !prev)}>
+                        <Ionicons
+                          name={showPassword ? 'eye-off' : 'eye'}
+                          size={22}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    }
                   />
 
 
@@ -149,7 +166,16 @@ export default function SignUpScreen() {
                     onBlur={handleBlur('confirmPassword')}
                     error={errors.confirmPassword}
                     touched={touched.confirmPassword}
-                    secureTextEntry
+                    secureTextEntry={!showConfirmPassword}
+                    rightIcon={
+                      <TouchableOpacity onPress={() => setShowConfirmPassword((prev) => !prev)}>
+                        <Ionicons
+                          name={showConfirmPassword ? 'eye-off' : 'eye'}
+                          size={22}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    }
                   />
 
 

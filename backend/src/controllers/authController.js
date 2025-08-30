@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const ForgotSignIn = require('../models/ForgotSignIn');
-const { sendOTPEmail, sendWelcomeEmail , sendForgotPasswordMail} = require('../utils/sendOtp');
+const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail } = require('../utils/sendOtp');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -436,9 +436,7 @@ const forgotPassword = async (req, res) => {
     )
     
     // Send reset email (implement sendResetEmail function)
-    const resetLink = `${prefix}${resetToken}`;
-    console.log(`Reset link for ${email}: ${resetLink}`); // For debugging,
-    await sendForgotPasswordMail(email, resetLink, user.fullName);
+    await sendForgotPasswordMail(email, resetToken, user.fullName);
     // await sendResetEmail(email, resetToken, user.fullName);
 
     res.status(200).json({
@@ -516,6 +514,8 @@ console.log('User found:', user);
     user.resetToken = undefined;
     user.resetTokenExpiry = undefined;
     await user.save();
+
+    await sendPasswordResetConfirmationEmail(email, user.fullName);
 
     res.status(200).json({
       message: 'Password reset successful. You can now sign in with your new password.',

@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Formik } from 'formik';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { signInSchema } from '../../utils/validation';
 import { signIn } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import Constants from 'expo-constants';
 
 interface SignInFormValues {
   email: string;
@@ -98,7 +100,11 @@ export default function SignInScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Ionicons name="camera" size={60} color={theme.colors.primary} />
+            <Image
+              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
+              accessibilityLabel="Taatom Logo"
+            />
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Sign in to your account</Text>
           </View>
