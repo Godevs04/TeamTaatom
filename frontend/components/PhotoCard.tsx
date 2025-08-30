@@ -139,14 +139,15 @@ export default function PhotoCard({
       paddingBottom: theme.spacing.sm,
     },
     actionButton: {
-      marginRight: theme.spacing.lg,
+      marginRight: theme.spacing.md,
       padding: theme.spacing.xs,
     },
     likesText: {
       fontSize: theme.typography.body.fontSize,
       fontWeight: '600',
       color: theme.colors.text,
-      paddingHorizontal: theme.spacing.md,
+      marginLeft: -15,
+      marginTop: 5,
       paddingBottom: theme.spacing.xs,
     },
     caption: {
@@ -207,19 +208,6 @@ export default function PhotoCard({
           <TouchableOpacity onPress={() => router.push(`/profile/${post.user._id}`)}>
             <Text style={styles.username}>{post.user?.fullName || 'Unknown User'}</Text>
           </TouchableOpacity>
-          {post.location?.address && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-              <TouchableOpacity 
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
-                onPress={() => setShowWorldMap(true)}
-              >
-                <Ionicons name="location-outline" size={12} color={theme.colors.textSecondary} />
-                <Text style={[styles.location, { marginLeft: 2, flex: 1 }]}> 
-                  {post.location.address}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
         <TouchableOpacity 
           style={{ padding: theme.spacing.xs }}
@@ -241,13 +229,26 @@ export default function PhotoCard({
             color={isLiked ? '#FF3040' : theme.colors.text}
           />
         </TouchableOpacity>
-      </View>
-
-      {likesCount > 0 && (
         <Text style={styles.likesText}>
           {likesCount.toLocaleString()} {likesCount === 1 ? 'like' : 'likes'}
         </Text>
-      )}
+        {post.location?.address && (
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 12, flexShrink: 1, flexGrow: 1, minWidth: 0 }}
+            onPress={() => setShowWorldMap(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="location-outline" size={14} color="#27ae60" />
+            <Text
+              style={{ color: theme.colors.text, marginLeft: 4, fontSize: theme.typography.small.fontSize, flexShrink: 1, flexGrow: 1, minWidth: 0 }}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {post.location.address}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {post.caption && (
         <View style={styles.caption}>
