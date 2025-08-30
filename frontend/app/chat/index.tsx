@@ -8,6 +8,7 @@ import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { io, Socket } from 'socket.io-client';
+import { SafeAreaView as RNSafeAreaView } from 'react-native-safe-area-context';
 // REMOVE: import { useAuth } from '../../context/AuthContext';
 
 function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { otherUser: any, onClose: () => void, messages: any[], onSendMessage: (msg: any) => void, chatId: string }) {
@@ -466,12 +467,14 @@ export default function ChatModal() {
       )}
       {/* Only show New Message search if showNewMessage is true */}
       {showNewMessage && (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background }}>
-          <View style={styles(theme).header}>
-            <Text style={styles(theme).title}>New Message</Text>
-            <TouchableOpacity onPress={() => setShowNewMessage(false)}>
-              <Ionicons name="close" size={26} color={theme.colors.text} />
-            </TouchableOpacity>
+        <RNSafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: theme.colors.background, position: 'absolute', left: 0, right: 0, bottom: 0, top: 0 }}>
+          <View style={{ backgroundColor: theme.colors.surface }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 56, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <Text style={[styles(theme).title, { flex: 1, textAlign: 'left' }]}>New Message</Text>
+              <TouchableOpacity onPress={() => setShowNewMessage(false)} style={{ marginLeft: 12 }}>
+                <Ionicons name="close" size={26} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={styles(theme).searchBar}>
             <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
@@ -483,28 +486,30 @@ export default function ChatModal() {
               onChangeText={setSearch}
             />
           </View>
-          {loading ? (
-            <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
-          ) : (
-            <FlatList
-              data={users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase()))}
-              keyExtractor={item => item._id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles(theme).item}
-                  onPress={() => openChatWithUser(item)}
-                >
-                  {item.profilePic ? (
-                    <Image source={{ uri: item.profilePic }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }} />
-                  ) : (
-                    <Ionicons name="person-circle" size={40} color={theme.colors.textSecondary} style={{ marginRight: 12 }} />
-                  )}
-                  <Text style={styles(theme).name}>{String(item.fullName || '')}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-        </View>
+          <View style={{ flex: 1, paddingHorizontal: 12 }}>
+            {loading ? (
+              <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
+            ) : (
+              <FlatList
+                data={users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase()))}
+                keyExtractor={item => item._id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles(theme).item, { alignItems: 'center' }]}
+                    onPress={() => openChatWithUser(item)}
+                  >
+                    {item.profilePic ? (
+                      <Image source={{ uri: item.profilePic }} style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }} />
+                    ) : (
+                      <Ionicons name="person-circle" size={40} color={theme.colors.textSecondary} style={{ marginRight: 12 }} />
+                    )}
+                    <Text style={styles(theme).name} numberOfLines={1} ellipsizeMode="tail">{String(item.fullName || '')}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </RNSafeAreaView>
       )}
     </SafeAreaView>
   );
