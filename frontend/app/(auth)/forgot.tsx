@@ -8,6 +8,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Formik } from 'formik';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { forgotPasswordSchema } from '../../utils/validation';
 import { forgotPassword } from '../../services/auth';
 import { ColorValue } from "react-native";
+import Constants from 'expo-constants';
 interface ForgotPasswordFormValues {
   email: string;
 }
@@ -67,7 +69,11 @@ export default function ForgotPasswordScreen() {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <Ionicons name="lock-open" size={60} color={theme.colors.primary} />
+            <Image
+              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
+              accessibilityLabel="Taatom Logo"
+            />
             <Text style={styles.title}>Reset Password</Text>
             <Text style={styles.subtitle}>
               Enter your email address and we'll send you instructions to reset your password.
