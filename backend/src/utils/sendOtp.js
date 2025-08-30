@@ -386,9 +386,59 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
   }
 };
 
+const sendLoginNotificationEmail = async (email, fullName, device, location) => {
+  try {
+    const mailOptions = {
+      from: {
+        name: 'Taatom App',
+        address: process.env.EMAIL_USER
+      },
+      to: email,
+      subject: '🔔 New Login Detected on Your Taatom Account',
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px;">
+          <h2 style="color: #4A90E2; margin-bottom: 24px;">New Login Detected</h2>
+          <p style="font-size: 16px;">Hi <b>${fullName}</b>,</p>
+          <p style="font-size: 15px; margin-bottom: 24px;">
+            Your Taatom account was just signed in from a new device or location:
+          </p>
+          <div style="background: #f8f9fa; border-radius: 8px; padding: 20px 24px; margin-bottom: 24px;">
+            <table style="width: 100%; font-size: 15px;">
+              <tr>
+                <td style="font-weight: bold; padding: 6px 0;">Device:</td>
+                <td style="padding: 6px 0;">${device}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 6px 0;">Location:</td>
+                <td style="padding: 6px 0;">${location && location.trim() ? location : ' 🌏 Unknown or Local Network'}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 6px 0;">Time:</td>
+                <td style="padding: 6px 0;">${new Date().toLocaleString()}</td>
+              </tr>
+            </table>
+          </div>
+          <p style="font-size: 15px;">
+            If this was you, you can safely ignore this email.<br>
+            If you did <b>not</b> sign in, please <a href="mailto:support@taatom.com" style="color: #4A90E2;">contact support</a> immediately and consider changing your password.
+          </p>
+          <p style="color: #888; font-size: 13px; margin-top: 32px;">&copy; 2024 Taatom. All rights reserved.</p>
+        </div>
+      `
+    };
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Login notification email sent:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error sending login notification email:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   sendOTPEmail,
   sendWelcomeEmail,
   sendForgotPasswordMail,
-  sendPasswordResetConfirmationEmail
+  sendPasswordResetConfirmationEmail,
+  sendLoginNotificationEmail,
 };
