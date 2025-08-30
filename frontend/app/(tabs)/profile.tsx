@@ -44,22 +44,25 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [checkingUser, setCheckingUser] = useState(true); // new state
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
 
   const loadUserData = useCallback(async () => {
+    setCheckingUser(true);
     try {
       const userData = await getUserFromStorage();
+      console.log('[ProfileScreen] getUserFromStorage:', userData);
       if (!userData) {
-        router.replace('/(auth)/signin');
+        setCheckingUser(false);
+        setLoading(false);
         return;
       }
       setUser(userData);
-
+      setCheckingUser(false);
       // Load profile data
       const profile = await getProfile(userData._id);
       setProfileData(profile.profile);
-
       // Load user posts
       const userPosts = await getUserPosts(userData._id);
       setPosts(userPosts.posts);
@@ -68,12 +71,20 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to load profile data');
     } finally {
       setLoading(false);
+      setCheckingUser(false);
     }
   }, [router]);
 
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  useEffect(() => {
+    if (!checkingUser && !user) {
+      // Only redirect after confirming user is missing
+      router.replace('/(auth)/signin');
+    }
+  }, [checkingUser, user, router]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -111,9 +122,9 @@ export default function ProfileScreen() {
     setProfileData(prev => prev ? { ...prev, ...updatedUser } : null);
   };
 
-  if (loading) {
+  if (loading || checkingUser) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
         <NavBar title="Profile" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
