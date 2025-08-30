@@ -43,3 +43,21 @@ export const commentSchema = Yup.object().shape({
     .max(200, 'Comment must be less than 200 characters')
     .required('Comment text is required'),
 });
+
+export const resetPasswordSchema = Yup.object().shape({
+  email: Yup.string()
+    .email('Please enter a valid email')
+    .required('Email is required'),
+  token: Yup.string()
+    .required('Token is required'),
+  newPassword: Yup.string()
+    .min(6, 'Password must be at least 6 characters')
+    .matches(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .matches(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .matches(/[0-9]/, 'Password must contain at least one number')
+    .matches(/[^A-Za-z0-9]/, 'Password must contain at least one special character')
+    .required('New password is required'),
+  confirmPassword: Yup.string()
+    .oneOf([Yup.ref('newPassword')], 'Passwords must match')
+    .required('Confirm password is required'),
+});

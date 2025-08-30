@@ -12,25 +12,33 @@ interface AuthInputProps extends TextInputProps {
   label: string;
   error?: string;
   touched?: boolean;
+  rightIcon?: React.ReactNode;
 }
 
 export default function AuthInput({
   label,
   error,
   touched,
+  rightIcon,
   ...props
 }: AuthInputProps) {
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={[
-          styles.input,
-          error && touched && styles.inputError,
-        ]}
-        placeholderTextColor={theme.colors.textSecondary}
-        {...props}
-      />
+      <View style={{ position: 'relative' }}>
+        <TextInput
+          style={[
+            styles.input,
+            error && touched ? styles.inputError : undefined,
+            rightIcon ? { paddingRight: 40 } : undefined,
+          ].filter(Boolean)}
+          placeholderTextColor={theme.colors.textSecondary}
+          {...props}
+        />
+        {rightIcon && (
+          <View style={styles.rightIcon}>{rightIcon}</View>
+        )}
+      </View>
       {error && touched && (
         <Text style={styles.errorText}>{error}</Text>
       )}
@@ -66,5 +74,14 @@ const styles = StyleSheet.create({
     color: theme.colors.error,
     fontSize: theme.typography.small.fontSize,
     marginTop: theme.spacing.xs,
+  },
+  rightIcon: {
+    position: 'absolute',
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
   },
 });
