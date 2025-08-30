@@ -79,18 +79,34 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   }
 };
 
+let lastAuthError: string | null = null;
+
 // Get current user
-export const getCurrentUser = async (): Promise<UserType | null> => {
+export const getCurrentUser = async (): Promise<UserType | null | 'network-error'> => {
   try {
+    const token = await AsyncStorage.getItem('authToken');
+    console.log('[getCurrentUser] Token in storage:', token);
     const response = await api.get('/auth/me');
+    console.log('[getCurrentUser] /auth/me response:', response.data);
     const user = response.data.user;
-    
-    // Update stored user data
     await AsyncStorage.setItem('userData', JSON.stringify(user));
-    
+    lastAuthError = null;
     return user;
-  } catch (error) {
-    return null;
+  } catch (error: any) {
+    if (error?.response) {
+      console.log('[getCurrentUser] /auth/me error:', error.response.status, error.response.data);
+    } else {
+      console.log('[getCurrentUser] /auth/me network or unknown error:', error?.message || error);
+    }
+    if (error?.response?.status === 401 || error?.response?.status === 403) {
+      // Token is invalid
+      lastAuthError = 'Session expired. Please sign in again.';
+      return null;
+    }
+    // Network or other error
+    lastAuthError = error?.message || 'Network or unknown error';
+    console.warn('Network or unknown error in getCurrentUser:', error?.message || error);
+    return 'network-error';
   }
 };
 
@@ -121,19 +137,21 @@ export const isAuthenticated = async (): Promise<boolean> => {
 };
 
 // Initialize auth state on app launch
-export const initializeAuth = async (): Promise<UserType | null> => {
+export const initializeAuth = async (): Promise<UserType | null | 'network-error'> => {
   try {
     const token = await AsyncStorage.getItem('authToken');
+    console.log('[initializeAuth] Token in storage:', token);
     if (!token) return null;
-    
-    // Validate token and get current user
     const user = await getCurrentUser();
-    if (!user) {
+    if (user === null) {
       // Token is invalid, clear storage
       await signOut();
       return null;
     }
-    
+    if (user === 'network-error') {
+      // Network error, keep user signed in (return special value)
+      return 'network-error';
+    }
     return user;
   } catch (error) {
     console.error('Auth initialization error:', error);
@@ -167,3 +185,5 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
     throw new Error(error.response?.data?.message || 'An error occurred while processing your request');
   }
 };
+
+export const getLastAuthError = () => lastAuthError;

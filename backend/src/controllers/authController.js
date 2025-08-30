@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const ForgotSignIn = require('../models/ForgotSignIn');
-const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail } = require('../utils/sendOtp');
+const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -252,6 +252,23 @@ const signin = async (req, res) => {
       token,
       user: user.getPublicProfile()
     });
+
+    // --- Send login notification email (do not await) ---
+    const device = req.headers['user-agent'] || 'Unknown device';
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
+    let location = 'Unknown location';
+    try {
+      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+      const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
+      if (geoRes.ok) {
+        const geo = await geoRes.json();
+        location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country_name || ''}`.replace(/^, |, $/g, '');
+      }
+    } catch (e) {
+      // Ignore location errors
+    }
+    sendLoginNotificationEmail(user.email, user.fullName, device, location).catch(console.error);
+    // --- End login notification ---
 
   } catch (error) {
     console.error('Signin error:', error);
