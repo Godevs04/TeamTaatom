@@ -6,7 +6,9 @@ const {
   getProfile,
   updateProfile,
   toggleFollow,
-  searchUsers
+  searchUsers,
+  getFollowersList,
+  getFollowingList,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -41,5 +43,7 @@ router.get('/search', optionalAuth, searchUsers);
 router.get('/:id', optionalAuth, getProfile);
 router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileValidation, updateProfile);
 router.post('/:id/follow', authMiddleware, toggleFollow);
+router.get('/:id/followers', optionalAuth, getFollowersList);
+router.get('/:id/following', optionalAuth, getFollowingList);
 
 module.exports = router;
