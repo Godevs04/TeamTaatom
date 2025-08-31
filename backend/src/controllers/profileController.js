@@ -302,9 +302,71 @@ const searchUsers = async (req, res) => {
   }
 };
 
+// @desc    Get followers list
+// @route   GET /profile/:id/followers
+// @access  Public
+const getFollowersList = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate('followers', 'fullName profilePic email followers following');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const currentUserId = req.user ? req.user._id.toString() : null;
+    const followers = user.followers.map(f => {
+      const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      return {
+        _id: f._id,
+        fullName: f.fullName,
+        email: f.email,
+        profilePic: f.profilePic,
+        totalLikes: f.totalLikes,
+        isVerified: f.isVerified,
+        followers: f.followers,
+        following: f.following,
+        isFollowing,
+      };
+    });
+    res.status(200).json({ users: followers });
+  } catch (error) {
+    console.error('Get followers list error:', error);
+    res.status(500).json({ error: 'Internal server error', message: 'Error fetching followers list' });
+  }
+};
+
+// @desc    Get following list
+// @route   GET /profile/:id/following
+// @access  Public
+const getFollowingList = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate('following', 'fullName profilePic email followers following');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const currentUserId = req.user ? req.user._id.toString() : null;
+    const following = user.following.map(f => {
+      const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      return {
+        _id: f._id,
+        fullName: f.fullName,
+        email: f.email,
+        profilePic: f.profilePic,
+        totalLikes: f.totalLikes,
+        isVerified: f.isVerified,
+        followers: f.followers,
+        following: f.following,
+        isFollowing,
+      };
+    });
+    res.status(200).json({ users: following });
+  } catch (error) {
+    console.error('Get following list error:', error);
+    res.status(500).json({ error: 'Internal server error', message: 'Error fetching following list' });
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
   toggleFollow,
-  searchUsers
+  searchUsers,
+  getFollowersList,
+  getFollowingList,
 };
