@@ -113,3 +113,13 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
     throw new Error(error.response?.data?.message || 'Failed to search users');
   }
 };
+
+// Update Expo push token
+export const updateExpoPushToken = async (userId: string, expoPushToken: string): Promise<void> => {
+  try {
+    await api.put(`/profile/${userId}/push-token`, { expoPushToken });
+  } catch (error: any) {
+    console.error('Failed to update Expo push token:', error.response?.data || error.message);
+    throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
+  }
+};

@@ -2,6 +2,7 @@ const Chat = require('../models/Chat');
 const User = require('../models/User');
 const { getIO } = require('../socket');
 const mongoose = require('mongoose');
+const fetch = require('node-fetch');
 
 // Helper: check if user is following the other
 async function canChat(userId, otherId) {
@@ -73,7 +74,27 @@ exports.sendMessage = async (req, res) => {
   const message = { sender: userId, text, timestamp: new Date() };
   chat.messages.push(message);
   await chat.save();
-  // Socket emission removed from here
+
+  // Send push notification to recipient
+  try {
+    const recipient = await User.findById(otherUserId);
+    if (recipient && recipient.expoPushToken) {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipient.expoPushToken,
+          sound: 'default',
+          title: 'New Message',
+          body: `${req.user.fullName || 'Someone'}: ${text}`,
+          data: { chatWith: userId }
+        })
+      });
+    }
+  } catch (err) {
+    console.error('Failed to send push notification:', err);
+  }
+
   res.json({ message });
 };
 
