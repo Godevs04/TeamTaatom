@@ -17,24 +17,45 @@ export default function FollowersFollowingList() {
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const limit = 20;
 
   useEffect(() => {
-    const fetchList = async () => {
-      setLoading(true);
-      try {
-        const endpoint = type === 'followers'
-          ? `/profile/${userId}/followers`
-          : `/profile/${userId}/following`;
-        const response = await api.get(endpoint);
-        setUsers(response.data.users || []);
-      } catch (err) {
-        Alert.alert('Error', 'Failed to load list');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchList();
+    setUsers([]);
+    setPage(1);
+    setHasNextPage(true);
+    setLoading(true);
+    fetchList(1, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, type]);
+
+  const fetchList = async (pageToFetch = 1, replace = false) => {
+    if (!hasNextPage && !replace) return;
+    if (pageToFetch > 1) setLoadingMore(true);
+    try {
+      const endpoint = type === 'followers'
+        ? `/profile/${userId}/followers?page=${pageToFetch}&limit=${limit}`
+        : `/profile/${userId}/following?page=${pageToFetch}&limit=${limit}`;
+      const response = await api.get(endpoint);
+      const newUsers = response.data.users || [];
+      setUsers(prev => replace ? newUsers : [...prev, ...newUsers]);
+      setHasNextPage(response.data.pagination?.hasNextPage ?? false);
+      setPage(pageToFetch);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to load list');
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!loadingMore && hasNextPage && !loading) {
+      fetchList(page + 1);
+    }
+  };
 
   const handleToggleFollow = async (targetId: string) => {
     setFollowLoading(targetId);
@@ -71,6 +92,11 @@ export default function FollowersFollowingList() {
     </View>
   );
 
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    return <ActivityIndicator style={{ marginVertical: 16 }} color={theme.colors.primary} />;
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <SafeAreaView edges={['top']} style={{ backgroundColor: theme.colors.surface }}>
@@ -102,6 +128,9 @@ export default function FollowersFollowingList() {
           contentContainerStyle={{ padding: 16 }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           ListEmptyComponent={<Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 48 }}>No users found.</Text>}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={renderFooter}
         />
       )}
     </View>

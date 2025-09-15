@@ -308,9 +308,17 @@ const searchUsers = async (req, res) => {
 const getFollowersList = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).populate('followers', 'fullName profilePic email followers following');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    const user = await User.findById(id).populate({
+      path: 'followers',
+      select: 'fullName profilePic email followers following totalLikes isVerified',
+      options: { skip, limit }
+    });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const currentUserId = req.user ? req.user._id.toString() : null;
+    const totalFollowers = user.followers.length;
     const followers = user.followers.map(f => {
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
@@ -325,7 +333,16 @@ const getFollowersList = async (req, res) => {
         isFollowing,
       };
     });
-    res.status(200).json({ users: followers });
+    res.status(200).json({
+      users: followers,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalFollowers / limit),
+        totalUsers: totalFollowers,
+        hasNextPage: skip + limit < totalFollowers,
+        limit
+      }
+    });
   } catch (error) {
     console.error('Get followers list error:', error);
     res.status(500).json({ error: 'Internal server error', message: 'Error fetching followers list' });
@@ -338,9 +355,17 @@ const getFollowersList = async (req, res) => {
 const getFollowingList = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id).populate('following', 'fullName profilePic email followers following');
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    const user = await User.findById(id).populate({
+      path: 'following',
+      select: 'fullName profilePic email followers following totalLikes isVerified',
+      options: { skip, limit }
+    });
     if (!user) return res.status(404).json({ error: 'User not found' });
     const currentUserId = req.user ? req.user._id.toString() : null;
+    const totalFollowing = user.following.length;
     const following = user.following.map(f => {
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
@@ -355,7 +380,16 @@ const getFollowingList = async (req, res) => {
         isFollowing,
       };
     });
-    res.status(200).json({ users: following });
+    res.status(200).json({
+      users: following,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalFollowing / limit),
+        totalUsers: totalFollowing,
+        hasNextPage: skip + limit < totalFollowing,
+        limit
+      }
+    });
   } catch (error) {
     console.error('Get following list error:', error);
     res.status(500).json({ error: 'Internal server error', message: 'Error fetching following list' });
