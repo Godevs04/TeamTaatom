@@ -216,6 +216,30 @@ const toggleLike = async (req, res) => {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
 
+    // Send push notification to post owner if liked by someone else
+    try {
+      if (isLiked && post.user.toString() !== req.user._id.toString()) {
+        const owner = await User.findById(post.user);
+        if (owner && owner.expoPushToken) {
+          // Dynamically import fetch for compatibility
+          const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+          await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: owner.expoPushToken,
+              sound: 'default',
+              title: 'New Like',
+              body: `${req.user.fullName || 'Someone'} liked your post!`,
+              data: { postId: post._id }
+            })
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to send push notification:', err);
+    }
+
     // Emit socket events
     const io = getIO();
     if (io) {

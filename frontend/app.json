@@ -3,7 +3,11 @@
     "name": "Taatom",
     "slug": "taatom",
     "scheme": "taatom",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,10 +22,10 @@
     ],
     "ios": {
       "bundleIdentifier": "com.taatom.demo",
-      "associatedDomains": ["applinks:localhost:3000"],
+      "associatedDomains": [
+        "applinks:localhost:3000"
+      ],
       "supportsTablet": true,
-
-      
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to camera to take photos for posts.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for posts.",
@@ -29,7 +33,7 @@
       }
     },
     "android": {
-      "package": "com.myapp.demo",
+      "package": "com.taatom.demo",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -40,7 +44,10 @@
               "port": "3000"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "adaptiveIcon": {
@@ -77,12 +84,14 @@
       ]
     ],
     "extra": {
-      "API_BASE_URL": "http://192.168.1.8:3000",
+      "API_BASE_URL": "http://192.168.1.4:3000",
       "GOOGLE_CLIENT_ID": "236289534770-a6be8j239t504vq9o8mt8qgeh2nsu9h0.apps.googleusercontent.com",
       "GOOGLE_CLIENT_SECRET": "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",
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@teamgodevs/taatom",
       "GOOGLE_MAPS_API_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
-      "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png"
+      "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png",
+      "EXPO_PROJECT_ID": "10a6919b-ba8b-4dfb-b379-d36909e67701",
+      "router": {}
     },
     "owner": "teamgodevs"
   }

@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { initializeAuth, getLastAuthError } from '../services/auth';
+import { initializeAuth, getLastAuthError, getUserFromStorage } from '../services/auth';
+import { updateExpoPushToken } from '../services/profile';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -103,6 +107,51 @@ function RootLayoutInner() {
       // }, 100);
     }
   }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    async function registerForPushNotifications() {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') {
+          console.warn('Push notification permissions not granted');
+          return;
+        }
+        // Get projectId from app.json extra
+        const projectId =
+          (Constants.expoConfig?.extra?.EXPO_PROJECT_ID as string) ||
+          ((Constants.manifest as any)?.extra?.EXPO_PROJECT_ID as string);
+        const tokenData = await Notifications.getExpoPushTokenAsync(
+          projectId ? { projectId } : undefined
+        );
+        const expoPushToken = tokenData.data;
+        if (expoPushToken) {
+          const user = await getUserFromStorage();
+          if (user && user._id) {
+            await updateExpoPushToken(user._id, expoPushToken);
+            console.log('Expo push token registered:', expoPushToken);
+          }
+        }
+        if (Platform.OS === 'android') {
+          Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7C',
+          });
+        }
+      } catch (err) {
+        console.error('Error registering for push notifications:', err);
+      }
+    }
+    if (isAuthenticated) {
+      registerForPushNotifications();
+    }
+  }, [isAuthenticated]);
 
   const { theme } = useTheme();
   useEffect(() => {

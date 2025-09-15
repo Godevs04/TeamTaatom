@@ -9,4 +9,5 @@ export interface UserType {
   isVerified: boolean;
   createdAt: string;
   updatedAt: string;
+  isFollowing?: boolean;
 }

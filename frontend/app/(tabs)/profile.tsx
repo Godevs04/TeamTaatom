@@ -212,14 +212,14 @@ export default function ProfileScreen() {
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
-            <View style={styles.statItem}>
+            <TouchableOpacity style={styles.statItem} onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}>
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
-            </View>
-            <View style={styles.statItem}>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.statItem} onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}>
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statItem}>
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.totalLikes || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
