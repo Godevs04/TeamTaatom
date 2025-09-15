@@ -6,7 +6,9 @@ const {
   getProfile,
   updateProfile,
   toggleFollow,
-  searchUsers
+  searchUsers,
+  getFollowersList,
+  getFollowingList,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -41,5 +43,19 @@ router.get('/search', optionalAuth, searchUsers);
 router.get('/:id', optionalAuth, getProfile);
 router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileValidation, updateProfile);
 router.post('/:id/follow', authMiddleware, toggleFollow);
+router.get('/:id/followers', optionalAuth, getFollowersList);
+router.get('/:id/following', optionalAuth, getFollowingList);
+router.put('/:id/push-token', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { expoPushToken } = req.body;
+    if (!expoPushToken) return res.status(400).json({ error: 'expoPushToken is required' });
+    if (req.user._id.toString() !== id) return res.status(403).json({ error: 'Unauthorized' });
+    await require('../models/User').findByIdAndUpdate(id, { expoPushToken });
+    res.status(200).json({ message: 'Expo push token updated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update push token' });
+  }
+});
 
 module.exports = router;

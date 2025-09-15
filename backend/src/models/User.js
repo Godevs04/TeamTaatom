@@ -71,6 +71,11 @@ const userSchema = new mongoose.Schema({
   resetTokenExpiry: {
       type: Date,
       required: false
+  },
+  expoPushToken: {
+      type: String,
+      required: false,
+      default: null
   }
 }, {
   timestamps: true
