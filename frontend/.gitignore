@@ -1,0 +1,9 @@
+.idea   
+.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.expo
+de/rules/byterover-rules.md
+
