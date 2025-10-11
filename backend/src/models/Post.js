@@ -36,6 +36,15 @@ const postSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  tags: [{
+    type: String,
+    trim: true
+  }],
+  type: {
+    type: String,
+    enum: ['photo', 'short'],
+    default: 'photo'
+  },
   location: {
     address: {
       type: String,
