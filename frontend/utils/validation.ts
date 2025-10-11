@@ -42,6 +42,16 @@ export const postSchema = Yup.object().shape({
     .max(100, 'Place name must be less than 100 characters'),
 });
 
+export const shortSchema = Yup.object().shape({
+  caption: Yup.string()
+    .max(500, 'Caption must be less than 500 characters')
+    .required('Caption is required'),
+  tags: Yup.string()
+    .max(200, 'Tags must be less than 200 characters'),
+  placeName: Yup.string()
+    .max(100, 'Place name must be less than 100 characters'),
+});
+
 export const commentSchema = Yup.object().shape({
   text: Yup.string()
     .max(200, 'Comment must be less than 200 characters')

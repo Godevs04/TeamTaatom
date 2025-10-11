@@ -76,7 +76,7 @@ const createPost = async (req, res) => {
       });
     }
 
-    const { caption, address, latitude, longitude } = req.body;
+    const { caption, address, latitude, longitude, tags } = req.body;
 
     // Upload image to Cloudinary
     const cloudinaryResult = await uploadImage(req.file.buffer, {
@@ -84,12 +84,24 @@ const createPost = async (req, res) => {
       public_id: `post_${req.user._id}_${Date.now()}`
     });
 
+    // Parse tags if provided
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch (e) {
+        parsedTags = [];
+      }
+    }
+
     // Create post
     const post = new Post({
       user: req.user._id,
       caption,
       imageUrl: cloudinaryResult.secure_url,
       cloudinaryPublicId: cloudinaryResult.public_id,
+      tags: parsedTags,
+      type: 'photo',
       location: {
         address: address || 'Unknown Location',
         coordinates: {
@@ -430,6 +442,162 @@ const deletePost = async (req, res) => {
   }
 };
 
+// @desc    Get all shorts
+// @route   GET /shorts
+// @access  Public
+const getShorts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const shorts = await Post.find({ isActive: true, type: 'short' })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Add isLiked field if user is authenticated
+    const shortsWithLikeStatus = shorts.map(short => ({
+      ...short,
+      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+      likesCount: short.likes.length,
+      commentsCount: short.comments.length
+    }));
+
+    const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
+    const totalPages = Math.ceil(totalShorts / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    res.status(200).json({
+      shorts: shortsWithLikeStatus,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalShorts,
+        hasNextPage,
+        hasPrevPage,
+        limit
+      }
+    });
+
+  } catch (error) {
+    console.error('Get shorts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching shorts'
+    });
+  }
+};
+
+// @desc    Create new short
+// @route   POST /shorts
+// @access  Private
+const createShort = async (req, res) => {
+  try {
+    console.log('createShort called');
+    console.log('req.file:', req.file);
+    console.log('req.body:', req.body);
+    
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log('Validation errors:', errors.array());
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    if (!req.file) {
+      console.log('No file uploaded');
+      return res.status(400).json({
+        error: 'Video required',
+        message: 'Please upload a video'
+      });
+    }
+
+    const { caption, address, latitude, longitude, tags } = req.body;
+
+    // Upload video to Cloudinary
+    const cloudinaryResult = await uploadImage(req.file.buffer, {
+      folder: 'taatom/shorts',
+      resource_type: 'video',
+      public_id: `short_${req.user._id}_${Date.now()}`
+    });
+
+    // Parse tags if provided
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch (e) {
+        parsedTags = [];
+      }
+    }
+
+    // Create short
+    const short = new Post({
+      user: req.user._id,
+      caption,
+      imageUrl: cloudinaryResult.secure_url,
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      tags: parsedTags,
+      type: 'short',
+      location: {
+        address: address || 'Unknown Location',
+        coordinates: {
+          latitude: parseFloat(latitude) || 0,
+          longitude: parseFloat(longitude) || 0
+        }
+      }
+    });
+
+    await short.save();
+
+    // Populate user data for response
+    await short.populate('user', 'fullName profilePic');
+
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(req.user._id);
+      const audience = [req.user._id.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(req.user._id.toString());
+      nsp.emitEvent('short:created', audience, { shortId: short._id });
+    }
+
+    res.status(201).json({
+      message: 'Short created successfully',
+      short: {
+        ...short.toObject(),
+        isLiked: false,
+        likesCount: 0,
+        commentsCount: 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Create short error:', error);
+    
+    // Clean up uploaded video if short creation failed
+    if (req.cloudinaryResult) {
+      deleteImage(req.cloudinaryResult.public_id).catch(err => 
+        console.error('Error deleting video after failed short creation:', err)
+      );
+    }
+
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error creating short'
+    });
+  }
+};
+
 module.exports = {
   getPosts,
   createPost,
@@ -437,5 +605,7 @@ module.exports = {
   toggleLike,
   addComment,
   deleteComment,
-  deletePost
+  deletePost,
+  getShorts,
+  createShort
 };

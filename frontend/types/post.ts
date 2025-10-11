@@ -8,6 +8,8 @@ export interface PostType {
   caption: string;
   imageUrl: string;
   cloudinaryPublicId: string;
+  tags?: string[];
+  type?: 'photo' | 'short';
   location: {
     address: string;
     coordinates: {
