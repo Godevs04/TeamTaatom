@@ -279,43 +279,15 @@ const toggleLike = async (req, res) => {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
 
-    // Send push notification to post owner if liked by someone else
-    try {
-      if (isLiked && post.user.toString() !== req.user._id.toString()) {
-        const owner = await User.findById(post.user);
-        if (owner && owner.expoPushToken) {
-          // Dynamically import fetch for compatibility
-          const { default: fetch } = await import('node-fetch');
-          const response = await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: owner.expoPushToken,
-              sound: 'default',
-              title: 'New Like',
-              body: `${req.user.fullName || 'Someone'} liked your post!`,
-              data: { postId: post._id }
-            })
-          });
-          
-          if (!response.ok) {
-            console.error('Push notification failed:', response.status, response.statusText);
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to send push notification:', err);
-    }
-
     // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(post.user);
-      const audience = [post.user.toString(), ...followers];
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitInvalidateProfile(post.user.toString());
-      nsp.emitEvent('post:liked', audience, { postId: post._id });
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+      }
+    } catch (socketError) {
+      console.error('Socket error:', socketError);
     }
 
     res.status(200).json({
@@ -511,12 +483,12 @@ const getShorts = async (req, res) => {
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit)
-      .lean();
+      .limit(limit);
 
-    // Add isLiked field if user is authenticated
+    // Add isLiked field if user is authenticated and include virtual fields
     const shortsWithLikeStatus = shorts.map(short => ({
-      ...short,
+      ...short.toObject(),
+      mediaUrl: short.mediaUrl, // Include virtual field
       isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
       likesCount: short.likes.length,
       commentsCount: short.comments.length
@@ -597,7 +569,8 @@ const createShort = async (req, res) => {
     const short = new Post({
       user: req.user._id,
       caption,
-      imageUrl: cloudinaryResult.secure_url,
+      imageUrl: '', // Empty for shorts - only videoUrl should contain the video URL
+      videoUrl: cloudinaryResult.secure_url, // Video URL goes here
       cloudinaryPublicId: cloudinaryResult.public_id,
       tags: parsedTags,
       type: 'short',
