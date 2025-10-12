@@ -5,7 +5,7 @@ const { uploadImage, deleteImage } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 
-// @desc    Get all posts
+// @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
 const getPosts = async (req, res) => {
@@ -14,7 +14,7 @@ const getPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ isActive: true })
+    const posts = await Post.find({ isActive: true, type: 'photo' })
       .populate('user', 'fullName profilePic')
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
@@ -30,7 +30,7 @@ const getPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    const totalPosts = await Post.countDocuments({ isActive: true });
+    const totalPosts = await Post.countDocuments({ isActive: true, type: 'photo' });
     const totalPages = Math.ceil(totalPosts / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
@@ -154,6 +154,57 @@ const createPost = async (req, res) => {
   }
 };
 
+// @desc    Get user's shorts
+// @route   GET /shorts/user/:userId
+// @access  Public
+const getUserShorts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Check if user exists
+    const user = await User.findById(userId).select('fullName profilePic');
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    const shorts = await Post.find({ user: userId, isActive: true, type: 'short' })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const shortsWithLikeStatus = shorts.map(short => ({
+      ...short,
+      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+      likesCount: short.likes.length,
+      commentsCount: short.comments.length
+    }));
+
+    const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
+
+    res.status(200).json({
+      shorts: shortsWithLikeStatus,
+      user: user,
+      totalShorts
+    });
+
+  } catch (error) {
+    console.error('Get user shorts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching user shorts'
+    });
+  }
+};
+
 // @desc    Get user's posts
 // @route   GET /posts/user/:userId
 // @access  Public
@@ -173,7 +224,7 @@ const getUserPosts = async (req, res) => {
       });
     }
 
-    const posts = await Post.find({ user: userId, isActive: true })
+    const posts = await Post.find({ user: userId, isActive: true, type: 'photo' })
       .populate('user', 'fullName profilePic')
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
@@ -188,7 +239,7 @@ const getUserPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    const totalPosts = await Post.countDocuments({ user: userId, isActive: true });
+    const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' });
 
     res.status(200).json({
       posts: postsWithLikeStatus,
@@ -234,8 +285,8 @@ const toggleLike = async (req, res) => {
         const owner = await User.findById(post.user);
         if (owner && owner.expoPushToken) {
           // Dynamically import fetch for compatibility
-          const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-          await fetch('https://exp.host/--/api/v2/push/send', {
+          const { default: fetch } = await import('node-fetch');
+          const response = await fetch('https://exp.host/--/api/v2/push/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -246,6 +297,10 @@ const toggleLike = async (req, res) => {
               data: { postId: post._id }
             })
           });
+          
+          if (!response.ok) {
+            console.error('Push notification failed:', response.status, response.statusText);
+          }
         }
       }
     } catch (err) {
@@ -585,8 +640,8 @@ const createShort = async (req, res) => {
     console.error('Create short error:', error);
     
     // Clean up uploaded video if short creation failed
-    if (req.cloudinaryResult) {
-      deleteImage(req.cloudinaryResult.public_id).catch(err => 
+    if (cloudinaryResult) {
+      deleteImage(cloudinaryResult.public_id).catch(err => 
         console.error('Error deleting video after failed short creation:', err)
       );
     }
@@ -602,6 +657,7 @@ module.exports = {
   getPosts,
   createPost,
   getUserPosts,
+  getUserShorts,
   toggleLike,
   addComment,
   deleteComment,
