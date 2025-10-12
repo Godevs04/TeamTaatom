@@ -20,7 +20,7 @@ import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/geo";
-import { createPost, createShort } from "../../services/posts";
+import { createPost, createShort, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage } from "../../services/auth";
 import { UserType } from "../../types/user";
 
@@ -47,15 +47,38 @@ export default function PostScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [postType, setPostType] = useState<'photo' | 'short'>('photo');
   const [user, setUser] = useState<UserType | null>(null);
+  const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
+  const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
   const router = useRouter();
   const { theme } = useTheme();
 
-  // Get user from storage
+  // Check for existing posts and shorts
+  const checkExistingContent = async () => {
+    try {
+      // Check for existing posts
+      const postsResponse = await getPosts(1, 1);
+      setHasExistingPosts(postsResponse.posts && postsResponse.posts.length > 0);
+      
+      // Check for existing shorts
+      const shortsResponse = await getShorts(1, 1);
+      setHasExistingShorts(shortsResponse.shorts && shortsResponse.shorts.length > 0);
+    } catch (error) {
+      console.error('Error checking existing content:', error);
+      // Set to false if there's an error
+      setHasExistingPosts(false);
+      setHasExistingShorts(false);
+    }
+  };
+
+  // Get user from storage and check existing content
   useEffect(() => {
     const loadUser = async () => {
       const userData = await getUserFromStorage();
       setUser(userData);
       console.log('PostScreen: User loaded:', userData);
+      
+      // Check for existing content
+      await checkExistingContent();
     };
     loadUser();
   }, []);
@@ -224,6 +247,8 @@ export default function PostScreen() {
             setSelectedImage(null);
             setLocation(null);
             setAddress('');
+            // Update existing posts state
+            setHasExistingPosts(true);
             setIsUploading(false);
             setUploadProgress(0);
             router.replace('/(tabs)/home');
@@ -299,6 +324,8 @@ export default function PostScreen() {
           onPress: () => {
             setSelectedVideo(null);
             setLocation(null);
+            // Update existing shorts state
+            setHasExistingShorts(true);
             setAddress('');
             setIsUploading(false);
             setUploadProgress(0);
@@ -393,10 +420,26 @@ export default function PostScreen() {
               />
               <Ionicons name="cloud-upload-outline" size={60} color={theme.colors.primary} style={{ marginBottom: theme.spacing.md }} />
               <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.h2.fontSize, fontWeight: '700', marginBottom: theme.spacing.sm, textAlign: 'center' }}>
-                No {postType === 'photo' ? 'Photo' : 'Short'} Yet
+                {(() => {
+                  if (postType === 'photo' && hasExistingPosts === false) {
+                    return 'No Photos Yet';
+                  } else if (postType === 'short' && hasExistingShorts === false) {
+                    return 'No Shorts Yet';
+                  } else {
+                    return `Create New ${postType === 'photo' ? 'Photo' : 'Short'}`;
+                  }
+                })()}
               </Text>
               <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, textAlign: 'center', marginBottom: theme.spacing.lg }}>
-                Share your first {postType === 'photo' ? 'moment' : 'short'} by uploading a {postType === 'photo' ? 'photo' : 'video'} or taking one now!
+                {(() => {
+                  if (postType === 'photo' && hasExistingPosts === false) {
+                    return 'Share your first moment by uploading a photo or taking one now!';
+                  } else if (postType === 'short' && hasExistingShorts === false) {
+                    return 'Share your first short by uploading a video or taking one now!';
+                  } else {
+                    return `Upload a ${postType === 'photo' ? 'photo' : 'video'} or take one now to share with your followers!`;
+                  }
+                })()}
               </Text>
             </View>
             <View style={{ flexDirection: "row", justifyContent: "space-around", marginVertical: theme.spacing.xl }}>
