@@ -4,7 +4,8 @@ const multer = require('multer');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getShorts,
-  createShort
+  createShort,
+  getUserShorts
 } = require('../controllers/postController');
 
 const router = express.Router();
@@ -43,6 +44,7 @@ const createShortValidation = [
 
 // Routes
 router.get('/', optionalAuth, getShorts);
+router.get('/user/:userId', optionalAuth, getUserShorts);
 router.post('/', authMiddleware, upload.single('video'), createShortValidation, createShort);
 
 module.exports = router;

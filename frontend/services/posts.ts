@@ -162,6 +162,16 @@ export const getShorts = async (page: number = 1, limit: number = 20): Promise<S
   }
 };
 
+// Get user's shorts
+export const getUserShorts = async (userId: string, page: number = 1, limit: number = 20): Promise<{ shorts: PostType[]; user: any; totalShorts: number }> => {
+  try {
+    const response = await api.get(`/shorts/user/${userId}?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch user shorts');
+  }
+};
+
 // Create new short
 export const createShort = async (data: CreateShortData): Promise<{ message: string; short: PostType }> => {
   try {
