@@ -78,6 +78,8 @@ const postSchema = new mongoose.Schema({
 postSchema.index({ user: 1, createdAt: -1 });
 postSchema.index({ createdAt: -1 });
 postSchema.index({ isActive: 1 });
+postSchema.index({ type: 1, isActive: 1, createdAt: -1 });
+postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 });
 
 // Virtual for like count
 postSchema.virtual('likesCount').get(function() {

@@ -30,6 +30,9 @@
         "NSCameraUsageDescription": "This app needs access to camera to take photos for posts.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for posts.",
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to tag your posts with location data."
+      },
+      "entitlements": {
+        "aps-environment": "development"
       }
     },
     "android": {
@@ -80,6 +83,14 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff",
+          "defaultChannel": "default"
         }
       ]
     ],
