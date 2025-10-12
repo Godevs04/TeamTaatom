@@ -11,13 +11,16 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts } from '../../services/posts';
+import { getShorts, toggleLike, addComment } from '../../services/posts';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
+// import * as Sharing from 'expo-sharing';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -26,13 +29,56 @@ export default function ShortsScreen() {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
+  const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
   const flatListRef = useRef<FlatList>(null);
+  const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
   const { theme, mode } = useTheme();
   const router = useRouter();
 
   useEffect(() => {
     loadShorts();
+    loadCurrentUser();
   }, []);
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await getUserFromStorage();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Error loading current user:', error);
+    }
+  };
+
+  // Cleanup videos when component unmounts
+  useEffect(() => {
+    return () => {
+      Object.values(videoRefs.current).forEach((videoRef) => {
+        if (videoRef) {
+          videoRef.pauseAsync();
+        }
+      });
+    };
+  }, []);
+
+  // Pause all videos when current index changes
+  useEffect(() => {
+    Object.values(videoRefs.current).forEach((videoRef) => {
+      if (videoRef) {
+        videoRef.pauseAsync();
+      }
+    });
+    
+    // Update video states
+    const newVideoStates: { [key: string]: boolean } = {};
+    shorts.forEach((short, index) => {
+      newVideoStates[short._id] = index === currentIndex;
+    });
+    setVideoStates(newVideoStates);
+  }, [currentIndex, shorts]);
 
   const loadShorts = async () => {
     try {
@@ -47,41 +93,189 @@ export default function ShortsScreen() {
     }
   };
 
-  const renderShortItem = ({ item, index }: { item: PostType; index: number }) => (
-    <View style={styles.shortItem}>
-      {/* Video Thumbnail/Poster */}
-      <Image source={{ uri: item.imageUrl }} style={styles.shortImage} />
-      
-      {/* Play/Pause Overlay */}
-      <TouchableOpacity 
-        style={styles.playButton}
-        onPress={() => setIsPlaying(!isPlaying)}
-      >
-        <Ionicons 
-          name={isPlaying ? "pause" : "play"} 
-          size={60} 
-          color="rgba(255,255,255,0.8)" 
-        />
-      </TouchableOpacity>
+  const toggleVideoPlayback = (itemId: string) => {
+    const videoRef = videoRefs.current[itemId];
+    const isCurrentlyPlaying = videoStates[itemId];
+    
+    if (isCurrentlyPlaying) {
+      videoRef?.pauseAsync();
+    } else {
+      videoRef?.playAsync();
+    }
+  };
+
+  // Show pause button temporarily
+  const showPauseButtonTemporarily = (itemId: string) => {
+    setShowPauseButton(prev => ({ ...prev, [itemId]: true }));
+    
+    // Clear existing timeout
+    if (pauseTimeoutRefs.current[itemId]) {
+      clearTimeout(pauseTimeoutRefs.current[itemId]);
+    }
+    
+    // Hide after 2 seconds
+    pauseTimeoutRefs.current[itemId] = setTimeout(() => {
+      setShowPauseButton(prev => ({ ...prev, [itemId]: false }));
+    }, 2000);
+  };
+
+  // Handle like/unlike
+  const handleLike = async (shortId: string) => {
+    try {
+      const response = await toggleLike(shortId);
+      setShorts(prev => prev.map(short => 
+        short._id === shortId 
+          ? { 
+              ...short, 
+              isLiked: response.isLiked, 
+              likesCount: response.likesCount 
+            }
+          : short
+      ));
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      Alert.alert('Error', 'Failed to update like');
+    }
+  };
+
+  // Handle comment
+  const handleComment = (shortId: string) => {
+    Alert.prompt(
+      'Add Comment',
+      'Write your comment:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Post',
+          onPress: async (commentText: string | undefined) => {
+            if (commentText && commentText.trim()) {
+              try {
+                await addComment(shortId, commentText.trim());
+                // Refresh shorts to get updated comment count
+                loadShorts();
+                Alert.alert('Success', 'Comment added successfully');
+              } catch (error) {
+                console.error('Error adding comment:', error);
+                Alert.alert('Error', 'Failed to add comment');
+              }
+            }
+          }
+        }
+      ],
+      'plain-text'
+    );
+  };
+
+  // Handle share
+  const handleShare = async (short: PostType) => {
+    try {
+      const shareUrl = `Check out this short by ${short.user.fullName}: ${short.caption}`;
+      // For now, just show an alert. In production, you can use expo-sharing
+      Alert.alert('Share', shareUrl);
+    } catch (error) {
+      console.error('Error sharing:', error);
+      Alert.alert('Error', 'Failed to share');
+    }
+  };
+
+  // Handle save/bookmark
+  const handleSave = (shortId: string) => {
+    setSavedShorts(prev => {
+      const newSaved = new Set(prev);
+      if (newSaved.has(shortId)) {
+        newSaved.delete(shortId);
+        Alert.alert('Removed', 'Short removed from saved');
+      } else {
+        newSaved.add(shortId);
+        Alert.alert('Saved', 'Short saved to your collection');
+      }
+      return newSaved;
+    });
+  };
+
+  const renderShortItem = ({ item, index }: { item: PostType; index: number }) => {
+    const isVideoPlaying = videoStates[item._id] || index === currentIndex;
+
+    return (
+      <View style={styles.shortItem}>
+        {/* Video Player with Tap Gesture */}
+        <TouchableWithoutFeedback onPress={() => showPauseButtonTemporarily(item._id)}>
+          <Video
+            ref={(ref) => {
+              videoRefs.current[item._id] = ref;
+            }}
+            source={{ uri: item.mediaUrl || item.imageUrl }}
+            style={styles.shortVideo}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={isVideoPlaying}
+            isLooping
+            isMuted={false}
+            onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+              if (status.isLoaded) {
+                setVideoStates(prev => ({
+                  ...prev,
+                  [item._id]: status.isPlaying
+                }));
+              }
+            }}
+          />
+        </TouchableWithoutFeedback>
+        
+        {/* Play/Pause Overlay - Only show when paused or temporarily after interaction */}
+        {(showPauseButton[item._id] || !isVideoPlaying) && (
+          <TouchableOpacity 
+            style={styles.playButton}
+            onPress={() => {
+              toggleVideoPlayback(item._id);
+              showPauseButtonTemporarily(item._id);
+            }}
+          >
+            <Ionicons 
+              name={isVideoPlaying ? "pause" : "play"} 
+              size={60} 
+              color="rgba(255,255,255,0.8)" 
+            />
+          </TouchableOpacity>
+        )}
       
       {/* Right Side Action Buttons */}
       <View style={styles.rightActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="heart-outline" size={28} color="white" />
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleLike(item._id)}
+        >
+          <Ionicons 
+            name={item.isLiked ? "heart" : "heart-outline"} 
+            size={28} 
+            color={item.isLiked ? "#ff3040" : "white"} 
+          />
           <Text style={styles.actionText}>{item.likesCount || 0}</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleComment(item._id)}
+        >
           <Ionicons name="chatbubble-outline" size={28} color="white" />
           <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleShare(item)}
+        >
           <Ionicons name="share-outline" size={28} color="white" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="bookmark-outline" size={28} color="white" />
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleSave(item._id)}
+        >
+          <Ionicons 
+            name={savedShorts.has(item._id) ? "bookmark" : "bookmark-outline"} 
+            size={28} 
+            color={savedShorts.has(item._id) ? "#4A90E2" : "white"} 
+          />
         </TouchableOpacity>
       </View>
 
@@ -125,60 +319,56 @@ export default function ShortsScreen() {
         )}
       </View>
     </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.container}>
         <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+          barStyle="light-content" 
+          backgroundColor="black" 
+          translucent
         />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color="white" />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (shorts.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.container}>
         <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+          barStyle="light-content" 
+          backgroundColor="black" 
+          translucent
         />
         <View style={styles.emptyContainer}>
-          <Ionicons name="videocam-outline" size={60} color={theme.colors.textSecondary} />
-          <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Shorts Yet</Text>
-          <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-            Upload your first short video to get started!
+          <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.6)" />
+          <Text style={[styles.emptyTitle, { color: 'white' }]}>No Shorts Yet</Text>
+          <Text style={[styles.emptyDescription, { color: 'rgba(255,255,255,0.6)' }]}>
+            Create your first short video to share with your followers and start building your audience!
           </Text>
           <TouchableOpacity 
-            style={[styles.createShortButton, { backgroundColor: theme.colors.primary }]}
+            style={[styles.createShortButton, { backgroundColor: '#4A90E2' }]}
             onPress={() => router.push('/(tabs)/post')}
           >
             <Text style={styles.createShortButtonText}>Create Short</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={styles.container}>
       <StatusBar 
-        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+        barStyle="light-content" 
+        backgroundColor="black" 
+        translucent
       />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Shorts</Text>
-        <TouchableOpacity onPress={() => router.push('/chat')}>
-          <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primary} />
-        </TouchableOpacity>
-      </View>
 
       <FlatList
         ref={flatListRef}
@@ -200,13 +390,14 @@ export default function ShortsScreen() {
           index,
         })}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'black',
   },
   header: {
     flexDirection: 'row',
@@ -263,6 +454,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  shortVideo: {
+    width: '100%',
+    height: '100%',
   },
   playButton: {
     position: 'absolute',
