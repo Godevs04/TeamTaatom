@@ -31,31 +31,59 @@ exports.listChats = async (req, res) => {
 };
 
 exports.getChat = async (req, res) => {
-  const userId = req.user._id;
-  const { otherUserId } = req.params;
-  if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-    return res.status(400).json({ message: 'Invalid user' });
+  try {
+    const userId = req.user._id;
+    const { otherUserId } = req.params;
+    console.log('Getting chat between:', userId, 'and', otherUserId);
+    
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    
+    let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
+      .populate('participants', 'fullName profilePic')
+      .lean();
+    
+    if (!chat) {
+      console.log('Chat not found, creating new one');
+      try {
+        chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
+        // Populate the newly created chat
+        chat = await Chat.findById(chat._id)
+          .populate('participants', 'fullName profilePic')
+          .lean();
+        console.log('Created new chat:', chat._id);
+      } catch (error) {
+        console.error('Error creating chat:', error);
+        return res.status(500).json({ message: 'Failed to create chat' });
+      }
+    } else {
+      console.log('Found existing chat:', chat._id);
+    }
+    
+    res.json({ chat });
+  } catch (error) {
+    console.error('Error in getChat:', error);
+    res.status(500).json({ message: 'Failed to get chat' });
   }
-  if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
-  let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
-    .populate('participants', 'fullName profilePic')
-    .lean();
-  if (!chat) {
-    chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
-  }
-  res.json({ chat });
 };
 
 exports.getMessages = async (req, res) => {
-  const userId = req.user._id;
-  const { otherUserId } = req.params;
-  if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-    return res.status(400).json({ message: 'Invalid user' });
+  try {
+    const userId = req.user._id;
+    const { otherUserId } = req.params;
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    if (!chat) return res.json({ messages: [] });
+    res.json({ messages: chat.messages });
+  } catch (error) {
+    console.error('Error getting messages:', error);
+    res.status(500).json({ message: 'Failed to get messages' });
   }
-  if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
-  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-  if (!chat) return res.json({ messages: [] });
-  res.json({ messages: chat.messages });
 };
 
 exports.sendMessage = async (req, res) => {
