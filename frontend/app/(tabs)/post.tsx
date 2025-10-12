@@ -9,7 +9,6 @@ import {
   TextInput,
   Image,
   ActivityIndicator,
-  ProgressBarAndroid,
   Platform,
 } from "react-native";
 import { Formik } from "formik";
@@ -45,6 +44,7 @@ export default function PostScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [postType, setPostType] = useState<'photo' | 'short'>('photo');
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
@@ -83,6 +83,12 @@ export default function PostScreen() {
     loadUser();
   }, []);
 
+  const clearUploadState = () => {
+    setUploadError(null);
+    setUploadProgress(0);
+    setIsUploading(false);
+  };
+
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== ImagePicker.PermissionStatus.GRANTED) {
@@ -96,6 +102,7 @@ export default function PostScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets?.[0]) {
+      clearUploadState();
       setSelectedImage(result.assets[0].uri);
       setSelectedVideo(null);
       setPostType('photo');
@@ -116,6 +123,7 @@ export default function PostScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets?.[0]) {
+      clearUploadState();
       setSelectedVideo(result.assets[0].uri);
       setSelectedImage(null);
       setPostType('short');
@@ -217,6 +225,7 @@ export default function PostScreen() {
     setIsLoading(true);
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadError(null);
     
     try {
       console.log('Creating post with image:', selectedImage);
@@ -257,10 +266,12 @@ export default function PostScreen() {
       ]);
     } catch (error: any) {
       console.error('Post creation failed:', error);
+      setUploadError(error?.message || 'Upload failed. Please try again.');
       Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -281,6 +292,7 @@ export default function PostScreen() {
     setIsLoading(true);
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadError(null);
     
     try {
       console.log('Creating short with video:', selectedVideo);
@@ -335,10 +347,12 @@ export default function PostScreen() {
       ]);
     } catch (error: any) {
       console.error('Short creation failed:', error);
+      setUploadError(error?.message || 'Upload failed. Please try again.');
       Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -526,13 +540,14 @@ export default function PostScreen() {
                     {isUploading && (
                       <View style={{ marginBottom: theme.spacing.md }}>
                         <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginBottom: theme.spacing.xs }}>Uploading... {Math.round(uploadProgress)}%</Text>
-                        {Platform.OS === 'android' ? (
-                          <ProgressBarAndroid progress={uploadProgress / 100} color={theme.colors.primary} />
-                        ) : (
-                          <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
-                            <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${uploadProgress}%` }} />
-                          </View>
-                        )}
+                        <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
+                          <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${Math.min(uploadProgress, 100)}%` }} />
+                        </View>
+                      </View>
+                    )}
+                    {uploadError && (
+                      <View style={{ marginBottom: theme.spacing.md, padding: theme.spacing.md, backgroundColor: '#ffebee', borderRadius: theme.borderRadius.md }}>
+                        <Text style={{ color: '#c62828', fontSize: theme.typography.body.fontSize }}>{uploadError}</Text>
                       </View>
                     )}
                     <TouchableOpacity
@@ -613,13 +628,14 @@ export default function PostScreen() {
                     {isUploading && (
                       <View style={{ marginBottom: theme.spacing.md }}>
                         <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginBottom: theme.spacing.xs }}>Uploading... {Math.round(uploadProgress)}%</Text>
-                        {Platform.OS === 'android' ? (
-                          <ProgressBarAndroid progress={uploadProgress / 100} color={theme.colors.primary} />
-                        ) : (
-                          <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
-                            <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${uploadProgress}%` }} />
-                          </View>
-                        )}
+                        <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
+                          <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${Math.min(uploadProgress, 100)}%` }} />
+                        </View>
+                      </View>
+                    )}
+                    {uploadError && (
+                      <View style={{ marginBottom: theme.spacing.md, padding: theme.spacing.md, backgroundColor: '#ffebee', borderRadius: theme.borderRadius.md }}>
+                        <Text style={{ color: '#c62828', fontSize: theme.typography.body.fontSize }}>{uploadError}</Text>
                       </View>
                     )}
                     <TouchableOpacity
