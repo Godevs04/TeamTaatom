@@ -18,6 +18,7 @@ import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
 import WorldMap from '../../components/WorldMap';
+import AnimatedHeader from '../../components/AnimatedHeader';
 
 interface LocationData {
   latitude: number;
@@ -130,23 +131,21 @@ export default function LocaleScreen() {
         backgroundColor={theme.colors.background} 
       />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Locations</Text>
-        <View style={styles.headerActions}>
-          {locations.length > 0 && (
-            <TouchableOpacity 
-              style={styles.mapButton}
-              onPress={() => setShowMap(true)}
-            >
-              <Ionicons name="map-outline" size={24} color={theme.colors.primary} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={() => router.push('/chat')}>
-            <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Elegant Header */}
+      <AnimatedHeader 
+        rightComponent={
+          <View style={styles.headerActions}>
+            {locations.length > 0 && (
+              <TouchableOpacity 
+                style={styles.mapButton}
+                onPress={() => setShowMap(true)}
+              >
+                <Ionicons name="map-outline" size={20} color={theme.colors.text} />
+              </TouchableOpacity>
+            )}
+          </View>
+        }
+      />
 
       {/* Stats */}
       {locations.length > 0 && (
@@ -220,7 +219,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   mapButton: {
-    marginRight: 16,
+    padding: 6,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    minWidth: 36,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingContainer: {
     flex: 1,

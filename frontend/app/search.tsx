@@ -10,14 +10,14 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../../context/ThemeContext';
-import { searchUsers } from '../../services/profile';
-import { getPosts } from '../../services/posts';
-import { UserType } from '../../types/user';
-import { PostType } from '../../types/post';
+import { useTheme } from '../context/ThemeContext';
+import { useAlert } from '../context/AlertContext';
+import { searchUsers } from '../services/profile';
+import { getPosts } from '../services/posts';
+import { UserType } from '../types/user';
+import { PostType } from '../types/post';
 import { useRouter } from 'expo-router';
 
 interface SearchResult {
@@ -31,6 +31,7 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'posts'>('users');
   const { theme, mode } = useTheme();
+  const { showError } = useAlert();
   const router = useRouter();
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export default function SearchScreen() {
         posts: filteredPosts,
       });
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to search');
+      showError('Failed to search');
       console.error('Search error:', error);
     } finally {
       setLoading(false);
@@ -70,7 +71,7 @@ export default function SearchScreen() {
 
   const renderUserItem = ({ item }: { item: UserType }) => (
     <TouchableOpacity 
-      style={[styles.userItem, { backgroundColor: theme.colors.surface }]}
+      style={[styles.userItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
       onPress={() => router.push(`/profile/${item._id}`)}
     >
       <Image 
@@ -103,7 +104,7 @@ export default function SearchScreen() {
 
   const renderPostItem = ({ item }: { item: PostType }) => (
     <TouchableOpacity 
-      style={[styles.postItem, { backgroundColor: theme.colors.surface }]}
+      style={[styles.postItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
       onPress={() => router.push(`/post/${item._id}`)}
     >
       <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
@@ -153,34 +154,32 @@ export default function SearchScreen() {
         backgroundColor={theme.colors.background} 
       />
       
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Search</Text>
-        <TouchableOpacity onPress={() => router.push('/chat')}>
-          <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primary} />
+      {/* Elegant Header */}
+      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-      </View>
-
-      {/* Search Input */}
-      <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface }]}>
-        <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
-        <TextInput
-          style={[styles.searchInput, { color: theme.colors.text }]}
-          placeholder="Search users and posts..."
-          placeholderTextColor={theme.colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoFocus
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-        )}
+        
+        <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.colors.text }]}
+            placeholder="Search users and posts..."
+            placeholderTextColor={theme.colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
+      <View style={[styles.tabContainer, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity
           style={[
             styles.tab,
@@ -216,14 +215,23 @@ export default function SearchScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      ) : (
+      ) : activeTab === 'users' ? (
         <FlatList
-          data={activeTab === 'users' ? searchResults.users : searchResults.posts}
-          renderItem={activeTab === 'users' ? renderUserItem : renderPostItem}
+          data={searchResults.users}
+          renderItem={renderUserItem}
           keyExtractor={(item) => item._id}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
-          contentContainerStyle={searchResults.users.length === 0 && searchResults.posts.length === 0 ? styles.emptyListContainer : undefined}
+          contentContainerStyle={searchResults.users.length === 0 ? styles.emptyListContainer : undefined}
+        />
+      ) : (
+        <FlatList
+          data={searchResults.posts}
+          renderItem={renderPostItem}
+          keyExtractor={(item) => item._id}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
+          contentContainerStyle={searchResults.posts.length === 0 ? styles.emptyListContainer : undefined}
         />
       )}
     </SafeAreaView>
@@ -236,22 +244,19 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  backButton: {
+    marginRight: 12,
+    padding: 4,
   },
   searchContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginVertical: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 12,
@@ -264,7 +269,6 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
   },
   tab: {
     flex: 1,
@@ -308,7 +312,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   userAvatar: {
     width: 50,
@@ -349,7 +352,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   postImage: {
     width: 80,
