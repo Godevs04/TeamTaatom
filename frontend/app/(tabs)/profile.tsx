@@ -5,14 +5,15 @@ import {
   StyleSheet, 
   ScrollView, 
   TouchableOpacity, 
-  Alert, 
   Image, 
   ActivityIndicator,
   RefreshControl 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage, signOut } from '../../services/auth';
 import { getProfile } from '../../services/profile';
@@ -46,7 +47,9 @@ export default function ProfileScreen() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true); // new state
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { theme, toggleTheme } = useTheme();
+  const { showError, showSuccess, showConfirm } = useAlert();
 
   const loadUserData = useCallback(async () => {
     setCheckingUser(true);
@@ -68,7 +71,7 @@ export default function ProfileScreen() {
       setPosts(userPosts.posts);
     } catch (error: any) {
       console.error('Failed to load profile:', error);
-      Alert.alert('Error', 'Failed to load profile data');
+      showError('Failed to load profile data');
     } finally {
       setLoading(false);
       setCheckingUser(false);
@@ -78,6 +81,12 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  useEffect(() => {
+    if (params.editProfile === 'true') {
+      setShowEditProfile(true);
+    }
+  }, [params.editProfile]);
 
   useEffect(() => {
     if (!checkingUser && !user) {
@@ -93,27 +102,19 @@ export default function ProfileScreen() {
   }, [loadUserData]);
 
   const handleSignOut = async () => {
-    Alert.alert(
-      'Sign Out',
+    showConfirm(
       'Are you sure you want to sign out?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut();
-              router.replace('/(auth)/signin');
-            } catch (error) {
-              Alert.alert('Error', 'Failed to sign out');
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await signOut();
+          router.replace('/(auth)/signin');
+        } catch (error) {
+          showError('Failed to sign out');
+        }
+      },
+      'Sign Out',
+      'Sign Out',
+      'Cancel'
     );
   };
 
@@ -156,31 +157,29 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      <NavBar
-        title="Profile"
-        rightComponent={
-          <KebabMenu
-            items={[
-              {
-                label: 'Edit Profile',
-                icon: 'person-circle-outline',
-                onPress: () => setShowEditProfile(true),
-              },
-              {
-                label: 'Toggle Theme',
-                icon: 'moon-outline',
-                onPress: toggleTheme,
-              },
-              {
-                label: 'Sign Out',
-                icon: 'log-out-outline',
-                onPress: handleSignOut,
-                destructive: true,
-              },
-            ]}
-          />
-        }
-      />
+      {/* Header with Kebab Menu */}
+      <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft} />
+          <View style={styles.headerRight}>
+            <KebabMenu
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      </View>
       
       <ScrollView
         style={styles.scrollView}
@@ -283,10 +282,26 @@ export default function ProfileScreen() {
   );
 }
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-    },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+  },
     scrollView: {
       flex: 1,
     },

@@ -226,27 +226,63 @@ export default function ChatModal() {
     setChatLoading(true);
     setError(null);
     try {
-      // Mark all messages as seen in the backend first
-      await api.post(`/chat/${user._id}/mark-all-seen`);
-      const chatRes = await api.get(`/chat/${user._id}`);
-      const messagesRes = await api.get(`/chat/${user._id}/messages`);
+      console.log('Opening chat with user:', user._id);
+      
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+      
+      // Get chat and messages first
+      const chatRes = await Promise.race([
+        api.get(`/chat/${user._id}`),
+        timeoutPromise
+      ]);
+      
+      const messagesRes = await Promise.race([
+        api.get(`/chat/${user._id}/messages`),
+        timeoutPromise
+      ]);
+      
+      // Mark all messages as seen in the backend (optional, don't block on this)
+      try {
+        await api.post(`/chat/${user._id}/mark-all-seen`);
+      } catch (e) {
+        console.log('Failed to mark messages as seen:', e);
+      }
+      
+      // Ensure chat data is properly structured
+      const chat = (chatRes as any).data.chat;
+      if (!chat) {
+        throw new Error('No chat data received');
+      }
+      
+      // Ensure participants are properly populated
+      if (!chat.participants || !Array.isArray(chat.participants)) {
+        console.warn('Chat participants not properly populated, using fallback');
+        chat.participants = [
+          { _id: user._id, fullName: user.fullName, profilePic: user.profilePic }
+        ];
+      }
+      
       // Mark all messages from other user as seen locally
-      const myUserId = chatRes.data.chat.participants.find((id: string) => id !== user._id) || '';
-      const updatedMessages = (messagesRes.data.messages || []).map((msg: any) =>
+      const updatedMessages = ((messagesRes as any).data.messages || []).map((msg: any) =>
         msg.sender === user._id ? { ...msg, seen: true } : msg
       );
-      setActiveChat(chatRes.data.chat);
+      
+      setActiveChat(chat);
       setActiveMessages(updatedMessages);
       setSelectedUser(user);
-      setConversations(prev => prev.map(chat => {
-        if (chat._id !== chatRes.data.chat._id) return chat;
-        const updatedMsgs = (chat.messages || []).map((msg: any) =>
+      setConversations(prev => prev.map(prevChat => {
+        if (prevChat._id !== chat._id) return prevChat;
+        const updatedMsgs = (prevChat.messages || []).map((msg: any) =>
           msg.sender === user._id ? { ...msg, seen: true } : msg
         );
-        return { ...chat, messages: updatedMsgs };
+        return { ...prevChat, messages: updatedMsgs };
       }));
-    } catch (e) {
-      setError('Failed to load chat.');
+    } catch (e: any) {
+      console.error('Error opening chat with user:', e);
+      setError(`Failed to load chat: ${e.message || 'Unknown error'}`);
     } finally {
       setChatLoading(false);
     }

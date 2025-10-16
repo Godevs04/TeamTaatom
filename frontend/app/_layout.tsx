@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { initializeAuth, getLastAuthError, getUserFromStorage } from '../services/auth';
+import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
 import { updateExpoPushToken } from '../services/profile';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { SettingsProvider } from '../context/SettingsContext';
+import { AlertProvider } from '../context/AlertContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -58,36 +60,52 @@ function RootLayoutInner() {
         const user = await initializeAuth();
         console.log('[RootLayoutInner] initializeAuth returned:', user);
         const lastAuthError = getLastAuthError();
+        
         if (user === 'network-error') {
+          // Network error - keep user signed in with stored data
           setIsAuthenticated(true);
           setIsOffline(true);
           setSessionExpired(false);
           console.warn('Network error during auth initialization. User kept signed in.');
         } else if (lastAuthError === 'Session expired. Please sign in again.') {
+          // Session expired - user needs to sign in again
           setIsAuthenticated(false);
           setIsOffline(false);
           setSessionExpired(true);
+        } else if (user) {
+          // Valid user - authenticated
+          setIsAuthenticated(true);
+          setIsOffline(false);
+          setSessionExpired(false);
         } else {
-          setIsAuthenticated(!!user);
+          // No user - not authenticated
+          setIsAuthenticated(false);
           setIsOffline(false);
           setSessionExpired(false);
         }
         console.log('[RootLayoutInner] isAuthenticated set to:', !!user);
       } catch (error) {
         console.error('Auth initialization error:', error);
+        // Fallback: check if we have stored user data
         try {
           const token = await AsyncStorage.getItem('authToken');
-          console.log('[RootLayoutInner] Fallback token in storage:', token);
-          if (token) {
+          const userData = await AsyncStorage.getItem('userData');
+          console.log('[RootLayoutInner] Fallback - token:', !!token, 'userData:', !!userData);
+          
+          if (token && userData) {
+            // We have both token and user data - keep signed in
             setIsAuthenticated(true);
             setIsOffline(true);
             setSessionExpired(false);
+            console.log('[RootLayoutInner] Fallback: Keeping user signed in with stored data');
           } else {
+            // No stored data - not authenticated
             setIsAuthenticated(false);
             setIsOffline(false);
             setSessionExpired(false);
           }
-        } catch {
+        } catch (fallbackError) {
+          console.error('Fallback auth check error:', fallbackError);
           setIsAuthenticated(false);
           setIsOffline(false);
           setSessionExpired(false);
@@ -101,12 +119,17 @@ function RootLayoutInner() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // Force navigation to home tab after auth
-      // setTimeout(() => {
+      // Only navigate if we're definitely authenticated
+      console.log('[Navigation] User authenticated, navigating to home');
+      setTimeout(() => {
         router.replace('/home');
-      // }, 100);
+      }, 100);
+    } else if (isAuthenticated === false && !sessionExpired) {
+      // Only navigate to auth if we're definitely not authenticated and not due to session expiry
+      console.log('[Navigation] User not authenticated, navigating to auth');
+      router.replace('/signin');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, sessionExpired, router]);
 
   useEffect(() => {
     async function registerForPushNotifications() {
@@ -153,10 +176,66 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated]);
 
+  // Handle app state changes to maintain authentication
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState: string) => {
+      if (nextAppState === 'active' && isAuthenticated) {
+        // App came to foreground, refresh auth state
+        try {
+          console.log('[AppState] App became active, refreshing auth state');
+          const user = await refreshAuthState();
+          if (!user) {
+            console.log('[AppState] No valid user found, signing out');
+            setIsAuthenticated(false);
+            setSessionExpired(true);
+          } else {
+            console.log('[AppState] Auth state refreshed successfully');
+          }
+        } catch (error) {
+          console.error('[AppState] Error refreshing auth state:', error);
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [isAuthenticated]);
+
+  // Periodic auth state check
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('userData');
+        
+        if (!token || !userData) {
+          console.log('[PeriodicCheck] Auth data missing, signing out');
+          setIsAuthenticated(false);
+          setSessionExpired(true);
+        }
+      } catch (error) {
+        console.error('[PeriodicCheck] Error:', error);
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
   const { theme } = useTheme();
   useEffect(() => {
     console.log('[RootLayoutInner] Render: isAuthenticated:', isAuthenticated, 'isOffline:', isOffline, 'sessionExpired:', sessionExpired);
   });
+
+  // Debug: Log authentication state changes
+  useEffect(() => {
+    console.log('[AuthState] Authentication state changed:', {
+      isAuthenticated,
+      isOffline,
+      sessionExpired
+    });
+  }, [isAuthenticated, isOffline, sessionExpired]);
 
   if (isAuthenticated === null) {
     return (
@@ -199,7 +278,11 @@ function RootLayoutInner() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <RootLayoutInner />
+      <SettingsProvider>
+        <AlertProvider>
+          <RootLayoutInner />
+        </AlertProvider>
+      </SettingsProvider>
     </ThemeProvider>
   );
 }
