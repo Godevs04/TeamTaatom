@@ -14,8 +14,10 @@ const uploadImage = async (buffer, options = {}) => {
       cloudinary.uploader.upload_stream(
         {
           folder: options.folder || 'taatom',
-          resource_type: 'image',
-          transformation: [
+          resource_type: options.resource_type || 'image',
+          transformation: options.resource_type === 'video' ? [
+            { width: 720, height: 1280, crop: 'limit', quality: 'auto' }
+          ] : [
             { width: 800, height: 800, crop: 'limit', quality: 'auto' }
           ],
           ...options

@@ -1,5 +1,7 @@
 import api from './api';
 import { PostType } from '../types/post';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 export interface CreatePostData {
   image: {
@@ -8,6 +10,19 @@ export interface CreatePostData {
     name: string;
   };
   caption: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface CreateShortData {
+  video: {
+    uri: string;
+    type: string;
+    name: string;
+  };
+  caption: string;
+  tags?: string[];
   address?: string;
   latitude?: number;
   longitude?: number;
@@ -33,6 +48,18 @@ export interface UserPostsResponse {
     profilePic: string;
   };
   totalPosts: number;
+}
+
+export interface ShortsResponse {
+  shorts: PostType[];
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    totalShorts: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+    limit: number;
+  };
 }
 
 // Get all posts
@@ -122,5 +149,89 @@ export const deletePost = async (postId: string): Promise<{ message: string }> =
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to delete post');
+  }
+};
+
+// Get shorts
+export const getShorts = async (page: number = 1, limit: number = 20): Promise<ShortsResponse> => {
+  try {
+    const response = await api.get(`/shorts?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch shorts');
+  }
+};
+
+// Get user's shorts
+export const getUserShorts = async (userId: string, page: number = 1, limit: number = 20): Promise<{ shorts: PostType[]; user: any; totalShorts: number }> => {
+  try {
+    const response = await api.get(`/shorts/user/${userId}?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch user shorts');
+  }
+};
+
+// Create new short
+export const createShort = async (data: CreateShortData): Promise<{ message: string; short: PostType }> => {
+  try {
+    console.log('createShort service called with data:', data);
+    
+    // Get auth token
+    const token = await AsyncStorage.getItem('authToken');
+    if (!token) {
+      throw new Error('No auth token found');
+    }
+
+    // Get API base URL
+    const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+    
+    const formData = new FormData();
+    
+    // Add video
+    formData.append('video', {
+      uri: data.video.uri,
+      type: data.video.type,
+      name: data.video.name,
+    } as any);
+    
+    console.log('FormData video field:', {
+      uri: data.video.uri,
+      type: data.video.type,
+      name: data.video.name,
+    });
+    
+    // Add other fields
+    formData.append('caption', data.caption);
+    if (data.tags && data.tags.length > 0) {
+      formData.append('tags', JSON.stringify(data.tags));
+    }
+    if (data.address) formData.append('address', data.address);
+    if (data.latitude) formData.append('latitude', data.latitude.toString());
+    if (data.longitude) formData.append('longitude', data.longitude.toString());
+
+    console.log('Sending request to /shorts endpoint');
+    
+    // Use fetch instead of axios for better FormData handling
+    const response = await fetch(`${API_BASE_URL}/shorts`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to create short');
+    }
+
+    const responseData = await response.json();
+    console.log('Response received:', responseData);
+    return responseData;
+  } catch (error: any) {
+    console.error('createShort error:', error);
+    throw new Error(error.message || 'Failed to create short');
   }
 };

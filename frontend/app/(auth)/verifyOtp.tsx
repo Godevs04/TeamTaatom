@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   TextInput,
   TouchableOpacity,
@@ -18,6 +17,7 @@ import * as yup from 'yup';
 
 import { colors } from '../../constants/colors';
 import { theme } from '../../constants/theme';
+import { useAlert } from '../../context/AlertContext';
 import { verifyOTP, resendOTP } from '../../services/auth';
 import Card from '../../components/Card';
 import NavBar from '../../components/NavBar';
@@ -105,6 +105,7 @@ export default function VerifyOTPScreen() {
   const { email } = useLocalSearchParams<{ email: string }>();
   const [resendLoading, setResendLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const { showError, showSuccess } = useAlert();
 
   useEffect(() => {
     if (countdown > 0) {
@@ -115,30 +116,24 @@ export default function VerifyOTPScreen() {
 
   const handleVerifyOTP = async (values: { otp: string }) => {
     if (!email) {
-      Alert.alert('Error', 'Email not found. Please go back and try again.');
+      showError('Email not found. Please go back and try again.');
       return;
     }
 
     try {
       await verifyOTP({ email, otp: values.otp });
-      Alert.alert(
-        'Success!',
-        'Your account has been verified successfully. You can now sign in.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.push('/(auth)/signin'),
-          },
-        ]
-      );
+      showSuccess('Your account has been verified successfully. You can now sign in.');
+      setTimeout(() => {
+        router.push('/(auth)/signin');
+      }, 2000);
     } catch (error: any) {
-      Alert.alert('Verification Failed', error.message);
+      showError(error.message);
     }
   };
 
   const handleResendOTP = async () => {
     if (!email) {
-      Alert.alert('Error', 'Email not found. Please go back and try again.');
+      showError('Email not found. Please go back and try again.');
       return;
     }
 
@@ -146,9 +141,9 @@ export default function VerifyOTPScreen() {
     try {
       await resendOTP(email);
       setCountdown(60); // 60 seconds countdown
-      Alert.alert('OTP Sent', 'A new OTP has been sent to your email.');
+      showSuccess('A new OTP has been sent to your email.');
     } catch (error: any) {
-      Alert.alert('Failed to Resend', error.message);
+      showError(error.message);
     } finally {
       setResendLoading(false);
     }
