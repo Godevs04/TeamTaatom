@@ -157,26 +157,29 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      <NavBar
-        title="Profile"
-        rightComponent={
-          <KebabMenu
-            items={[
-              {
-                label: 'Settings',
-                icon: 'settings-outline',
-                onPress: () => router.push('/settings'),
-              },
-              {
-                label: 'Sign Out',
-                icon: 'log-out-outline',
-                onPress: handleSignOut,
-                destructive: true,
-              },
-            ]}
-          />
-        }
-      />
+      {/* Header with Kebab Menu */}
+      <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft} />
+          <View style={styles.headerRight}>
+            <KebabMenu
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      </View>
       
       <ScrollView
         style={styles.scrollView}
@@ -279,10 +282,26 @@ export default function ProfileScreen() {
   );
 }
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-    },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+  },
     scrollView: {
       flex: 1,
     },
