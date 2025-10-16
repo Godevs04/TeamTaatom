@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { theme } from '../../constants/theme';
+import { useAlert } from '../../context/AlertContext';
 import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
 import { signUp } from '../../services/auth';
@@ -34,6 +34,7 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
+  const { showError, showSuccess } = useAlert();
 
   const handleSignUp = async (values: SignUpFormValues) => {
     setIsLoading(true);
@@ -44,21 +45,15 @@ export default function SignUpScreen() {
         password: values.password,
       });
 
-      Alert.alert(
-        'Success!',
-        response.message,
-        [
-          {
-            text: 'OK',
-            onPress: () => router.push({
-              pathname: '/(auth)/verifyOtp',
-              params: { email: values.email }
-            }),
-          },
-        ]
-      );
+      showSuccess(response.message);
+      setTimeout(() => {
+        router.push({
+          pathname: '/(auth)/verifyOtp',
+          params: { email: values.email }
+        });
+      }, 2000);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showError(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +67,7 @@ export default function SignUpScreen() {
       router.replace('/(tabs)');
     } catch (error: any) {
       console.log('Google sign-in error:', error);
-      Alert.alert('Google Sign-In Failed', error.message);
+      showError(error.message);
     } finally {
       setIsGoogleLoading(false);
     }

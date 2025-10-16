@@ -7,13 +7,13 @@ import {
   ActivityIndicator, 
   Image, 
   RefreshControl, 
-  Alert,
   SafeAreaView,
   TouchableOpacity,
   StatusBar,
   ScrollView
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
@@ -29,6 +29,7 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const { theme, mode } = useTheme();
+  const { showError } = useAlert();
   const router = useRouter();
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
@@ -44,7 +45,7 @@ export default function HomeScreen() {
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to load posts');
+      showError('Failed to load posts');
       console.error('Failed to fetch posts:', error);
     }
   }, []);

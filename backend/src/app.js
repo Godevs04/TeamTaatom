@@ -12,6 +12,7 @@ const postRoutes = require('./routes/postRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const chatRoutes = require('./routes/chat.routes');
 const shortsRoutes = require('./routes/shortsRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -46,6 +47,7 @@ app.use('/posts', postRoutes);
 app.use('/profile', profileRoutes);
 app.use('/chat', chatRoutes);
 app.use('/shorts', shortsRoutes);
+app.use('/settings', settingsRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

@@ -5,6 +5,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
 import { updateExpoPushToken } from '../services/profile';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
+import { SettingsProvider } from '../context/SettingsContext';
+import { AlertProvider } from '../context/AlertContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -276,7 +278,11 @@ function RootLayoutInner() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <RootLayoutInner />
+      <SettingsProvider>
+        <AlertProvider>
+          <RootLayoutInner />
+        </AlertProvider>
+      </SettingsProvider>
     </ThemeProvider>
   );
 }

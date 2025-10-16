@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { theme } from '../../constants/theme';
+import { useAlert } from '../../context/AlertContext';
 import AuthInput from '../../components/AuthInput';
 import { signInSchema } from '../../utils/validation';
 import { signIn } from '../../services/auth';
@@ -30,6 +30,7 @@ export default function SignInScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
+  const { showError, showSuccess, showConfirm } = useAlert();
 
   const handleSignIn = async (values: SignInFormValues) => {
     setIsLoading(true);
@@ -47,25 +48,18 @@ export default function SignInScreen() {
       
       // Check if account is not verified
       if (error.message.includes('verify')) {
-        Alert.alert(
-          'Account Not Verified',
+        showConfirm(
           error.message,
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Verify Now',
-              onPress: () => router.push({
-                pathname: '/(auth)/verifyOtp',
-                params: { email: values.email }
-              }),
-            },
-          ]
+          () => router.push({
+            pathname: '/(auth)/verifyOtp',
+            params: { email: values.email }
+          }),
+          'Account Not Verified',
+          'Verify Now',
+          'Cancel'
         );
       } else {
-        Alert.alert('Error', error.message);
+        showError(error.message);
       }
     } finally {
       setIsLoading(false);
@@ -80,7 +74,7 @@ export default function SignInScreen() {
       router.replace('/(tabs)');
     } catch (error: any) {
       console.log('Google sign-in error:', error);
-      Alert.alert('Google Sign-In Failed', error.message);
+      showError(error.message);
     } finally {
       setIsGoogleLoading(false);
     }
