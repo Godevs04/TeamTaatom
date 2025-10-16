@@ -7,19 +7,20 @@ import {
   ActivityIndicator, 
   Image, 
   RefreshControl, 
-  Alert,
   SafeAreaView,
   TouchableOpacity,
   StatusBar,
   ScrollView
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
 import PhotoCard from '../../components/PhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
+import AnimatedHeader from '../../components/AnimatedHeader';
 
 export default function HomeScreen() {
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -29,6 +30,7 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const { theme, mode } = useTheme();
+  const { showError } = useAlert();
   const router = useRouter();
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
@@ -44,7 +46,7 @@ export default function HomeScreen() {
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to load posts');
+      showError('Failed to load posts');
       console.error('Failed to fetch posts:', error);
     }
   }, []);
@@ -86,21 +88,8 @@ export default function HomeScreen() {
       flex: 1,
       backgroundColor: theme.colors.background,
     },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: theme.spacing.md,
-      paddingVertical: theme.spacing.sm,
-      backgroundColor: theme.colors.background,
-      borderBottomWidth: 0.5,
-      borderBottomColor: theme.colors.border,
-    },
-    logo: {
-      fontSize: 28,
-      fontWeight: '700',
-      color: theme.colors.text,
-      letterSpacing: -0.5,
+    safeArea: {
+      flex: 1,
     },
 
     loadingContainer: {
@@ -156,14 +145,7 @@ export default function HomeScreen() {
     },
   });
 
-  const renderHeader = () => (
-    <View style={styles.header}>
-      <Text style={styles.logo}>Taatom</Text>
-      <TouchableOpacity onPress={() => router.push('/chat')} style={{ position: 'absolute', right: 16 }}>
-        <Ionicons name="chatbubble-ellipses-outline" size={26} color={theme.colors.primary} />
-      </TouchableOpacity>
-    </View>
-  );
+  const renderHeader = () => <AnimatedHeader />;
 
   if (loading) {
     return (
@@ -206,14 +188,15 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
       />
-      {renderHeader()}
-      
-      <FlatList
+      <SafeAreaView style={styles.safeArea}>
+        {renderHeader()}
+        
+        <FlatList
         data={posts}
         keyExtractor={(item) => item._id}
         style={styles.postsContainer}
@@ -259,6 +242,7 @@ export default function HomeScreen() {
           <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: theme.spacing.sm }} />
         )}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }

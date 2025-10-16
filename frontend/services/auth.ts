@@ -86,6 +86,11 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
   try {
     const token = await AsyncStorage.getItem('authToken');
     console.log('[getCurrentUser] Token in storage:', token);
+    if (!token) {
+      console.log('[getCurrentUser] No token found');
+      return null;
+    }
+    
     const response = await api.get('/auth/me');
     console.log('[getCurrentUser] /auth/me response:', response.data);
     const user = response.data.user;
@@ -103,7 +108,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
       lastAuthError = 'Session expired. Please sign in again.';
       return null;
     }
-    // Network or other error
+    // Network or other error - don't sign out, just return network error
     lastAuthError = error?.message || 'Network or unknown error';
     console.warn('Network or unknown error in getCurrentUser:', error?.message || error);
     return 'network-error';
@@ -124,14 +129,29 @@ export const getUserFromStorage = async (): Promise<UserType | null> => {
 export const isAuthenticated = async (): Promise<boolean> => {
   try {
     const token = await AsyncStorage.getItem('authToken');
-    if (!token) return false;
+    if (!token) {
+      console.log('[isAuthenticated] No token found');
+      return false;
+    }
     
-    // Validate token with server
+    // First check if we have stored user data
+    const storedUser = await getUserFromStorage();
+    if (storedUser) {
+      console.log('[isAuthenticated] Found stored user, returning true');
+      return true;
+    }
+    
+    // If no stored user, validate token with server
     const user = await getCurrentUser();
+    if (user === 'network-error') {
+      // Network error - still consider authenticated if we have token
+      console.log('[isAuthenticated] Network error but have token, returning true');
+      return true;
+    }
     return !!user;
   } catch (error) {
-    // If token is invalid, clear storage
-    await signOut();
+    console.error('[isAuthenticated] Error:', error);
+    // Don't automatically sign out on error, just return false
     return false;
   }
 };
@@ -142,6 +162,20 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     const token = await AsyncStorage.getItem('authToken');
     console.log('[initializeAuth] Token in storage:', token);
     if (!token) return null;
+    
+    // First, try to get user from storage
+    const storedUser = await getUserFromStorage();
+    if (storedUser) {
+      console.log('[initializeAuth] Found stored user, keeping signed in');
+      // Return stored user immediately, then validate in background
+      getCurrentUser().catch(error => {
+        console.log('[initializeAuth] Background validation failed:', error);
+        // Don't sign out on background validation failure
+      });
+      return storedUser;
+    }
+    
+    // If no stored user, try to get from server
     const user = await getCurrentUser();
     if (user === null) {
       // Token is invalid, clear storage
@@ -155,7 +189,12 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     return user;
   } catch (error) {
     console.error('Auth initialization error:', error);
-    await signOut();
+    // Don't sign out on initialization error, try to get from storage
+    const storedUser = await getUserFromStorage();
+    if (storedUser) {
+      console.log('[initializeAuth] Fallback to stored user after error');
+      return storedUser;
+    }
     return null;
   }
 };
@@ -187,3 +226,32 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
 };
 
 export const getLastAuthError = () => lastAuthError;
+
+// Force refresh authentication state
+export const refreshAuthState = async (): Promise<UserType | null> => {
+  try {
+    const token = await AsyncStorage.getItem('authToken');
+    if (!token) {
+      console.log('[refreshAuthState] No token found');
+      return null;
+    }
+    
+    const user = await getCurrentUser();
+    if (user && user !== 'network-error') {
+      console.log('[refreshAuthState] Successfully refreshed auth state');
+      return user;
+    }
+    
+    // If network error, return stored user
+    if (user === 'network-error') {
+      const storedUser = await getUserFromStorage();
+      console.log('[refreshAuthState] Network error, returning stored user');
+      return storedUser;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('[refreshAuthState] Error:', error);
+    return null;
+  }
+};

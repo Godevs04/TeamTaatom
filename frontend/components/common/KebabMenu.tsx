@@ -27,8 +27,8 @@ const KebabMenu: React.FC<KebabMenuProps> = ({ items, iconColor, iconSize }) => 
 
   return (
     <>
-      <TouchableOpacity onPress={() => setVisible(true)} style={{ padding: 4 }}>
-        <Ionicons name="ellipsis-vertical" size={iconSize || 24} color={iconColor || theme.colors.text} />
+      <TouchableOpacity onPress={() => setVisible(true)} style={{ padding: 6 }}>
+        <Ionicons name="ellipsis-vertical" size={iconSize || 20} color={iconColor || theme.colors.text} />
       </TouchableOpacity>
       <Modal
         visible={visible}

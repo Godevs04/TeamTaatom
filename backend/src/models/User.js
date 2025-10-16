@@ -76,6 +76,70 @@ const userSchema = new mongoose.Schema({
       type: String,
       required: false,
       default: null
+  },
+  settings: {
+    privacy: {
+      profileVisibility: {
+        type: String,
+        enum: ['public', 'followers', 'private'],
+        default: 'public'
+      },
+      showEmail: {
+        type: Boolean,
+        default: false
+      },
+      showLocation: {
+        type: Boolean,
+        default: true
+      },
+      allowMessages: {
+        type: String,
+        enum: ['everyone', 'followers', 'none'],
+        default: 'everyone'
+      }
+    },
+    notifications: {
+      pushNotifications: {
+        type: Boolean,
+        default: true
+      },
+      emailNotifications: {
+        type: Boolean,
+        default: true
+      },
+      likesNotifications: {
+        type: Boolean,
+        default: true
+      },
+      commentsNotifications: {
+        type: Boolean,
+        default: true
+      },
+      followsNotifications: {
+        type: Boolean,
+        default: true
+      },
+      messagesNotifications: {
+        type: Boolean,
+        default: true
+      }
+    },
+    account: {
+      language: {
+        type: String,
+        default: 'en'
+      },
+      theme: {
+        type: String,
+        enum: ['light', 'dark', 'auto'],
+        default: 'auto'
+      },
+      dataUsage: {
+        type: String,
+        enum: ['low', 'medium', 'high'],
+        default: 'medium'
+      }
+    }
   }
 }, {
   timestamps: true

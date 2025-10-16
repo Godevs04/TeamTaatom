@@ -5,7 +5,7 @@ const { uploadImage, deleteImage } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 
-// @desc    Get all posts
+// @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
 const getPosts = async (req, res) => {
@@ -14,7 +14,7 @@ const getPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ isActive: true })
+    const posts = await Post.find({ isActive: true, type: 'photo' })
       .populate('user', 'fullName profilePic')
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
@@ -30,7 +30,7 @@ const getPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    const totalPosts = await Post.countDocuments({ isActive: true });
+    const totalPosts = await Post.countDocuments({ isActive: true, type: 'photo' });
     const totalPages = Math.ceil(totalPosts / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
@@ -76,7 +76,7 @@ const createPost = async (req, res) => {
       });
     }
 
-    const { caption, address, latitude, longitude } = req.body;
+    const { caption, address, latitude, longitude, tags } = req.body;
 
     // Upload image to Cloudinary
     const cloudinaryResult = await uploadImage(req.file.buffer, {
@@ -84,12 +84,24 @@ const createPost = async (req, res) => {
       public_id: `post_${req.user._id}_${Date.now()}`
     });
 
+    // Parse tags if provided
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch (e) {
+        parsedTags = [];
+      }
+    }
+
     // Create post
     const post = new Post({
       user: req.user._id,
       caption,
       imageUrl: cloudinaryResult.secure_url,
       cloudinaryPublicId: cloudinaryResult.public_id,
+      tags: parsedTags,
+      type: 'photo',
       location: {
         address: address || 'Unknown Location',
         coordinates: {
@@ -142,6 +154,57 @@ const createPost = async (req, res) => {
   }
 };
 
+// @desc    Get user's shorts
+// @route   GET /shorts/user/:userId
+// @access  Public
+const getUserShorts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Check if user exists
+    const user = await User.findById(userId).select('fullName profilePic');
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    const shorts = await Post.find({ user: userId, isActive: true, type: 'short' })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const shortsWithLikeStatus = shorts.map(short => ({
+      ...short,
+      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+      likesCount: short.likes.length,
+      commentsCount: short.comments.length
+    }));
+
+    const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
+
+    res.status(200).json({
+      shorts: shortsWithLikeStatus,
+      user: user,
+      totalShorts
+    });
+
+  } catch (error) {
+    console.error('Get user shorts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching user shorts'
+    });
+  }
+};
+
 // @desc    Get user's posts
 // @route   GET /posts/user/:userId
 // @access  Public
@@ -161,7 +224,7 @@ const getUserPosts = async (req, res) => {
       });
     }
 
-    const posts = await Post.find({ user: userId, isActive: true })
+    const posts = await Post.find({ user: userId, isActive: true, type: 'photo' })
       .populate('user', 'fullName profilePic')
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
@@ -176,7 +239,7 @@ const getUserPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    const totalPosts = await Post.countDocuments({ user: userId, isActive: true });
+    const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' });
 
     res.status(200).json({
       posts: postsWithLikeStatus,
@@ -216,39 +279,15 @@ const toggleLike = async (req, res) => {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
 
-    // Send push notification to post owner if liked by someone else
-    try {
-      if (isLiked && post.user.toString() !== req.user._id.toString()) {
-        const owner = await User.findById(post.user);
-        if (owner && owner.expoPushToken) {
-          // Dynamically import fetch for compatibility
-          const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-          await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: owner.expoPushToken,
-              sound: 'default',
-              title: 'New Like',
-              body: `${req.user.fullName || 'Someone'} liked your post!`,
-              data: { postId: post._id }
-            })
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Failed to send push notification:', err);
-    }
-
     // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(post.user);
-      const audience = [post.user.toString(), ...followers];
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitInvalidateProfile(post.user.toString());
-      nsp.emitEvent('post:liked', audience, { postId: post._id });
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+      }
+    } catch (socketError) {
+      console.error('Socket error:', socketError);
     }
 
     res.status(200).json({
@@ -430,12 +469,172 @@ const deletePost = async (req, res) => {
   }
 };
 
+// @desc    Get all shorts
+// @route   GET /shorts
+// @access  Public
+const getShorts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const shorts = await Post.find({ isActive: true, type: 'short' })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // Add isLiked field if user is authenticated and include virtual fields
+    const shortsWithLikeStatus = shorts.map(short => ({
+      ...short.toObject(),
+      mediaUrl: short.mediaUrl, // Include virtual field
+      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+      likesCount: short.likes.length,
+      commentsCount: short.comments.length
+    }));
+
+    const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
+    const totalPages = Math.ceil(totalShorts / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    res.status(200).json({
+      shorts: shortsWithLikeStatus,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalShorts,
+        hasNextPage,
+        hasPrevPage,
+        limit
+      }
+    });
+
+  } catch (error) {
+    console.error('Get shorts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching shorts'
+    });
+  }
+};
+
+// @desc    Create new short
+// @route   POST /shorts
+// @access  Private
+const createShort = async (req, res) => {
+  try {
+    console.log('createShort called');
+    console.log('req.file:', req.file);
+    console.log('req.body:', req.body);
+    
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log('Validation errors:', errors.array());
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    if (!req.file) {
+      console.log('No file uploaded');
+      return res.status(400).json({
+        error: 'Video required',
+        message: 'Please upload a video'
+      });
+    }
+
+    const { caption, address, latitude, longitude, tags } = req.body;
+
+    // Upload video to Cloudinary
+    const cloudinaryResult = await uploadImage(req.file.buffer, {
+      folder: 'taatom/shorts',
+      resource_type: 'video',
+      public_id: `short_${req.user._id}_${Date.now()}`
+    });
+
+    // Parse tags if provided
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch (e) {
+        parsedTags = [];
+      }
+    }
+
+    // Create short
+    const short = new Post({
+      user: req.user._id,
+      caption,
+      imageUrl: '', // Empty for shorts - only videoUrl should contain the video URL
+      videoUrl: cloudinaryResult.secure_url, // Video URL goes here
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      tags: parsedTags,
+      type: 'short',
+      location: {
+        address: address || 'Unknown Location',
+        coordinates: {
+          latitude: parseFloat(latitude) || 0,
+          longitude: parseFloat(longitude) || 0
+        }
+      }
+    });
+
+    await short.save();
+
+    // Populate user data for response
+    await short.populate('user', 'fullName profilePic');
+
+    // Emit socket events
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(req.user._id);
+      const audience = [req.user._id.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(req.user._id.toString());
+      nsp.emitEvent('short:created', audience, { shortId: short._id });
+    }
+
+    res.status(201).json({
+      message: 'Short created successfully',
+      short: {
+        ...short.toObject(),
+        isLiked: false,
+        likesCount: 0,
+        commentsCount: 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Create short error:', error);
+    
+    // Clean up uploaded video if short creation failed
+    if (cloudinaryResult) {
+      deleteImage(cloudinaryResult.public_id).catch(err => 
+        console.error('Error deleting video after failed short creation:', err)
+      );
+    }
+
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error creating short'
+    });
+  }
+};
+
 module.exports = {
   getPosts,
   createPost,
   getUserPosts,
+  getUserShorts,
   toggleLike,
   addComment,
   deleteComment,
-  deletePost
+  deletePost,
+  getShorts,
+  createShort
 };

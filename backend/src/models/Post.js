@@ -30,11 +30,26 @@ const postSchema = new mongoose.Schema({
   },
   imageUrl: {
     type: String,
-    required: [true, 'Image URL is required']
+    required: function() {
+      return this.type !== 'short';
+    }
+  },
+  videoUrl: {
+    type: String,
+    required: false
   },
   cloudinaryPublicId: {
     type: String,
     required: true
+  },
+  tags: [{
+    type: String,
+    trim: true
+  }],
+  type: {
+    type: String,
+    enum: ['photo', 'short'],
+    default: 'photo'
   },
   location: {
     address: {
@@ -69,6 +84,8 @@ const postSchema = new mongoose.Schema({
 postSchema.index({ user: 1, createdAt: -1 });
 postSchema.index({ createdAt: -1 });
 postSchema.index({ isActive: 1 });
+postSchema.index({ type: 1, isActive: 1, createdAt: -1 });
+postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 });
 
 // Virtual for like count
 postSchema.virtual('likesCount').get(function() {
@@ -78,6 +95,14 @@ postSchema.virtual('likesCount').get(function() {
 // Virtual for comments count
 postSchema.virtual('commentsCount').get(function() {
   return this.comments.length;
+});
+
+// Virtual for media URL (returns videoUrl for shorts, imageUrl for photos)
+postSchema.virtual('mediaUrl').get(function() {
+  if (this.type === 'short') {
+    return this.videoUrl; // For shorts, always use videoUrl
+  }
+  return this.imageUrl; // For photos, use imageUrl
 });
 
 // Ensure virtual fields are serialized

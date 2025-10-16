@@ -7,7 +7,11 @@ export interface PostType {
   };
   caption: string;
   imageUrl: string;
+  videoUrl?: string;
+  mediaUrl?: string; // Virtual field from backend
   cloudinaryPublicId: string;
+  tags?: string[];
+  type?: 'photo' | 'short';
   location: {
     address: string;
     coordinates: {
