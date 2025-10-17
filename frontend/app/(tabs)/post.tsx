@@ -19,9 +19,11 @@ import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/geo";
-import { createPost, createShort, getPosts, getShorts } from "../../services/posts";
+import { createPost, createPostWithProgress, createShort, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage } from "../../services/auth";
 import { UserType } from "../../types/user";
+import ProgressAlert from "../../components/ProgressAlert";
+import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
 
 
 interface PostFormValues {
@@ -99,11 +101,30 @@ export default function PostScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.8, // Increased for better quality
     });
     if (!result.canceled && result.assets?.[0]) {
       clearUploadState();
-      setSelectedImage(result.assets[0].uri);
+      
+      // Optimize image before setting
+      try {
+        const needsOptimization = await shouldOptimizeImage(result.assets[0].uri);
+        if (needsOptimization) {
+          const optimizedImage = await optimizeImageForUpload(result.assets[0].uri, {
+            maxWidth: 1200, // Increased for better quality
+            maxHeight: 1200, // Increased for better quality
+            quality: 0.9, // High quality
+            format: 'jpeg'
+          });
+          setSelectedImage(optimizedImage.uri);
+        } else {
+          setSelectedImage(result.assets[0].uri);
+        }
+      } catch (error) {
+        console.error('Image optimization error:', error);
+        setSelectedImage(result.assets[0].uri); // Fallback to original
+      }
+      
       setSelectedVideo(null);
       setPostType('photo');
       await getLocation();
@@ -140,10 +161,30 @@ export default function PostScreen() {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.8, // Increased for better quality
     });
     if (!result.canceled && result.assets?.[0]) {
-      setSelectedImage(result.assets[0].uri);
+      clearUploadState();
+      
+      // Optimize image before setting
+      try {
+        const needsOptimization = await shouldOptimizeImage(result.assets[0].uri);
+        if (needsOptimization) {
+          const optimizedImage = await optimizeImageForUpload(result.assets[0].uri, {
+            maxWidth: 1200, // Increased for better quality
+            maxHeight: 1200, // Increased for better quality
+            quality: 0.9, // High quality
+            format: 'jpeg'
+          });
+          setSelectedImage(optimizedImage.uri);
+        } else {
+          setSelectedImage(result.assets[0].uri);
+        }
+      } catch (error) {
+        console.error('Image optimization error:', error);
+        setSelectedImage(result.assets[0].uri); // Fallback to original
+      }
+      
       setSelectedVideo(null);
       setPostType('photo');
       await getLocation();
@@ -235,7 +276,15 @@ export default function PostScreen() {
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `image/${match[1]}` : 'image/jpeg';
 
-      const response = await createPost({
+      // Simulate progress updates since we can't track actual upload progress with fetch
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) return prev;
+          return prev + Math.random() * 10;
+        });
+      }, 200);
+
+      const response = await createPostWithProgress({
         image: {
           uri: selectedImage,
           type: type,
@@ -247,31 +296,38 @@ export default function PostScreen() {
         longitude: location?.lng,
       });
 
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+
       console.log('Post created successfully:', response);
       
-      Alert.alert('Success!', 'Your post has been shared.', [
-        {
-          text: 'OK',
-          onPress: () => {
-            setSelectedImage(null);
-            setLocation(null);
-            setAddress('');
-            // Update existing posts state
-            setHasExistingPosts(true);
-            setIsUploading(false);
-            setUploadProgress(0);
-            router.replace('/(tabs)/home');
+      // Wait a moment to show 100% progress
+      setTimeout(() => {
+        setIsUploading(false);
+        setUploadProgress(0);
+        Alert.alert('Success!', 'Your post has been shared.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              setSelectedImage(null);
+              setLocation(null);
+              setAddress('');
+              // Update existing posts state
+              setHasExistingPosts(true);
+              router.replace('/(tabs)/home');
+            },
           },
-        },
-      ]);
+        ]);
+      }, 500);
+      
     } catch (error: any) {
       console.error('Post creation failed:', error);
       setUploadError(error?.message || 'Upload failed. Please try again.');
+      setIsUploading(false);
+      setUploadProgress(0);
       Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
-      setIsUploading(false);
-      setUploadProgress(0);
     }
   };
 
@@ -537,14 +593,6 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, marginLeft: theme.spacing.xs, flex: 1 }}>{address}</Text>
                       </View>
                     )}
-                    {isUploading && (
-                      <View style={{ marginBottom: theme.spacing.md }}>
-                        <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginBottom: theme.spacing.xs }}>Uploading... {Math.round(uploadProgress)}%</Text>
-                        <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
-                          <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${Math.min(uploadProgress, 100)}%` }} />
-                        </View>
-                      </View>
-                    )}
                     {uploadError && (
                       <View style={{ marginBottom: theme.spacing.md, padding: theme.spacing.md, backgroundColor: '#ffebee', borderRadius: theme.borderRadius.md }}>
                         <Text style={{ color: '#c62828', fontSize: theme.typography.body.fontSize }}>{uploadError}</Text>
@@ -625,14 +673,6 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, marginLeft: theme.spacing.xs, flex: 1 }}>{address}</Text>
                       </View>
                     )}
-                    {isUploading && (
-                      <View style={{ marginBottom: theme.spacing.md }}>
-                        <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginBottom: theme.spacing.xs }}>Uploading... {Math.round(uploadProgress)}%</Text>
-                        <View style={{ height: 4, backgroundColor: theme.colors.border, borderRadius: 2 }}>
-                          <View style={{ height: 4, backgroundColor: theme.colors.primary, borderRadius: 2, width: `${Math.min(uploadProgress, 100)}%` }} />
-                        </View>
-                      </View>
-                    )}
                     {uploadError && (
                       <View style={{ marginBottom: theme.spacing.md, padding: theme.spacing.md, backgroundColor: '#ffebee', borderRadius: theme.borderRadius.md }}>
                         <Text style={{ color: '#c62828', fontSize: theme.typography.body.fontSize }}>{uploadError}</Text>
@@ -665,6 +705,21 @@ export default function PostScreen() {
           </View>
         )}
       </ScrollView>
+      
+      {/* Progress Alert */}
+      <ProgressAlert
+        visible={isUploading}
+        title="Uploading Post"
+        message="Please wait while your image is being uploaded..."
+        progress={uploadProgress}
+        type="upload"
+        showCancel={true}
+        onCancel={() => {
+          setIsUploading(false);
+          setUploadProgress(0);
+          setIsLoading(false);
+        }}
+      />
     </View>
   );
 }

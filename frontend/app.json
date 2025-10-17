@@ -26,6 +26,9 @@
         "applinks:localhost:3000"
       ],
       "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to camera to take photos for posts.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select photos for posts.",
@@ -37,6 +40,11 @@
     },
     "android": {
       "package": "com.taatom.demo",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+        }
+      },
       "intentFilters": [
         {
           "action": "VIEW",
