@@ -16,9 +16,9 @@ const uploadImage = async (buffer, options = {}) => {
           folder: options.folder || 'taatom',
           resource_type: options.resource_type || 'image',
           transformation: options.resource_type === 'video' ? [
-            { width: 720, height: 1280, crop: 'limit', quality: 'auto' }
+            { width: 720, height: 1280, crop: 'limit', quality: 'auto:good' }
           ] : [
-            { width: 800, height: 800, crop: 'limit', quality: 'auto' }
+            { width: 1200, height: 1200, crop: 'limit', quality: 'auto:good', format: 'auto' }
           ],
           ...options
         },
@@ -49,8 +49,25 @@ const deleteImage = async (publicId) => {
   }
 };
 
+// Generate optimized URL for faster loading
+const getOptimizedImageUrl = (publicId, options = {}) => {
+  const {
+    width = 800,
+    height = 800,
+    quality = 'auto:good',
+    format = 'auto'
+  } = options;
+
+  return cloudinary.url(publicId, {
+    transformation: [
+      { width, height, crop: 'limit', quality, format }
+    ]
+  });
+};
+
 module.exports = {
   cloudinary,
   uploadImage,
-  deleteImage
+  deleteImage,
+  getOptimizedImageUrl
 };

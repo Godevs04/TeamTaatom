@@ -348,10 +348,15 @@ export default function ChatModal() {
           }));
           setConversations(chats);
           // Optionally fetch following users as before
-          api.get('/profile/following')
-            .then(followRes => setUsers(followRes.data.users || []))
-            .catch(() => setUsers([]))
-            .finally(() => setLoading(false));
+          if (myUserId) {
+            api.get(`/profile/${myUserId}/following`)
+              .then(followRes => setUsers(followRes.data.users || []))
+              .catch(() => setUsers([]))
+              .finally(() => setLoading(false));
+          } else {
+            setUsers([]);
+            setLoading(false);
+          }
         })
         .catch(err => {
           console.log('Fetch /chat error:', err);

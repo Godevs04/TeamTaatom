@@ -4,6 +4,7 @@ const multer = require('multer');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getPosts,
+  getPostById,
   createPost,
   getUserPosts,
   toggleLike,
@@ -14,12 +15,21 @@ const {
 
 const router = express.Router();
 
+// Health check endpoint
+router.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Multer configuration for image uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 5 * 1024 * 1024, // Reduced from 10MB to 5MB for better mobile performance
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -55,6 +65,7 @@ const addCommentValidation = [
 
 // Routes
 router.get('/', optionalAuth, getPosts);
+router.get('/:id', optionalAuth, getPostById);
 router.post('/', authMiddleware, upload.single('image'), createPostValidation, createPost);
 router.get('/user/:userId', optionalAuth, getUserPosts);
 router.post('/:id/like', authMiddleware, toggleLike);
