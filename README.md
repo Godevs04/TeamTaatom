@@ -154,7 +154,7 @@ CLOUDINARY_API_SECRET=your_api_secret
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASS=your_app_password
 ```
-
+lsof -ti:5001
 ### Frontend (.env)
 ```env
 API_BASE_URL=http://localhost:5000
