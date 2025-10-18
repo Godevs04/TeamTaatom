@@ -15,6 +15,13 @@ const getToken = async () => {
 const connectSocket = async () => {
   if (socket && socket.connected) return socket;
   const token = await getToken();
+  
+  // Clean up existing socket if any
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  
   socket = io(API_BASE_URL + '/app', {
     path: WS_PATH,
     transports: ['websocket'],
@@ -22,18 +29,19 @@ const connectSocket = async () => {
     auth: { token },
     query: { auth: token },
     reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 10000,
     forceNew: true,
+    timeout: 20000,
     extraHeaders: Platform.OS === 'web' ? {} : { Authorization: `Bearer ${token}` },
   });
 
   socket.on('connect', () => {
-    console.log('Socket connected');
+    console.log('Socket connected successfully to /app namespace');
   });
-  socket.on('disconnect', () => {
-    console.log('Socket disconnected');
+  socket.on('disconnect', (reason) => {
+    console.log('Socket disconnected:', reason);
   });
   socket.on('connect_error', (err) => {
     console.error('Socket connect error:', err);
@@ -41,6 +49,7 @@ const connectSocket = async () => {
 
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
+    console.log('Socket event received:', event, args);
     if (listeners[event]) {
       listeners[event].forEach((cb) => cb(...args));
     }
