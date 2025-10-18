@@ -12,15 +12,20 @@ import {
   Alert,
   Dimensions,
   TouchableWithoutFeedback,
+  Share,
+  Platform,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, toggleLike, addComment } from '../../services/posts';
+import { getShorts, toggleLike, addComment, getPostById } from '../../services/posts';
+import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
-// import * as Sharing from 'expo-sharing';
+import { useAlert } from '../../context/AlertContext';
+import CommentModal from '../../components/CommentModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,11 +38,17 @@ export default function ShortsScreen() {
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
+  const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
   const { theme, mode } = useTheme();
   const router = useRouter();
+  const { showSuccess, showError, showInfo } = useAlert();
 
   useEffect(() => {
     loadShorts();
@@ -59,6 +70,14 @@ export default function ShortsScreen() {
       Object.values(videoRefs.current).forEach((videoRef) => {
         if (videoRef) {
           videoRef.pauseAsync();
+          videoRef.unloadAsync();
+        }
+      });
+      
+      // Clear all timeouts
+      Object.values(pauseTimeoutRefs.current).forEach((timeout) => {
+        if (timeout) {
+          clearTimeout(timeout);
         }
       });
     };
@@ -66,9 +85,29 @@ export default function ShortsScreen() {
 
   // Pause all videos when current index changes
   useEffect(() => {
+    // Pause all videos first
     Object.values(videoRefs.current).forEach((videoRef) => {
       if (videoRef) {
         videoRef.pauseAsync();
+        videoRef.setIsMutedAsync(true); // Mute all videos
+      }
+    });
+    
+    // Play and unmute only the current video
+    const currentVideoRef = videoRefs.current[shorts[currentIndex]?._id];
+    if (currentVideoRef) {
+      currentVideoRef.playAsync();
+      currentVideoRef.setIsMutedAsync(false); // Unmute current video
+    }
+    
+    // Unload videos that are far from current view for memory optimization
+    shorts.forEach((short, index) => {
+      const videoRef = videoRefs.current[short._id];
+      const distanceFromCurrent = Math.abs(index - currentIndex);
+      
+      if (distanceFromCurrent > 2 && videoRef) {
+        // Unload videos that are more than 2 positions away
+        videoRef.unloadAsync();
       }
     });
     
@@ -85,9 +124,20 @@ export default function ShortsScreen() {
       setLoading(true);
       const response = await getShorts(1, 50); // Load shorts specifically
       setShorts(response.shorts || []);
+      
+      // Initialize follow states for each short
+      const initialFollowStates: { [key: string]: boolean } = {};
+      response.shorts?.forEach((short: PostType) => {
+        // Check if the user object has isFollowing property
+        const userWithFollowStatus = short.user as any;
+        const followStatus = userWithFollowStatus.isFollowing || false;
+        initialFollowStates[short.user._id] = followStatus;
+      });
+      setFollowStates(initialFollowStates);
+      
     } catch (error: any) {
-      Alert.alert('Error', 'Failed to load shorts');
       console.error('Failed to fetch shorts:', error);
+      showError('Failed to load shorts. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -119,9 +169,15 @@ export default function ShortsScreen() {
     }, 2000);
   };
 
-  // Handle like/unlike
+  // Handle like/unlike with enhanced feedback
   const handleLike = async (shortId: string) => {
+    if (!currentUser) {
+      showError('You must be signed in to like shorts');
+      return;
+    }
+
     try {
+      setActionLoading('like');
       const response = await toggleLike(shortId);
       setShorts(prev => prev.map(short => 
         short._id === shortId 
@@ -132,74 +188,168 @@ export default function ShortsScreen() {
             }
           : short
       ));
-    } catch (error) {
+      
+      if (response.isLiked) {
+        showSuccess('Liked! ❤️');
+      }
+    } catch (error: any) {
       console.error('Error toggling like:', error);
-      Alert.alert('Error', 'Failed to update like');
+      showError('Failed to update like. Please try again.');
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  // Handle comment
-  const handleComment = (shortId: string) => {
-    Alert.prompt(
-      'Add Comment',
-      'Write your comment:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Post',
-          onPress: async (commentText: string | undefined) => {
-            if (commentText && commentText.trim()) {
-              try {
-                await addComment(shortId, commentText.trim());
-                // Refresh shorts to get updated comment count
-                loadShorts();
-                Alert.alert('Success', 'Comment added successfully');
-              } catch (error) {
-                console.error('Error adding comment:', error);
-                Alert.alert('Error', 'Failed to add comment');
-              }
-            }
-          }
+  // Handle comment with enhanced modal
+  const handleComment = async (shortId: string) => {
+    if (!currentUser) {
+      showError('You must be signed in to comment');
+      return;
+    }
+    
+    try {
+      // First try to get comments from the shorts list
+      const selectedShort = shorts.find(short => short._id === shortId);
+      let comments = selectedShort?.comments || [];
+      
+      // If no comments found, try to fetch fresh data from API
+      if (comments.length === 0) {
+        try {
+          const response = await getPostById(shortId);
+          comments = response.post?.comments || [];
+        } catch (apiError) {
+          console.log('Could not fetch fresh comments, using cached data');
         }
-      ],
-      'plain-text'
-    );
+      }
+      
+      setSelectedShortComments(comments);
+      setSelectedShortId(shortId);
+      setShowCommentModal(true);
+    } catch (error) {
+      console.error('Error loading comments:', error);
+      showError('Failed to load comments');
+    }
   };
 
-  // Handle share
+  // Handle comment added
+  const handleCommentAdded = (newComment: any) => {
+    // Update the shorts list to reflect new comment count
+    setShorts(prev => prev.map(short => 
+      short._id === selectedShortId 
+        ? { 
+            ...short, 
+            commentsCount: (short.commentsCount || 0) + 1,
+            comments: [...(short.comments || []), newComment]
+          }
+        : short
+    ));
+    
+    // Update the selected short comments for the modal
+    setSelectedShortComments(prev => [...prev, newComment]);
+    
+    showSuccess('Comment added successfully!');
+  };
+
+  // Handle share with enhanced functionality
   const handleShare = async (short: PostType) => {
     try {
-      const shareUrl = `Check out this short by ${short.user.fullName}: ${short.caption}`;
-      // For now, just show an alert. In production, you can use expo-sharing
-      Alert.alert('Share', shareUrl);
+      const shareContent = {
+        title: `Short by ${short.user.fullName}`,
+        message: `${short.caption}\n\nCheck out this amazing short!`,
+        url: short.mediaUrl || short.imageUrl,
+      };
+
+      if (Platform.OS === 'ios') {
+        await Share.share(shareContent);
+      } else {
+        await Share.share(shareContent);
+      }
+      
+      showSuccess('Shared successfully!');
     } catch (error) {
       console.error('Error sharing:', error);
-      Alert.alert('Error', 'Failed to share');
+      showError('Failed to share. Please try again.');
     }
   };
 
-  // Handle save/bookmark
+  // Handle save/bookmark with enhanced feedback
   const handleSave = (shortId: string) => {
+    if (!currentUser) {
+      showError('You must be signed in to save shorts');
+      return;
+    }
+
     setSavedShorts(prev => {
       const newSaved = new Set(prev);
       if (newSaved.has(shortId)) {
         newSaved.delete(shortId);
-        Alert.alert('Removed', 'Short removed from saved');
+        showInfo('Removed from saved');
       } else {
         newSaved.add(shortId);
-        Alert.alert('Saved', 'Short saved to your collection');
+        showSuccess('Saved to your collection!');
       }
       return newSaved;
     });
   };
 
+  // Handle follow/unfollow
+  const handleFollow = async (userId: string, userName: string) => {
+    if (!currentUser) {
+      showError('You must be signed in to follow users');
+      return;
+    }
+
+    if (currentUser._id === userId) {
+      showInfo('You cannot follow yourself');
+      return;
+    }
+
+    try {
+      setActionLoading('follow');
+      const response = await toggleFollow(userId);
+      setFollowStates(prev => ({
+        ...prev,
+        [userId]: response.isFollowing
+      }));
+      
+      showSuccess(
+        response.isFollowing 
+          ? `You're now following ${userName}` 
+          : `You've unfollowed ${userName}`
+      );
+    } catch (error: any) {
+      console.error('Error toggling follow:', error);
+      showError('Failed to update follow status. Please try again.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle profile navigation
+  const handleProfilePress = (userId: string) => {
+    if (currentUser && currentUser._id === userId) {
+      // Navigate to own profile
+      router.push('/(tabs)/profile');
+    } else {
+      // Navigate to other user's profile
+      router.push(`/profile/${userId}`);
+    }
+  };
+
   const renderShortItem = ({ item, index }: { item: PostType; index: number }) => {
     const isVideoPlaying = videoStates[item._id] || index === currentIndex;
+    const isFollowing = followStates[item.user._id] || false;
+    const isSaved = savedShorts.has(item._id);
 
     return (
       <View style={styles.shortItem}>
         {/* Video Player with Tap Gesture */}
-        <TouchableWithoutFeedback onPress={() => showPauseButtonTemporarily(item._id)}>
+        <TouchableWithoutFeedback 
+          onPress={() => {
+            toggleVideoPlayback(item._id);
+            showPauseButtonTemporarily(item._id);
+          }}
+        >
           <Video
             ref={(ref) => {
               videoRefs.current[item._id] = ref;
@@ -209,7 +359,7 @@ export default function ShortsScreen() {
             resizeMode={ResizeMode.COVER}
             shouldPlay={isVideoPlaying}
             isLooping
-            isMuted={false}
+            isMuted={index !== currentIndex} // Mute all videos except current
             onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
               if (status.isLoaded) {
                 setVideoStates(prev => ({
@@ -221,104 +371,136 @@ export default function ShortsScreen() {
           />
         </TouchableWithoutFeedback>
         
+        {/* Gradient Overlay for better text readability */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
+          style={styles.gradientOverlay}
+        />
+        
         {/* Play/Pause Overlay - Only show when paused or temporarily after interaction */}
-        {(showPauseButton[item._id] || !isVideoPlaying) && (
-          <TouchableOpacity 
-            style={styles.playButton}
-            onPress={() => {
-              toggleVideoPlayback(item._id);
-              showPauseButtonTemporarily(item._id);
-            }}
-          >
-            <Ionicons 
-              name={isVideoPlaying ? "pause" : "play"} 
-              size={60} 
-              color="rgba(255,255,255,0.8)" 
-            />
-          </TouchableOpacity>
+        {(showPauseButton[item._id] || !videoStates[item._id]) && (
+          <View style={styles.playButton}>
+            <View style={styles.playButtonBackground}>
+              <Ionicons 
+                name={videoStates[item._id] ? "pause" : "play"} 
+                size={60} 
+                color="white" 
+              />
+            </View>
+          </View>
         )}
       
-      {/* Right Side Action Buttons */}
-      <View style={styles.rightActions}>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleLike(item._id)}
-        >
-          <Ionicons 
-            name={item.isLiked ? "heart" : "heart-outline"} 
-            size={28} 
-            color={item.isLiked ? "#ff3040" : "white"} 
-          />
-          <Text style={styles.actionText}>{item.likesCount || 0}</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleComment(item._id)}
-        >
-          <Ionicons name="chatbubble-outline" size={28} color="white" />
-          <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleShare(item)}
-        >
-          <Ionicons name="share-outline" size={28} color="white" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleSave(item._id)}
-        >
-          <Ionicons 
-            name={savedShorts.has(item._id) ? "bookmark" : "bookmark-outline"} 
-            size={28} 
-            color={savedShorts.has(item._id) ? "#4A90E2" : "white"} 
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Bottom Content */}
-      <View style={styles.bottomContent}>
-        {/* User Info */}
-        <View style={styles.userInfo}>
-          <Image 
-            source={{ uri: item.user.profilePic || 'https://via.placeholder.com/40' }} 
-            style={styles.userAvatar} 
-          />
-          <View style={styles.userDetails}>
-            <Text style={styles.userName}>{item.user.fullName}</Text>
-            <Text style={styles.userHandle}>@{item.user.fullName.toLowerCase().replace(/\s+/g, '')}</Text>
-          </View>
-          <TouchableOpacity style={styles.followButton}>
-            <Text style={styles.followButtonText}>Follow</Text>
+        {/* Right Side Action Buttons */}
+        <View style={styles.rightActions}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => handleLike(item._id)}
+            disabled={actionLoading === 'like'}
+          >
+            <View style={styles.actionButtonContainer}>
+              <Ionicons 
+                name={item.isLiked ? "heart" : "heart-outline"} 
+                size={32} 
+                color={item.isLiked ? "#ff3040" : "white"} 
+              />
+              <Text style={styles.actionText}>{item.likesCount || 0}</Text>
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => handleComment(item._id)}
+          >
+            <View style={styles.actionButtonContainer}>
+              <Ionicons name="chatbubble-outline" size={32} color="white" />
+              <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => handleShare(item)}
+          >
+            <View style={styles.actionButtonContainer}>
+              <Ionicons name="share-outline" size={32} color="white" />
+            </View>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={() => handleSave(item._id)}
+          >
+            <View style={styles.actionButtonContainer}>
+              <Ionicons 
+                name={isSaved ? "bookmark" : "bookmark-outline"} 
+                size={32} 
+                color={isSaved ? "#4A90E2" : "white"} 
+              />
+            </View>
           </TouchableOpacity>
         </View>
 
-        {/* Caption */}
-        <View style={styles.captionContainer}>
-          <Text style={styles.caption}>{item.caption}</Text>
+        {/* Bottom Content with Enhanced Design */}
+        <View style={styles.bottomContent}>
+          {/* User Info */}
+          <View style={styles.userInfo}>
+            <TouchableOpacity onPress={() => handleProfilePress(item.user._id)}>
+              <Image 
+                source={{ uri: item.user.profilePic || 'https://via.placeholder.com/40' }} 
+                style={styles.userAvatar} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.userDetails}
+              onPress={() => handleProfilePress(item.user._id)}
+            >
+              <Text style={styles.userName}>{item.user.fullName}</Text>
+              {/* <Text style={styles.userHandle}>{item.user.fullName.toLowerCase().replace(/\s+/g, '')}</Text> */}
+            </TouchableOpacity>
+            {/* Only show follow button if not own user */}
+            {currentUser && currentUser._id !== item.user._id && (
+              <TouchableOpacity 
+                style={[
+                  styles.followButton,
+                  { backgroundColor: isFollowing ? 'rgba(255,255,255,0.2)' : '#4A90E2' }
+                ]}
+                onPress={() => handleFollow(item.user._id, item.user.fullName)}
+                disabled={actionLoading === 'follow'}
+              >
+                {actionLoading === 'follow' ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.followButtonText}>
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Caption */}
+          <View style={styles.captionContainer}>
+            <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text>
+          </View>
+
+          {/* Tags */}
+          {item.tags && item.tags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              {item.tags.slice(0, 3).map((tag, tagIndex) => (
+                <Text key={tagIndex} style={styles.tag}>#{tag}</Text>
+              ))}
+            </View>
+          )}
+
+          {/* Location */}
+          {item.location?.address && (
+            <View style={styles.locationContainer}>
+              <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.locationText} numberOfLines={1}>{item.location.address}</Text>
+            </View>
+          )}
         </View>
-
-        {/* Tags */}
-        {item.tags && item.tags.length > 0 && (
-          <View style={styles.tagsContainer}>
-            {item.tags.map((tag, tagIndex) => (
-              <Text key={tagIndex} style={styles.tag}>#{tag}</Text>
-            ))}
-          </View>
-        )}
-
-        {/* Location */}
-        {item.location?.address && (
-          <View style={styles.locationContainer}>
-            <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.8)" />
-            <Text style={styles.locationText}>{item.location.address}</Text>
-          </View>
-        )}
       </View>
-    </View>
     );
   };
 
@@ -331,7 +513,12 @@ export default function ShortsScreen() {
           translucent
         />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="white" />
+          <View style={styles.loadingContent}>
+            <Ionicons name="videocam" size={60} color="#4A90E2" />
+            <Text style={styles.loadingTitle}>Loading Shorts</Text>
+            <Text style={styles.loadingSubtitle}>Discover amazing content...</Text>
+            <ActivityIndicator size="large" color="#4A90E2" style={styles.loadingSpinner} />
+          </View>
         </View>
       </View>
     );
@@ -380,6 +567,10 @@ export default function ShortsScreen() {
         snapToInterval={SCREEN_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        removeClippedSubviews={true}
+        initialNumToRender={3}
+        maxToRenderPerBatch={2}
+        windowSize={5}
         onMomentumScrollEnd={(event) => {
           const index = Math.round(event.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
           setCurrentIndex(index);
@@ -390,6 +581,21 @@ export default function ShortsScreen() {
           index,
         })}
       />
+
+      {/* Comment Modal */}
+      {selectedShortId && (
+        <CommentModal
+          postId={selectedShortId}
+          visible={showCommentModal}
+          comments={selectedShortComments}
+          onClose={() => {
+            setShowCommentModal(false);
+            setSelectedShortId(null);
+            setSelectedShortComments([]);
+          }}
+          onCommentAdded={handleCommentAdded}
+        />
+      )}
     </View>
   );
 }
@@ -416,6 +622,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingContent: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  loadingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  loadingSpinner: {
+    marginTop: 16,
   },
   emptyContainer: {
     flex: 1,
@@ -459,106 +685,154 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  gradientOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    zIndex: 1,
+  },
   playButton: {
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: [{ translateX: -30 }, { translateY: -30 }],
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 30,
-    width: 60,
-    height: 60,
+    transform: [{ translateX: -40 }, { translateY: -40 }],
+    zIndex: 10,
+  },
+  playButtonBackground: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 40,
+    width: 80,
+    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   rightActions: {
     position: 'absolute',
     right: 16,
-    bottom: 120,
+    bottom: 180,
     alignItems: 'center',
+    zIndex: 5,
   },
   actionButton: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 28,
+  },
+  actionButtonContainer: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 25,
+    padding: 8,
+    minWidth: 50,
   },
   actionText: {
     color: 'white',
     fontSize: 12,
     marginTop: 4,
-    fontWeight: '600',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   bottomContent: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 16,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    padding: 20,
+    paddingBottom: 60,
+    zIndex: 5,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    paddingRight: 80, // Add padding to avoid overlap with action buttons
   },
   userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     marginRight: 12,
     borderWidth: 2,
     borderColor: 'white',
+    opacity: 0.9,
   },
   userDetails: {
     flex: 1,
+    paddingVertical: 4,
   },
   userName: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   userHandle: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 14,
+    marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   followButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   followButtonText: {
     color: 'white',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   captionContainer: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
   caption: {
     color: 'white',
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 24,
     fontWeight: '500',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   tag: {
     color: '#4A90E2',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     marginRight: 8,
     marginBottom: 4,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   locationText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 14,
     marginLeft: 4,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });

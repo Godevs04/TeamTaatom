@@ -17,9 +17,10 @@ import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
-import PhotoCard from '../../components/PhotoCard';
+import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
+import { imageCacheManager } from '../../utils/imageCacheManager';
 import AnimatedHeader from '../../components/AnimatedHeader';
 
 export default function HomeScreen() {
@@ -35,7 +36,17 @@ export default function HomeScreen() {
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
     try {
-      const response = await getPosts(pageNum, 20);
+      console.log('Fetching posts for page:', pageNum);
+      const response = await getPosts(pageNum, 10); // Reduced from 20 to 10 for better mobile performance
+      
+      console.log('Received posts:', response.posts.length);
+      response.posts.forEach((post, index) => {
+        console.log(`Post ${index}:`, {
+          id: post._id,
+          imageUrl: post.imageUrl,
+          hasImageUrl: !!post.imageUrl
+        });
+      });
       
       if (shouldAppend) {
         setPosts(prev => [...prev, ...response.posts]);
@@ -45,9 +56,22 @@ export default function HomeScreen() {
       
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
+      
+      // Preload images for better performance
+      if (response.posts.length > 0) {
+        response.posts.forEach((post, index) => {
+          if (post.imageUrl && index < 5) { // Preload first 5 images
+            console.log('Preloading image:', post.imageUrl);
+            imageCacheManager.prefetchImage(post.imageUrl).catch((err: any) => 
+              console.warn('Failed to preload image:', err)
+            );
+          }
+        });
+      }
     } catch (error: any) {
-      showError('Failed to load posts');
       console.error('Failed to fetch posts:', error);
+      // Don't show error popup, just log it
+      // Posts will show as empty, user can pull to refresh
     }
   }, []);
 
@@ -55,14 +79,17 @@ export default function HomeScreen() {
     const loadInitialData = async () => {
       setLoading(true);
       try {
-        // Load current user
+        // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
         
-        // Load posts
+        // Try to load posts without blocking on connectivity test
+        console.log('Loading posts...');
         await fetchPosts(1, false);
       } catch (error) {
         console.error('Error loading initial data:', error);
+        // Don't show error popup, just log it
+        console.log('Failed to load posts, will retry on refresh');
       } finally {
         setLoading(false);
       }
@@ -138,6 +165,7 @@ export default function HomeScreen() {
     },
     postsList: {
       paddingHorizontal: 0,
+      paddingBottom: 20,
     },
     loadMoreContainer: {
       padding: theme.spacing.md,
@@ -232,14 +260,12 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
-        renderItem={({ item }) => (
-          <PhotoCard 
+        renderItem={({ item, index }) => (
+          <OptimizedPhotoCard 
             post={item} 
             onRefresh={handleRefresh}
+            isVisible={true} // Always render for debugging
           />
-        )}
-        ItemSeparatorComponent={() => (
-          <View style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: theme.spacing.sm }} />
         )}
       />
       </SafeAreaView>

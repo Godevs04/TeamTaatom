@@ -11,6 +11,7 @@ import {
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import Constants from 'expo-constants';
 
 interface Location {
   latitude: number;
@@ -26,6 +27,7 @@ interface WorldMapProps {
 }
 
 const { width, height } = Dimensions.get('window');
+const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 function getPolylineCoordinates(locations: Location[]) {
   return locations.map(loc => ({ latitude: loc.latitude, longitude: loc.longitude }));
@@ -132,7 +134,7 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
           <div class="location-title">📍 ${primaryLocation.address}</div>
           ${primaryLocation.date ? `<div class="location-date">📅 ${new Date(primaryLocation.date).toLocaleDateString()}</div>` : ''}
         </div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap"></script>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=initMap"></script>
       </body>
       </html>
     `;

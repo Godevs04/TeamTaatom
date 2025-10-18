@@ -1,7 +1,7 @@
 const { validationResult } = require('express-validator');
 const Post = require('../models/Post');
 const User = require('../models/User');
-const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { uploadImage, deleteImage, getOptimizedImageUrl } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 
@@ -22,13 +22,38 @@ const getPosts = async (req, res) => {
       .limit(limit)
       .lean();
 
-    // Add isLiked field if user is authenticated
-    const postsWithLikeStatus = posts.map(post => ({
-      ...post,
-      isLiked: req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: post.likes.length,
-      commentsCount: post.comments.length
-    }));
+    // Add isLiked field if user is authenticated and optimize image URLs
+    const postsWithLikeStatus = posts.map(post => {
+      // Generate optimized image URL for faster loading
+      let optimizedImageUrl = post.imageUrl;
+      if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+        try {
+          // Extract public ID from Cloudinary URL
+          const urlParts = post.imageUrl.split('/');
+          const publicIdWithExtension = urlParts[urlParts.length - 1];
+          const publicId = publicIdWithExtension.split('.')[0];
+          
+          // Generate optimized URL
+          optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
+            width: 800,
+            height: 800,
+            quality: 'auto:good',
+            format: 'auto'
+          });
+        } catch (error) {
+          console.warn('Failed to optimize image URL:', error);
+          // Keep original URL as fallback
+        }
+      }
+
+      return {
+        ...post,
+        imageUrl: optimizedImageUrl,
+        isLiked: req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        likesCount: post.likes.length,
+        commentsCount: post.comments.length
+      };
+    });
 
     const totalPosts = await Post.countDocuments({ isActive: true, type: 'photo' });
     const totalPages = Math.ceil(totalPosts / limit);
@@ -52,6 +77,82 @@ const getPosts = async (req, res) => {
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error fetching posts'
+    });
+  }
+};
+
+// @desc    Get single post by ID
+// @route   GET /posts/:id
+// @access  Public
+const getPostById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const post = await Post.findOne({ _id: id, isActive: true })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .lean();
+
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'The requested post does not exist or has been deleted'
+      });
+    }
+
+    // Generate optimized image URL
+    let optimizedImageUrl = post.imageUrl;
+    if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+      try {
+        const urlParts = post.imageUrl.split('/');
+        const publicIdWithExtension = urlParts[urlParts.length - 1];
+        const publicId = publicIdWithExtension.split('.')[0];
+        
+        optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
+          width: 1200,
+          height: 1200,
+          quality: 'auto:good',
+          format: 'auto'
+        });
+      } catch (error) {
+        console.warn('Failed to optimize image URL:', error);
+      }
+    }
+
+    // Add isLiked field if user is authenticated
+    let isLiked = false;
+    let isFollowing = false;
+    if (req.user) {
+      isLiked = post.likes.some(like => like.toString() === req.user._id.toString());
+      
+      // Check if current user is following the post author
+      const postAuthor = await User.findById(post.user);
+      if (postAuthor && postAuthor.followers) {
+        isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+      }
+    }
+
+    const postWithDetails = {
+      ...post,
+      imageUrl: optimizedImageUrl,
+      isLiked,
+      likesCount: post.likes.length,
+      commentsCount: post.comments.length,
+      user: {
+        ...post.user,
+        isFollowing
+      }
+    };
+
+    res.json({
+      success: true,
+      post: postWithDetails
+    });
+  } catch (error) {
+    console.error('Get post by ID error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch post',
+      message: error.message
     });
   }
 };
@@ -147,9 +248,25 @@ const createPost = async (req, res) => {
       );
     }
 
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error creating post'
+    // Provide more specific error messages
+    let errorMessage = 'Error creating post';
+    let statusCode = 500;
+
+    if (error.name === 'ValidationError') {
+      errorMessage = 'Invalid post data provided';
+      statusCode = 400;
+    } else if (error.message && error.message.includes('Cloudinary')) {
+      errorMessage = 'Failed to upload image. Please try again.';
+      statusCode = 500;
+    } else if (error.message && error.message.includes('network')) {
+      errorMessage = 'Network error. Please check your connection.';
+      statusCode = 503;
+    }
+
+    res.status(statusCode).json({
+      error: 'Post creation failed',
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -181,11 +298,27 @@ const getUserShorts = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short,
-      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: short.likes.length,
-      commentsCount: short.comments.length
+    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
+      let isFollowing = false;
+      
+      // Check if current user is following the post author
+      if (req.user && short.user) {
+        const postAuthor = await User.findById(short.user);
+        if (postAuthor && postAuthor.followers) {
+          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+        }
+      }
+      
+      return {
+        ...short,
+        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        likesCount: short.likes.length,
+        commentsCount: short.comments.length,
+        user: {
+          ...short.user,
+          isFollowing
+        }
+      };
     }));
 
     const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
@@ -486,12 +619,28 @@ const getShorts = async (req, res) => {
       .limit(limit);
 
     // Add isLiked field if user is authenticated and include virtual fields
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short.toObject(),
-      mediaUrl: short.mediaUrl, // Include virtual field
-      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: short.likes.length,
-      commentsCount: short.comments.length
+    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
+      let isFollowing = false;
+      
+      // Check if current user is following the post author
+      if (req.user && short.user) {
+        const postAuthor = await User.findById(short.user);
+        if (postAuthor && postAuthor.followers) {
+          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+        }
+      }
+      
+      return {
+        ...short.toObject(),
+        mediaUrl: short.mediaUrl, // Include virtual field
+        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        likesCount: short.likes.length,
+        commentsCount: short.comments.length,
+        user: {
+          ...short.user.toObject(),
+          isFollowing
+        }
+      };
     }));
 
     const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
@@ -628,6 +777,7 @@ const createShort = async (req, res) => {
 
 module.exports = {
   getPosts,
+  getPostById,
   createPost,
   getUserPosts,
   getUserShorts,
