@@ -1,8 +1,53 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
-const { getIO } = require('../socket');
 const mongoose = require('mongoose');
-const fetch = require('node-fetch');
+
+// Import socket and fetch with proper error handling
+let getIO;
+let fetch;
+
+// Use dynamic import for fetch to handle different Node.js versions
+try {
+  fetch = require('node-fetch');
+} catch (error) {
+  // Fallback to global fetch if available (Node.js 18+)
+  fetch = globalThis.fetch || global.fetch;
+  if (!fetch) {
+    console.error('Fetch not available');
+  }
+}
+
+// Function to get socket instance - will be called when needed
+const getSocketInstance = () => {
+  try {
+    console.log('Getting socket instance...');
+    console.log('global.socketIO available:', !!global.socketIO);
+    
+    // Try to get from global first
+    if (global.socketIO) {
+      console.log('Using global.socketIO');
+      return global.socketIO;
+    }
+    
+    console.log('Trying to require socket module...');
+    // Try to require socket module
+    const socketModule = require('../socket');
+    console.log('Socket module required:', !!socketModule);
+    console.log('Socket module getIO:', !!socketModule.getIO);
+    
+    if (socketModule.getIO) {
+      const io = socketModule.getIO();
+      console.log('getIO returned:', !!io);
+      return io;
+    }
+    
+    console.log('No socket instance available');
+    return null;
+  } catch (error) {
+    console.error('Failed to get socket instance:', error);
+    return null;
+  }
+};
 
 // Helper: check if user is following the other
 async function canChat(userId, otherId) {
@@ -90,40 +135,86 @@ exports.sendMessage = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
   const { text } = req.body;
-  if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-    return res.status(400).json({ message: 'Invalid user' });
-  }
-  if (!text) return res.status(400).json({ message: 'Text required' });
-  if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
-  let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-  if (!chat) {
-    chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
-  }
-  const message = { sender: userId, text, timestamp: new Date() };
-  chat.messages.push(message);
-  await chat.save();
-
-  // Send push notification to recipient
+  
   try {
-    const recipient = await User.findById(otherUserId);
-    if (recipient && recipient.expoPushToken) {
-      await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: recipient.expoPushToken,
-          sound: 'default',
-          title: 'New Message',
-          body: `${req.user.fullName || 'Someone'}: ${text}`,
-          data: { chatWith: userId }
-        })
-      });
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
     }
-  } catch (err) {
-    console.error('Failed to send push notification:', err);
-  }
+    if (!text) return res.status(400).json({ message: 'Text required' });
+    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    
+    let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    if (!chat) {
+      chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
+    }
+    const message = { sender: userId, text, timestamp: new Date() };
+    chat.messages.push(message);
+    await chat.save();
 
-  res.json({ message });
+    // Emit real-time socket events for immediate updates
+    try {
+      console.log('Attempting to emit socket events...');
+      
+      const io = getSocketInstance();
+      console.log('Socket instance available:', !!io);
+      console.log('Socket type:', typeof io);
+      
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        console.log('Namespace available:', !!nsp);
+        
+        // Emit to recipient (all devices)
+        nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chat._id, message });
+        // Emit ack to sender (all devices)
+        nsp.to(`user:${userId}`).emit('message:sent', { chatId: chat._id, message });
+        // Emit chat list update to both users
+        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        console.log('Socket events emitted successfully for message:', message._id);
+        console.log('Emitted to users:', { sender: userId, recipient: otherUserId });
+        console.log('Chat ID:', chat._id);
+      } else {
+        console.log('Socket not available, skipping real-time events');
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket events:', socketError);
+      // Don't fail the request if socket fails
+    }
+
+    // Send push notification to recipient
+    try {
+      const recipient = await User.findById(otherUserId);
+      if (recipient && recipient.expoPushToken && fetch && typeof fetch === 'function') {
+        console.log('Sending push notification...');
+        await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: recipient.expoPushToken,
+            sound: 'default',
+            title: 'New Message',
+            body: `${req.user.fullName || 'Someone'}: ${text}`,
+            data: { chatWith: userId }
+          })
+        });
+        console.log('Push notification sent successfully');
+      } else {
+        console.log('Push notification skipped:', { 
+          hasRecipient: !!recipient, 
+          hasToken: !!recipient?.expoPushToken, 
+          hasFetch: !!fetch,
+          fetchType: typeof fetch 
+        });
+      }
+    } catch (err) {
+      console.error('Failed to send push notification:', err);
+    }
+
+    res.json({ message });
+  } catch (error) {
+    console.error('Error in sendMessage:', error);
+    res.status(500).json({ message: 'Failed to send message' });
+  }
 };
 
 // Mark a message as seen

@@ -12,6 +12,7 @@ let io;
 const onlineUsers = new Map(); // userId -> Set<socketId>
 
 function setupSocket(server) {
+  console.log('Setting up socket server...');
   io = new Server(server, {
     path: WS_PATH,
     cors: {
@@ -19,6 +20,10 @@ function setupSocket(server) {
       credentials: true,
     },
   });
+
+  // Set global reference for other modules
+  global.socketIO = io;
+  console.log('Socket server initialized and set to global.socketIO');
 
   const nsp = io.of('/app');
 
@@ -119,4 +124,14 @@ function setupSocket(server) {
   return nsp;
 }
 
-module.exports = { setupSocket, getIO: () => io };
+module.exports = { 
+  setupSocket, 
+  getIO: () => {
+    if (!io) {
+      console.error('Socket not initialized. Call setupSocket first.');
+      return null;
+    }
+    return io;
+  },
+  getSocket: () => io // Export the socket instance directly
+};

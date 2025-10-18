@@ -25,10 +25,18 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
     const onMessageNew = (payload: any) => {
+      console.log('Received message:new event:', payload);
       if (payload.message && payload.chatId === chatId) {
+        console.log('Adding message to active chat:', payload.message);
+        // Clear fallback timeout if it exists
+        if ((window as any).messageFallbackTimeout) {
+          clearTimeout((window as any).messageFallbackTimeout);
+          (window as any).messageFallbackTimeout = null;
+        }
         // Append to active chat if open
         onSendMessage(payload.message);
       } else {
+        console.log('Message not for current chat or missing data:', { payload, chatId });
         // Optionally: update chat list preview/unread here
         // (You may want to trigger a chat list refresh or update state)
       }
@@ -67,6 +75,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
       socketService.unsubscribe('seen', onSeen);
       socketService.unsubscribe('user:online', onOnline);
       socketService.unsubscribe('user:offline', onOffline);
+      
+      // Cleanup fallback timeout
+      if ((window as any).messageFallbackTimeout) {
+        clearTimeout((window as any).messageFallbackTimeout);
+        (window as any).messageFallbackTimeout = null;
+      }
     };
   }, [otherUser, chatId]); // Add chatId to dependency array
 
@@ -119,11 +133,28 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId }: { o
   // In handleSend, update local state via onSendMessage
   const handleSend = async () => {
     if (!input.trim()) return;
+    const messageText = input;
+    console.log('Sending message:', messageText);
+    setInput(''); // Clear input immediately for better UX
+    
     try {
-      const res = await api.post(`/chat/${otherUser._id}/messages`, { text: input });
-      onSendMessage(res.data.message);
-      setInput('');
-    } catch (e) {}
+      const res = await api.post(`/chat/${otherUser._id}/messages`, { text: messageText });
+      console.log('Message sent successfully:', res.data.message);
+      
+      // Add a fallback mechanism - if socket doesn't fire within 1 second, add the message manually
+      const fallbackTimeout = setTimeout(() => {
+        console.log('Socket fallback: adding message manually');
+        onSendMessage(res.data.message);
+      }, 1000);
+      
+      // Store the timeout so we can clear it if socket event fires
+      (window as any).messageFallbackTimeout = fallbackTimeout;
+      
+    } catch (e) {
+      console.error('Error sending message:', e);
+      // Restore input on error
+      setInput(messageText);
+    }
   };
 
   return (
