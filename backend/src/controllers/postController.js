@@ -298,11 +298,27 @@ const getUserShorts = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short,
-      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: short.likes.length,
-      commentsCount: short.comments.length
+    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
+      let isFollowing = false;
+      
+      // Check if current user is following the post author
+      if (req.user && short.user) {
+        const postAuthor = await User.findById(short.user);
+        if (postAuthor && postAuthor.followers) {
+          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+        }
+      }
+      
+      return {
+        ...short,
+        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        likesCount: short.likes.length,
+        commentsCount: short.comments.length,
+        user: {
+          ...short.user,
+          isFollowing
+        }
+      };
     }));
 
     const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
@@ -603,12 +619,28 @@ const getShorts = async (req, res) => {
       .limit(limit);
 
     // Add isLiked field if user is authenticated and include virtual fields
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short.toObject(),
-      mediaUrl: short.mediaUrl, // Include virtual field
-      isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: short.likes.length,
-      commentsCount: short.comments.length
+    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
+      let isFollowing = false;
+      
+      // Check if current user is following the post author
+      if (req.user && short.user) {
+        const postAuthor = await User.findById(short.user);
+        if (postAuthor && postAuthor.followers) {
+          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+        }
+      }
+      
+      return {
+        ...short.toObject(),
+        mediaUrl: short.mediaUrl, // Include virtual field
+        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        likesCount: short.likes.length,
+        commentsCount: short.comments.length,
+        user: {
+          ...short.user.toObject(),
+          isFollowing
+        }
+      };
     }));
 
     const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
