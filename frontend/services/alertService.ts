@@ -1,37 +1,20 @@
 import { Alert } from 'react-native';
-import CustomAlert, { CustomAlertButton } from '../components/CustomAlert';
-import CustomOptions, { CustomOption } from '../components/CustomOptions';
 
-interface AlertState {
-  visible: boolean;
-  title?: string;
+export interface AlertConfig {
+  title: string;
   message: string;
-  buttons?: CustomAlertButton[];
-  type?: 'info' | 'success' | 'warning' | 'error';
-  showIcon?: boolean;
-}
-
-interface OptionsState {
-  visible: boolean;
-  title?: string;
-  message?: string;
-  options: CustomOption[];
+  type?: 'success' | 'error' | 'warning' | 'info';
   showCancel?: boolean;
+  confirmText?: string;
   cancelText?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
 class AlertService {
   private static instance: AlertService;
-  private alertState: AlertState = {
-    visible: false,
-    message: '',
-  };
-  private optionsState: OptionsState = {
-    visible: false,
-    options: [],
-  };
-  private listeners: Array<(state: AlertState) => void> = [];
-  private optionsListeners: Array<(state: OptionsState) => void> = [];
+  private alertQueue: AlertConfig[] = [];
+  private isShowingAlert = false;
 
   static getInstance(): AlertService {
     if (!AlertService.instance) {
@@ -40,72 +23,104 @@ class AlertService {
     return AlertService.instance;
   }
 
-  subscribe(listener: (state: AlertState) => void): () => void {
-    this.listeners.push(listener);
-    return () => {
-      this.listeners = this.listeners.filter(l => l !== listener);
-    };
+  // Show custom alert with configuration
+  showAlert(config: AlertConfig): void {
+    this.alertQueue.push(config);
+    this.processQueue();
   }
 
-  subscribeToOptions(listener: (state: OptionsState) => void): () => void {
-    this.optionsListeners.push(listener);
-    return () => {
-      this.optionsListeners = this.optionsListeners.filter(l => l !== listener);
-    };
+  // Process alert queue
+  private processQueue(): void {
+    if (this.isShowingAlert || this.alertQueue.length === 0) {
+      return;
+    }
+
+    const config = this.alertQueue.shift();
+    if (!config) return;
+
+    this.isShowingAlert = true;
+
+    const buttons = [];
+
+    if (config.showCancel) {
+      buttons.push({
+        text: config.cancelText || 'Cancel',
+        style: 'cancel' as const,
+        onPress: () => {
+          this.isShowingAlert = false;
+          if (config.onCancel) config.onCancel();
+          this.processQueue();
+        },
+      });
+    }
+
+    buttons.push({
+      text: config.confirmText || 'OK',
+      onPress: () => {
+        this.isShowingAlert = false;
+        if (config.onConfirm) config.onConfirm();
+        this.processQueue();
+      },
+    });
+
+    Alert.alert(config.title, config.message, buttons);
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach(listener => listener(this.alertState));
-  }
-
-  private notifyOptionsListeners(): void {
-    this.optionsListeners.forEach(listener => listener(this.optionsState));
-  }
-
-  private showAlert(
-    message: string,
-    title?: string,
-    buttons?: CustomAlertButton[],
-    type?: 'info' | 'success' | 'warning' | 'error',
-    showIcon?: boolean
-  ): void {
-    this.alertState = {
-      visible: true,
-      message,
+  // Convenience methods
+  showSuccess(title: string, message: string, onConfirm?: () => void): void {
+    this.showAlert({
       title,
-      buttons: buttons || [{ text: 'OK' }],
-      type: type || 'info',
-      showIcon: showIcon !== false,
-    };
-    this.notifyListeners();
+      message,
+      type: 'success',
+      onConfirm,
+    });
   }
 
-  hideAlert(): void {
-    this.alertState = { ...this.alertState, visible: false };
-    this.notifyListeners();
+  showError(title: string, message: string, onConfirm?: () => void): void {
+    this.showAlert({
+      title,
+      message,
+      type: 'error',
+      onConfirm,
+    });
   }
 
-  hideOptions(): void {
-    this.optionsState = { ...this.optionsState, visible: false };
-    this.notifyOptionsListeners();
+  showWarning(title: string, message: string, onConfirm?: () => void): void {
+    this.showAlert({
+      title,
+      message,
+      type: 'warning',
+      onConfirm,
+    });
   }
 
-  showSuccess(message: string, title?: string): void {
-    this.showAlert(message, title || 'Success', [{ text: 'OK' }], 'success');
+  showInfo(title: string, message: string, onConfirm?: () => void): void {
+    this.showAlert({
+      title,
+      message,
+      type: 'info',
+      onConfirm,
+    });
   }
 
-  showError(message: string, title?: string): void {
-    this.showAlert(message, title || 'Error', [{ text: 'OK' }], 'error');
+  showConfirmation(
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    onCancel?: () => void
+  ): void {
+    this.showAlert({
+      title,
+      message,
+      showCancel: true,
+      confirmText: 'Confirm',
+      cancelText: 'Cancel',
+      onConfirm,
+      onCancel,
+    });
   }
 
-  showWarning(message: string, title?: string): void {
-    this.showAlert(message, title || 'Warning', [{ text: 'OK' }], 'warning');
-  }
-
-  showInfo(message: string, title?: string): void {
-    this.showAlert(message, title || 'Info', [{ text: 'OK' }], 'info');
-  }
-
+  // Alias for showConfirmation to match AlertContext expectations
   showConfirm(
     message: string,
     onConfirm: () => void,
@@ -113,15 +128,14 @@ class AlertService {
     confirmText?: string,
     cancelText?: string
   ): void {
-    this.showAlert(
+    this.showAlert({
+      title: title || 'Confirm',
       message,
-      title || 'Confirm',
-      [
-        { text: cancelText || 'Cancel', style: 'cancel' },
-        { text: confirmText || 'Confirm', onPress: onConfirm, style: 'default' }
-      ],
-      'info'
-    );
+      showCancel: true,
+      confirmText: confirmText || 'Confirm',
+      cancelText: cancelText || 'Cancel',
+      onConfirm,
+    });
   }
 
   showDestructiveConfirm(
@@ -131,37 +145,33 @@ class AlertService {
     confirmText?: string,
     cancelText?: string
   ): void {
-    this.showAlert(
+    this.showAlert({
+      title: title || 'Confirm',
       message,
-      title || 'Confirm',
-      [
-        { text: cancelText || 'Cancel', style: 'cancel' },
-        { text: confirmText || 'Delete', onPress: onConfirm, style: 'destructive' }
-      ],
-      'warning'
-    );
+      showCancel: true,
+      confirmText: confirmText || 'Delete',
+      cancelText: cancelText || 'Cancel',
+      onConfirm,
+      type: 'error',
+    });
   }
 
-  // Custom options picker
   showOptions(
     title: string,
-    options: CustomOption[],
+    options: any[],
     message?: string,
     showCancel?: boolean,
     cancelText?: string
   ): void {
-    this.optionsState = {
-      visible: true,
+    // For now, just show a simple alert since we don't have CustomOptions implemented
+    this.showAlert({
       title,
-      message,
-      options,
-      showCancel: showCancel !== false,
+      message: message || 'Select an option',
+      showCancel: showCancel || false,
       cancelText: cancelText || 'Cancel',
-    };
-    this.notifyOptionsListeners();
+    });
   }
 
-  // Custom input alert
   showInput(
     message: string,
     onConfirm: (text: string) => void,
@@ -169,29 +179,37 @@ class AlertService {
     placeholder?: string,
     defaultValue?: string
   ): void {
-    // For now, we'll use a simple confirm dialog
-    // In a real implementation, you'd create a custom input component
-    this.showAlert(
-      `${message}\n\nNote: Input functionality will be enhanced in future updates.`,
-      title || 'Input Required',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'OK', 
-          onPress: () => onConfirm(defaultValue || ''),
-          style: 'default' 
-        }
-      ],
-      'info'
-    );
+    // For now, just show a simple alert since we don't have input functionality
+    this.showAlert({
+      title: title || 'Input',
+      message,
+      onConfirm: () => onConfirm(defaultValue || ''),
+    });
   }
 
-  getCurrentState(): AlertState {
-    return this.alertState;
+  // Methods for AlertContext integration (placeholder implementations)
+  subscribe(callback: (state: any) => void): () => void {
+    // Placeholder - return unsubscribe function
+    return () => {};
   }
 
-  getCurrentOptionsState(): OptionsState {
-    return this.optionsState;
+  subscribeToOptions(callback: (state: any) => void): () => void {
+    // Placeholder - return unsubscribe function
+    return () => {};
+  }
+
+  hideAlert(): void {
+    this.clearQueue();
+  }
+
+  hideOptions(): void {
+    // Placeholder implementation
+  }
+
+  // Clear all pending alerts
+  clearQueue(): void {
+    this.alertQueue = [];
+    this.isShowingAlert = false;
   }
 }
 

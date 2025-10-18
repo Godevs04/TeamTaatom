@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { UserType } from '../types/user';
 import { Platform } from 'react-native';
+import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 
 export interface SignUpData {
   fullName: string;
@@ -103,6 +104,14 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     } else {
       console.log('[getCurrentUser] /auth/me network or unknown error:', error?.message || error);
     }
+    
+    // Handle rate limiting specifically
+    if (isRateLimitError(error)) {
+      const rateLimitInfo = handleRateLimitError(error, 'getCurrentUser');
+      console.warn('Rate limited in getCurrentUser:', rateLimitInfo.message);
+      return 'network-error';
+    }
+    
     if (error?.response?.status === 401 || error?.response?.status === 403) {
       // Token is invalid
       lastAuthError = 'Session expired. Please sign in again.';
