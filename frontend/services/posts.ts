@@ -2,6 +2,7 @@ import api from './api';
 import { PostType } from '../types/post';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 
 export interface CreatePostData {
   image: {
@@ -73,6 +74,10 @@ export const getPosts = async (page: number = 1, limit: number = 20): Promise<Po
     const response = await api.get(`/posts?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
+    if (isRateLimitError(error)) {
+      const rateLimitInfo = handleRateLimitError(error, 'getPosts');
+      throw new Error(rateLimitInfo.message);
+    }
     throw new Error(error.response?.data?.message || 'Failed to fetch posts');
   }
 };
