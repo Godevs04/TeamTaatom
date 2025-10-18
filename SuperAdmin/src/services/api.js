@@ -13,9 +13,14 @@ export const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('founder_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
+    // Don't add Authorization header for 2FA endpoints
+    const is2FAEndpoint = config.url?.includes('/verify-2fa') || config.url?.includes('/resend-2fa') || config.url?.includes('/login')
+    
+    if (!is2FAEndpoint) {
+      const token = localStorage.getItem('founder_token')
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+      }
     }
     return config
   },

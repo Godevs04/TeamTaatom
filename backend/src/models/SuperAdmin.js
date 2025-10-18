@@ -44,7 +44,8 @@ const superAdminSchema = new mongoose.Schema({
   securitySettings: {
     twoFactorEnabled: {
       type: Boolean,
-      default: false
+      default: true, // Always enabled for SuperAdmin
+      immutable: true // Cannot be changed
     },
     sessionTimeout: {
       type: Number,
@@ -57,6 +58,23 @@ const superAdminSchema = new mongoose.Schema({
     lockoutDuration: {
       type: Number,
       default: 15 // minutes
+    }
+  },
+  twoFactorAuth: {
+    secret: String,
+    backupCodes: [String],
+    isEnabled: {
+      type: Boolean,
+      default: true,
+      immutable: true // Cannot be disabled for SuperAdmin
+    }
+  },
+  tempAuth: {
+    token: String,
+    expiresAt: Date,
+    attempts: {
+      type: Number,
+      default: 0
     }
   },
   permissions: {
@@ -213,6 +231,64 @@ superAdminSchema.statics.findByEmail = function(email) {
   return this.findOne({ email: email.toLowerCase(), isActive: true })
 }
 
+// Method to generate 2FA OTP
+superAdminSchema.methods.generateOTP = function() {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString()
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+  
+  this.tempAuth = {
+    token: otp,
+    expiresAt,
+    attempts: 0
+  }
+  
+  return { otp, expiresAt }
+}
+
+// Method to verify 2FA OTP
+superAdminSchema.methods.verifyOTP = function(inputOTP) {
+  if (!this.tempAuth || !this.tempAuth.token) {
+    return { valid: false, message: 'No OTP found' }
+  }
+  
+  if (this.tempAuth.expiresAt < new Date()) {
+    return { valid: false, message: 'OTP expired' }
+  }
+  
+  if (this.tempAuth.attempts >= 3) {
+    return { valid: false, message: 'Too many attempts' }
+  }
+  
+  if (this.tempAuth.token !== inputOTP) {
+    this.tempAuth.attempts += 1
+    this.save()
+    return { valid: false, message: 'Invalid OTP' }
+  }
+  
+  // Clear temp auth on successful verification
+  this.tempAuth = undefined
+  this.save()
+  
+  return { valid: true, message: 'OTP verified' }
+}
+
+// Method to generate temporary token for 2FA
+superAdminSchema.methods.generateTempToken = function() {
+  const payload = { 
+    id: this._id, 
+    email: this.email,
+    temp: true 
+  }
+  
+  const tempToken = jwt.sign(
+    payload, 
+    process.env.JWT_SECRET || 'superadmin_secret_key', 
+    { expiresIn: '10m' }
+  )
+  
+  return tempToken
+}
+
 // Static method to create founder account
 superAdminSchema.statics.createFounder = async function(email, password, organization = 'TeamTaatom') {
   const founder = new this({
@@ -220,6 +296,15 @@ superAdminSchema.statics.createFounder = async function(email, password, organiz
     password,
     role: 'founder',
     organization,
+    securitySettings: {
+      twoFactorEnabled: true, // Always enabled
+      sessionTimeout: 30,
+      maxLoginAttempts: 5,
+      lockoutDuration: 15
+    },
+    twoFactorAuth: {
+      isEnabled: true // Always enabled
+    },
     permissions: {
       canManageUsers: true,
       canManageContent: true,
