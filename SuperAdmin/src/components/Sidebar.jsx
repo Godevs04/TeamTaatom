@@ -8,7 +8,10 @@ import {
   BarChart3, 
   Shield, 
   FileText, 
-  Settings 
+  Settings,
+  Zap,
+  Bell,
+  Search
 } from 'lucide-react'
 
 const Sidebar = () => {
@@ -20,6 +23,7 @@ const Sidebar = () => {
     { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'Moderators', href: '/moderators', icon: Shield },
     { name: 'Logs', href: '/logs', icon: FileText },
+    { name: 'Feature Flags', href: '/feature-flags', icon: Zap },
     { name: 'Settings', href: '/settings', icon: Settings },
   ]
 

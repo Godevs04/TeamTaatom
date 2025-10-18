@@ -3,6 +3,8 @@ const router = express.Router()
 const {
   verifySuperAdminToken,
   loginSuperAdmin,
+  verify2FA,
+  resend2FA,
   verifyToken,
   createSuperAdmin,
   getSecurityLogs,
@@ -13,6 +15,8 @@ const {
 
 // Public routes (no authentication required)
 router.post('/login', loginSuperAdmin)
+router.post('/verify-2fa', verify2FA)
+router.post('/resend-2fa', resend2FA)
 router.post('/create', createSuperAdmin) // For initial setup only
 
 // Protected routes (authentication required)
