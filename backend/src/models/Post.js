@@ -89,12 +89,12 @@ postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 });
 
 // Virtual for like count
 postSchema.virtual('likesCount').get(function() {
-  return this.likes.length;
+  return this.likes ? this.likes.length : 0;
 });
 
 // Virtual for comments count
 postSchema.virtual('commentsCount').get(function() {
-  return this.comments.length;
+  return this.comments ? this.comments.length : 0;
 });
 
 // Virtual for media URL (returns videoUrl for shorts, imageUrl for photos)
@@ -111,11 +111,15 @@ postSchema.set('toObject', { virtuals: true });
 
 // Method to check if user liked the post
 postSchema.methods.isLikedBy = function(userId) {
-  return this.likes.some(like => like.toString() === userId.toString());
+  return this.likes ? this.likes.some(like => like.toString() === userId.toString()) : false;
 };
 
 // Method to toggle like
 postSchema.methods.toggleLike = function(userId) {
+  if (!this.likes) {
+    this.likes = [];
+  }
+  
   const likeIndex = this.likes.findIndex(like => like.toString() === userId.toString());
   
   if (likeIndex > -1) {
@@ -131,6 +135,10 @@ postSchema.methods.toggleLike = function(userId) {
 
 // Method to add comment
 postSchema.methods.addComment = function(userId, text) {
+  if (!this.comments) {
+    this.comments = [];
+  }
+  
   this.comments.push({
     user: userId,
     text: text
@@ -140,6 +148,9 @@ postSchema.methods.addComment = function(userId, text) {
 
 // Method to remove comment
 postSchema.methods.removeComment = function(commentId) {
+  if (!this.comments) {
+    this.comments = [];
+  }
   this.comments = this.comments.filter(comment => comment._id.toString() !== commentId.toString());
 };
 

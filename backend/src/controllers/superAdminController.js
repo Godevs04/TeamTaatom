@@ -1,5 +1,6 @@
 const SuperAdmin = require('../models/SuperAdmin')
 const jwt = require('jsonwebtoken')
+const { sendSuperAdmin2FAEmail, sendSuperAdminLoginAlertEmail } = require('../utils/sendOtp')
 
 // Middleware to verify SuperAdmin token
 const verifySuperAdminToken = async (req, res, next) => {
@@ -60,27 +61,34 @@ const loginSuperAdmin = async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' })
     }
     
-    // Reset login attempts and update last login
-    await superAdmin.resetLoginAttempts()
-    await superAdmin.logSecurityEvent('login_success', 'Successful login', ipAddress, userAgent, true)
+    // ALWAYS require 2FA for SuperAdmin login (mandatory security)
+    // Generate OTP and send email
+    const { otp, expiresAt } = superAdmin.generateOTP()
     
-    // Generate token
-    const token = superAdmin.generateAuthToken()
-    
-    // Return success response
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: superAdmin._id,
-        email: superAdmin.email,
-        role: superAdmin.role,
-        organization: superAdmin.organization,
-        permissions: superAdmin.permissions,
-        profile: superAdmin.profile,
-        lastLogin: superAdmin.lastLogin
-      }
-    })
+    try {
+      await sendSuperAdmin2FAEmail(
+        superAdmin.email, 
+        otp, 
+        superAdmin.profile.firstName || 'SuperAdmin'
+      )
+      
+      // Generate temporary token for 2FA verification
+      const tempToken = superAdmin.generateTempToken()
+      
+      await superAdmin.logSecurityEvent('2fa_sent', '2FA code sent via email', ipAddress, userAgent, true)
+      
+      res.json({
+        message: '2FA code sent to your email',
+        requires2FA: true,
+        token: tempToken,
+        expiresAt: expiresAt
+      })
+      return
+    } catch (emailError) {
+      console.error('Failed to send 2FA email:', emailError)
+      await superAdmin.logSecurityEvent('2fa_email_failed', 'Failed to send 2FA email', ipAddress, userAgent, false)
+      return res.status(500).json({ message: 'Failed to send 2FA code. Please try again.' })
+    }
     
   } catch (error) {
     console.error('SuperAdmin login error:', error)
@@ -279,15 +287,160 @@ const logout = async (req, res) => {
 const logFailedAttempt = async (email, ipAddress, userAgent, details) => {
   try {
     // Log to a general security collection or file
-    console.log(`Failed SuperAdmin login attempt: ${email} from ${ipAddress} - ${details}`)
   } catch (error) {
     console.error('Failed to log security event:', error)
+  }
+}
+
+// Verify 2FA code
+const verify2FA = async (req, res) => {
+  try {
+    const { token, code } = req.body
+    const ipAddress = req.ip || req.connection.remoteAddress
+    const userAgent = req.get('User-Agent')
+    
+    // Validate input
+    if (!token || !code) {
+      return res.status(400).json({ message: 'Token and code are required' })
+    }
+    
+    // Verify temporary token
+    let decoded
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'superadmin_secret_key')
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid or expired token' })
+    }
+    
+    if (!decoded.temp) {
+      return res.status(401).json({ message: 'Invalid token type' })
+    }
+    
+    // Find SuperAdmin
+    const superAdmin = await SuperAdmin.findById(decoded.id)
+    if (!superAdmin) {
+      return res.status(401).json({ message: 'Invalid token' })
+    }
+    
+    // Verify OTP
+    const otpResult = superAdmin.verifyOTP(code)
+    
+    if (!otpResult.valid) {
+      await superAdmin.logSecurityEvent('2fa_failed', `2FA verification failed: ${otpResult.message}`, ipAddress, userAgent, false)
+      return res.status(401).json({ message: otpResult.message })
+    }
+    
+    // Complete login
+    await superAdmin.resetLoginAttempts()
+    await superAdmin.logSecurityEvent('2fa_success', '2FA verification successful', ipAddress, userAgent, true)
+    
+    // Generate final token
+    const finalToken = superAdmin.generateAuthToken()
+    
+    // Send login alert email
+    try {
+      // Extract device and location info from user agent
+      const device = userAgent ? userAgent.split(' ')[0] : 'Unknown Device'
+      const location = 'Unknown Location' // Could be enhanced with IP geolocation
+      
+      await sendSuperAdminLoginAlertEmail(
+        superAdmin.email,
+        superAdmin.profile.firstName || 'SuperAdmin',
+        device,
+        location,
+        ipAddress
+      )
+      
+      await superAdmin.logSecurityEvent('login_alert_sent', 'Login alert email sent', ipAddress, userAgent, true)
+    } catch (emailError) {
+      console.error('Failed to send SuperAdmin login alert email:', emailError)
+      await superAdmin.logSecurityEvent('login_alert_failed', 'Failed to send login alert email', ipAddress, userAgent, false)
+      // Don't fail the login if email fails
+    }
+    
+    res.json({
+      message: '2FA verification successful',
+      token: finalToken,
+      user: {
+        id: superAdmin._id,
+        email: superAdmin.email,
+        role: superAdmin.role,
+        organization: superAdmin.organization,
+        permissions: superAdmin.permissions,
+        profile: superAdmin.profile,
+        lastLogin: superAdmin.lastLogin
+      }
+    })
+    
+  } catch (error) {
+    console.error('2FA verification error:', error)
+    res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// Resend 2FA code
+const resend2FA = async (req, res) => {
+  try {
+    const { token } = req.body
+    const ipAddress = req.ip || req.connection.remoteAddress
+    const userAgent = req.get('User-Agent')
+    
+    // Validate input
+    if (!token) {
+      return res.status(400).json({ message: 'Token is required' })
+    }
+    
+    // Verify temporary token
+    let decoded
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'superadmin_secret_key')
+    } catch (error) {
+      return res.status(401).json({ message: 'Invalid or expired token' })
+    }
+    
+    if (!decoded.temp) {
+      return res.status(401).json({ message: 'Invalid token type' })
+    }
+    
+    // Find SuperAdmin
+    const superAdmin = await SuperAdmin.findById(decoded.id)
+    if (!superAdmin) {
+      return res.status(401).json({ message: 'Invalid token' })
+    }
+    
+    // Generate new OTP and send email
+    const { otp, expiresAt } = superAdmin.generateOTP()
+    
+    try {
+      await sendSuperAdmin2FAEmail(
+        superAdmin.email, 
+        otp, 
+        superAdmin.profile.firstName || 'SuperAdmin'
+      )
+      
+      await superAdmin.logSecurityEvent('2fa_resend', '2FA code resent', ipAddress, userAgent, true)
+      
+      res.json({
+        message: '2FA code resent to your email',
+        expiresAt: expiresAt
+      })
+    } catch (emailError) {
+      console.error('Failed to resend 2FA email:', emailError)
+      await superAdmin.logSecurityEvent('2fa_resend_failed', 'Failed to resend 2FA email', ipAddress, userAgent, false)
+      return res.status(500).json({ message: 'Failed to resend 2FA code. Please try again.' })
+    }
+    
+  } catch (error) {
+    console.error('Resend 2FA error:', error)
+    res.status(500).json({ message: 'Internal server error' })
   }
 }
 
 module.exports = {
   verifySuperAdminToken,
   loginSuperAdmin,
+  verify2FA,
+  resend2FA,
   verifyToken,
   createSuperAdmin,
   getSecurityLogs,

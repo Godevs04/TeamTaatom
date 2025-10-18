@@ -435,10 +435,237 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
   }
 };
 
+const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') => {
+  try {
+    const mailOptions = {
+      from: {
+        name: 'TeamTaatom SuperAdmin',
+        address: process.env.EMAIL_USER
+      },
+      to: email,
+      subject: '🔐 SuperAdmin 2FA Verification Code',
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>SuperAdmin 2FA Verification</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f4f4f4;
+            }
+            .container {
+              background: white;
+              border-radius: 10px;
+              padding: 30px;
+              box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+            }
+            .logo {
+              font-size: 32px;
+              font-weight: bold;
+              color: #2563EB;
+              margin-bottom: 10px;
+            }
+            .otp-box {
+              background: linear-gradient(135deg, #2563EB, #1E40AF);
+              color: white;
+              padding: 20px;
+              border-radius: 10px;
+              text-align: center;
+              margin: 30px 0;
+            }
+            .otp-code {
+              font-size: 36px;
+              font-weight: bold;
+              letter-spacing: 8px;
+              margin: 10px 0;
+            }
+            .warning {
+              background: #FEF3C7;
+              border: 1px solid #F59E0B;
+              color: #92400E;
+              padding: 15px;
+              border-radius: 5px;
+              margin: 20px 0;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #666;
+              font-size: 14px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <div class="logo">🛡️ TeamTaatom SuperAdmin</div>
+              <h2>Two-Factor Authentication</h2>
+              <p>Hi ${fullName}, please verify your SuperAdmin login.</p>
+            </div>
+            
+            <div class="otp-box">
+              <h3>Your Verification Code</h3>
+              <div class="otp-code">${otpCode}</div>
+              <p>This code will expire in 5 minutes</p>
+            </div>
+            
+            <div class="warning">
+              <strong>⚠️ Security Notice:</strong>
+              <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>Never share this code with anyone</li>
+                <li>This code is only valid for 5 minutes</li>
+                <li>If you didn't request this login, please contact support immediately</li>
+              </ul>
+            </div>
+            
+            <p>Enter this code in the SuperAdmin dashboard to complete your login.</p>
+            
+            <div class="footer">
+              <p>If you have any questions, contact us at support@taatom.com</p>
+              <p>&copy; 2024 TeamTaatom. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ SuperAdmin 2FA email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error sending SuperAdmin 2FA email:', error);
+    throw new Error('Failed to send 2FA email');
+  }
+};
+
+// SuperAdmin Login Alert Email
+const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, ipAddress) => {
+  try {
+    const mailOptions = {
+      from: {
+        name: 'TeamTaatom SuperAdmin',
+        address: process.env.EMAIL_USER
+      },
+      to: email,
+      subject: '🔐 SuperAdmin Login Alert - TeamTaatom Dashboard',
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <div style="text-align: center; margin-bottom: 32px;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+              <h1 style="margin: 0; font-size: 24px; font-weight: bold;">🛡️ SuperAdmin Login Alert</h1>
+              <p style="margin: 8px 0 0 0; opacity: 0.9;">TeamTaatom Dashboard Access</p>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div style="margin-bottom: 24px;">
+            <p style="font-size: 16px; color: #333; margin-bottom: 16px;">Hello <strong>${fullName}</strong>,</p>
+            <p style="font-size: 15px; color: #666; margin-bottom: 20px;">
+              Your SuperAdmin account has been successfully accessed. Here are the login details:
+            </p>
+          </div>
+
+          <!-- Login Details Card -->
+          <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; padding: 24px; margin-bottom: 24px; border-left: 4px solid #28a745;">
+            <h3 style="color: #28a745; margin: 0 0 16px 0; font-size: 18px;">✅ Login Details</h3>
+            <table style="width: 100%; font-size: 14px; color: #333;">
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0; width: 120px;">👤 User:</td>
+                <td style="padding: 8px 0;">${fullName}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">📧 Email:</td>
+                <td style="padding: 8px 0;">${email}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">🖥️ Device:</td>
+                <td style="padding: 8px 0;">${device}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">🌍 Location:</td>
+                <td style="padding: 8px 0;">${location && location.trim() ? location : 'Unknown or Local Network'}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">🌐 IP Address:</td>
+                <td style="padding: 8px 0; font-family: monospace; background: #f1f3f4; padding: 4px 8px; border-radius: 4px;">${ipAddress}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">⏰ Time:</td>
+                <td style="padding: 8px 0;">${new Date().toLocaleString('en-US', { 
+                  timeZone: 'UTC',
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  timeZoneName: 'short'
+                })}</td>
+              </tr>
+              <tr>
+                <td style="font-weight: bold; padding: 8px 0;">🔐 Security:</td>
+                <td style="padding: 8px 0; color: #28a745;">✅ 2FA Verified</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Security Notice -->
+          <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+            <h4 style="color: #856404; margin: 0 0 8px 0; font-size: 16px;">🔒 Security Notice</h4>
+            <p style="color: #856404; margin: 0; font-size: 14px;">
+              If you did not perform this login, please immediately change your password and contact the system administrator. 
+              This login was secured with two-factor authentication.
+            </p>
+          </div>
+
+          <!-- Dashboard Access -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <a href="${process.env.SUPERADMIN_URL || 'http://localhost:5001'}/dashboard" 
+               style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+              🚀 Access Dashboard
+            </a>
+          </div>
+
+          <!-- Footer -->
+          <div style="border-top: 1px solid #e9ecef; padding-top: 20px; text-align: center; color: #6c757d; font-size: 12px;">
+            <p style="margin: 0 0 8px 0;">This is an automated security notification from TeamTaatom SuperAdmin System</p>
+            <p style="margin: 0;">For security reasons, please do not reply to this email</p>
+          </div>
+        </div>
+      `
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ SuperAdmin login alert email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error sending SuperAdmin login alert email:', error);
+    throw new Error('Failed to send login alert email');
+  }
+};
+
 module.exports = {
   sendOTPEmail,
   sendWelcomeEmail,
   sendForgotPasswordMail,
   sendPasswordResetConfirmationEmail,
   sendLoginNotificationEmail,
+  sendSuperAdmin2FAEmail,
+  sendSuperAdminLoginAlertEmail,
 };
