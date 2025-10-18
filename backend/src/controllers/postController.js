@@ -121,8 +121,15 @@ const getPostById = async (req, res) => {
 
     // Add isLiked field if user is authenticated
     let isLiked = false;
+    let isFollowing = false;
     if (req.user) {
       isLiked = post.likes.some(like => like.toString() === req.user._id.toString());
+      
+      // Check if current user is following the post author
+      const postAuthor = await User.findById(post.user);
+      if (postAuthor && postAuthor.followers) {
+        isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+      }
     }
 
     const postWithDetails = {
@@ -130,7 +137,11 @@ const getPostById = async (req, res) => {
       imageUrl: optimizedImageUrl,
       isLiked,
       likesCount: post.likes.length,
-      commentsCount: post.comments.length
+      commentsCount: post.comments.length,
+      user: {
+        ...post.user,
+        isFollowing
+      }
     };
 
     res.json({
