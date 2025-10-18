@@ -1,16 +1,18 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { View } from 'react-native';
-import CustomAlert, { CustomAlertButton } from '../components/CustomAlert';
+import CustomAlert from '../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../components/CustomOptions';
-import AlertService from '../services/alertService';
 
 interface AlertState {
   visible: boolean;
-  title?: string;
+  title: string;
   message: string;
-  buttons?: CustomAlertButton[];
   type?: 'info' | 'success' | 'warning' | 'error';
-  showIcon?: boolean;
+  showCancel?: boolean;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
 }
 
 interface OptionsState {
@@ -62,6 +64,7 @@ const AlertContext = createContext<AlertContextType | undefined>(undefined);
 export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [alertState, setAlertState] = useState<AlertState>({
     visible: false,
+    title: '',
     message: '',
   });
   const [optionsState, setOptionsState] = useState<OptionsState>({
@@ -69,30 +72,118 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     options: [],
   });
 
-  useEffect(() => {
-    const unsubscribe = AlertService.subscribe((state) => {
-      setAlertState(state);
+  const showAlert = (config: Partial<AlertState>) => {
+    setAlertState({
+      visible: true,
+      title: '',
+      message: '',
+      ...config,
     });
+  };
 
-    const unsubscribeOptions = AlertService.subscribeToOptions((state) => {
-      setOptionsState(state);
+  const hideAlert = () => {
+    setAlertState(prev => ({ ...prev, visible: false }));
+  };
+
+  const showOptions = (config: Partial<OptionsState>) => {
+    setOptionsState({
+      visible: true,
+      options: [],
+      ...config,
     });
+  };
 
-    return () => {
-      unsubscribe();
-      unsubscribeOptions();
-    };
-  }, []);
+  const hideOptions = () => {
+    setOptionsState(prev => ({ ...prev, visible: false }));
+  };
 
   const contextValue: AlertContextType = {
-    showSuccess: AlertService.showSuccess.bind(AlertService),
-    showError: AlertService.showError.bind(AlertService),
-    showWarning: AlertService.showWarning.bind(AlertService),
-    showInfo: AlertService.showInfo.bind(AlertService),
-    showConfirm: AlertService.showConfirm.bind(AlertService),
-    showDestructiveConfirm: AlertService.showDestructiveConfirm.bind(AlertService),
-    showOptions: AlertService.showOptions.bind(AlertService),
-    showInput: AlertService.showInput.bind(AlertService),
+    showSuccess: (message: string, title?: string) => {
+      showAlert({ title: title || 'Success', message, type: 'success' });
+    },
+    showError: (message: string, title?: string) => {
+      showAlert({ title: title || 'Error', message, type: 'error' });
+    },
+    showWarning: (message: string, title?: string) => {
+      showAlert({ title: title || 'Warning', message, type: 'warning' });
+    },
+    showInfo: (message: string, title?: string) => {
+      showAlert({ title: title || 'Info', message, type: 'info' });
+    },
+    showConfirm: (
+      message: string,
+      onConfirm: () => void,
+      title?: string,
+      confirmText?: string,
+      cancelText?: string
+    ) => {
+      showAlert({
+        title: title || 'Confirm',
+        message,
+        type: 'info',
+        showCancel: true,
+        confirmText: confirmText || 'Confirm',
+        cancelText: cancelText || 'Cancel',
+        onConfirm: () => {
+          onConfirm();
+          hideAlert();
+        },
+        onCancel: hideAlert,
+      });
+    },
+    showDestructiveConfirm: (
+      message: string,
+      onConfirm: () => void,
+      title?: string,
+      confirmText?: string,
+      cancelText?: string
+    ) => {
+      showAlert({
+        title: title || 'Confirm',
+        message,
+        type: 'error',
+        showCancel: true,
+        confirmText: confirmText || 'Delete',
+        cancelText: cancelText || 'Cancel',
+        onConfirm: () => {
+          onConfirm();
+          hideAlert();
+        },
+        onCancel: hideAlert,
+      });
+    },
+    showOptions: (
+      title: string,
+      options: CustomOption[],
+      message?: string,
+      showCancel?: boolean,
+      cancelText?: string
+    ) => {
+      showOptions({
+        title,
+        message,
+        options,
+        showCancel,
+        cancelText,
+      });
+    },
+    showInput: (
+      message: string,
+      onConfirm: (text: string) => void,
+      title?: string,
+      placeholder?: string,
+      defaultValue?: string
+    ) => {
+      // For now, just show a simple confirm dialog
+      showAlert({
+        title: title || 'Input',
+        message: `${message}\n\nNote: Input functionality will be implemented soon.`,
+        type: 'info',
+        showCancel: false,
+        confirmText: 'OK',
+        onConfirm: () => onConfirm(defaultValue || ''),
+      });
+    },
   };
 
   return (
@@ -102,10 +193,13 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         visible={alertState.visible}
         title={alertState.title}
         message={alertState.message}
-        buttons={alertState.buttons}
         type={alertState.type}
-        showIcon={alertState.showIcon}
-        onClose={() => AlertService.hideAlert()}
+        showCancel={alertState.showCancel}
+        confirmText={alertState.confirmText}
+        cancelText={alertState.cancelText}
+        onConfirm={alertState.onConfirm}
+        onCancel={alertState.onCancel}
+        onClose={hideAlert}
       />
       <CustomOptions
         visible={optionsState.visible}
@@ -114,7 +208,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         options={optionsState.options}
         showCancel={optionsState.showCancel}
         cancelText={optionsState.cancelText}
-        onClose={() => AlertService.hideOptions()}
+        onClose={hideOptions}
       />
     </AlertContext.Provider>
   );
