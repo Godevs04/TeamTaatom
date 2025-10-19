@@ -1,5 +1,5 @@
 import api from './api';
-import { UserType } from '../types/user';
+import { UserType, FollowRequestsResponse } from '../types/user';
 
 export interface ProfileResponse {
   profile: UserType & {
@@ -121,5 +121,35 @@ export const updateExpoPushToken = async (userId: string, expoPushToken: string)
   } catch (error: any) {
     console.error('Failed to update Expo push token:', error.response?.data || error.message);
     throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
+  }
+};
+
+// Get follow requests
+export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
+  try {
+    const response = await api.get('/profile/follow-requests');
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch follow requests');
+  }
+};
+
+// Approve follow request
+export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number }> => {
+  try {
+    const response = await api.post(`/profile/follow-requests/${requestId}/approve`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to approve follow request');
+  }
+};
+
+// Reject follow request
+export const rejectFollowRequest = async (requestId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.post(`/profile/follow-requests/${requestId}/reject`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to reject follow request');
   }
 };

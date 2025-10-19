@@ -40,6 +40,36 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+  followRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  sentFollowRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   totalLikes: {
     type: Number,
     default: 0
@@ -96,6 +126,14 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['everyone', 'followers', 'none'],
         default: 'everyone'
+      },
+      requireFollowApproval: {
+        type: Boolean,
+        default: false
+      },
+      allowFollowRequests: {
+        type: Boolean,
+        default: true
       }
     },
     notifications: {
@@ -120,6 +158,14 @@ const userSchema = new mongoose.Schema({
         default: true
       },
       messagesNotifications: {
+        type: Boolean,
+        default: true
+      },
+      followRequestNotifications: {
+        type: Boolean,
+        default: true
+      },
+      followApprovalNotifications: {
         type: Boolean,
         default: true
       }

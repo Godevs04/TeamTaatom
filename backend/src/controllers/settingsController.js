@@ -59,6 +59,12 @@ const updateSettings = async (req, res) => {
       if (settings.privacy.allowMessages && ['everyone', 'followers', 'none'].includes(settings.privacy.allowMessages)) {
         validSettings['settings.privacy.allowMessages'] = settings.privacy.allowMessages;
       }
+      if (typeof settings.privacy.requireFollowApproval === 'boolean') {
+        validSettings['settings.privacy.requireFollowApproval'] = settings.privacy.requireFollowApproval;
+      }
+      if (typeof settings.privacy.allowFollowRequests === 'boolean') {
+        validSettings['settings.privacy.allowFollowRequests'] = settings.privacy.allowFollowRequests;
+      }
     }
 
     // Notification settings
@@ -136,7 +142,9 @@ const resetSettings = async (req, res) => {
         profileVisibility: 'public',
         showEmail: false,
         showLocation: true,
-        allowMessages: 'everyone'
+        allowMessages: 'everyone',
+        requireFollowApproval: false,
+        allowFollowRequests: true
       },
       notifications: {
         pushNotifications: true,
@@ -188,6 +196,8 @@ const updateSettingCategory = async (req, res) => {
     const { category } = req.params;
     const settingsData = req.body;
 
+    console.log('UpdateSettingCategory called:', { userId, category, settingsData });
+
     if (!['privacy', 'notifications', 'account'].includes(category)) {
       return res.status(400).json({
         error: 'Invalid category',
@@ -200,11 +210,15 @@ const updateSettingCategory = async (req, res) => {
       updateQuery[`settings.${category}.${key}`] = settingsData[key];
     });
 
+    console.log('Update query:', updateQuery);
+
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updateQuery },
       { new: true, runValidators: true }
     ).select('settings');
+
+    console.log('Updated user settings:', updatedUser.settings);
 
     if (!updatedUser) {
       return res.status(404).json({

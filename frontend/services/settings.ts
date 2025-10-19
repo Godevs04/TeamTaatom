@@ -6,6 +6,8 @@ export interface UserSettings {
     showEmail: boolean;
     showLocation: boolean;
     allowMessages: 'everyone' | 'followers' | 'none';
+    requireFollowApproval: boolean;
+    allowFollowRequests: boolean;
   };
   notifications: {
     pushNotifications: boolean;
@@ -14,6 +16,8 @@ export interface UserSettings {
     commentsNotifications: boolean;
     followsNotifications: boolean;
     messagesNotifications: boolean;
+    followRequestNotifications: boolean;
+    followApprovalNotifications: boolean;
   };
   account: {
     language: string;
