@@ -13,6 +13,9 @@ const profileRoutes = require('./routes/profileRoutes');
 const chatRoutes = require('./routes/chat.routes');
 const shortsRoutes = require('./routes/shortsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const superAdminRoutes = require('./routes/superAdminRoutes');
+const enhancedSuperAdminRoutes = require('./routes/enhancedSuperAdminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -25,7 +28,10 @@ connectDB();
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8081',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:8081',
+    process.env.SUPERADMIN_URL || 'http://localhost:5001'
+  ],
   credentials: true
 }));
 
@@ -48,6 +54,9 @@ app.use('/profile', profileRoutes);
 app.use('/chat', chatRoutes);
 app.use('/shorts', shortsRoutes);
 app.use('/settings', settingsRoutes);
+app.use('/api/founder', superAdminRoutes);
+app.use('/api/superadmin', enhancedSuperAdminRoutes);
+app.use('/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
