@@ -23,6 +23,7 @@ import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
 import RotatingGlobe from '../../components/RotatingGlobe';
+import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
 
 interface ProfileData extends UserType {
@@ -233,9 +234,12 @@ export default function ProfileScreen() {
             <Text style={[styles.name, { color: theme.colors.text }]}> 
               {profileData.fullName}
             </Text>
-            <Text style={[styles.email, { color: theme.colors.textSecondary }]}> 
-              {profileData.email}
-            </Text>
+            {profileData.email && (
+              <Text style={[styles.email, { color: theme.colors.textSecondary }]}> 
+                {profileData.email}
+              </Text>
+            )}
+            <BioDisplay bio={profileData.bio || ''} />
           </View>
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>

@@ -26,8 +26,21 @@ interface EditProfileProps {
 export default function EditProfile({ visible, user, onClose, onSuccess }: EditProfileProps) {
   const { theme } = useTheme();
   const [fullName, setFullName] = useState(user.fullName);
+  const [bio, setBio] = useState(user.bio || '');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleBioChange = (text: string) => {
+    // Split by newlines and limit to 3 lines
+    const lines = text.split('\n');
+    if (lines.length <= 3) {
+      setBio(text);
+    } else {
+      // If more than 3 lines, take only the first 3 and show error
+      setBio(lines.slice(0, 3).join('\n'));
+      Alert.alert('Bio Limit', 'Bio can only have 3 lines maximum');
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -96,10 +109,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       return;
     }
 
+    if (bio.length > 300) {
+      Alert.alert('Error', 'Bio cannot exceed 300 characters');
+      return;
+    }
+
     setLoading(true);
     try {
       const updateData: any = {
         fullName: fullName.trim(),
+        bio: bio.trim(),
       };
 
       if (selectedImage) {
@@ -192,6 +211,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
+    bioInput: {
+      height: 80,
+      textAlignVertical: 'top',
+    },
+    characterCount: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'right',
+      marginTop: 4,
+    },
     buttonContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -260,6 +289,21 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
               placeholder="Enter your full name"
               placeholderTextColor={theme.colors.textSecondary}
             />
+          </View>
+
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Bio</Text>
+            <TextInput
+              style={[styles.input, styles.bioInput]}
+              value={bio}
+              onChangeText={handleBioChange}
+              placeholder="Tell us about yourself (max 3 lines, 300 characters)"
+              placeholderTextColor={theme.colors.textSecondary}
+              multiline
+              numberOfLines={3}
+              maxLength={300}
+            />
+            <Text style={styles.characterCount}>{bio.length}/300</Text>
           </View>
 
           <View style={styles.buttonContainer}>
