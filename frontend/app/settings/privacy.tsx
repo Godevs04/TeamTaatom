@@ -14,7 +14,8 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
-import CustomAlert, { CustomAlertButton } from '../../components/CustomAlert';
+import CustomAlert from '../../components/CustomAlert';
+import CustomOptions, { CustomOption } from '../../components/CustomOptions';
 
 export default function PrivacySettingsScreen() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -25,13 +26,18 @@ export default function PrivacySettingsScreen() {
     title: '',
     message: '',
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
-    buttons: [{ text: 'OK' }] as CustomAlertButton[],
+  });
+  const [customOptionsVisible, setCustomOptionsVisible] = useState(false);
+  const [customOptionsConfig, setCustomOptionsConfig] = useState({
+    title: '',
+    message: '',
+    options: [] as CustomOption[],
   });
   const router = useRouter();
   const { theme } = useTheme();
 
-  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', buttons: CustomAlertButton[] = [{ text: 'OK' }]) => {
-    setAlertConfig({ title: title || '', message, type, buttons });
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setAlertConfig({ title: title || '', message, type });
     setAlertVisible(true);
   };
 
@@ -52,7 +58,7 @@ export default function PrivacySettingsScreen() {
       const settingsData = await getSettings();
       setSettings(settingsData.settings);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load privacy settings');
+      showError('Failed to load privacy settings');
     } finally {
       setLoading(false);
     }
@@ -70,37 +76,122 @@ export default function PrivacySettingsScreen() {
       
       const response = await updateSettingCategory('privacy', updatedSettings);
       setSettings(response.settings);
+      showSuccess('Setting updated successfully');
     } catch (error) {
-      Alert.alert('Error', 'Failed to update setting');
+      console.error('Error updating setting:', error);
+      showError('Failed to update setting. Please try again.');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const updateProfileVisibilitySettings = async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
+    if (!settings) return;
+    
+    setUpdating(true);
+    try {
+      console.log('Updating profile visibility settings:', { profileVisibility, requireFollowApproval, allowFollowRequests });
+      
+      const updatedSettings = {
+        ...settings.privacy,
+        profileVisibility,
+        requireFollowApproval,
+        allowFollowRequests
+      };
+      
+      console.log('Sending updated settings:', updatedSettings);
+      
+      const response = await updateSettingCategory('privacy', updatedSettings);
+      console.log('Response received:', response);
+      
+      setSettings(response.settings);
+      showSuccess('Profile visibility updated successfully');
+    } catch (error) {
+      console.error('Error updating profile visibility:', error);
+      showError('Failed to update profile visibility. Please try again.');
     } finally {
       setUpdating(false);
     }
   };
 
   const handleProfileVisibilityChange = () => {
-    Alert.alert(
-      'Profile Visibility',
-      'Who can see your profile?',
-      [
-        { text: 'Public', onPress: () => updateSetting('profileVisibility', 'public') },
-        { text: 'Followers Only', onPress: () => updateSetting('profileVisibility', 'followers') },
-        { text: 'Private', onPress: () => updateSetting('profileVisibility', 'private') },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    const options: CustomOption[] = [
+      {
+        text: 'Public',
+        icon: 'globe-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateProfileVisibilitySettings('public', false, true);
+        }
+      },
+      {
+        text: 'Followers Only',
+        icon: 'people-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateProfileVisibilitySettings('followers', false, true);
+        }
+      },
+      {
+        text: 'Private (Require Approval)',
+        icon: 'shield-checkmark-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateProfileVisibilitySettings('private', true, true);
+        }
+      },
+      {
+        text: 'Private (No Follow Requests)',
+        icon: 'lock-closed-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateProfileVisibilitySettings('private', false, false);
+        }
+      }
+    ];
+
+    setCustomOptionsConfig({
+      title: 'Profile Visibility',
+      message: 'Control who can see your profile and how they can follow you',
+      options
+    });
+    setCustomOptionsVisible(true);
   };
 
   const handleAllowMessagesChange = () => {
-    Alert.alert(
-      'Message Permissions',
-      'Who can send you messages?',
-      [
-        { text: 'Everyone', onPress: () => updateSetting('allowMessages', 'everyone') },
-        { text: 'Followers Only', onPress: () => updateSetting('allowMessages', 'followers') },
-        { text: 'No One', onPress: () => updateSetting('allowMessages', 'none') },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    const options: CustomOption[] = [
+      {
+        text: 'Everyone',
+        icon: 'globe-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateSetting('allowMessages', 'everyone');
+        }
+      },
+      {
+        text: 'Followers Only',
+        icon: 'people-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateSetting('allowMessages', 'followers');
+        }
+      },
+      {
+        text: 'No One',
+        icon: 'lock-closed-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          updateSetting('allowMessages', 'none');
+        }
+      }
+    ];
+
+    setCustomOptionsConfig({
+      title: 'Message Permissions',
+      message: 'Who can send you messages?',
+      options
+    });
+    setCustomOptionsVisible(true);
   };
 
   if (loading) {
@@ -147,8 +238,19 @@ export default function PrivacySettingsScreen() {
             </View>
             <View style={styles.settingRight}>
               <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
-                {settings?.privacy?.profileVisibility === 'public' ? 'Public' : 
-                 settings?.privacy?.profileVisibility === 'followers' ? 'Followers Only' : 'Private'}
+                {(() => {
+                  const visibility = settings?.privacy?.profileVisibility;
+                  const requiresApproval = settings?.privacy?.requireFollowApproval;
+                  const allowsRequests = settings?.privacy?.allowFollowRequests;
+                  
+                  console.log('Current privacy settings:', { visibility, requiresApproval, allowsRequests });
+                  
+                  if (visibility === 'public') return 'Public';
+                  if (visibility === 'followers') return 'Followers Only';
+                  if (visibility === 'private' && requiresApproval) return 'Private (Require Approval)';
+                  if (visibility === 'private' && !allowsRequests) return 'Private (No Follow Requests)';
+                  return 'Private';
+                })()}
               </Text>
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             </View>
@@ -195,6 +297,7 @@ export default function PrivacySettingsScreen() {
               thumbColor={settings?.privacy?.showLocation ? theme.colors.primary : theme.colors.textSecondary}
             />
           </View>
+
         </View>
 
         {/* Communication */}
@@ -238,7 +341,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={() => {
-              Alert.alert('Coming Soon', 'Data download feature will be available soon');
+              showAlert('Data download feature will be available soon', 'Coming Soon', 'info');
             }}
           >
             <View style={styles.settingContent}>
@@ -258,7 +361,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={() => {
-              Alert.alert('Coming Soon', 'Account activity feature will be available soon');
+              showAlert('Account activity feature will be available soon', 'Coming Soon', 'info');
             }}
           >
             <View style={styles.settingContent}>
@@ -276,6 +379,33 @@ export default function PrivacySettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Follow Requests */}
+        <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Follow Requests
+          </Text>
+
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={() => {
+              router.push('/settings/follow-requests');
+            }}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="person-add-outline" size={20} color={theme.colors.primary} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                  Manage Follow Requests
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  View and manage pending follow requests
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
         {/* Blocked Users */}
         <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
@@ -285,7 +415,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={() => {
-              Alert.alert('Coming Soon', 'Blocked users management will be available soon');
+              showAlert('Blocked users management will be available soon', 'Coming Soon', 'info');
             }}
           >
             <View style={styles.settingContent}>
@@ -308,8 +438,15 @@ export default function PrivacySettingsScreen() {
         title={alertConfig.title}
         message={alertConfig.message}
         type={alertConfig.type}
-        buttons={alertConfig.buttons}
         onClose={() => setAlertVisible(false)}
+      />
+      
+      <CustomOptions
+        visible={customOptionsVisible}
+        title={customOptionsConfig.title}
+        message={customOptionsConfig.message}
+        options={customOptionsConfig.options}
+        onClose={() => setCustomOptionsVisible(false)}
       />
     </View>
   );

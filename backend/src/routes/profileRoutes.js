@@ -9,6 +9,9 @@ const {
   searchUsers,
   getFollowersList,
   getFollowingList,
+  getFollowRequests,
+  approveFollowRequest,
+  rejectFollowRequest,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -40,6 +43,87 @@ const updateProfileValidation = [
 
 // Routes
 router.get('/search', optionalAuth, searchUsers);
+router.get('/follow-requests', authMiddleware, getFollowRequests);
+router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
+  try {
+    const user = await require('../models/User').findById(req.user._id);
+    
+    // Clean up any incorrect follow requests (where user ID matches current user ID)
+    let cleaned = false;
+    const originalLength = user.followRequests.length;
+    
+    console.log('🧹 Before cleanup - Follow requests:', user.followRequests.map(req => ({
+      user: req.user.toString(),
+      status: req.status
+    })));
+    
+    user.followRequests = user.followRequests.filter(req => {
+      if (req.user.toString() === user._id.toString()) {
+        console.log('🧹 Removing incorrect follow request with self ID:', req.user.toString());
+        cleaned = true;
+        return false;
+      }
+      return true;
+    });
+    
+    if (cleaned) {
+      await user.save();
+      console.log(`🧹 Cleaned up follow requests: ${originalLength} -> ${user.followRequests.length}`);
+    }
+    
+    console.log('🧹 After cleanup - Follow requests:', user.followRequests.map(req => ({
+      user: req.user.toString(),
+      status: req.status
+    })));
+    
+    res.json({
+      userId: req.user._id,
+      followRequests: user.followRequests.map(req => ({
+        user: req.user.toString(),
+        status: req.status,
+        requestedAt: req.requestedAt
+      })),
+      cleaned: cleaned,
+      originalLength: originalLength,
+      newLength: user.followRequests.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+router.get('/follow-requests/cleanup-all', authMiddleware, async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const users = await User.find({});
+    let totalCleaned = 0;
+    
+    for (const user of users) {
+      const originalLength = user.followRequests.length;
+      user.followRequests = user.followRequests.filter(req => {
+        if (req.user.toString() === user._id.toString()) {
+          totalCleaned++;
+          return false;
+        }
+        return true;
+      });
+      
+      if (user.followRequests.length !== originalLength) {
+        await user.save();
+        console.log(`🧹 Cleaned user ${user.fullName}: ${originalLength} -> ${user.followRequests.length}`);
+      }
+    }
+    
+    res.json({
+      message: 'Cleanup completed',
+      totalCleaned: totalCleaned,
+      usersProcessed: users.length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+router.post('/follow-requests/:requestId/approve', authMiddleware, approveFollowRequest);
+router.post('/follow-requests/:requestId/reject', authMiddleware, rejectFollowRequest);
 router.get('/:id', optionalAuth, getProfile);
 router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileValidation, updateProfile);
 router.post('/:id/follow', authMiddleware, toggleFollow);

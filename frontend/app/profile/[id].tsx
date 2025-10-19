@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Alert, SafeAreaView, Modal } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, SafeAreaView, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import WorldMap from '../../components/WorldMap';
 import PhotoCard from '../../components/PhotoCard';
+import CustomAlert from '../../components/CustomAlert';
 import Constants from 'expo-constants';
 
 export default function UserProfileScreen() {
@@ -19,10 +20,29 @@ export default function UserProfileScreen() {
   const [followLoading, setFollowLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    title: '',
+    message: '',
+    type: 'info' as 'info' | 'success' | 'warning' | 'error',
+  });
   // Remove selectedPost and modal logic
 
   // Use expoConfig for SDK 49+, fallback to manifest for older
   const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY;
+
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setAlertConfig({ title: title || '', message, type });
+    setAlertVisible(true);
+  };
+
+  const showError = (message: string, title?: string) => {
+    showAlert(message, title || 'Error', 'error');
+  };
+
+  const showSuccess = (message: string, title?: string) => {
+    showAlert(message, title || 'Success', 'success');
+  };
 
   const fetchProfile = useCallback(async () => {
     setLoading(true);
@@ -37,7 +57,8 @@ export default function UserProfileScreen() {
       setProfile(userProfile);
       setIsFollowing(userProfile.followers?.some((u: any) => u._id === currentUser?._id));
     } catch (e) {
-      Alert.alert('Error', 'Failed to load user profile');
+      console.error('Error fetching profile:', e);
+      showError('Failed to load user profile');
     } finally {
       setLoading(false);
     }
@@ -73,8 +94,17 @@ export default function UserProfileScreen() {
       const res = await api.post(`/profile/${profile._id}/follow`);
       setIsFollowing(res.data.isFollowing);
       await fetchProfile(); // Re-fetch profile and posts after follow/unfollow
-    } catch (e) {
-      Alert.alert('Error', 'Failed to update follow status');
+      
+      // Show success message
+      if (res.data.isFollowing) {
+        showSuccess('You are now following this user!');
+      } else {
+        showSuccess('You have unfollowed this user.');
+      }
+    } catch (e: any) {
+      console.error('Error following/unfollowing user:', e);
+      const errorMessage = e.response?.data?.message || 'Failed to update follow status';
+      showError(errorMessage);
     } finally {
       setFollowLoading(false);
     }
@@ -215,6 +245,14 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+      
+      <CustomAlert
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onClose={() => setAlertVisible(false)}
+      />
     </SafeAreaView>
   );
 }
