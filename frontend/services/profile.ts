@@ -6,6 +6,7 @@ export interface ProfileResponse {
     postsCount: number;
     followersCount: number;
     followingCount: number;
+    bio: string;
     locations: Array<{
       latitude: number;
       longitude: number;
@@ -19,6 +20,7 @@ export interface ProfileResponse {
 
 export interface UpdateProfileData {
   fullName?: string;
+  bio?: string;
   profilePic?: {
     uri: string;
     type: string;
@@ -60,6 +62,10 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       formData.append('fullName', data.fullName);
     }
     
+    if (data.bio !== undefined) {
+      formData.append('bio', data.bio);
+    }
+    
     if (data.profilePic) {
       // For React Native, we need to structure the file object properly
       formData.append('profilePic', {
@@ -72,6 +78,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     console.log('Updating profile with data:', {
       userId,
       hasFullName: !!data.fullName,
+      hasBio: data.bio !== undefined,
       hasProfilePic: !!data.profilePic,
     });
 

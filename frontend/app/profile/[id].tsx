@@ -7,6 +7,7 @@ import api from '../../services/api';
 import WorldMap from '../../components/WorldMap';
 import PhotoCard from '../../components/PhotoCard';
 import CustomAlert from '../../components/CustomAlert';
+import BioDisplay from '../../components/BioDisplay';
 import Constants from 'expo-constants';
 
 export default function UserProfileScreen() {
@@ -54,6 +55,7 @@ export default function UserProfileScreen() {
     try {
       const res = await api.get(`/profile/${id}`);
       let userProfile = res.data.profile;
+      
       // If posts are not included, fetch them
       if (!Array.isArray(userProfile.posts)) {
         const postsRes = await api.get(`/posts/user/${id}`);
@@ -151,6 +153,10 @@ export default function UserProfileScreen() {
               style={{ width: 90, height: 90, borderRadius: 45, borderWidth: 2, borderColor: theme.colors.primary, marginBottom: theme.spacing.md, marginTop: 16 }}
             />
             <Text style={{ fontSize: 22, fontWeight: '700', color: theme.colors.text }}>{profile.fullName}</Text>
+            {profile.email && (
+              <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginTop: 4 }}>{profile.email}</Text>
+            )}
+            <BioDisplay bio={profile.bio || ''} />
             {/* Stats Row */}
             <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
               <View style={{ alignItems: 'center', marginHorizontal: 16 }}>

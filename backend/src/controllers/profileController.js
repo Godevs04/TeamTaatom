@@ -118,7 +118,11 @@ const getProfile = async (req, res) => {
       canViewLocations,
       followRequestSent,
       profileVisibility,
-      hasReceivedFollowRequest
+      hasReceivedFollowRequest,
+      // Only include email if user has enabled showEmail setting
+      email: user.settings.privacy.showEmail ? user.email : undefined,
+      // Include bio for all users
+      bio: user.bio || ''
     };
 
     res.status(200).json({ profile });
@@ -163,7 +167,7 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const { fullName } = req.body;
+    const { fullName, bio } = req.body;
     let profilePicUrl = user.profilePic;
 
     // Handle profile picture upload
@@ -201,6 +205,7 @@ const updateProfile = async (req, res) => {
       id,
       {
         ...(fullName && { fullName }),
+        ...(bio !== undefined && { bio }),
         ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
       },
       { new: true, runValidators: true }

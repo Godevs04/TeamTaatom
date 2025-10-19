@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Name cannot be more than 50 characters']
   },
+  bio: {
+    type: String,
+    required: false,
+    trim: true,
+    maxlength: [300, 'Bio cannot exceed 300 characters']
+  },
   email: {
     type: String,
     required: [true, 'Email is required'],
@@ -237,6 +243,7 @@ userSchema.methods.getPublicProfile = function() {
   return {
     _id: this._id,
     fullName: this.fullName,
+    bio: this.bio,
     email: this.email,
     profilePic: this.profilePic,
     followers: this.followers.length,
