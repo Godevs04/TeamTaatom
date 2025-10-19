@@ -18,6 +18,7 @@ import NavBar from '../../components/NavBar';
 import { getUserFromStorage, signOut } from '../../services/auth';
 import { getProfile } from '../../services/profile';
 import { getUserPosts } from '../../services/posts';
+import { getUnreadCount } from '../../services/notifications';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
@@ -46,10 +47,20 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true); // new state
+  const [unreadCount, setUnreadCount] = useState(0);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, toggleTheme } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
+
+  const loadUnreadCount = useCallback(async () => {
+    try {
+      const response = await getUnreadCount();
+      setUnreadCount(response.unreadCount);
+    } catch (error) {
+      console.error('Failed to load unread count:', error);
+    }
+  }, []);
 
   const loadUserData = useCallback(async () => {
     setCheckingUser(true);
@@ -69,6 +80,8 @@ export default function ProfileScreen() {
       // Load user posts
       const userPosts = await getUserPosts(userData._id);
       setPosts(userPosts.posts);
+      // Load unread count
+      await loadUnreadCount();
     } catch (error: any) {
       console.error('Failed to load profile:', error);
       showError('Failed to load profile data');
@@ -98,8 +111,9 @@ export default function ProfileScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadUserData();
+    await loadUnreadCount();
     setRefreshing(false);
-  }, [loadUserData]);
+  }, [loadUserData, loadUnreadCount]);
 
   const handleSignOut = async () => {
     showConfirm(
@@ -157,11 +171,28 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      {/* Header with Kebab Menu */}
+      {/* Header with Notification Button and Kebab Menu */}
       <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
         <View style={styles.headerContent}>
           <View style={styles.headerLeft} />
           <View style={styles.headerRight}>
+            <TouchableOpacity
+              style={styles.notificationButton}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons
+                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                size={24}
+                color={theme.colors.text}
+              />
+              {unreadCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                  <Text style={[styles.badgeText, { color: theme.colors.text }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
             <KebabMenu
               items={[
                 {
@@ -300,7 +331,36 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerRight: {
-    alignItems: 'flex-end',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 16,
+  },
+  notificationButton: {
+    padding: 10,
+    borderRadius: 22,
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    position: 'relative',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
     scrollView: {
       flex: 1,
