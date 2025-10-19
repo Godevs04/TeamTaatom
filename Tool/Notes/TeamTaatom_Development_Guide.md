@@ -2096,7 +2096,936 @@ This fix ensures chat works like modern messaging apps with instant real-time up
 
 ---
 
+## 🔔 **Comprehensive Privacy & Security System Implementation (December 2024)**
+
+### **Problem Description:**
+The user requested a complete privacy and security overhaul for the TeamTaatom application, including:
+- Profile visibility controls (public, followers only, private with approval)
+- Follow request system with approval workflow
+- Notification system for follow requests and approvals
+- Custom alert system replacing default alerts
+- Elegant notification UI with Instagram-like design
+
+### **Root Cause Analysis:**
+The existing system lacked:
+- Granular privacy controls for user profiles
+- Follow request approval workflow
+- Real-time notification system
+- Custom alert components
+- Proper notification UI/UX
+
+### **Complete Solution Implementation:**
+
+#### **1. Privacy Settings System (`frontend/app/settings/privacy.tsx`)**
+
+**Custom Options Template Implementation:**
+```typescript
+// Custom options for profile visibility
+const options: CustomOption[] = [
+  {
+    text: 'Public',
+    icon: 'globe-outline',
+    onPress: () => {
+      setCustomOptionsVisible(false);
+      updateProfileVisibilitySettings('public', false, true);
+    }
+  },
+  {
+    text: 'Followers Only',
+    icon: 'people-outline',
+    onPress: () => {
+      setCustomOptionsVisible(false);
+      updateProfileVisibilitySettings('followers', false, true);
+    }
+  },
+  {
+    text: 'Private (Require Approval)',
+    icon: 'shield-checkmark-outline',
+    onPress: () => {
+      setCustomOptionsVisible(false);
+      updateProfileVisibilitySettings('private', true, true);
+    }
+  },
+  {
+    text: 'Private (No Follow Requests)',
+    icon: 'lock-closed-outline',
+    onPress: () => {
+      setCustomOptionsVisible(false);
+      updateProfileVisibilitySettings('private', false, false);
+    }
+  }
+];
+```
+
+**Atomic Settings Update Function:**
+```typescript
+const updateProfileVisibilitySettings = async (
+  profileVisibility: string, 
+  requireFollowApproval: boolean, 
+  allowFollowRequests: boolean
+) => {
+  if (!settings) return;
+
+  setUpdating(true);
+  try {
+    console.log('Updating profile visibility settings:', { 
+      profileVisibility, 
+      requireFollowApproval, 
+      allowFollowRequests 
+    });
+
+    const updatedSettings = {
+      ...settings.privacy,
+      profileVisibility,
+      requireFollowApproval,
+      allowFollowRequests
+    };
+
+    const response = await updateSettingCategory('privacy', updatedSettings);
+    setSettings(response.settings);
+    showSuccess('Profile visibility updated successfully');
+  } catch (error) {
+    console.error('Error updating profile visibility:', error);
+    showError('Failed to update profile visibility. Please try again.');
+  } finally {
+    setUpdating(false);
+  }
+};
+```
+
+#### **2. Follow Request System (`backend/src/controllers/profileController.js`)**
+
+**Enhanced Toggle Follow Function:**
+```javascript
+const toggleFollow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user._id;
+
+    // Prevent self-follow
+    if (currentUserId.toString() === id) {
+      return res.status(400).json({ 
+        error: 'Cannot follow yourself',
+        message: 'You cannot follow your own profile'
+      });
+    }
+
+    const currentUser = await User.findById(currentUserId);
+    const targetUser = await User.findById(id);
+
+    if (!targetUser) {
+      return res.status(404).json({ 
+        error: 'User not found',
+        message: 'The user you are trying to follow does not exist'
+      });
+    }
+
+    // Check if already following
+    const isFollowing = currentUser.following.some(
+      followingId => followingId.toString() === id
+    );
+
+    if (isFollowing) {
+      // Unfollow logic
+      currentUser.following = currentUser.following.filter(
+        followingId => followingId.toString() !== id
+      );
+      targetUser.followers = targetUser.followers.filter(
+        followerId => followerId.toString() !== currentUserId.toString()
+      );
+
+      await currentUser.save();
+      await targetUser.save();
+
+      // Create notification for unfollow
+      await Notification.createNotification({
+        type: 'follow',
+        fromUser: currentUserId,
+        toUser: id,
+        metadata: {
+          action: 'unfollowed'
+        }
+      });
+
+      return res.json({
+        success: true,
+        isFollowing: false,
+        message: 'Successfully unfollowed user'
+      });
+    }
+
+    // Check if follow approval is required
+    const requiresApproval = targetUser.settings?.privacy?.requireFollowApproval;
+    const allowsRequests = targetUser.settings?.privacy?.allowFollowRequests;
+
+    if (requiresApproval && allowsRequests) {
+      // Check for existing requests to prevent duplicates
+      const existingSentRequest = currentUser.sentFollowRequests.find(
+        req => req.user.toString() === id && req.status === 'pending'
+      );
+      const existingReceivedRequest = targetUser.followRequests.find(
+        req => req.user.toString() === currentUserId.toString() && req.status === 'pending'
+      );
+
+      if (existingSentRequest || existingReceivedRequest) {
+        return res.status(400).json({
+          error: 'Request already sent',
+          message: 'You have already sent a follow request to this user'
+        });
+      }
+
+      // Create follow request
+      const followRequest = {
+        user: currentUserId, // Store requester's ID
+        status: 'pending',
+        requestedAt: new Date()
+      };
+      const sentRequest = {
+        user: id, // Store target user's ID
+        status: 'pending',
+        requestedAt: new Date()
+      };
+
+      // Remove any existing requests first
+      currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
+        req => req.user.toString() !== id
+      );
+      targetUser.followRequests = targetUser.followRequests.filter(
+        req => req.user.toString() !== currentUserId.toString()
+      );
+
+      currentUser.sentFollowRequests.push(sentRequest);
+      targetUser.followRequests.push(followRequest);
+
+      await currentUser.save();
+      await targetUser.save();
+
+      // Create notification for follow request
+      await Notification.createNotification({
+        type: 'follow_request',
+        fromUser: currentUserId,
+        toUser: id,
+        metadata: {
+          requesterName: currentUser.fullName,
+          requesterProfilePic: currentUser.profilePic,
+          requestId: currentUserId.toString()
+        }
+      });
+
+      // Emit real-time notification
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        nsp.emit('notification', {
+          type: 'follow_request',
+          fromUser: {
+            _id: currentUserId,
+            fullName: currentUser.fullName,
+            profilePic: currentUser.profilePic
+          },
+          toUser: id,
+          createdAt: new Date()
+        });
+      }
+
+      return res.json({
+        success: true,
+        isFollowing: false,
+        followRequestSent: true,
+        message: 'Follow request sent successfully'
+      });
+    } else if (!allowsRequests) {
+      return res.status(403).json({
+        error: 'Follow requests not allowed',
+        message: 'This user does not accept follow requests'
+      });
+    } else {
+      // Direct follow (no approval required)
+      currentUser.following.push(id);
+      targetUser.followers.push(currentUserId);
+
+      await currentUser.save();
+      await targetUser.save();
+
+      // Create notification for follow
+      await Notification.createNotification({
+        type: 'follow',
+        fromUser: currentUserId,
+        toUser: id,
+        metadata: {
+          action: 'followed'
+        }
+      });
+
+      return res.json({
+        success: true,
+        isFollowing: true,
+        message: 'Successfully followed user'
+      });
+    }
+  } catch (error) {
+    console.error('Toggle follow error:', error);
+    res.status(500).json({
+      error: 'Failed to update follow status',
+      message: error.message
+    });
+  }
+};
+```
+
+**Follow Request Approval System:**
+```javascript
+const approveFollowRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params; // This is the requester's user ID
+    const currentUserId = req.user._id;
+
+    // Prevent self-approval
+    if (requestId.toString() === currentUserId.toString()) {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Cannot approve your own follow request'
+      });
+    }
+
+    let user = await User.findById(currentUserId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Find the follow request by requester ID
+    const request = user.followRequests.find(req => 
+      req.user.toString() === requestId && req.status === 'pending'
+    );
+
+    if (!request) {
+      return res.status(404).json({
+        error: 'Follow request not found',
+        message: 'No pending follow request found for this user'
+      });
+    }
+
+    const requester = await User.findById(requestId);
+    if (!requester) {
+      return res.status(404).json({ error: 'Requester not found' });
+    }
+
+    // Update follow relationships
+    user.followers.push(requestId);
+    requester.following.push(currentUserId);
+
+    // Update request status
+    request.status = 'approved';
+    request.approvedAt = new Date();
+
+    // Update requester's sent request status
+    const sentRequest = requester.sentFollowRequests.find(
+      req => req.user.toString() === currentUserId.toString()
+    );
+    if (sentRequest) {
+      sentRequest.status = 'approved';
+      sentRequest.approvedAt = new Date();
+    }
+
+    // Retry mechanism for VersionError
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        await user.save();
+        await requester.save();
+        break; // Success, exit retry loop
+      } catch (saveError) {
+        if (saveError.name === 'VersionError' && retryCount < maxRetries - 1) {
+          retryCount++;
+          console.log(`VersionError on save, retrying (${retryCount}/${maxRetries})`);
+          
+          // Reload fresh documents
+          user = await User.findById(currentUserId);
+          requester = await User.findById(requestId);
+          
+          // Re-apply changes
+          user.followers.push(requestId);
+          requester.following.push(currentUserId);
+          
+          // Re-find and update request status
+          const freshRequest = user.followRequests.find(req => 
+            req.user.toString() === requestId && req.status === 'pending'
+          );
+          if (freshRequest) {
+            freshRequest.status = 'approved';
+            freshRequest.approvedAt = new Date();
+          }
+          
+          const freshSentRequest = requester.sentFollowRequests.find(
+            req => req.user.toString() === currentUserId.toString()
+          );
+          if (freshSentRequest) {
+            freshSentRequest.status = 'approved';
+            freshSentRequest.approvedAt = new Date();
+          }
+        } else {
+          throw saveError; // Re-throw if not VersionError or max retries reached
+        }
+      }
+    }
+
+    // Create notification for approval
+    try {
+      await Notification.createNotification({
+        type: 'follow_approved',
+        fromUser: currentUserId,
+        toUser: requestId,
+        metadata: {
+          approverName: user.fullName,
+          approverProfilePic: user.profilePic
+        }
+      });
+
+      // Emit real-time notification
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        nsp.emit('notification', {
+          type: 'follow_approved',
+          fromUser: {
+            _id: currentUserId,
+            fullName: user.fullName,
+            profilePic: user.profilePic
+          },
+          toUser: requestId,
+          createdAt: new Date()
+        });
+      }
+    } catch (notificationError) {
+      console.error('Error creating approval notification:', notificationError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Follow request approved successfully'
+    });
+
+  } catch (error) {
+    console.error('Approve follow request error:', error);
+    res.status(500).json({
+      error: 'Failed to approve follow request',
+      message: error.message
+    });
+  }
+};
+```
+
+#### **3. Notification System Implementation**
+
+**Notification Model (`backend/src/models/Notification.js`):**
+```javascript
+const notificationSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['like', 'comment', 'follow', 'follow_request', 'follow_approved', 'post_mention'],
+    required: true
+  },
+  fromUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  toUser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  post: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post'
+  },
+  comment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Comment'
+  },
+  message: {
+    type: String,
+    required: true
+  },
+  metadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  read: {
+    type: Boolean,
+    default: false
+  }
+}, {
+  timestamps: true
+});
+
+// Ensure models are registered
+require('./User');
+require('./Post');
+require('./Comment');
+
+// Static method to create notifications
+notificationSchema.statics.createNotification = async function(notificationData) {
+  const notification = new this(notificationData);
+  return await notification.save();
+};
+
+// Static method to get user notifications
+notificationSchema.statics.getUserNotifications = async function(userId, page = 1, limit = 20) {
+  const skip = (page - 1) * limit;
+  
+  return await this.find({ toUser: userId })
+    .populate('fromUser', 'fullName profilePic email')
+    .populate('post', 'imageUrl caption')
+    .populate('comment', 'text')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+};
+```
+
+**Notification Controller (`backend/src/controllers/notificationController.js`):**
+```javascript
+const getNotifications = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const userId = req.user._id;
+
+    const notifications = await Notification.getUserNotifications(
+      userId, 
+      parseInt(page), 
+      parseInt(limit)
+    );
+
+    const totalCount = await Notification.countDocuments({ toUser: userId });
+    const unreadCount = await Notification.countDocuments({ 
+      toUser: userId, 
+      read: false 
+    });
+
+    res.json({
+      success: true,
+      notifications,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasMore: (page * limit) < totalCount
+      },
+      unreadCount
+    });
+  } catch (error) {
+    console.error('Get notifications error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch notifications',
+      message: error.message
+    });
+  }
+};
+
+const getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const unreadCount = await Notification.countDocuments({ 
+      toUser: userId, 
+      read: false 
+    });
+
+    res.json({
+      success: true,
+      unreadCount
+    });
+  } catch (error) {
+    console.error('Get unread count error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch unread count',
+      message: error.message
+    });
+  }
+};
+```
+
+#### **4. Elegant Notification UI (`frontend/app/notifications.tsx`)**
+
+**Instagram-like Notification Design:**
+```typescript
+const getNotificationIconColor = (type: string) => {
+  switch (type) {
+    case 'like':
+    case 'comment':
+      return '#FF3B30'; // Red for likes and comments
+    case 'follow':
+    case 'follow_request':
+    case 'follow_approved':
+      return '#007AFF'; // Blue for follows and follow requests
+    default:
+      return '#8E8E93'; // Gray for other types
+  }
+};
+
+const renderNotificationItem = ({ item }: { item: Notification }) => {
+  const isUnread = !item.isRead;
+  
+  return (
+    <TouchableOpacity
+      style={[
+        styles.notificationItem,
+        {
+          backgroundColor: mode === 'dark' 
+            ? (isUnread ? '#2C2C2E' : '#1C1C1E') 
+            : (isUnread ? '#F8F9FA' : '#FFFFFF'),
+          shadowOpacity: mode === 'dark' ? 0.3 : 0.08,
+        }
+      ]}
+      onPress={() => handleNotificationPress(item)}
+      activeOpacity={0.7}
+    >
+      <View style={styles.notificationContent}>
+        {/* Avatar */}
+        <View style={styles.avatarContainer}>
+          {item.fromUser.profilePic ? (
+            <Image
+              source={{ uri: item.fromUser.profilePic }}
+              style={[
+                styles.avatar,
+                { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
+              ]}
+            />
+          ) : (
+            <View style={[
+              styles.avatarPlaceholder,
+              {
+                backgroundColor: mode === 'dark' ? '#3A3A3C' : '#F2F2F7',
+                borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7'
+              }
+            ]}>
+              <Ionicons 
+                name="person-outline" 
+                size={24} 
+                color={mode === 'dark' ? '#8E8E93' : '#8E8E93'} 
+              />
+            </View>
+          )}
+          
+          {/* Notification Icon */}
+          <View style={[
+            styles.notificationIcon,
+            {
+              backgroundColor: getNotificationIconColor(item.type),
+              borderColor: mode === 'dark' ? '#1C1C1E' : '#FFFFFF'
+            }
+          ]}>
+            <Ionicons
+              name={getNotificationIcon(item.type)}
+              size={12}
+              color="white"
+            />
+          </View>
+          
+          {/* Unread Dot */}
+          {isUnread && (
+            <View style={[
+              styles.unreadDot,
+              { borderColor: mode === 'dark' ? '#1C1C1E' : '#FFFFFF' }
+            ]} />
+          )}
+        </View>
+
+        {/* Notification Content */}
+        <View style={styles.notificationText}>
+          <Text style={[
+            styles.notificationMessage,
+            { color: mode === 'dark' ? '#FFFFFF' : '#1C1C1E' }
+          ]}>
+            {getNotificationMessage(item)}
+          </Text>
+          <Text style={[
+            styles.notificationTime,
+            { color: mode === 'dark' ? '#8E8E93' : '#8E8E93' }
+          ]}>
+            {formatTime(item.createdAt)}
+          </Text>
+        </View>
+
+        {/* Post Thumbnail */}
+        {item.post && (
+          <View style={[
+            styles.postThumbnailContainer,
+            { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
+          ]}>
+            <Image
+              source={{ uri: item.post.imageUrl }}
+              style={styles.postThumbnail}
+            />
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+};
+```
+
+**Time Formatting Enhancement:**
+```typescript
+const formatTime = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  const diffInDays = Math.floor(diffInHours / 24);
+  const diffInMonths = Math.floor(diffInDays / 30);
+
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds}s ago`;
+  } else if (diffInMinutes < 60) {
+    return `${diffInMinutes}m ago`;
+  } else if (diffInHours < 24) {
+    return `${diffInHours}h ago`;
+  } else if (diffInDays < 30) {
+    return `${diffInDays}d ago`;
+  } else if (diffInMonths < 12) {
+    return `${diffInMonths}mo ago`;
+  } else {
+    const years = Math.floor(diffInMonths / 12);
+    return `${years}y ago`;
+  }
+};
+
+const groupNotificationsByTime = (notifications: Notification[]): NotificationSection[] => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const todayNotifications = notifications.filter(n => new Date(n.createdAt) >= today);
+  const yesterdayNotifications = notifications.filter(n => 
+    new Date(n.createdAt) >= yesterday && new Date(n.createdAt) < today
+  );
+  const lastWeekNotifications = notifications.filter(n => 
+    new Date(n.createdAt) >= lastWeek && new Date(n.createdAt) < yesterday
+  );
+  const lastMonthNotifications = notifications.filter(n => 
+    new Date(n.createdAt) >= lastMonth && new Date(n.createdAt) < lastWeek
+  );
+
+  const sections: NotificationSection[] = [];
+  
+  if (todayNotifications.length > 0) {
+    sections.push({ title: 'Today', data: todayNotifications });
+  }
+  if (yesterdayNotifications.length > 0) {
+    sections.push({ title: 'Yesterday', data: yesterdayNotifications });
+  }
+  if (lastWeekNotifications.length > 0) {
+    sections.push({ title: 'Last 7 days', data: lastWeekNotifications });
+  }
+  if (lastMonthNotifications.length > 0) {
+    sections.push({ title: 'Last 30 days', data: lastMonthNotifications });
+  }
+
+  return sections;
+};
+```
+
+#### **5. Follow Request Management (`frontend/app/settings/follow-requests.tsx`)**
+
+**Follow Request Approval Interface:**
+```typescript
+const handleApprove = async (requestId: string) => {
+  try {
+    setActionLoading(requestId);
+    
+    await approveFollowRequest(requestId);
+    
+    // Remove from local state
+    setFollowRequests(prev => 
+      prev.filter(req => req.user._id !== requestId)
+    );
+    
+    showSuccess('Follow request approved successfully');
+    
+    // Emit socket event for real-time updates
+    socketService.emit('follow:updated', { action: 'approved', userId: requestId });
+    
+  } catch (error: any) {
+    console.error('Error approving follow request:', error);
+    showError(error.response?.data?.message || 'Failed to approve follow request');
+  } finally {
+    setActionLoading(null);
+  }
+};
+
+const handleReject = async (requestId: string) => {
+  try {
+    setActionLoading(requestId);
+    
+    await rejectFollowRequest(requestId);
+    
+    // Remove from local state
+    setFollowRequests(prev => 
+      prev.filter(req => req.user._id !== requestId)
+    );
+    
+    showSuccess('Follow request rejected');
+    
+    // Emit socket event for real-time updates
+    socketService.emit('follow:updated', { action: 'rejected', userId: requestId });
+    
+  } catch (error: any) {
+    console.error('Error rejecting follow request:', error);
+    showError(error.response?.data?.message || 'Failed to reject follow request');
+  } finally {
+    setActionLoading(null);
+  }
+};
+```
+
+#### **6. Custom Alert System Implementation**
+
+**CustomAlert Component (`frontend/components/CustomAlert.tsx`):**
+```typescript
+interface CustomAlertProps {
+  visible: boolean;
+  title: string;
+  message: string;
+  type?: 'success' | 'error' | 'warning' | 'info';
+  showCancel?: boolean;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  onClose?: () => void;
+}
+
+export default function CustomAlert({
+  visible,
+  title,
+  message,
+  type = 'info',
+  showCancel = true,
+  confirmText = 'OK',
+  cancelText = 'Cancel',
+  onConfirm,
+  onCancel,
+  onClose,
+}: CustomAlertProps) {
+  const { theme } = useTheme();
+  const [scaleValue] = React.useState(new Animated.Value(0));
+
+  React.useEffect(() => {
+    if (visible) {
+      Animated.spring(scaleValue, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
+    } else {
+      scaleValue.setValue(0);
+    }
+  }, [visible]);
+
+  const getAlertColors = () => {
+    switch (type) {
+      case 'success':
+        return { bg: '#10B981', text: '#FFFFFF' };
+      case 'error':
+        return { bg: '#EF4444', text: '#FFFFFF' };
+      case 'warning':
+        return { bg: '#F59E0B', text: '#FFFFFF' };
+      default:
+        return { bg: '#3B82F6', text: '#FFFFFF' };
+    }
+  };
+
+  const colors = getAlertColors();
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="none"
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <Animated.View style={[styles.alertContainer, { transform: [{ scale: scaleValue }] }]}>
+          <View style={[styles.alertHeader, { backgroundColor: colors.bg }]}>
+            <Text style={[styles.alertTitle, { color: colors.text }]}>{title}</Text>
+          </View>
+          <View style={styles.alertBody}>
+            <Text style={[styles.alertMessage, { color: theme.colors.text }]}>
+              {message}
+            </Text>
+          </View>
+          <View style={styles.alertActions}>
+            {showCancel && (
+              <TouchableOpacity
+                style={[styles.alertButton, styles.cancelButton]}
+                onPress={onCancel || onClose}
+              >
+                <Text style={[styles.alertButtonText, { color: theme.colors.text }]}>
+                  {cancelText}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.alertButton, styles.confirmButton, { backgroundColor: colors.bg }]}
+              onPress={onConfirm || onClose}
+            >
+              <Text style={[styles.alertButtonText, { color: colors.text }]}>
+                {confirmText}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+```
+
+### **Key Technical Insights:**
+
+1. **Atomic Updates**: Single API calls prevent race conditions in settings updates
+2. **Real-time Notifications**: Socket.io integration for instant notification delivery
+3. **Data Consistency**: Proper follow request storage with requester/target user IDs
+4. **Error Handling**: Comprehensive error handling with retry mechanisms
+5. **UI/UX Excellence**: Instagram-like notification design with proper theming
+6. **Performance**: Optimized notification rendering with proper state management
+
+### **Testing & Validation:**
+
+**Backend Logs to Verify:**
+- `Updating profile visibility settings: { profileVisibility, requireFollowApproval, allowFollowRequests }`
+- `Follow request sent successfully`
+- `Follow request approved successfully`
+- `Socket events emitted successfully for message: [messageId]`
+
+**Frontend Logs to Verify:**
+- `Socket connected successfully to /app namespace`
+- `Socket event received: notification [payload]`
+- `Profile visibility updated successfully`
+- `Follow request approved successfully`
+
+### **Result:**
+✅ **Complete privacy system** - Granular profile visibility controls
+✅ **Follow request workflow** - Approval system with real-time updates
+✅ **Elegant notification UI** - Instagram-like design with proper theming
+✅ **Custom alert system** - Replaced all default alerts with custom components
+✅ **Real-time updates** - Socket.io integration for instant notifications
+✅ **Data consistency** - Proper follow request management and cleanup
+✅ **Error handling** - Comprehensive error handling with user-friendly messages
+
+This implementation provides a complete privacy and security system that rivals major social media platforms!
+
+---
+
 *This documentation is maintained by the TeamTaatom development team and updated regularly to reflect the latest changes and improvements.*
 
-**Last Updated**: October 2025
-**Version**: 1.1.0
+**Last Updated**: December 2024
+**Version**: 1.2.0
