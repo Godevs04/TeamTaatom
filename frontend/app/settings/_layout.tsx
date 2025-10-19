@@ -18,6 +18,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="appearance" />
       <Stack.Screen name="data" />
       <Stack.Screen name="about" />
+      <Stack.Screen name="follow-requests" />
     </Stack>
   );
 }

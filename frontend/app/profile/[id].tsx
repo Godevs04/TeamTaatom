@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Alert, SafeAreaView, Modal } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, SafeAreaView, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import WorldMap from '../../components/WorldMap';
 import PhotoCard from '../../components/PhotoCard';
+import CustomAlert from '../../components/CustomAlert';
+import BioDisplay from '../../components/BioDisplay';
 import Constants from 'expo-constants';
 
 export default function UserProfileScreen() {
@@ -17,18 +19,43 @@ export default function UserProfileScreen() {
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [followRequestSent, setFollowRequestSent] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    title: '',
+    message: '',
+    type: 'info' as 'info' | 'success' | 'warning' | 'error',
+  });
   // Remove selectedPost and modal logic
 
   // Use expoConfig for SDK 49+, fallback to manifest for older
   const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY;
+
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setAlertConfig({ title: title || '', message, type });
+    setAlertVisible(true);
+  };
+
+  const showError = (message: string, title?: string) => {
+    showAlert(message, title || 'Error', 'error');
+  };
+
+  const showSuccess = (message: string, title?: string) => {
+    showAlert(message, title || 'Success', 'success');
+  };
+
+  const showWarning = (message: string, title?: string) => {
+    showAlert(message, title || 'Warning', 'warning');
+  };
 
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get(`/profile/${id}`);
       let userProfile = res.data.profile;
+      
       // If posts are not included, fetch them
       if (!Array.isArray(userProfile.posts)) {
         const postsRes = await api.get(`/posts/user/${id}`);
@@ -37,7 +64,8 @@ export default function UserProfileScreen() {
       setProfile(userProfile);
       setIsFollowing(userProfile.followers?.some((u: any) => u._id === currentUser?._id));
     } catch (e) {
-      Alert.alert('Error', 'Failed to load user profile');
+      console.error('Error fetching profile:', e);
+      showError('Failed to load user profile');
     } finally {
       setLoading(false);
     }
@@ -72,9 +100,32 @@ export default function UserProfileScreen() {
     try {
       const res = await api.post(`/profile/${profile._id}/follow`);
       setIsFollowing(res.data.isFollowing);
+      setFollowRequestSent(res.data.followRequestSent || false);
       await fetchProfile(); // Re-fetch profile and posts after follow/unfollow
-    } catch (e) {
-      Alert.alert('Error', 'Failed to update follow status');
+      
+      // Show success message
+      if (res.data.isFollowing) {
+        showSuccess('You are now following this user!');
+      } else if (res.data.followRequestSent) {
+        showSuccess('Follow request sent!');
+      } else {
+        showSuccess('You have unfollowed this user.');
+      }
+    } catch (e: any) {
+      // Don't log conflict errors (follow request already pending) as they are expected
+      if (!e.isConflict && e.response?.status !== 409) {
+        console.error('Error following/unfollowing user:', e);
+      }
+      
+      const errorMessage = e.response?.data?.message || e.message || 'Failed to update follow status';
+      
+      // Check if it's a follow request already pending message or conflict error
+      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || e.isConflict) {
+        setFollowRequestSent(true);
+        showWarning('Follow Request Pending', errorMessage);
+      } else {
+        showError(errorMessage);
+      }
     } finally {
       setFollowLoading(false);
     }
@@ -102,6 +153,10 @@ export default function UserProfileScreen() {
               style={{ width: 90, height: 90, borderRadius: 45, borderWidth: 2, borderColor: theme.colors.primary, marginBottom: theme.spacing.md, marginTop: 16 }}
             />
             <Text style={{ fontSize: 22, fontWeight: '700', color: theme.colors.text }}>{profile.fullName}</Text>
+            {profile.email && (
+              <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginTop: 4 }}>{profile.email}</Text>
+            )}
+            <BioDisplay bio={profile.bio || ''} />
             {/* Stats Row */}
             <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
               <View style={{ alignItems: 'center', marginHorizontal: 16 }}>
@@ -125,11 +180,19 @@ export default function UserProfileScreen() {
             </View>
             {currentUser && currentUser._id !== profile._id && (
               <TouchableOpacity
-                style={{ marginTop: theme.spacing.sm, backgroundColor: isFollowing ? theme.colors.surface : theme.colors.primary, borderRadius: 20, paddingHorizontal: 32, paddingVertical: 10 }}
+                style={{ 
+                  marginTop: theme.spacing.sm, 
+                  backgroundColor: isFollowing ? theme.colors.surface : followRequestSent ? '#FF9800' : theme.colors.primary, 
+                  borderRadius: 20, 
+                  paddingHorizontal: 32, 
+                  paddingVertical: 10 
+                }}
                 onPress={handleFollow}
                 disabled={followLoading}
               >
-                <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>{isFollowing ? 'Following' : 'Follow'}</Text>
+                <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>
+                  {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                </Text>
               </TouchableOpacity>
             )}
             {currentUser && currentUser._id !== profile._id && isFollowing && (
@@ -141,8 +204,7 @@ export default function UserProfileScreen() {
               </TouchableOpacity>
             )}
             {/* 3D Globe (WorldMap) */}
-            {profile.locations && profile.locations.length > 0 &&
-              ((currentUser && currentUser._id === profile._id) || isFollowing) ? (
+            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
               <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg }}>
                 <TouchableOpacity onPress={() => setShowWorldMap(true)}>
                   <Ionicons name="earth" size={90} color={theme.colors.primary} />
@@ -153,21 +215,26 @@ export default function UserProfileScreen() {
               <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg, padding: 32 }}>
                 <Ionicons name="earth" size={80} color={theme.colors.textSecondary} />
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 18, marginTop: 16 }}>
-                  {currentUser && currentUser._id !== profile._id && !isFollowing
+                  {profile.canViewLocations 
+                    ? 'No locations yet'
+                    : profile.profileVisibility === 'followers' 
                     ? 'Follow to view posted locations'
-                    : 'No locations yet'}
+                    : profile.profileVisibility === 'private'
+                    ? 'Follow request pending to view locations'
+                    : 'Follow to view posted locations'
+                  }
                 </Text>
               </View>
             )}
             {/* Recent Posts Section Title */}
-            {(currentUser && (currentUser._id === profile._id || isFollowing)) && (
+            {profile.canViewPosts && (
               <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm }}>
                 Recent Posts
               </Text>
             )}
           </View>
         }
-        data={(currentUser && (currentUser._id === profile._id || isFollowing)) ? (profile.posts || []).slice(0, 6) : []}
+        data={profile.canViewPosts ? (profile.posts || []).slice(0, 6) : []}
         keyExtractor={item => item._id}
         numColumns={3}
         renderItem={({ item }) => (
@@ -178,7 +245,18 @@ export default function UserProfileScreen() {
             <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 32 }}>No posts yet.</Text>}
+        ListEmptyComponent={
+          <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 32 }}>
+            {profile.canViewPosts 
+              ? 'No posts yet.' 
+              : profile.profileVisibility === 'followers' 
+              ? 'Follow to view posts'
+              : profile.profileVisibility === 'private'
+              ? 'Follow request pending to view posts'
+              : 'Follow to view posts'
+            }
+          </Text>
+        }
         contentContainerStyle={{ paddingBottom: 40 }}
       />
       {/* Post Modal: show image and location */}
@@ -215,6 +293,14 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+      
+      <CustomAlert
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onClose={() => setAlertVisible(false)}
+      />
     </SafeAreaView>
   );
 }
