@@ -1,11 +1,12 @@
 import api from './api';
-import { UserType } from '../types/user';
+import { UserType, FollowRequestsResponse } from '../types/user';
 
 export interface ProfileResponse {
   profile: UserType & {
     postsCount: number;
     followersCount: number;
     followingCount: number;
+    bio: string;
     locations: Array<{
       latitude: number;
       longitude: number;
@@ -19,6 +20,7 @@ export interface ProfileResponse {
 
 export interface UpdateProfileData {
   fullName?: string;
+  bio?: string;
   profilePic?: {
     uri: string;
     type: string;
@@ -60,6 +62,10 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       formData.append('fullName', data.fullName);
     }
     
+    if (data.bio !== undefined) {
+      formData.append('bio', data.bio);
+    }
+    
     if (data.profilePic) {
       // For React Native, we need to structure the file object properly
       formData.append('profilePic', {
@@ -72,6 +78,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     console.log('Updating profile with data:', {
       userId,
       hasFullName: !!data.fullName,
+      hasBio: data.bio !== undefined,
       hasProfilePic: !!data.profilePic,
     });
 
@@ -100,6 +107,12 @@ export const toggleFollow = async (userId: string): Promise<{
     const response = await api.post(`/profile/${userId}/follow`);
     return response.data;
   } catch (error: any) {
+    // Handle 409 (Conflict) as a special case for follow request already pending
+    if (error.response?.status === 409) {
+      const conflictError = new Error(error.response?.data?.message || 'Follow request already pending');
+      (conflictError as any).isConflict = true;
+      throw conflictError;
+    }
     throw new Error(error.response?.data?.message || 'Failed to update follow status');
   }
 };
@@ -121,5 +134,35 @@ export const updateExpoPushToken = async (userId: string, expoPushToken: string)
   } catch (error: any) {
     console.error('Failed to update Expo push token:', error.response?.data || error.message);
     throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
+  }
+};
+
+// Get follow requests
+export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
+  try {
+    const response = await api.get('/profile/follow-requests');
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch follow requests');
+  }
+};
+
+// Approve follow request
+export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number }> => {
+  try {
+    const response = await api.post(`/profile/follow-requests/${requestId}/approve`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to approve follow request');
+  }
+};
+
+// Reject follow request
+export const rejectFollowRequest = async (requestId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.post(`/profile/follow-requests/${requestId}/reject`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to reject follow request');
   }
 };

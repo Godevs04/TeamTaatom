@@ -68,8 +68,8 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // Only log non-400 errors to reduce noise
-    if (error.response?.status !== 400) {
+    // Only log non-400 and non-409 errors to reduce noise
+    if (error.response?.status !== 400 && error.response?.status !== 409) {
       console.error('API Error:', error.response?.status, error.config?.url, error.message);
     }
     

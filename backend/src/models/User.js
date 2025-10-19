@@ -8,6 +8,12 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Name cannot be more than 50 characters']
   },
+  bio: {
+    type: String,
+    required: false,
+    trim: true,
+    maxlength: [300, 'Bio cannot exceed 300 characters']
+  },
   email: {
     type: String,
     required: [true, 'Email is required'],
@@ -39,6 +45,36 @@ const userSchema = new mongoose.Schema({
   following: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  }],
+  followRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  sentFollowRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    }
   }],
   totalLikes: {
     type: Number,
@@ -96,6 +132,14 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['everyone', 'followers', 'none'],
         default: 'everyone'
+      },
+      requireFollowApproval: {
+        type: Boolean,
+        default: false
+      },
+      allowFollowRequests: {
+        type: Boolean,
+        default: true
       }
     },
     notifications: {
@@ -120,6 +164,14 @@ const userSchema = new mongoose.Schema({
         default: true
       },
       messagesNotifications: {
+        type: Boolean,
+        default: true
+      },
+      followRequestNotifications: {
+        type: Boolean,
+        default: true
+      },
+      followApprovalNotifications: {
         type: Boolean,
         default: true
       }
@@ -191,6 +243,7 @@ userSchema.methods.getPublicProfile = function() {
   return {
     _id: this._id,
     fullName: this.fullName,
+    bio: this.bio,
     email: this.email,
     profilePic: this.profilePic,
     followers: this.followers.length,

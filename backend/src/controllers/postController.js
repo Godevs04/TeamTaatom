@@ -1,6 +1,7 @@
 const { validationResult } = require('express-validator');
 const Post = require('../models/Post');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const { uploadImage, deleteImage, getOptimizedImageUrl } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
@@ -394,7 +395,7 @@ const getUserPosts = async (req, res) => {
 // @access  Private
 const toggleLike = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
     if (!post) {
       return res.status(404).json({
         error: 'Post not found',
@@ -408,6 +409,47 @@ const toggleLike = async (req, res) => {
     // Update user's total likes if this is their post
     if (isLiked) {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
+      
+      // Create notification for like (only if it's not the user's own post)
+      if (post.user._id.toString() !== req.user._id.toString()) {
+        try {
+          console.log('🔔 Creating like notification:', {
+            fromUser: req.user._id,
+            toUser: post.user._id,
+            post: post._id
+          });
+          
+          const notification = await Notification.createNotification({
+            type: 'like',
+            fromUser: req.user._id,
+            toUser: post.user._id,
+            post: post._id
+          });
+          
+          console.log('✅ Like notification created successfully:', notification._id);
+
+          // Emit real-time notification
+          const io = getIO();
+          if (io) {
+            const nsp = io.of('/app');
+            nsp.emit('notification', {
+              type: 'like',
+              fromUser: {
+                _id: req.user._id,
+                fullName: req.user.fullName,
+                profilePic: req.user.profilePic
+              },
+              post: {
+                _id: post._id,
+                imageUrl: post.imageUrl
+              },
+              createdAt: new Date()
+            });
+          }
+        } catch (notificationError) {
+          console.error('❌ Error creating like notification:', notificationError);
+        }
+      }
     } else {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
@@ -451,7 +493,7 @@ const addComment = async (req, res) => {
       });
     }
 
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
     if (!post) {
       return res.status(404).json({
         error: 'Post not found',
@@ -466,6 +508,53 @@ const addComment = async (req, res) => {
     // Populate the new comment with user data
     await post.populate('comments.user', 'fullName profilePic');
     const populatedComment = post.comments.id(newComment._id);
+
+    // Create notification for comment (only if it's not the user's own post)
+    if (post.user._id.toString() !== req.user._id.toString()) {
+      try {
+        console.log('🔔 Creating comment notification:', {
+          fromUser: req.user._id,
+          toUser: post.user._id,
+          post: post._id,
+          comment: newComment._id
+        });
+        
+        const notification = await Notification.createNotification({
+          type: 'comment',
+          fromUser: req.user._id,
+          toUser: post.user._id,
+          post: post._id,
+          comment: newComment._id
+        });
+        
+        console.log('✅ Comment notification created successfully:', notification._id);
+
+        // Emit real-time notification
+        const io = getIO();
+        if (io) {
+          const nsp = io.of('/app');
+          nsp.emit('notification', {
+            type: 'comment',
+            fromUser: {
+              _id: req.user._id,
+              fullName: req.user.fullName,
+              profilePic: req.user.profilePic
+            },
+            post: {
+              _id: post._id,
+              imageUrl: post.imageUrl
+            },
+            comment: {
+              _id: newComment._id,
+              text: text
+            },
+            createdAt: new Date()
+          });
+        }
+      } catch (notificationError) {
+        console.error('❌ Error creating comment notification:', notificationError);
+      }
+    }
 
     // Emit socket events
     const io = getIO();
