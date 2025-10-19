@@ -159,9 +159,20 @@ export default function PostDetail() {
           : `You've unfollowed ${post!.user.fullName}`,
         'success'
       );
-    } catch (error) {
-      console.error('Error toggling follow:', error);
-      showCustomAlertMessage('Error', 'Failed to update follow status.', 'error');
+    } catch (error: any) {
+      // Don't log conflict errors (follow request already pending) as they are expected
+      if (!error.isConflict && error.response?.status !== 409) {
+        console.error('Error toggling follow:', error);
+      }
+      
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to update follow status.';
+      
+      // Check if it's a follow request already pending message or conflict error
+      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || error.isConflict) {
+        showCustomAlertMessage('Follow Request Pending', errorMessage, 'warning');
+      } else {
+        showCustomAlertMessage('Error', errorMessage, 'error');
+      }
     } finally {
       setActionLoading(null);
     }

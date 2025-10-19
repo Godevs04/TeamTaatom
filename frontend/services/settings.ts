@@ -30,6 +30,18 @@ export interface SettingsResponse {
   settings: UserSettings;
 }
 
+// Check network connectivity
+const checkNetworkConnectivity = async (): Promise<boolean> => {
+  try {
+    // Try a simple ping to the server
+    const response = await api.get('/auth/me', { timeout: 5000 });
+    return response.status === 200;
+  } catch (error) {
+    console.log('Network connectivity check failed:', error);
+    return false;
+  }
+};
+
 // Get user settings
 export const getSettings = async (): Promise<SettingsResponse> => {
   try {
@@ -53,10 +65,38 @@ export const updateSettings = async (settings: Partial<UserSettings>): Promise<S
 // Update specific settings category
 export const updateSettingCategory = async (category: 'privacy' | 'notifications' | 'account', settings: any): Promise<SettingsResponse> => {
   try {
-    const response = await api.put(`/settings/${category}`, settings);
+    console.log(`Updating ${category} settings:`, settings);
+    
+    // Check network connectivity first
+    const isConnected = await checkNetworkConnectivity();
+    if (!isConnected) {
+      throw new Error('No internet connection. Please check your network and try again.');
+    }
+    
+    const response = await api.put(`/settings/${category}`, settings, {
+      timeout: 10000, // 10 second timeout
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    console.log(`Successfully updated ${category} settings:`, response.data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update settings');
+    console.error(`Error updating ${category} settings:`, error);
+    
+    // Handle different types of errors
+    if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+      throw new Error('Network connection failed. Please check your internet connection and try again.');
+    } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      throw new Error('Request timed out. Please try again.');
+    } else if (error.response?.status === 401) {
+      throw new Error('Session expired. Please log in again.');
+    } else if (error.response?.status === 500) {
+      throw new Error('Server error. Please try again later.');
+    } else {
+      throw new Error(error.response?.data?.message || 'Failed to update settings');
+    }
   }
 };
 

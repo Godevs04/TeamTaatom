@@ -68,50 +68,89 @@ export default function PrivacySettingsScreen() {
     if (!settings) return;
     
     setUpdating(true);
-    try {
-      const updatedSettings = {
-        ...settings.privacy,
-        [key]: value
-      };
-      
-      const response = await updateSettingCategory('privacy', updatedSettings);
-      setSettings(response.settings);
-      showSuccess('Setting updated successfully');
-    } catch (error) {
-      console.error('Error updating setting:', error);
-      showError('Failed to update setting. Please try again.');
-    } finally {
-      setUpdating(false);
+    let retryCount = 0;
+    const maxRetries = 2; // Fewer retries for individual settings
+    
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`Attempt ${retryCount + 1}: Updating setting ${key}:`, value);
+        
+        const updatedSettings = {
+          ...settings.privacy,
+          [key]: value
+        };
+        
+        const response = await updateSettingCategory('privacy', updatedSettings);
+        setSettings(response.settings);
+        showSuccess('Setting updated successfully');
+        break; // Success, exit retry loop
+        
+      } catch (error: any) {
+        retryCount++;
+        console.error(`Attempt ${retryCount} failed for setting ${key}:`, error);
+        
+        if (retryCount >= maxRetries) {
+          console.error(`All retry attempts failed for setting ${key}:`, error);
+          showError(`Failed to update setting after ${maxRetries} attempts. ${error.message}`);
+          break;
+        } else {
+          // Wait before retrying
+          const delay = 1000; // 1 second delay
+          console.log(`Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+    
+    setUpdating(false);
   };
 
   const updateProfileVisibilitySettings = async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
     if (!settings) return;
     
     setUpdating(true);
-    try {
-      console.log('Updating profile visibility settings:', { profileVisibility, requireFollowApproval, allowFollowRequests });
-      
-      const updatedSettings = {
-        ...settings.privacy,
-        profileVisibility,
-        requireFollowApproval,
-        allowFollowRequests
-      };
-      
-      console.log('Sending updated settings:', updatedSettings);
-      
-      const response = await updateSettingCategory('privacy', updatedSettings);
-      console.log('Response received:', response);
-      
-      setSettings(response.settings);
-      showSuccess('Profile visibility updated successfully');
-    } catch (error) {
-      console.error('Error updating profile visibility:', error);
-      showError('Failed to update profile visibility. Please try again.');
-    } finally {
-      setUpdating(false);
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`Attempt ${retryCount + 1}: Updating profile visibility settings:`, { profileVisibility, requireFollowApproval, allowFollowRequests });
+        
+        const updatedSettings = {
+          ...settings.privacy,
+          profileVisibility,
+          requireFollowApproval,
+          allowFollowRequests
+        };
+        
+        console.log('Sending updated settings:', updatedSettings);
+        
+        const response = await updateSettingCategory('privacy', updatedSettings);
+        console.log('Response received:', response);
+        
+        setSettings(response.settings);
+        showSuccess('Profile visibility updated successfully');
+        break; // Success, exit retry loop
+        
+      } catch (error: any) {
+        retryCount++;
+        console.error(`Attempt ${retryCount} failed:`, error);
+        
+        if (retryCount >= maxRetries) {
+          // All retries failed
+          console.error('All retry attempts failed for profile visibility update:', error);
+          showError(`Failed to update profile visibility after ${maxRetries} attempts. ${error.message}`);
+          break;
+        } else {
+          // Wait before retrying (exponential backoff)
+          const delay = Math.pow(2, retryCount - 1) * 1000; // 1s, 2s, 4s
+          console.log(`Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
     }
+    
+    setUpdating(false);
   };
 
   const handleProfileVisibilityChange = () => {
@@ -138,14 +177,6 @@ export default function PrivacySettingsScreen() {
         onPress: () => {
           setCustomOptionsVisible(false);
           updateProfileVisibilitySettings('private', true, true);
-        }
-      },
-      {
-        text: 'Private (No Follow Requests)',
-        icon: 'lock-closed-outline',
-        onPress: () => {
-          setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('private', false, false);
         }
       }
     ];

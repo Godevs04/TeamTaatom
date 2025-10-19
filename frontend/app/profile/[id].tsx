@@ -18,6 +18,7 @@ export default function UserProfileScreen() {
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [followRequestSent, setFollowRequestSent] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [alertVisible, setAlertVisible] = useState(false);
@@ -42,6 +43,10 @@ export default function UserProfileScreen() {
 
   const showSuccess = (message: string, title?: string) => {
     showAlert(message, title || 'Success', 'success');
+  };
+
+  const showWarning = (message: string, title?: string) => {
+    showAlert(message, title || 'Warning', 'warning');
   };
 
   const fetchProfile = useCallback(async () => {
@@ -93,18 +98,32 @@ export default function UserProfileScreen() {
     try {
       const res = await api.post(`/profile/${profile._id}/follow`);
       setIsFollowing(res.data.isFollowing);
+      setFollowRequestSent(res.data.followRequestSent || false);
       await fetchProfile(); // Re-fetch profile and posts after follow/unfollow
       
       // Show success message
       if (res.data.isFollowing) {
         showSuccess('You are now following this user!');
+      } else if (res.data.followRequestSent) {
+        showSuccess('Follow request sent!');
       } else {
         showSuccess('You have unfollowed this user.');
       }
     } catch (e: any) {
-      console.error('Error following/unfollowing user:', e);
-      const errorMessage = e.response?.data?.message || 'Failed to update follow status';
-      showError(errorMessage);
+      // Don't log conflict errors (follow request already pending) as they are expected
+      if (!e.isConflict && e.response?.status !== 409) {
+        console.error('Error following/unfollowing user:', e);
+      }
+      
+      const errorMessage = e.response?.data?.message || e.message || 'Failed to update follow status';
+      
+      // Check if it's a follow request already pending message or conflict error
+      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || e.isConflict) {
+        setFollowRequestSent(true);
+        showWarning('Follow Request Pending', errorMessage);
+      } else {
+        showError(errorMessage);
+      }
     } finally {
       setFollowLoading(false);
     }
@@ -155,11 +174,19 @@ export default function UserProfileScreen() {
             </View>
             {currentUser && currentUser._id !== profile._id && (
               <TouchableOpacity
-                style={{ marginTop: theme.spacing.sm, backgroundColor: isFollowing ? theme.colors.surface : theme.colors.primary, borderRadius: 20, paddingHorizontal: 32, paddingVertical: 10 }}
+                style={{ 
+                  marginTop: theme.spacing.sm, 
+                  backgroundColor: isFollowing ? theme.colors.surface : followRequestSent ? '#FF9800' : theme.colors.primary, 
+                  borderRadius: 20, 
+                  paddingHorizontal: 32, 
+                  paddingVertical: 10 
+                }}
                 onPress={handleFollow}
                 disabled={followLoading}
               >
-                <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>{isFollowing ? 'Following' : 'Follow'}</Text>
+                <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>
+                  {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                </Text>
               </TouchableOpacity>
             )}
             {currentUser && currentUser._id !== profile._id && isFollowing && (
@@ -171,8 +198,7 @@ export default function UserProfileScreen() {
               </TouchableOpacity>
             )}
             {/* 3D Globe (WorldMap) */}
-            {profile.locations && profile.locations.length > 0 &&
-              ((currentUser && currentUser._id === profile._id) || isFollowing) ? (
+            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
               <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg }}>
                 <TouchableOpacity onPress={() => setShowWorldMap(true)}>
                   <Ionicons name="earth" size={90} color={theme.colors.primary} />
@@ -183,21 +209,26 @@ export default function UserProfileScreen() {
               <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg, padding: 32 }}>
                 <Ionicons name="earth" size={80} color={theme.colors.textSecondary} />
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 18, marginTop: 16 }}>
-                  {currentUser && currentUser._id !== profile._id && !isFollowing
+                  {profile.canViewLocations 
+                    ? 'No locations yet'
+                    : profile.profileVisibility === 'followers' 
                     ? 'Follow to view posted locations'
-                    : 'No locations yet'}
+                    : profile.profileVisibility === 'private'
+                    ? 'Follow request pending to view locations'
+                    : 'Follow to view posted locations'
+                  }
                 </Text>
               </View>
             )}
             {/* Recent Posts Section Title */}
-            {(currentUser && (currentUser._id === profile._id || isFollowing)) && (
+            {profile.canViewPosts && (
               <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm }}>
                 Recent Posts
               </Text>
             )}
           </View>
         }
-        data={(currentUser && (currentUser._id === profile._id || isFollowing)) ? (profile.posts || []).slice(0, 6) : []}
+        data={profile.canViewPosts ? (profile.posts || []).slice(0, 6) : []}
         keyExtractor={item => item._id}
         numColumns={3}
         renderItem={({ item }) => (
@@ -208,7 +239,18 @@ export default function UserProfileScreen() {
             <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 32 }}>No posts yet.</Text>}
+        ListEmptyComponent={
+          <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 32 }}>
+            {profile.canViewPosts 
+              ? 'No posts yet.' 
+              : profile.profileVisibility === 'followers' 
+              ? 'Follow to view posts'
+              : profile.profileVisibility === 'private'
+              ? 'Follow request pending to view posts'
+              : 'Follow to view posts'
+            }
+          </Text>
+        }
         contentContainerStyle={{ paddingBottom: 40 }}
       />
       {/* Post Modal: show image and location */}
