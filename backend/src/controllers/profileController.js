@@ -49,14 +49,76 @@ const getProfile = async (req, res) => {
       user.followers.some(follower => follower._id.toString() === req.user._id.toString()) : 
       false;
 
+    // Check if current user has sent a follow request
+    const hasSentFollowRequest = req.user ? 
+      user.followRequests.some(req => req.user.toString() === req.user._id.toString() && req.status === 'pending') :
+      false;
+
+    // Check if current user has received a follow request from this user
+    const hasReceivedFollowRequest = req.user ? 
+      user.sentFollowRequests.some(req => req.user.toString() === id && req.status === 'pending') :
+      false;
+
+    // Determine profile visibility based on settings
+    const profileVisibility = user.settings.privacy.profileVisibility;
+    const isOwnProfile = req.user ? req.user._id.toString() === id : false;
+    
+    let canViewProfile = false;
+    let canViewPosts = false;
+    let canViewLocations = false;
+    let followRequestSent = false;
+
+    if (isOwnProfile) {
+      // User can always see their own profile
+      canViewProfile = true;
+      canViewPosts = true;
+      canViewLocations = true;
+    } else {
+      switch (profileVisibility) {
+        case 'public':
+          // Public: Anyone can view profile as if they're followed
+          canViewProfile = true;
+          canViewPosts = true;
+          canViewLocations = true;
+          break;
+          
+        case 'followers':
+          // Followers Only: Only followers can see details
+          canViewProfile = true;
+          canViewPosts = isFollowing;
+          canViewLocations = isFollowing;
+          break;
+          
+        case 'private':
+          // Private (Require Approval): Only approved followers can see details
+          canViewProfile = true;
+          canViewPosts = isFollowing;
+          canViewLocations = isFollowing;
+          followRequestSent = hasSentFollowRequest;
+          break;
+          
+        default:
+          // Default to public behavior
+          canViewProfile = true;
+          canViewPosts = true;
+          canViewLocations = true;
+      }
+    }
+
     const profile = {
       ...user.toObject(),
       postsCount: posts.length,
       followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
       followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
-      locations,
+      locations: canViewLocations ? locations : [],
       isFollowing,
-      isOwnProfile: req.user ? req.user._id.toString() === id : false
+      isOwnProfile,
+      canViewProfile,
+      canViewPosts,
+      canViewLocations,
+      followRequestSent,
+      profileVisibility,
+      hasReceivedFollowRequest
     };
 
     res.status(200).json({ profile });
@@ -230,7 +292,7 @@ const toggleFollow = async (req, res) => {
         );
         
         if (existingSentRequest || existingReceivedRequest) {
-          return res.status(400).json({
+          return res.status(409).json({
             error: 'Request already sent',
             message: 'Follow request already pending'
           });

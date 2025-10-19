@@ -100,6 +100,12 @@ export const toggleFollow = async (userId: string): Promise<{
     const response = await api.post(`/profile/${userId}/follow`);
     return response.data;
   } catch (error: any) {
+    // Handle 409 (Conflict) as a special case for follow request already pending
+    if (error.response?.status === 409) {
+      const conflictError = new Error(error.response?.data?.message || 'Follow request already pending');
+      (conflictError as any).isConflict = true;
+      throw conflictError;
+    }
     throw new Error(error.response?.data?.message || 'Failed to update follow status');
   }
 };

@@ -48,7 +48,7 @@ export default function ShortsScreen() {
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
   const { theme, mode } = useTheme();
   const router = useRouter();
-  const { showSuccess, showError, showInfo } = useAlert();
+  const { showSuccess, showError, showInfo, showWarning } = useAlert();
 
   useEffect(() => {
     loadShorts();
@@ -318,8 +318,19 @@ export default function ShortsScreen() {
           : `You've unfollowed ${userName}`
       );
     } catch (error: any) {
-      console.error('Error toggling follow:', error);
-      showError('Failed to update follow status. Please try again.');
+      // Don't log conflict errors (follow request already pending) as they are expected
+      if (!error.isConflict && error.response?.status !== 409) {
+        console.error('Error toggling follow:', error);
+      }
+      
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to update follow status. Please try again.';
+      
+      // Check if it's a follow request already pending message or conflict error
+      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || error.isConflict) {
+        showWarning(errorMessage);
+      } else {
+        showError(errorMessage);
+      }
     } finally {
       setActionLoading(null);
     }

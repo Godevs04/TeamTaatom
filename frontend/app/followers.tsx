@@ -85,8 +85,20 @@ export default function FollowersFollowingList() {
     try {
       await toggleFollow(targetId);
       setUsers(prev => prev.map(u => u._id === targetId ? { ...u, isFollowing: !u.isFollowing } : u));
-    } catch (err) {
-      Alert.alert('Error', 'Failed to update follow status');
+    } catch (err: any) {
+      // Don't log conflict errors (follow request already pending) as they are expected
+      if (!err.isConflict && err.response?.status !== 409) {
+        console.error('Error following/unfollowing user:', err);
+      }
+      
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to update follow status';
+      
+      // Check if it's a follow request already pending message or conflict error
+      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || err.isConflict) {
+        Alert.alert('Follow Request Pending', errorMessage);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     } finally {
       setFollowLoading(null);
     }
