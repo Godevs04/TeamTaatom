@@ -210,7 +210,7 @@ const Login = () => {
                 <div>
                   <h4 className="text-sm font-semibold text-blue-900">Mandatory Security</h4>
                   <p className="text-sm text-blue-700 mt-1">
-                    <strong>Two-factor authentication is required for every login.</strong> You'll receive a verification code via email after entering your credentials.
+                    <strong>Two-factor authentication is required for every login.</strong> You&apos;ll receive a verification code via email after entering your credentials.
                   </p>
                 </div>
               </div>
@@ -306,7 +306,7 @@ const Login = () => {
                 <div>
                   <h4 className="text-sm font-semibold text-green-900">Mandatory Two-Factor Authentication</h4>
                   <p className="text-sm text-green-700 mt-1">
-                    <strong>2FA is required for every SuperAdmin login.</strong> We've sent a verification code to your email address for enhanced security.
+                    <strong>2FA is required for every SuperAdmin login.</strong> We&apos;ve sent a verification code to your email address for enhanced security.
                   </p>
                 </div>
               </div>
