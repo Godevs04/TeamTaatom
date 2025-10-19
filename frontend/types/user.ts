@@ -1,6 +1,7 @@
 export interface UserType {
   _id: string;
   fullName: string;
+  bio?: string;
   email: string;
   profilePic: string;
   followers: string[];
