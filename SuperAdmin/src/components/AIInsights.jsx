@@ -37,29 +37,36 @@ const AIInsights = ({ insights }) => {
           <TrendingUp className="w-5 h-5 text-green-600" />
         </div>
         <div className="space-y-3">
-          {topPerformingRegions?.slice(0, 5).map((region, index) => (
-            <motion.div
-              key={region._id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-            >
-              <div className="flex items-center">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                  <span className="text-sm font-semibold text-blue-600">#{index + 1}</span>
+          {topPerformingRegions?.slice(0, 5).map((region, index) => {
+            // Handle region._id which might be an object with address/coordinates
+            const regionId = typeof region._id === 'object' 
+              ? (region._id.address || region._id.name || 'Unknown Region')
+              : region._id
+            
+            return (
+              <motion.div
+                key={regionId || index}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              >
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                    <span className="text-sm font-semibold text-blue-600">#{index + 1}</span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">{regionId}</p>
+                    <p className="text-sm text-gray-500">{region.count} posts</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium text-gray-900">{region._id}</p>
-                  <p className="text-sm text-gray-500">{region.count} posts</p>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-green-600">{region.totalLikes} likes</p>
+                  <p className="text-xs text-gray-500">High engagement</p>
                 </div>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-green-600">{region.totalLikes} likes</p>
-                <p className="text-xs text-gray-500">High engagement</p>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            )
+          })}
         </div>
       </div>
 
@@ -75,7 +82,7 @@ const AIInsights = ({ insights }) => {
         <div className="space-y-3">
           {vipUsers?.slice(0, 5).map((user, index) => (
             <motion.div
-              key={user._id}
+              key={user._id || `vip-${index}`}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
@@ -113,7 +120,7 @@ const AIInsights = ({ insights }) => {
         <div className="space-y-3">
           {inactiveUsers?.slice(0, 5).map((user, index) => (
             <motion.div
-              key={user._id}
+              key={user._id || `inactive-${index}`}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.1 }}
@@ -158,7 +165,7 @@ const AIInsights = ({ insights }) => {
         <div className="space-y-4">
           {recommendations?.map((rec, index) => (
             <motion.div
-              key={index}
+              key={rec.id || `rec-${index}`}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.1 }}
