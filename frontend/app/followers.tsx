@@ -40,7 +40,24 @@ export default function FollowersFollowingList() {
         : `/profile/${userId}/following?page=${pageToFetch}&limit=${limit}`;
       const response = await api.get(endpoint);
       const newUsers = response.data.users || [];
-      setUsers(prev => replace ? newUsers : [...prev, ...newUsers]);
+      
+      // Remove duplicates based on _id
+      const uniqueNewUsers = newUsers.filter((user: UserType, index: number, self: UserType[]) => 
+        index === self.findIndex((u: UserType) => u._id === user._id)
+      );
+      
+      if (replace) {
+        setUsers(uniqueNewUsers);
+      } else {
+        setUsers(prev => {
+          // Combine existing users with new users and remove duplicates
+          const combined = [...prev, ...uniqueNewUsers];
+          return combined.filter((user: UserType, index: number, self: UserType[]) => 
+            index === self.findIndex((u: UserType) => u._id === user._id)
+          );
+        });
+      }
+      
       setHasNextPage(response.data.pagination?.hasNextPage ?? false);
       setPage(pageToFetch);
     } catch (err) {
@@ -58,6 +75,12 @@ export default function FollowersFollowingList() {
   };
 
   const handleToggleFollow = async (targetId: string) => {
+    // Prevent self-following
+    if (targetId === userId) {
+      Alert.alert('Error', 'You cannot follow yourself');
+      return;
+    }
+    
     setFollowLoading(targetId);
     try {
       await toggleFollow(targetId);
@@ -80,15 +103,17 @@ export default function FollowersFollowingList() {
       <TouchableOpacity style={styles(theme).chatBtn} onPress={() => router.push(`/chat?userId=${item._id}`)}>
         <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.primary} />
       </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles(theme).followBtn, item.isFollowing ? styles(theme).following : styles(theme).notFollowing]}
-        onPress={() => handleToggleFollow(item._id)}
-        disabled={followLoading === item._id}
-      >
-        <Text style={styles(theme).followBtnText}>
-          {item.isFollowing ? 'Unfollow' : 'Follow'}
-        </Text>
-      </TouchableOpacity>
+      {item._id !== userId && (
+        <TouchableOpacity
+          style={[styles(theme).followBtn, item.isFollowing ? styles(theme).following : styles(theme).notFollowing]}
+          onPress={() => handleToggleFollow(item._id)}
+          disabled={followLoading === item._id}
+        >
+          <Text style={styles(theme).followBtnText}>
+            {item.isFollowing ? 'Unfollow' : 'Follow'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -123,7 +148,7 @@ export default function FollowersFollowingList() {
       ) : (
         <FlatList
           data={users}
-          keyExtractor={item => item._id}
+          keyExtractor={(item, index) => `${item._id}-${index}`}
           renderItem={renderItem}
           contentContainerStyle={{ padding: 16 }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}

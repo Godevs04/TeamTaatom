@@ -52,8 +52,8 @@ const getProfile = async (req, res) => {
     const profile = {
       ...user.toObject(),
       postsCount: posts.length,
-      followersCount: user.followers.length,
-      followingCount: user.following.length,
+      followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+      followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
       locations,
       isFollowing,
       isOwnProfile: req.user ? req.user._id.toString() === id : false
@@ -211,8 +211,8 @@ const toggleFollow = async (req, res) => {
       res.status(200).json({
         message: 'User unfollowed',
         isFollowing: false,
-        followersCount: targetUser.followers.length,
-        followingCount: currentUser.following.length,
+        followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+        followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
         followRequestSent: false
       });
     } else {
@@ -294,8 +294,8 @@ const toggleFollow = async (req, res) => {
         res.status(200).json({
           message: 'Follow request sent',
           isFollowing: false,
-          followersCount: targetUser.followers.length,
-          followingCount: currentUser.following.length,
+          followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+          followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
           followRequestSent: true
         });
       } else {
@@ -336,8 +336,8 @@ const toggleFollow = async (req, res) => {
         res.status(200).json({
           message: 'User followed',
           isFollowing: true,
-          followersCount: targetUser.followers.length,
-          followingCount: currentUser.following.length,
+          followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+          followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
           followRequestSent: false
         });
       }
@@ -443,15 +443,24 @@ const getFollowersList = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    const user = await User.findById(id).populate({
-      path: 'followers',
-      select: 'fullName profilePic email followers following totalLikes isVerified',
-      options: { skip, limit }
-    });
+    
+    // First get the user to check if it exists and get total count
+    const user = await User.findById(id).select('followers');
     if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const totalFollowers = user.followers.filter(followerId => followerId.toString() !== id.toString()).length;
+    
+    // Get paginated followers IDs (exclude self)
+    const paginatedFollowersIds = user.followers
+      .filter(followerId => followerId.toString() !== id.toString())
+      .slice(skip, skip + limit);
+    
+    // Populate the paginated followers users
+    const followers = await User.find({ _id: { $in: paginatedFollowersIds } })
+      .select('fullName profilePic email followers following totalLikes isVerified');
+    
     const currentUserId = req.user ? req.user._id.toString() : null;
-    const totalFollowers = user.followers.length;
-    const followers = user.followers.map(f => {
+    const followersWithStatus = followers.map(f => {
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
@@ -465,8 +474,9 @@ const getFollowersList = async (req, res) => {
         isFollowing,
       };
     });
+    
     res.status(200).json({
-      users: followers,
+      users: followersWithStatus,
       pagination: {
         currentPage: page,
         totalPages: Math.ceil(totalFollowers / limit),
@@ -490,15 +500,24 @@ const getFollowingList = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    const user = await User.findById(id).populate({
-      path: 'following',
-      select: 'fullName profilePic email followers following totalLikes isVerified',
-      options: { skip, limit }
-    });
+    
+    // First get the user to check if it exists and get total count
+    const user = await User.findById(id).select('following');
     if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const totalFollowing = user.following.filter(followingId => followingId.toString() !== id.toString()).length;
+    
+    // Get paginated following IDs (exclude self)
+    const paginatedFollowingIds = user.following
+      .filter(followingId => followingId.toString() !== id.toString())
+      .slice(skip, skip + limit);
+    
+    // Populate the paginated following users
+    const following = await User.find({ _id: { $in: paginatedFollowingIds } })
+      .select('fullName profilePic email followers following totalLikes isVerified');
+    
     const currentUserId = req.user ? req.user._id.toString() : null;
-    const totalFollowing = user.following.length;
-    const following = user.following.map(f => {
+    const followingWithStatus = following.map(f => {
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
@@ -512,8 +531,9 @@ const getFollowingList = async (req, res) => {
         isFollowing,
       };
     });
+    
     res.status(200).json({
-      users: following,
+      users: followingWithStatus,
       pagination: {
         currentPage: page,
         totalPages: Math.ceil(totalFollowing / limit),
