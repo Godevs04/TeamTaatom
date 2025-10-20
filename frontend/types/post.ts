@@ -7,12 +7,14 @@ export interface PostType {
   };
   caption: string;
   imageUrl: string;
+  images?: string[]; // Multiple images for carousel
   videoUrl?: string;
   mediaUrl?: string; // Virtual field from backend
-  cloudinaryPublicId: string;
+  cloudinaryPublicId?: string;
+  cloudinaryPublicIds?: string[]; // Multiple public IDs
   tags?: string[];
   type?: 'photo' | 'short';
-  location: {
+  location?: {
     address: string;
     coordinates: {
       latitude: number;

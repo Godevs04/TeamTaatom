@@ -12,6 +12,10 @@ const {
   getFollowRequests,
   approveFollowRequest,
   rejectFollowRequest,
+  getTripScoreContinents,
+  getTripScoreCountries,
+  getTripScoreCountryDetails,
+  getTripScoreLocations,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -129,6 +133,13 @@ router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileVal
 router.post('/:id/follow', authMiddleware, toggleFollow);
 router.get('/:id/followers', optionalAuth, getFollowersList);
 router.get('/:id/following', optionalAuth, getFollowingList);
+
+// TripScore routes
+router.get('/:id/tripscore/continents', optionalAuth, getTripScoreContinents);
+router.get('/:id/tripscore/continents/:continent/countries', optionalAuth, getTripScoreCountries);
+router.get('/:id/tripscore/countries/:country', optionalAuth, getTripScoreCountryDetails);
+router.get('/:id/tripscore/countries/:country/locations', optionalAuth, getTripScoreLocations);
+
 router.put('/:id/push-token', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;

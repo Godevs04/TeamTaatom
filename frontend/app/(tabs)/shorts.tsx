@@ -25,6 +25,8 @@ import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { savedEvents } from '../../utils/savedEvents';
 import CommentModal from '../../components/CommentModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -53,7 +55,16 @@ export default function ShortsScreen() {
   useEffect(() => {
     loadShorts();
     loadCurrentUser();
+    loadSavedShorts();
   }, []);
+
+  const loadSavedShorts = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('savedShorts');
+      const arr = stored ? JSON.parse(stored) : [];
+      setSavedShorts(new Set(Array.isArray(arr) ? arr : []));
+    } catch {}
+  };
 
   const loadCurrentUser = async () => {
     try {
@@ -190,7 +201,8 @@ export default function ShortsScreen() {
       ));
       
       if (response.isLiked) {
-        showSuccess('Liked! ❤️');
+        // showSuccess('Liked! ❤️');
+        console.log('Short liked ❤️ :', shortId);
       }
     } catch (error: any) {
       console.error('Error toggling like:', error);
@@ -247,7 +259,8 @@ export default function ShortsScreen() {
     // Update the selected short comments for the modal
     setSelectedShortComments(prev => [...prev, newComment]);
     
-    showSuccess('Comment added successfully!');
+    // Don't show success alert here - let the modal handle it
+    console.log('Comment added to shorts list');
   };
 
   // Handle share with enhanced functionality
@@ -264,8 +277,8 @@ export default function ShortsScreen() {
       } else {
         await Share.share(shareContent);
       }
-      
-      showSuccess('Shared successfully!');
+      // Log success instead of showing a custom alert
+      console.log('Short shared successfully:', short._id);
     } catch (error) {
       console.error('Error sharing:', error);
       showError('Failed to share. Please try again.');
@@ -283,11 +296,20 @@ export default function ShortsScreen() {
       const newSaved = new Set(prev);
       if (newSaved.has(shortId)) {
         newSaved.delete(shortId);
-        showInfo('Removed from saved');
+        // Log instead of alert
+        console.log('Short removed from saved:', shortId);
       } else {
         newSaved.add(shortId);
-        showSuccess('Saved to your collection!');
+        // Log instead of alert
+        console.log('Short saved:', shortId);
       }
+      // Persist to AsyncStorage so profile Saved tab can read it
+      try {
+        const arr = Array.from(newSaved);
+        AsyncStorage.setItem('savedShorts', JSON.stringify(arr));
+        // notify saved tab to refresh immediately
+        savedEvents.emitChanged();
+      } catch {}
       return newSaved;
     });
   };
@@ -433,7 +455,7 @@ export default function ShortsScreen() {
             onPress={() => handleShare(item)}
           >
             <View style={styles.actionButtonContainer}>
-              <Ionicons name="share-outline" size={32} color="white" />
+              <Ionicons name="paper-plane-outline" size={32} color="white" />
             </View>
           </TouchableOpacity>
           

@@ -100,6 +100,42 @@ function setupSocket(server) {
         emitToUser(socket.userId, 'message:error', { error: 'Failed to send message', details: err.message });
       }
     });
+
+    // Post interaction events
+    socket.on('post:like', ({ postId, isLiked, likesCount }) => {
+      console.log('WebSocket - Post like event:', { postId, isLiked, likesCount, userId: socket.userId });
+      // Broadcast to all users viewing this post
+      nsp.emit('post:like:update', { 
+        postId, 
+        isLiked, 
+        likesCount, 
+        userId: socket.userId,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('post:comment', ({ postId, comment, commentsCount }) => {
+      console.log('WebSocket - Post comment event:', { postId, comment, commentsCount, userId: socket.userId });
+      // Broadcast to all users viewing this post
+      nsp.emit('post:comment:update', { 
+        postId, 
+        comment, 
+        commentsCount, 
+        userId: socket.userId,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('post:save', ({ postId, isSaved }) => {
+      console.log('WebSocket - Post save event:', { postId, isSaved, userId: socket.userId });
+      // Broadcast to all users viewing this post
+      nsp.emit('post:save:update', { 
+        postId, 
+        isSaved, 
+        userId: socket.userId,
+        timestamp: new Date()
+      });
+    });
     // Presence
     socket.on('disconnect', () => {
       if (onlineUsers.has(socket.userId)) {
@@ -119,6 +155,39 @@ function setupSocket(server) {
   };
   nsp.emitEvent = (event, userIds, payload) => {
     userIds.forEach((id) => nsp.to(`user:${id}`).emit(event, payload));
+  };
+
+  // Post interaction utilities
+  nsp.emitPostLike = (postId, isLiked, likesCount, userId) => {
+    console.log('Emitting post like update:', { postId, isLiked, likesCount, userId });
+    nsp.emit('post:like:update', { 
+      postId, 
+      isLiked, 
+      likesCount, 
+      userId,
+      timestamp: new Date()
+    });
+  };
+
+  nsp.emitPostComment = (postId, comment, commentsCount, userId) => {
+    console.log('Emitting post comment update:', { postId, comment, commentsCount, userId });
+    nsp.emit('post:comment:update', { 
+      postId, 
+      comment, 
+      commentsCount, 
+      userId,
+      timestamp: new Date()
+    });
+  };
+
+  nsp.emitPostSave = (postId, isSaved, userId) => {
+    console.log('Emitting post save update:', { postId, isSaved, userId });
+    nsp.emit('post:save:update', { 
+      postId, 
+      isSaved, 
+      userId,
+      timestamp: new Date()
+    });
   };
 
   return nsp;

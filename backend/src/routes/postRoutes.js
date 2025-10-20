@@ -29,7 +29,8 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // Reduced from 10MB to 5MB for better mobile performance
+    fileSize: 5 * 1024 * 1024, // 5MB per image
+    files: 10 // Maximum 10 files
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -66,7 +67,7 @@ const addCommentValidation = [
 // Routes
 router.get('/', optionalAuth, getPosts);
 router.get('/:id', optionalAuth, getPostById);
-router.post('/', authMiddleware, upload.single('image'), createPostValidation, createPost);
+router.post('/', authMiddleware, upload.fields([{ name: 'images', maxCount: 10 }]), createPostValidation, createPost);
 router.get('/user/:userId', optionalAuth, getUserPosts);
 router.post('/:id/like', authMiddleware, toggleLike);
 router.post('/:id/comments', authMiddleware, addCommentValidation, addComment);
