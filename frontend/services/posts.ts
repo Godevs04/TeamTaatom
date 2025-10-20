@@ -4,12 +4,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 
+// Simple in-memory cache and rate-limit friendly helpers
+const postByIdCache = new Map<string, { data: any; expiresAt: number }>();
+const POST_CACHE_TTL_MS = 60_000; // 60s
+let lastPostByIdCall = 0;
+const MIN_SPACING_MS = 150; // space requests to avoid 429
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export interface CreatePostData {
-  image: {
+  images: Array<{
     uri: string;
     type: string;
     name: string;
-  };
+  }>;
   caption: string;
   address?: string;
   latitude?: number;
@@ -18,6 +26,11 @@ export interface CreatePostData {
 
 export interface CreateShortData {
   video: {
+    uri: string;
+    type: string;
+    name: string;
+  };
+  image?: {
     uri: string;
     type: string;
     name: string;
@@ -65,8 +78,40 @@ export interface ShortsResponse {
 
 // Get all posts
 export const getPostById = async (postId: string) => {
-  const response = await api.get(`/posts/${postId}`);
-  return response.data;
+  // cached response if fresh
+  const cached = postByIdCache.get(postId);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
+  // spacing to avoid bursts
+  const since = now - lastPostByIdCall;
+  if (since < MIN_SPACING_MS) {
+    await sleep(MIN_SPACING_MS - since);
+  }
+  lastPostByIdCall = Date.now();
+
+  // retry with small backoff if 429
+  let attempt = 0;
+  const maxAttempts = 3;
+  let delay = 300;
+  while (attempt < maxAttempts) {
+    try {
+      const response = await api.get(`/posts/${postId}`);
+      const data = response.data;
+      postByIdCache.set(postId, { data, expiresAt: Date.now() + POST_CACHE_TTL_MS });
+      return data;
+    } catch (error: any) {
+      if (isRateLimitError(error) && attempt < maxAttempts - 1) {
+        await sleep(delay);
+        delay *= 2;
+        attempt++;
+        continue;
+      }
+      throw error;
+    }
+  }
 };
 
 export const getPosts = async (page: number = 1, limit: number = 20): Promise<PostsResponse> => {
@@ -75,8 +120,15 @@ export const getPosts = async (page: number = 1, limit: number = 20): Promise<Po
     return response.data;
   } catch (error: any) {
     if (isRateLimitError(error)) {
+      // gentle client backoff and retry once
       const rateLimitInfo = handleRateLimitError(error, 'getPosts');
-      throw new Error(rateLimitInfo.message);
+      await sleep(500);
+      try {
+        const retry = await api.get(`/posts?page=${page}&limit=${limit}`);
+        return retry.data;
+      } catch (e: any) {
+        throw new Error(rateLimitInfo.message);
+      }
     }
     throw new Error(error.response?.data?.message || 'Failed to fetch posts');
   }
@@ -90,12 +142,14 @@ export const createPostWithProgress = async (
   try {
     const formData = new FormData();
     
-    // Add image
-    formData.append('image', {
-      uri: data.image.uri,
-      type: data.image.type,
-      name: data.image.name,
-    } as any);
+    // Add all images
+    data.images.forEach((image) => {
+      formData.append('images', {
+        uri: image.uri,
+        type: image.type,
+        name: image.name,
+      } as any);
+    });
     
     // Add other fields
     formData.append('caption', data.caption);
@@ -103,21 +157,19 @@ export const createPostWithProgress = async (
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
 
-    // Get auth token
+    // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
     if (!token) {
       throw new Error('No auth token found');
     }
 
-    // Get API base URL
     const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-    // Use fetch for progress tracking
     const response = await fetch(`${API_BASE_URL}/posts`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
+        // Don't set Content-Type - let fetch handle it for FormData
       },
       body: formData,
     });
@@ -130,7 +182,7 @@ export const createPostWithProgress = async (
     const responseData = await response.json();
     return responseData;
   } catch (error: any) {
-    throw new Error(error.message || 'Failed to create post');
+    throw new Error(error.response?.data?.message || 'Failed to create post');
   }
 };
 
@@ -139,12 +191,14 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
   try {
     const formData = new FormData();
     
-    // Add image
-    formData.append('image', {
-      uri: data.image.uri,
-      type: data.image.type,
-      name: data.image.name,
-    } as any);
+    // Add all images
+    data.images.forEach((image) => {
+      formData.append('images', {
+        uri: image.uri,
+        type: image.type,
+        name: image.name,
+      } as any);
+    });
     
     // Add other fields
     formData.append('caption', data.caption);
@@ -154,7 +208,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
 
     const response = await api.post('/posts', formData, {
       headers: {
-        'Content-Type': 'multipart/form-data',
+        'Content-Type': undefined, // Explicitly remove Content-Type for FormData
       },
     });
 
@@ -256,6 +310,15 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       type: data.video.type,
       name: data.video.name,
     } as any);
+    
+    // Add optional image (thumbnail)
+    if (data.image) {
+      formData.append('images', {
+        uri: data.image.uri,
+        type: data.image.type,
+        name: data.image.name,
+      } as any);
+    }
     
     console.log('FormData video field:', {
       uri: data.video.uri,

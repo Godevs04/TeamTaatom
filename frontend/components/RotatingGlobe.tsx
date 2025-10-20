@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 
 interface Location {
@@ -17,6 +18,7 @@ interface RotatingGlobeProps {
 
 export default function RotatingGlobe({ locations, size = 24, onLocationPress }: RotatingGlobeProps) {
   const { theme } = useTheme();
+  const router = useRouter();
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -47,10 +49,20 @@ export default function RotatingGlobe({ locations, size = 24, onLocationPress }:
     },
   });
 
+  const handlePress = () => {
+    if (locations.length > 0 && onLocationPress) {
+      // If user has posted locations, use the callback
+      onLocationPress(locations[0]);
+    } else {
+      // If no posted locations, navigate to current location map
+      router.push('/map/current-location');
+    }
+  };
+
   return (
     <TouchableOpacity 
       style={styles.container} 
-      onPress={() => onLocationPress && onLocationPress(locations[0])}
+      onPress={handlePress}
       activeOpacity={0.7}
     >
       <Animated.View style={{ transform: [{ rotate: rotation }] }}>

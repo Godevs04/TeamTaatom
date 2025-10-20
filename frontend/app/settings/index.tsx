@@ -76,7 +76,7 @@ export default function SettingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const router = useRouter();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setMode, mode } = useTheme();
   const { showSuccess, showError, showConfirm, showOptions } = useAlert();
 
   const loadUserData = useCallback(async () => {
@@ -156,14 +156,28 @@ export default function SettingsScreen() {
         title="Settings" 
         showBack={true}
         onBack={() => router.back()}
-        rightComponent={
-          <TouchableOpacity
-            style={[styles.themeToggle, { backgroundColor: theme.colors.primary }]}
-            onPress={toggleTheme}
-          >
-            <Ionicons name="contrast-outline" size={20} color="white" />
-          </TouchableOpacity>
-        }
+        // rightComponent={
+        //   <View style={{ flexDirection: 'row', gap: 8 }}>
+        //     <TouchableOpacity
+        //       style={[styles.themeToggle, { backgroundColor: mode==='dark'? theme.colors.primary : 'transparent', borderWidth:1, borderColor: theme.colors.primary }]}
+        //       onPress={() => setMode('dark')}
+        //     >
+        //       <Ionicons name="moon" size={18} color={theme.colors.primary} />
+        //     </TouchableOpacity>
+        //     <TouchableOpacity
+        //       style={[styles.themeToggle, { backgroundColor: mode==='light'? theme.colors.primary : 'transparent', borderWidth:1, borderColor: theme.colors.primary }]}
+        //       onPress={() => setMode('light')}
+        //     >
+        //       <Ionicons name="sunny" size={18} color={theme.colors.primary} />
+        //     </TouchableOpacity>
+        //     <TouchableOpacity
+        //       style={[styles.themeToggle, { backgroundColor: mode==='auto'? theme.colors.primary : 'transparent', borderWidth:1, borderColor: theme.colors.primary }]}
+        //       onPress={() => setMode('auto')}
+        //     >
+        //       <Ionicons name="sync" size={18} color={theme.colors.primary} />
+        //     </TouchableOpacity>
+        //   </View>
+        // }
       />
       
       <ScrollView

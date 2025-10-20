@@ -13,6 +13,17 @@ export interface ProfileResponse {
       address: string;
       date: string;
     }>;
+    tripScore: {
+      totalScore: number;
+      continents: { [key: string]: number };
+      countries: { [key: string]: number };
+      areas: Array<{
+        address: string;
+        continent: string;
+        likes: number;
+        date: string;
+      }>;
+    } | null;
     isFollowing: boolean;
     isOwnProfile: boolean;
   };
