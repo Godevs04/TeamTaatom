@@ -11,7 +11,7 @@ import {
   StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -24,24 +24,58 @@ export default function CurrentLocationMap() {
   const [error, setError] = useState<string | null>(null);
   const [isWatching, setIsWatching] = useState(false);
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { theme } = useTheme();
 
-  useEffect(() => {
-    getCurrentLocation();
-    
-    // Start watching location for continuous updates
-    let subscription: Location.LocationSubscription | undefined;
-    watchLocation().then((sub) => {
-      subscription = sub;
-    });
+  // Check if we have post location parameters
+  const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
+  const postLongitude = params.longitude ? parseFloat(params.longitude as string) : null;
+  const postAddress = params.address as string || null;
+  const isPostLocation = postLatitude && postLongitude;
 
-    return () => {
-      if (subscription) {
-        subscription.remove();
-        setIsWatching(false);
-      }
-    };
-  }, []);
+  // Debug: Log received parameters
+  console.log('Map parameters:', {
+    params,
+    postLatitude,
+    postLongitude,
+    postAddress,
+    isPostLocation,
+  });
+
+  useEffect(() => {
+    if (isPostLocation) {
+      // Use post location coordinates
+      setLocation({
+        coords: {
+          latitude: postLatitude!,
+          longitude: postLongitude!,
+          accuracy: 0,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      });
+      setLoading(false);
+    } else {
+      // Get current location
+      getCurrentLocation();
+      
+      // Start watching location for continuous updates
+      let subscription: Location.LocationSubscription | undefined;
+      watchLocation().then((sub) => {
+        subscription = sub;
+      });
+
+      return () => {
+        if (subscription) {
+          subscription.remove();
+          setIsWatching(false);
+        }
+      };
+    }
+  }, [isPostLocation, postLatitude, postLongitude]);
 
   const getCurrentLocation = async () => {
     try {
@@ -156,9 +190,26 @@ export default function CurrentLocationMap() {
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           }}
-          title="Your Current Location"
-          description="You are here"
+          title={isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location'}
+          description={isPostLocation ? 'Post Location' : 'You are here'}
           anchor={{ x: 0.5, y: 1 }}
+          onPress={() => {
+            // Navigate to existing location detail page
+            if (isPostLocation && postAddress) {
+              // Convert location name to slug format
+              const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
+              const countrySlug = 'general'; // Default country for post locations
+              
+              router.push({
+                pathname: '/tripscore/countries/[country]/locations/[location]',
+                params: {
+                  country: countrySlug,
+                  location: locationSlug,
+                  userId: 'current-user', // You might want to get actual user ID
+                }
+              });
+            }
+          }}
         >
           <View style={styles.markerContainer}>
             <View style={styles.customMarker}>
@@ -188,9 +239,9 @@ export default function CurrentLocationMap() {
         
         <View style={styles.titleContainer}>
           <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            Current Location
+            {isPostLocation ? (postAddress || 'Post Location') : 'Current Location'}
           </Text>
-          {isWatching && (
+          {isWatching && !isPostLocation && (
             <View style={styles.watchingIndicator}>
               <Ionicons name="radio" size={12} color={theme.colors.success} />
             </View>
@@ -213,6 +264,14 @@ export default function CurrentLocationMap() {
       {/* Location Info */}
       {location && (
         <View style={[styles.locationInfo, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
+          {isPostLocation && postAddress && (
+            <View style={styles.locationRow}>
+              <Ionicons name="location" size={20} color={theme.colors.primary} />
+              <Text style={[styles.locationText, { color: theme.colors.text }]}>
+                Location: {postAddress}
+              </Text>
+            </View>
+          )}
           <View style={styles.locationRow}>
             <Ionicons name="location" size={20} color={theme.colors.primary} />
             <Text style={[styles.locationText, { color: theme.colors.text }]}>
@@ -225,7 +284,7 @@ export default function CurrentLocationMap() {
               Longitude: {location.coords.longitude.toFixed(6)}
             </Text>
           </View>
-          {location.coords.accuracy && (
+          {!isPostLocation && location.coords.accuracy && location.coords.accuracy > 0 && (
             <View style={styles.locationRow}>
               <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
               <Text style={[styles.locationText, { color: theme.colors.text }]}>
