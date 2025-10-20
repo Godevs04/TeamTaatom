@@ -27,7 +27,7 @@ import CommentModal from './CommentModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { savedEvents } from '../utils/savedEvents';
 import { realtimePostsService } from '../services/realtimePosts';
-import LocationModal from './LocationModal';
+import { geocodeAddress, validateCoordinates } from '../utils/geocodingService';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -56,8 +56,8 @@ export default function PhotoCard({
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
-  const [showLocationModal, setShowLocationModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
@@ -476,15 +476,82 @@ export default function PhotoCard({
             {post.location && post.location.address && (
               <TouchableOpacity
                 style={styles.locationContainer}
-                onPress={() => {
-                  // Open in-app Google Maps modal
-                  setShowLocationModal(true);
+                onPress={async () => {
+                  if (isGeocoding) return; // Prevent multiple clicks during geocoding
+                  
+                  setIsGeocoding(true);
+                  
+                  try {
+                    // Debug: Log post location data
+                    console.log('Post location data:', {
+                      hasLocation: !!post.location,
+                      hasAddress: !!post.location?.address,
+                      hasCoordinates: !!post.location?.coordinates,
+                      address: post.location?.address,
+                      coordinates: post.location?.coordinates,
+                    });
+
+                    // Navigate to map with post location coordinates
+                    if (post.location?.address) {
+                      console.log('Processing location:', post.location.address);
+                      
+                      let finalCoordinates = null;
+                      
+                      // Check if we have existing coordinates
+                      if (post.location?.coordinates) {
+                        const { latitude, longitude } = post.location.coordinates;
+                        
+                        console.log('Validating existing coordinates:', {
+                          address: post.location.address,
+                          latitude,
+                          longitude,
+                        });
+                        
+                        // Validate if existing coordinates seem reasonable
+                        if (validateCoordinates(post.location.address, latitude, longitude)) {
+                          console.log('Using existing valid coordinates');
+                          finalCoordinates = { latitude, longitude };
+                        } else {
+                          console.log('Existing coordinates seem invalid, geocoding address...');
+                        }
+                      }
+                      
+                      // If no valid coordinates, geocode the address
+                      if (!finalCoordinates) {
+                        console.log('Geocoding address:', post.location.address);
+                        finalCoordinates = await geocodeAddress(post.location.address);
+                      }
+                      
+                      if (finalCoordinates) {
+                        console.log('Navigating to location with coordinates:', finalCoordinates);
+                        router.push({
+                          pathname: '/map/current-location',
+                          params: {
+                            latitude: finalCoordinates.latitude.toString(),
+                            longitude: finalCoordinates.longitude.toString(),
+                            address: post.location.address,
+                          }
+                        });
+                      } else {
+                        console.log('Failed to get coordinates, falling back to current location');
+                        router.push('/map/current-location');
+                      }
+                    } else {
+                      console.log('No address found, falling back to current location');
+                      router.push('/map/current-location');
+                    }
+                  } finally {
+                    setIsGeocoding(false);
+                  }
                 }}
               >
                 <Ionicons name="location-outline" size={12} color={theme.colors.textSecondary} />
                 <Text style={[styles.locationText, { color: theme.colors.textSecondary }]}>
                   {post.location.address}
                 </Text>
+                {isGeocoding && (
+                  <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginLeft: 4 }} />
+                )}
               </TouchableOpacity>
             )}
           </View>
@@ -883,15 +950,6 @@ export default function PhotoCard({
         onClose={() => setShowCommentModal(false)}
         onCommentAdded={handleCommentAdded}
       />
-
-      {/* Location Modal */}
-      {post.location && (
-        <LocationModal
-          visible={showLocationModal}
-          location={post.location}
-          onClose={() => setShowLocationModal(false)}
-        />
-      )}
 
       {/* Custom Alert */}
       <CustomAlert

@@ -48,23 +48,53 @@ export default function LocationDetailScreen() {
       const countryName = countryParam.replace(/-/g, ' ');
       const locationName = locationParam.replace(/-/g, ' ');
       
-      // Get all locations for the country and find the specific one
-      const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
-      const locations = response.data.locations;
-      
-      // Find the specific location
-      const foundLocation = locations.find((loc: any) => 
-        loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
-      );
-      
-      if (foundLocation) {
+      // Check if this is a general location (from map) or a TripScore location
+      if (countryParam === 'general') {
+        // This is a location from the map, create mock data
         setData({
-          ...foundLocation,
-          description: generateLocationDescription(foundLocation.name, foundLocation.caption)
+          name: locationName,
+          score: 1,
+          date: new Date().toISOString(),
+          caption: `Visited ${locationName}`,
+          category: {
+            fromYou: 'Drivable',
+            typeOfSpot: 'General'
+          },
+          description: generateLocationDescription(locationName, '')
         });
+      } else {
+        // This is a TripScore location, fetch from API
+        const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
+        const locations = response.data.locations;
+        
+        // Find the specific location
+        const foundLocation = locations.find((loc: any) => 
+          loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
+        );
+        
+        if (foundLocation) {
+          setData({
+            ...foundLocation,
+            description: generateLocationDescription(foundLocation.name, foundLocation.caption)
+          });
+        }
       }
     } catch (error) {
       console.error('Error loading location data:', error);
+      // Fallback to mock data if API fails
+      const locationParam = Array.isArray(location) ? location[0] : location;
+      const locationName = locationParam.replace(/-/g, ' ');
+      setData({
+        name: locationName,
+        score: 1,
+        date: new Date().toISOString(),
+        caption: `Visited ${locationName}`,
+        category: {
+          fromYou: 'Drivable',
+          typeOfSpot: 'General'
+        },
+        description: generateLocationDescription(locationName, '')
+      });
     } finally {
       setLoading(false);
     }
@@ -79,6 +109,7 @@ export default function LocationDetailScreen() {
       'amazon rainforest': 'The Amazon Rainforest is the largest tropical rainforest in the world, home to incredible biodiversity and indigenous communities.',
       'machu picchu': 'Machu Picchu is an ancient Incan citadel set high in the Andes Mountains, offering breathtaking views and rich historical significance.',
       'niagara falls': 'Niagara Falls is a group of three waterfalls at the southern end of Niagara Gorge, between the Canadian province of Ontario and the US state of New York.',
+      'bristol': 'Bristol is a vibrant city in southwest England, known for its maritime history, creative culture, and iconic Clifton Suspension Bridge.',
     };
     
     const key = locationName.toLowerCase();
@@ -94,6 +125,7 @@ export default function LocationDetailScreen() {
       'amazon rainforest': 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=400',
       'machu picchu': 'https://images.unsplash.com/photo-1526392060635-9d6019884377?w=400',
       'niagara falls': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
+      'bristol': 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=400',
     };
     
     const key = locationName.toLowerCase();
