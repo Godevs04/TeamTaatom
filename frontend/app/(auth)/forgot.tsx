@@ -14,6 +14,7 @@ import { Formik } from 'formik';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTheme } from '../../context/ThemeContext';
 import { theme } from '../../constants/theme';
 import AuthInput from '../../components/AuthInput';
 import { forgotPasswordSchema } from '../../utils/validation';
@@ -29,6 +30,7 @@ export default function ForgotPasswordScreen() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const router = useRouter();
+  const { theme: appTheme } = useTheme();
 
   const handleForgotPassword = async (values: ForgotPasswordFormValues) => {
     setIsLoading(true);
@@ -49,7 +51,7 @@ export default function ForgotPasswordScreen() {
 
   return (
     <LinearGradient
-      colors={theme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
+      colors={appTheme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
       style={styles.container}
     >
       <KeyboardAvoidingView
@@ -65,7 +67,7 @@ export default function ForgotPasswordScreen() {
             onPress={() => router.back()}
             accessibilityLabel="Go back"
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={24} color={appTheme.colors.text} />
           </TouchableOpacity>
 
           <View style={styles.header}>
@@ -74,7 +76,7 @@ export default function ForgotPasswordScreen() {
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />
-            <Text style={styles.title}>Reset Password</Text>
+            <Text style={[styles.title,{color: appTheme.colors.text}]}>Reset Password</Text>
             <Text style={styles.subtitle}>
               Enter your email address and we'll send you instructions to reset your password.
             </Text>
@@ -101,15 +103,15 @@ export default function ForgotPasswordScreen() {
                     autoFocus
                     returnKeyType="done"
                   />
-                  {error ? <Text style={styles.error}>{error}</Text> : null}
-                  {success ? <Text style={styles.success}>{success}</Text> : null}
+              {error ? <Text style={[styles.error,{color: 'red'}]}>{error}</Text> : null}
+              {success ? <Text style={[styles.success,{color: 'green'}]}>{success}</Text> : null}
                   <TouchableOpacity
                     style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
                     accessibilityLabel="Send reset email"
                   >
-                    <Text style={styles.resetButtonText}>
+                    <Text style={[styles.resetButtonText,{color: appTheme.colors.text}]}>
                       {isLoading ? 'Sending...' : 'Send Reset Email'}
                     </Text>
                   </TouchableOpacity>

@@ -31,7 +31,7 @@ const getProfile = async (req, res) => {
 
     // Get user's posts count and locations
     const posts = await Post.find({ user: id, isActive: true })
-      .select('location createdAt')
+      .select('location createdAt likes')
       .lean();
 
     // Extract unique locations for the map
@@ -43,6 +43,64 @@ const getProfile = async (req, res) => {
         address: post.location.address,
         date: post.createdAt
       }));
+
+    // Calculate TripScore based on unique locations (same logic as TripScore page)
+    const likedPosts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'likes.0': { $exists: true }, // Posts that have at least one like
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location likes createdAt')
+    .lean();
+
+    // Group liked posts by continent/country for TripScore
+    const tripScoreData = {
+      totalScore: 0,
+      continents: {},
+      countries: {},
+      areas: []
+    };
+
+    // Track unique locations to avoid counting same location multiple times
+    const uniqueLocations = new Set();
+
+    // Process liked posts to calculate TripScore
+    likedPosts.forEach(post => {
+      if (post.location && post.location.address && post.location.coordinates && post.likes.length > 0) {
+        const address = post.location.address;
+        const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+        
+        // Only count unique locations (same coordinates = same location)
+        if (!uniqueLocations.has(locationKey)) {
+          uniqueLocations.add(locationKey);
+          
+          // Extract continent using the same logic as TripScore page
+          let continent = getContinentFromLocation(address);
+          
+          // Convert to uppercase format to match TripScore page
+          const continentKey = continent.toUpperCase();
+
+          // Add to continent score (count unique locations, not likes)
+          if (!tripScoreData.continents[continentKey]) {
+            tripScoreData.continents[continentKey] = 0;
+          }
+          tripScoreData.continents[continentKey] += 1;
+
+          // Add to total score
+          tripScoreData.totalScore += 1;
+
+          // Add to areas list
+          tripScoreData.areas.push({
+            address: address,
+            continent: continentKey,
+            likes: post.likes.length,
+            date: post.createdAt
+          });
+        }
+      }
+    });
 
     // Check if current user is following this profile
     const isFollowing = req.user ? 
@@ -111,6 +169,7 @@ const getProfile = async (req, res) => {
       followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
       followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
       locations: canViewLocations ? locations : [],
+      tripScore: canViewProfile ? tripScoreData : null,
       isFollowing,
       isOwnProfile,
       canViewProfile,
@@ -914,6 +973,561 @@ const rejectFollowRequest = async (req, res) => {
   }
 };
 
+// Helper function to calculate distance between two coordinates using Haversine formula
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c; // Distance in km
+  return distance;
+};
+
+// Helper function to get continent from coordinates
+const getContinentFromCoordinates = (latitude, longitude) => {
+  // Simplified logic for continent detection based on coordinates
+  if (latitude >= -10 && latitude <= 80 && longitude >= 25 && longitude <= 180) return 'Asia';
+  if (latitude >= 35 && latitude <= 70 && longitude >= -10 && longitude <= 40) return 'Europe';
+  if (latitude >= 5 && latitude <= 85 && longitude >= -170 && longitude <= -50) return 'North America';
+  if (latitude >= -60 && latitude <= 15 && longitude >= -85 && longitude <= -30) return 'South America';
+  if (latitude >= -40 && latitude <= 40 && longitude >= -20 && longitude <= 50) return 'Africa';
+  if (latitude >= -50 && latitude <= -10 && longitude >= 110 && longitude <= 180) return 'Australia';
+  if (latitude <= -60) return 'Antarctica';
+  return 'Unknown';
+};
+
+// @desc    Get TripScore continents breakdown
+// @route   GET /profile/:id/tripscore/continents
+// @access  Public
+const getTripScoreContinents = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    // Get all posts with likes and location data
+    const likedPosts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'likes.0': { $exists: true },
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location likes createdAt')
+    .lean();
+
+    // Calculate continent scores and distances based on unique locations
+    const continentScores = {};
+    const continentDistances = {};
+    const uniqueLocations = new Set(); // Track unique locations
+    let totalScore = 0;
+    let previousLocation = null;
+
+    likedPosts.forEach(post => {
+      if (post.location && post.location.address && post.location.coordinates) {
+        const continent = getContinentFromLocation(post.location.address);
+        const continentKey = continent.toUpperCase(); // Convert to uppercase format
+        const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+        
+        // Only count unique locations (same coordinates = same location)
+        if (!uniqueLocations.has(locationKey)) {
+          uniqueLocations.add(locationKey);
+          
+          if (!continentScores[continentKey]) {
+            continentScores[continentKey] = 0;
+          }
+          continentScores[continentKey] += 1; // Count unique locations, not likes
+          totalScore += 1;
+
+          // Calculate distance if there's a previous location
+          if (previousLocation) {
+            const distance = calculateDistance(
+              previousLocation.latitude,
+              previousLocation.longitude,
+              post.location.coordinates.latitude,
+              post.location.coordinates.longitude
+            );
+
+            if (!continentDistances[continentKey]) {
+              continentDistances[continentKey] = 0;
+            }
+            continentDistances[continentKey] += distance;
+          }
+
+          // Update previous location
+          previousLocation = {
+            latitude: post.location.coordinates.latitude,
+            longitude: post.location.coordinates.longitude
+          };
+        }
+      }
+    });
+
+    // Format response like the screenshot
+    const continents = [
+      { name: 'ASIA', score: continentScores['ASIA'] || 0, distance: Math.round(continentDistances['ASIA'] || 0) },
+      { name: 'AFRICA', score: continentScores['AFRICA'] || 0, distance: Math.round(continentDistances['AFRICA'] || 0) },
+      { name: 'NORTH AMERICA', score: continentScores['NORTH AMERICA'] || 0, distance: Math.round(continentDistances['NORTH AMERICA'] || 0) },
+      { name: 'SOUTH AMERICA', score: continentScores['SOUTH AMERICA'] || 0, distance: Math.round(continentDistances['SOUTH AMERICA'] || 0) },
+      { name: 'AUSTRALIA', score: continentScores['AUSTRALIA'] || 0, distance: Math.round(continentDistances['AUSTRALIA'] || 0) },
+      { name: 'EUROPE', score: continentScores['EUROPE'] || 0, distance: Math.round(continentDistances['EUROPE'] || 0) },
+      { name: 'ANTARCTICA', score: continentScores['ANTARCTICA'] || 0, distance: Math.round(continentDistances['ANTARCTICA'] || 0) }
+    ];
+
+    res.status(200).json({
+      success: true,
+      totalScore,
+      continents
+    });
+
+  } catch (error) {
+    console.error('Get TripScore continents error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching TripScore continents'
+    });
+  }
+};
+
+// @desc    Get TripScore countries for a continent
+// @route   GET /profile/:id/tripscore/continents/:continent/countries
+// @access  Public
+const getTripScoreCountries = async (req, res) => {
+  try {
+    const { id, continent } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    const continentName = continent.toUpperCase();
+    
+    // Get posts for this continent
+    const likedPosts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'likes.0': { $exists: true },
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location likes createdAt')
+    .lean();
+
+    // Filter posts by continent and calculate country scores based on unique locations
+    const countryScores = {};
+    const uniqueLocations = new Set();
+    let continentScore = 0;
+
+    likedPosts.forEach(post => {
+      if (post.location && post.location.address && post.location.coordinates) {
+        const continentFromPost = getContinentFromLocation(post.location.address);
+        if (continentFromPost.toUpperCase() === continentName) {
+          const country = getCountryFromLocation(post.location.address);
+          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+          
+          // Only count unique locations
+          if (!uniqueLocations.has(locationKey)) {
+            uniqueLocations.add(locationKey);
+            
+            if (!countryScores[country]) {
+              countryScores[country] = 0;
+            }
+            countryScores[country] += 1; // Count unique locations, not likes
+            continentScore += 1;
+          }
+        }
+      }
+    });
+
+    // Get countries for this continent
+    const countries = getCountriesForContinent(continentName);
+    const countryList = countries.map(country => ({
+      name: country,
+      score: countryScores[country] || 0,
+      visited: countryScores[country] > 0
+    }));
+
+    res.status(200).json({
+      success: true,
+      continent: continentName,
+      continentScore,
+      countries: countryList
+    });
+
+  } catch (error) {
+    console.error('Get TripScore countries error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching TripScore countries'
+    });
+  }
+};
+
+// @desc    Get TripScore country details
+// @route   GET /profile/:id/tripscore/countries/:country
+// @access  Public
+const getTripScoreCountryDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { country } = req.params;
+
+    // Get all liked posts for the user
+    const likedPosts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'likes.0': { $exists: true }, // Posts that have at least one like
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location likes createdAt caption')
+    .lean();
+
+    // Filter posts by country and calculate unique locations
+    const locations = [];
+    const uniqueLocations = new Set();
+    let countryScore = 0;
+    let totalDistance = 0;
+    let previousLocation = null;
+
+    likedPosts.forEach(post => {
+      if (post.location && post.location.address && post.location.coordinates) {
+        const countryFromPost = getCountryFromLocation(post.location.address);
+        if (countryFromPost.toLowerCase() === country.toLowerCase()) {
+          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+          
+          // Only count unique locations
+          if (!uniqueLocations.has(locationKey)) {
+            uniqueLocations.add(locationKey);
+            countryScore += 1; // Count unique locations, not likes
+            
+            locations.push({
+              name: post.location.address,
+              score: 1, // Each unique location gets score of 1
+              date: post.createdAt,
+              caption: post.caption,
+              category: getLocationCategory(post.caption, post.location.address),
+              coordinates: {
+                latitude: post.location?.coordinates?.latitude,
+                longitude: post.location?.coordinates?.longitude
+              }
+            });
+
+            // Calculate distance if there's a previous location
+            if (previousLocation) {
+              const distance = calculateDistance(
+                previousLocation.latitude,
+                previousLocation.longitude,
+                post.location.coordinates.latitude,
+                post.location.coordinates.longitude
+              );
+              totalDistance += distance;
+            }
+
+            // Update previous location
+            previousLocation = {
+              latitude: post.location.coordinates.latitude,
+              longitude: post.location.coordinates.longitude
+            };
+          }
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      country,
+      countryScore,
+      countryDistance: Math.round(totalDistance),
+      locations: locations.sort((a, b) => new Date(b.date) - new Date(a.date))
+    });
+
+  } catch (error) {
+    console.error('Get TripScore country details error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching TripScore country details'
+    });
+  }
+};
+
+// @desc    Get TripScore locations for a country
+// @route   GET /profile/:id/tripscore/countries/:country/locations
+// @access  Public
+const getTripScoreLocations = async (req, res) => {
+  try {
+    const { id, country } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    // Get posts for this country
+    const likedPosts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'likes.0': { $exists: true },
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location likes createdAt caption')
+    .lean();
+
+    // Filter posts by country
+    const locations = [];
+    const uniqueLocations = new Set();
+    let countryScore = 0;
+
+    likedPosts.forEach(post => {
+      if (post.location && post.location.address && post.location.coordinates) {
+        const countryFromPost = getCountryFromLocation(post.location.address);
+        if (countryFromPost.toLowerCase() === country.toLowerCase()) {
+          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+          
+          // Only count unique locations
+          if (!uniqueLocations.has(locationKey)) {
+            uniqueLocations.add(locationKey);
+            countryScore += 1; // Count unique locations, not likes
+            
+            locations.push({
+              name: post.location.address,
+              score: 1, // Each unique location gets score of 1
+              date: post.createdAt,
+              caption: post.caption,
+              category: getLocationCategory(post.caption, post.location.address)
+            });
+          }
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      country,
+      countryScore,
+      locations: locations.sort((a, b) => b.score - a.score)
+    });
+
+  } catch (error) {
+    console.error('Get TripScore locations error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching TripScore locations'
+    });
+  }
+};
+
+// Helper function to determine continent from location
+const getContinentFromLocation = (address) => {
+  if (!address) return 'Unknown';
+  
+  const addressLower = address.toLowerCase();
+  
+  if (addressLower.includes('asia') || addressLower.includes('india') || 
+      addressLower.includes('china') || addressLower.includes('japan') || 
+      addressLower.includes('thailand') || addressLower.includes('singapore') ||
+      addressLower.includes('malaysia') || addressLower.includes('indonesia')) {
+    return 'Asia';
+  } else if (addressLower.includes('europe') || addressLower.includes('france') || 
+             addressLower.includes('germany') || addressLower.includes('italy') || 
+             addressLower.includes('spain') || addressLower.includes('uk') ||
+             addressLower.includes('england') || addressLower.includes('london')) {
+    return 'Europe';
+  } else if (addressLower.includes('north america') || addressLower.includes('united states') || 
+             addressLower.includes('usa') || addressLower.includes('canada') || 
+             addressLower.includes('mexico') || addressLower.includes('new york') ||
+             addressLower.includes('california') || addressLower.includes('texas')) {
+    return 'North America';
+  } else if (addressLower.includes('south america') || addressLower.includes('brazil') || 
+             addressLower.includes('argentina') || addressLower.includes('chile') ||
+             addressLower.includes('peru') || addressLower.includes('colombia')) {
+    return 'South America';
+  } else if (addressLower.includes('africa') || addressLower.includes('egypt') || 
+             addressLower.includes('south africa') || addressLower.includes('nigeria') ||
+             addressLower.includes('kenya') || addressLower.includes('morocco')) {
+    return 'Africa';
+  } else if (addressLower.includes('australia') || addressLower.includes('new zealand') || 
+             addressLower.includes('fiji') || addressLower.includes('papua') ||
+             addressLower.includes('samoa') || addressLower.includes('tonga')) {
+    return 'Australia';
+  } else if (addressLower.includes('antarctica')) {
+    return 'Antarctica';
+  }
+  
+  return 'Unknown';
+};
+
+// Helper function to determine country from location
+const getCountryFromLocation = (address) => {
+  if (!address) return 'Unknown';
+  
+  const addressLower = address.toLowerCase();
+  
+  // Australia region countries
+  if (addressLower.includes('australia')) return 'Australia';
+  if (addressLower.includes('new zealand')) return 'New Zealand';
+  if (addressLower.includes('fiji')) return 'Fiji';
+  if (addressLower.includes('papua new guinea')) return 'Papua New Guinea';
+  if (addressLower.includes('solomon islands')) return 'Solomon Islands';
+  if (addressLower.includes('vanuatu')) return 'Vanuatu';
+  if (addressLower.includes('micronesia')) return 'Federated States of Micronesia';
+  if (addressLower.includes('kiribati')) return 'Kiribati';
+  if (addressLower.includes('marshall islands')) return 'Marshall Islands';
+  if (addressLower.includes('nauru')) return 'Nauru';
+  if (addressLower.includes('palau')) return 'Palau';
+  if (addressLower.includes('samoa')) return 'Samoa';
+  if (addressLower.includes('tonga')) return 'Tonga';
+  if (addressLower.includes('tuvalu')) return 'Tuvalu';
+  
+  // Asia countries
+  if (addressLower.includes('india')) return 'India';
+  if (addressLower.includes('china')) return 'China';
+  if (addressLower.includes('japan')) return 'Japan';
+  if (addressLower.includes('thailand')) return 'Thailand';
+  if (addressLower.includes('singapore')) return 'Singapore';
+  if (addressLower.includes('malaysia')) return 'Malaysia';
+  if (addressLower.includes('indonesia')) return 'Indonesia';
+  
+  // Europe countries
+  if (addressLower.includes('france')) return 'France';
+  if (addressLower.includes('germany')) return 'Germany';
+  if (addressLower.includes('italy')) return 'Italy';
+  if (addressLower.includes('spain')) return 'Spain';
+  if (addressLower.includes('united kingdom') || addressLower.includes('uk') || addressLower.includes('england')) return 'United Kingdom';
+  
+  // North America countries
+  if (addressLower.includes('united states') || addressLower.includes('usa')) return 'United States';
+  if (addressLower.includes('canada')) return 'Canada';
+  if (addressLower.includes('mexico')) return 'Mexico';
+  
+  // South America countries
+  if (addressLower.includes('brazil')) return 'Brazil';
+  if (addressLower.includes('argentina')) return 'Argentina';
+  if (addressLower.includes('chile')) return 'Chile';
+  if (addressLower.includes('peru')) return 'Peru';
+  if (addressLower.includes('colombia')) return 'Colombia';
+  
+  // Africa countries
+  if (addressLower.includes('egypt')) return 'Egypt';
+  if (addressLower.includes('south africa')) return 'South Africa';
+  if (addressLower.includes('nigeria')) return 'Nigeria';
+  if (addressLower.includes('kenya')) return 'Kenya';
+  if (addressLower.includes('morocco')) return 'Morocco';
+  
+  return 'Unknown';
+};
+
+// Helper function to get countries for a continent
+const getCountriesForContinent = (continent) => {
+  const countryMap = {
+    'AUSTRALIA': [
+      'Australia', 'New Zealand', 'Fiji', 'Papua New Guinea', 'Solomon Islands',
+      'Vanuatu', 'Federated States of Micronesia', 'Kiribati', 'Marshall Islands',
+      'Nauru', 'Palau', 'Samoa', 'Tonga', 'Tuvalu', 'Cook Islands', 'French Polynesia',
+      'New Caledonia', 'Niue', 'Pitcairn Islands', 'Tokelau', 'Wallis and Futuna'
+    ],
+    'ASIA': [
+      'India', 'China', 'Japan', 'Thailand', 'Singapore', 'Malaysia', 'Indonesia',
+      'South Korea', 'Vietnam', 'Philippines', 'Bangladesh', 'Pakistan', 'Sri Lanka',
+      'Myanmar', 'Cambodia', 'Laos', 'Nepal', 'Bhutan', 'Maldives', 'Afghanistan',
+      'Iran', 'Iraq', 'Israel', 'Jordan', 'Kuwait', 'Lebanon', 'Oman', 'Qatar',
+      'Saudi Arabia', 'Syria', 'Turkey', 'United Arab Emirates', 'Yemen', 'Kazakhstan',
+      'Kyrgyzstan', 'Tajikistan', 'Turkmenistan', 'Uzbekistan', 'Mongolia', 'North Korea',
+      'Taiwan', 'Hong Kong', 'Macau', 'Brunei', 'East Timor'
+    ],
+    'EUROPE': [
+      'France', 'Germany', 'Italy', 'Spain', 'United Kingdom', 'Netherlands',
+      'Sweden', 'Norway', 'Denmark', 'Finland', 'Poland', 'Russia', 'Austria',
+      'Belgium', 'Bulgaria', 'Croatia', 'Cyprus', 'Czech Republic', 'Estonia',
+      'Greece', 'Hungary', 'Ireland', 'Latvia', 'Lithuania', 'Luxembourg',
+      'Malta', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Switzerland',
+      'Ukraine', 'Belarus', 'Moldova', 'Albania', 'Bosnia and Herzegovina',
+      'Montenegro', 'North Macedonia', 'Serbia', 'Iceland', 'Liechtenstein',
+      'Monaco', 'San Marino', 'Vatican City', 'Andorra'
+    ],
+    'NORTH AMERICA': [
+      'United States', 'Canada', 'Mexico', 'Guatemala', 'Cuba', 'Jamaica',
+      'Haiti', 'Dominican Republic', 'Puerto Rico', 'Trinidad and Tobago',
+      'Barbados', 'Saint Lucia', 'Grenada', 'Saint Vincent and the Grenadines',
+      'Antigua and Barbuda', 'Saint Kitts and Nevis', 'Dominica', 'Belize',
+      'El Salvador', 'Honduras', 'Nicaragua', 'Costa Rica', 'Panama',
+      'Bahamas', 'Greenland', 'Bermuda', 'Cayman Islands', 'Turks and Caicos Islands'
+    ],
+    'SOUTH AMERICA': [
+      'Brazil', 'Argentina', 'Chile', 'Peru', 'Colombia', 'Venezuela', 'Ecuador',
+      'Bolivia', 'Paraguay', 'Uruguay', 'Guyana', 'Suriname', 'French Guiana',
+      'Falkland Islands', 'South Georgia and the South Sandwich Islands'
+    ],
+    'AFRICA': [
+      'Egypt', 'South Africa', 'Nigeria', 'Kenya', 'Morocco', 'Ethiopia', 'Ghana',
+      'Algeria', 'Angola', 'Benin', 'Botswana', 'Burkina Faso', 'Burundi',
+      'Cameroon', 'Cape Verde', 'Central African Republic', 'Chad', 'Comoros',
+      'Democratic Republic of the Congo', 'Republic of the Congo', 'Djibouti',
+      'Equatorial Guinea', 'Eritrea', 'Eswatini', 'Gabon', 'Gambia', 'Guinea',
+      'Guinea-Bissau', 'Ivory Coast', 'Lesotho', 'Liberia', 'Libya', 'Madagascar',
+      'Malawi', 'Mali', 'Mauritania', 'Mauritius', 'Mozambique', 'Namibia',
+      'Niger', 'Rwanda', 'São Tomé and Príncipe', 'Senegal', 'Seychelles',
+      'Sierra Leone', 'Somalia', 'Sudan', 'South Sudan', 'Tanzania', 'Togo',
+      'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe'
+    ],
+    'ANTARCTICA': []
+  };
+  
+  return countryMap[continent] || [];
+};
+
+// Helper function to determine location category
+const getLocationCategory = (caption, address) => {
+  if (!caption) return { fromYou: 'Unknown', typeOfSpot: 'Unknown' };
+  
+  const captionLower = caption.toLowerCase();
+  const addressLower = address.toLowerCase();
+  
+  // Determine "FROM YOU" category
+  let fromYou = 'Drivable';
+  if (captionLower.includes('hiking') || captionLower.includes('trek') || 
+      captionLower.includes('walk') || captionLower.includes('trail') ||
+      addressLower.includes('mountain') || addressLower.includes('peak')) {
+    fromYou = 'Hiking';
+  } else if (captionLower.includes('boat') || captionLower.includes('ship') || 
+             captionLower.includes('cruise') || captionLower.includes('ferry') ||
+             addressLower.includes('island') || addressLower.includes('beach')) {
+    fromYou = 'Water Transport';
+  } else if (captionLower.includes('flight') || captionLower.includes('plane') || 
+             captionLower.includes('airport') || captionLower.includes('fly')) {
+    fromYou = 'Flight';
+  } else if (captionLower.includes('train') || captionLower.includes('railway') || 
+             captionLower.includes('station')) {
+    fromYou = 'Train';
+  }
+  
+  // Determine "TYPE OF SPOT" category
+  let typeOfSpot = 'General';
+  if (captionLower.includes('beach') || captionLower.includes('coast') || 
+      captionLower.includes('ocean') || captionLower.includes('sea')) {
+    typeOfSpot = 'Beach';
+  } else if (captionLower.includes('mountain') || captionLower.includes('peak') || 
+             captionLower.includes('hill') || captionLower.includes('summit')) {
+    typeOfSpot = 'Mountain';
+  } else if (captionLower.includes('city') || captionLower.includes('urban') || 
+             captionLower.includes('downtown') || captionLower.includes('metropolitan')) {
+    typeOfSpot = 'City';
+  } else if (captionLower.includes('forest') || captionLower.includes('jungle') || 
+             captionLower.includes('park') || captionLower.includes('nature')) {
+    typeOfSpot = 'Natural spots';
+  } else if (captionLower.includes('temple') || captionLower.includes('church') || 
+             captionLower.includes('mosque') || captionLower.includes('religious')) {
+    typeOfSpot = 'Religious';
+  } else if (captionLower.includes('museum') || captionLower.includes('gallery') || 
+             captionLower.includes('art') || captionLower.includes('cultural')) {
+    typeOfSpot = 'Cultural';
+  }
+  
+  return { fromYou, typeOfSpot };
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -924,4 +1538,8 @@ module.exports = {
   getFollowRequests,
   approveFollowRequest,
   rejectFollowRequest,
+  getTripScoreContinents,
+  getTripScoreCountries,
+  getTripScoreCountryDetails,
+  getTripScoreLocations
 };

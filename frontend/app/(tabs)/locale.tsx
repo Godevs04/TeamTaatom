@@ -21,6 +21,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
+import { geocodeAddress } from '../../utils/geocodingService';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
@@ -157,6 +158,7 @@ export default function LocaleScreen() {
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'locale' | 'saved'>('locale');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -321,9 +323,37 @@ export default function LocaleScreen() {
           isWideCard ? styles.wideCard : styles.halfCard,
           { marginLeft: 0 }
         ]}
-        onPress={() => {
-          // Navigate to location details
-          console.log('Navigate to:', item.name);
+        onPress={async () => {
+          if (isGeocoding) return; // Prevent multiple clicks during geocoding
+          
+          setIsGeocoding(item.name);
+          
+          try {
+            console.log('Navigating to location:', item.name);
+            
+            // Geocode the location name to get coordinates
+            const coordinates = await geocodeAddress(item.name);
+            
+            if (coordinates) {
+              console.log('Geocoding successful, navigating to map:', coordinates);
+              router.push({
+                pathname: '/map/current-location',
+                params: {
+                  latitude: coordinates.latitude.toString(),
+                  longitude: coordinates.longitude.toString(),
+                  address: item.name,
+                }
+              });
+            } else {
+              console.log('Geocoding failed, falling back to current location');
+              router.push('/map/current-location');
+            }
+          } catch (error) {
+            console.error('Error navigating to location:', error);
+            router.push('/map/current-location');
+          } finally {
+            setIsGeocoding(null);
+          }
         }}
       >
         <Image 
@@ -369,9 +399,37 @@ export default function LocaleScreen() {
           styles.halfCard,
           { marginLeft: 0 }
         ]}
-        onPress={() => {
-          // Navigate to saved location details
-          console.log('Navigate to saved:', item.name);
+        onPress={async () => {
+          if (isGeocoding) return; // Prevent multiple clicks during geocoding
+          
+          setIsGeocoding(item.name);
+          
+          try {
+            console.log('Navigating to saved location:', item.name);
+            
+            // Geocode the location name to get coordinates
+            const coordinates = await geocodeAddress(item.name);
+            
+            if (coordinates) {
+              console.log('Geocoding successful, navigating to map:', coordinates);
+              router.push({
+                pathname: '/map/current-location',
+                params: {
+                  latitude: coordinates.latitude.toString(),
+                  longitude: coordinates.longitude.toString(),
+                  address: item.name,
+                }
+              });
+            } else {
+              console.log('Geocoding failed, falling back to current location');
+              router.push('/map/current-location');
+            }
+          } catch (error) {
+            console.error('Error navigating to saved location:', error);
+            router.push('/map/current-location');
+          } finally {
+            setIsGeocoding(null);
+          }
         }}
       >
         <Image 
@@ -386,6 +444,12 @@ export default function LocaleScreen() {
         <View style={styles.cardContent}>
           <Text style={styles.cardTitle}>{item.name}</Text>
         </View>
+        {/* Loading indicator for geocoding */}
+        {isGeocoding === item.name && (
+          <View style={styles.loadingIndicator}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          </View>
+        )}
         {/* Saved indicator */}
         <View style={styles.savedIndicator}>
           <Ionicons name="bookmark" size={16} color="#FFFFFF" />
@@ -689,6 +753,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 14,
+    padding: 6,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  loadingIndicator: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
     backgroundColor: 'rgba(0,0,0,0.7)',
     borderRadius: 14,
     padding: 6,

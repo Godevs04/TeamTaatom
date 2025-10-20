@@ -40,8 +40,14 @@ const postSchema = new mongoose.Schema({
   },
   cloudinaryPublicId: {
     type: String,
-    required: true
+    required: false
   },
+  images: [{
+    type: String
+  }],
+  cloudinaryPublicIds: [{
+    type: String
+  }],
   tags: [{
     type: String,
     trim: true

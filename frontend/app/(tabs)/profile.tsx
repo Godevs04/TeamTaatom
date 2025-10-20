@@ -17,7 +17,9 @@ import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage, signOut } from '../../services/auth';
 import { getProfile } from '../../services/profile';
-import { getUserPosts } from '../../services/posts';
+import { getUserPosts, getShorts, getUserShorts, getPostById } from '../../services/posts';
+import { savedEvents } from '../../utils/savedEvents';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUnreadCount } from '../../services/notifications';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
@@ -36,6 +38,17 @@ interface ProfileData extends UserType {
     address: string;
     date: string;
   }>;
+  tripScore: {
+    totalScore: number;
+    continents: { [key: string]: number };
+    countries: { [key: string]: number };
+    areas: Array<{
+      address: string;
+      continent: string;
+      likes: number;
+      date: string;
+    }>;
+  } | null;
   isFollowing: boolean;
   isOwnProfile: boolean;
 }
@@ -44,6 +57,10 @@ export default function ProfileScreen() {
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
+  const [userShorts, setUserShorts] = useState<PostType[]>([]);
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [savedItems, setSavedItems] = useState<PostType[]>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'saved'>('posts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -51,7 +68,7 @@ export default function ProfileScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme, toggleTheme } = useTheme();
+  const { theme } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
 
   const loadUnreadCount = useCallback(async () => {
@@ -81,6 +98,16 @@ export default function ProfileScreen() {
       // Load user posts
       const userPosts = await getUserPosts(userData._id);
       setPosts(userPosts.posts);
+      // Load user shorts (filter by owner)
+      try {
+        const shortsResp = await getUserShorts(userData._id, 1, 100);
+        setUserShorts(shortsResp.shorts || []);
+      } catch {}
+      // Load saved ids from AsyncStorage (set by Shorts page)
+      try {
+        const stored = await AsyncStorage.getItem('savedShorts');
+        if (stored) setSavedIds(JSON.parse(stored));
+      } catch {}
       // Load unread count
       await loadUnreadCount();
     } catch (error: any) {
@@ -95,6 +122,73 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+
+  // Listen to saved changes to refresh instantly
+  useEffect(() => {
+    const unsubscribe = savedEvents.addListener(async () => {
+      try {
+        const savedShorts = await AsyncStorage.getItem('savedShorts');
+        const savedPosts = await AsyncStorage.getItem('savedPosts');
+        const shortsArr = savedShorts ? JSON.parse(savedShorts) : [];
+        const postsArr = savedPosts ? JSON.parse(savedPosts) : [];
+        setSavedIds([...(Array.isArray(postsArr)?postsArr:[]), ...(Array.isArray(shortsArr)?shortsArr:[])]);
+      } catch {}
+    });
+    return () => { unsubscribe(); };
+  }, []);
+
+  // Refresh saved IDs when switching to Saved tab
+  useEffect(() => {
+    const loadSaved = async () => {
+      if (activeTab !== 'saved') return;
+      try {
+        const savedShorts = await AsyncStorage.getItem('savedShorts');
+        const savedPosts = await AsyncStorage.getItem('savedPosts');
+        const shortsArr = savedShorts ? JSON.parse(savedShorts) : [];
+        const postsArr = savedPosts ? JSON.parse(savedPosts) : [];
+        setSavedIds([...(Array.isArray(postsArr)?postsArr:[]), ...(Array.isArray(shortsArr)?shortsArr:[])]);
+      } catch {}
+    };
+    loadSaved();
+  }, [activeTab]);
+
+  // Resolve saved IDs to full post/short objects (from any user)
+  useEffect(() => {
+    const resolveSaved = async () => {
+      if (activeTab !== 'saved') return;
+      if (!savedIds || savedIds.length === 0) {
+        setSavedItems([]);
+        return;
+      }
+      try {
+        const uniqueIds = Array.from(new Set(savedIds));
+        // Batch resolve in small chunks to avoid 429
+        const chunkSize = 5;
+        const chunks: string[][] = [];
+        for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+          chunks.push(uniqueIds.slice(i, i + chunkSize));
+        }
+        const items: PostType[] = [];
+        for (const chunk of chunks) {
+          const results = await Promise.allSettled(chunk.map(id => getPostById(id)));
+          results.forEach(r => {
+            if (r.status === 'fulfilled') {
+              const val: any = (r as any).value;
+              const item = val.post || val;
+              if (item) items.push(item);
+            }
+          });
+          // brief delay between chunks
+          await new Promise(res => setTimeout(res, 250));
+        }
+        setSavedItems(items);
+      } catch (e) {
+        console.error('Failed to load saved items:', e);
+        setSavedItems([]);
+      }
+    };
+    resolveSaved();
+  }, [activeTab, savedIds]);
 
   useEffect(() => {
     if (params.editProfile === 'true') {
@@ -259,49 +353,126 @@ export default function ProfileScreen() {
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
             </View>
           </View>
-          {profileData?.locations && profileData.locations.length > 0 && (
-            <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
-              <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
-                <RotatingGlobe locations={profileData.locations} size={40} />
-              </View>
-              <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
-                <Ionicons name="map" size={48} color={theme.colors.primary} /> 
-                <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
-                  {profileData.locations.length} locations visited 
-                </Text> 
-              </View> 
+          <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
+            <Text style={[styles.sectionTitleTight, { color: theme.colors.text }]}>
+              {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
+            </Text>
+            <View style={{ alignItems: 'center', marginBottom: 8 }}>
+              <RotatingGlobe 
+                locations={profileData?.locations || []} 
+                size={110} 
+              />
             </View>
+          </View>
+
+          {/* TripScore Section */}
+          {profileData?.tripScore && (
+            <TouchableOpacity 
+              style={[styles.tripScoreContainerTight, { backgroundColor: theme.colors.surface }]}
+              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+            >
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+              <View style={styles.tripScoreContent}>
+                <View style={styles.tripScoreMain}>
+                  <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
+                    {profileData.tripScore.totalScore}
+                  </Text>
+                  <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                    Total TripScore
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
           )}
         </View>
         {/* End Profile Header */}
 
-        {/* Recent Posts */}
+        {/* Posts/Shorts/Saved Tabs */}
         <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
-          {posts.length > 0 ? (
-            <View style={styles.postsGrid}>
-              {posts.slice(0, 6).map((post) => (
-                <TouchableOpacity
-                  key={post._id}
-                  style={styles.postThumbnail}
-                  onPress={() => {
-                    // Navigate to post detail or full view
-                  }}
-                >
-                  <Image
-                    source={{ uri: post.imageUrl }}
-                    style={styles.thumbnailImage}
+          <View style={[styles.tabsRow, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+            {(['posts','shorts','saved'] as const).map(tab => (
+              <TouchableOpacity 
+                key={tab} 
+                style={[
+                  styles.tabButton, 
+                  {
+                    borderColor: activeTab===tab ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: activeTab===tab ? theme.colors.primary + '20' : 'transparent'
+                  },
+                ]} 
+                onPress={() => setActiveTab(tab)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons 
+                    name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
+                    size={14} 
+                    color={activeTab===tab ? theme.colors.primary : theme.colors.textSecondary} 
                   />
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.noPostsContainer}>
-              <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
-              <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No posts yet</Text>
-            </View>
-          )}
+                  <Text style={[styles.tabText, { color: activeTab===tab ? theme.colors.primary : theme.colors.textSecondary }]}>
+                    {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={{ marginTop: 12 }}>
+            {activeTab === 'posts' && (
+              posts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {posts.map((post) => (
+                    <View key={post._id} style={styles.postThumbnail}>
+                      <Image source={{ uri: post.imageUrl }} style={styles.thumbnailImage} />
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.noPostsContainer}>
+                  <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
+                  <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No posts yet</Text>
+                </View>
+              )
+            )}
+            {activeTab === 'shorts' && (
+              userShorts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {userShorts.map((s) => {
+                    const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
+                    if (!uri) {
+                      return (
+                        <View key={s._id} style={styles.postThumbnail} />
+                      );
+                    }
+                    return (
+                      <View key={s._id} style={styles.postThumbnail}>
+                        <Image source={{ uri }} style={styles.thumbnailImage} />
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.noPostsContainer}>
+                  <Ionicons name="videocam-outline" size={48} color={theme.colors.textSecondary} />
+                  <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No shorts yet</Text>
+                </View>
+              )
+            )}
+            {activeTab === 'saved' && (
+              savedItems.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {savedItems.map((item) => (
+                    <View key={item._id} style={styles.postThumbnail}>
+                      <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.noPostsContainer}>
+                  <Ionicons name="bookmark-outline" size={48} color={theme.colors.textSecondary} />
+                  <Text style={[styles.noPostsText, { color: theme.colors.textSecondary }]}>No saved items</Text>
+                </View>
+              )
+            )}
+          </View>
         </View>
         {/* Edit Profile Modal */}
         {user && (
@@ -435,14 +606,23 @@ const styles = StyleSheet.create({
       fontSize: 12,
     },
     mapContainer: {
-      margin: 16,
-      padding: 20,
+      marginHorizontal: 12,
+      marginTop: 12,
+      marginBottom: 8,
+      padding: 16,
       borderRadius: 12,
     },
     sectionTitle: {
       fontSize: 18,
-      fontWeight: 'bold',
+      fontWeight: '600',
       marginBottom: 16,
+      textAlign: 'center',
+    },
+    sectionTitleTight: {
+      fontSize: 18,
+      fontWeight: '600',
+      marginBottom: 5,
+      textAlign: 'left',
     },
     mapPlaceholder: {
       height: 150,
@@ -464,12 +644,35 @@ const styles = StyleSheet.create({
       flexWrap: 'wrap',
       justifyContent: 'space-between',
     },
-    postThumbnail: {
-      width: '30%',
-      aspectRatio: 1,
-      marginBottom: 8,
+    tabsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 8,
+      borderRadius: 12,
+      padding: 6,
+      borderWidth: 1,
+    },
+    tabButton: {
+      flex: 1,
+      paddingVertical: 8,
       borderRadius: 8,
+      borderWidth: 1,
+      alignItems: 'center',
+    },
+    tabButtonActive: {
+      backgroundColor: 'transparent',
+    },
+    tabText: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    postThumbnail: {
+      width: '31%',
+      aspectRatio: 1,
+      marginBottom: 10,
+      borderRadius: 10,
       overflow: 'hidden',
+      backgroundColor: 'rgba(0,0,0,0.05)'
     },
     thumbnailImage: {
       width: '100%',
@@ -498,5 +701,28 @@ const styles = StyleSheet.create({
       flex: 1,
       marginLeft: 12,
       fontSize: 16,
+    },
+    // TripScore Styles
+    tripScoreContainerTight: {
+      marginHorizontal: 12,
+      marginTop: 8,
+      marginBottom: 12,
+      padding: 16,
+      borderRadius: 12,
+    },
+    tripScoreContent: {
+      alignItems: 'center',
+    },
+    tripScoreMain: {
+      alignItems: 'center',
+    },
+    tripScoreNumber: {
+      fontSize: 48,
+      fontWeight: 'bold',
+      marginBottom: 8,
+    },
+    tripScoreLabel: {
+      fontSize: 16,
+      fontWeight: '500',
     },
   });

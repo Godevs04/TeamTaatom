@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, Share } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, Share, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getPostById, toggleLike, getUserPosts } from '../../services/posts';
@@ -12,6 +12,9 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import CustomAlert from '../../components/CustomAlert';
 import CommentModal from '../../components/CommentModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { realtimePostsService } from '../../services/realtimePosts';
+import { savedEvents } from '../../utils/savedEvents';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -22,7 +25,8 @@ export default function PostDetail() {
   const [post, setPost] = useState<PostType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [imageLoading, setImageLoading] = useState(true);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
   const [showFullCaption, setShowFullCaption] = useState(false);
   
   // Real-time state management
@@ -61,9 +65,20 @@ export default function PostDetail() {
         const response = await getPostById(id as string);
         setPost(response.post);
         
-        // Set initial states
-        setIsLiked(response.post?.isLiked || false);
-        setLikesCount(response.post?.likesCount || 0);
+        // Set initial states - ensure we get the correct like state
+        const correctIsLiked = response.post?.isLiked === true;
+        const correctLikesCount = response.post?.likesCount || 0;
+        
+        console.log('Post detail - Initial data loaded:', {
+          postId: response.post?._id,
+          apiIsLiked: response.post?.isLiked,
+          apiLikesCount: response.post?.likesCount,
+          processedIsLiked: correctIsLiked,
+          processedLikesCount: correctLikesCount
+        });
+        
+        setIsLiked(correctIsLiked);
+        setLikesCount(correctLikesCount);
         setIsFollowing(response.post?.user?.isFollowing || false);
         
         // Set initial comments
@@ -73,6 +88,9 @@ export default function PostDetail() {
         if (response.post?.user?._id) {
           await loadRelatedPosts(response.post.user._id);
         }
+        
+        // Load saved state from AsyncStorage
+        await loadSavedState(response.post?._id);
         
       } catch (err) {
         console.error('Error loading initial data:', err);
@@ -101,6 +119,107 @@ export default function PostDetail() {
     }
   };
 
+  const loadSavedState = async (postId: string) => {
+    try {
+      const stored = await AsyncStorage.getItem('savedPosts');
+      const arr = stored ? JSON.parse(stored) : [];
+      setIsBookmarked(Array.isArray(arr) && arr.includes(postId));
+    } catch (error) {
+      console.error('Error loading saved state:', error);
+    }
+  };
+
+  // Initialize real-time posts service
+  React.useEffect(() => {
+    console.log('Post detail - Initializing real-time service...');
+    realtimePostsService.initialize().then(() => {
+      console.log('Post detail - Real-time service initialized');
+    }).catch((error) => {
+      console.error('Post detail - Failed to initialize real-time service:', error);
+    });
+  }, []);
+
+  // Listen for WebSocket real-time updates
+  React.useEffect(() => {
+    if (!post) return;
+
+    console.log('Post detail - Setting up WebSocket listeners for post:', post._id);
+
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
+      if (data.postId === post._id) {
+        console.log('Post detail - WebSocket like update received:', data);
+        console.log('Post detail - Current state before update:', { isLiked, likesCount });
+        
+        // Only update if the WebSocket data is more recent than our current state
+        // This prevents stale WebSocket events from overriding correct initial data
+        const currentTimestamp = Date.now();
+        const eventTimestamp = new Date(data.timestamp).getTime();
+        const timeDiff = currentTimestamp - eventTimestamp;
+        
+        // If the event is older than 5 seconds, it's likely stale data
+        if (timeDiff > 5000) {
+          console.log('Post detail - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          return;
+        }
+        
+        console.log('Post detail - Applying WebSocket update:', { 
+          timeDiff: timeDiff + 'ms',
+          from: { isLiked, likesCount }, 
+          to: { isLiked: data.isLiked, likesCount: data.likesCount }
+        });
+        
+        setIsLiked(data.isLiked);
+        setLikesCount(data.likesCount);
+      }
+    });
+
+    const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
+      if (data.postId === post._id) {
+        setComments(prev => [...prev, data.comment]);
+      }
+    });
+
+    const unsubscribeSaves = realtimePostsService.subscribeToSaves((data) => {
+      if (data.postId === post._id) {
+        setIsBookmarked(data.isSaved);
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeComments();
+      unsubscribeSaves();
+    };
+  }, [post?._id]);
+
+  // Listen for post action events from home page
+  React.useEffect(() => {
+    const unsubscribe = savedEvents.addPostActionListener((postId, action, data) => {
+      if (postId === post?._id) {
+        switch (action) {
+          case 'like':
+          case 'unlike':
+            // Ensure we're setting the correct boolean value
+            const eventIsLiked = data.isLiked === true;
+            const eventLikesCount = data.likesCount || 0;
+            
+            setIsLiked(eventIsLiked);
+            setLikesCount(eventLikesCount);
+            break;
+          case 'save':
+          case 'unsave':
+            setIsBookmarked(data.isBookmarked);
+            break;
+          case 'comment':
+            setComments(prev => [...prev, data.comment]);
+            break;
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [post?._id]);
+
   // Custom alert helper function
   const showCustomAlertMessage = (
     title: string,
@@ -127,8 +246,31 @@ export default function PostDetail() {
     try {
       setActionLoading('like');
       const response = await toggleLike(post!._id);
-      setIsLiked(response.isLiked);
-      setLikesCount(response.likesCount);
+      
+      // Ensure we're setting the correct boolean value
+      const newIsLiked = response.isLiked === true;
+      const newLikesCount = response.likesCount || 0;
+      
+      console.log('Post detail - Like toggle response:', {
+        postId: post!._id,
+        response: response,
+        processedIsLiked: newIsLiked,
+        processedLikesCount: newLikesCount,
+        currentState: { isLiked, likesCount }
+      });
+      
+      setIsLiked(newIsLiked);
+      setLikesCount(newLikesCount);
+      
+      // Emit event to notify home page
+      savedEvents.emitPostAction(post!._id, newIsLiked ? 'like' : 'unlike', {
+        likesCount: newLikesCount,
+        isLiked: newIsLiked
+      });
+
+      // Emit WebSocket event for real-time updates
+      await realtimePostsService.emitLike(post!._id, newIsLiked, newLikesCount);
+      
     } catch (error) {
       console.error('Error toggling like:', error);
       showCustomAlertMessage('Error', 'Failed to update like status.', 'error');
@@ -186,16 +328,31 @@ export default function PostDetail() {
 
     try {
       setActionLoading('bookmark');
-      // Simulate bookmark API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setIsBookmarked(!isBookmarked);
-      showCustomAlertMessage(
-        'Success', 
-        isBookmarked 
-          ? 'Post removed from your collection!' 
-          : 'Post saved to your collection!',
-        'success'
-      );
+      
+      // Toggle bookmark state
+      const newBookmarkState = !isBookmarked;
+      setIsBookmarked(newBookmarkState);
+      
+      // Persist to AsyncStorage for Saved tab
+      const key = 'savedPosts';
+      const stored = await AsyncStorage.getItem(key);
+      const arr = stored ? JSON.parse(stored) : [];
+      let next: string[] = Array.isArray(arr) ? arr : [];
+      if (newBookmarkState) {
+        if (!next.includes(post!._id)) next.push(post!._id);
+      } else {
+        next = next.filter(id => id !== post!._id);
+      }
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+      
+      // Emit events to notify other components
+      savedEvents.emitChanged();
+      savedEvents.emitPostAction(post!._id, newBookmarkState ? 'save' : 'unsave', {
+        isBookmarked: newBookmarkState
+      });
+      
+      console.log(newBookmarkState ? 'Post saved' : 'Post unsaved', post!._id);
+      
     } catch (error) {
       console.error('Error bookmarking post:', error);
       showCustomAlertMessage('Error', 'Failed to save post.', 'error');
@@ -271,6 +428,13 @@ export default function PostDetail() {
 
   const handleCommentAdded = (newComment: any) => {
     setComments(prev => [...prev, newComment]);
+    
+    // Emit event to notify home page
+    savedEvents.emitPostAction(post!._id, 'comment', {
+      comment: newComment,
+      commentsCount: comments.length + 1
+    });
+    
     // Don't auto-close modal here - let CommentModal handle it
   };
 
@@ -338,19 +502,61 @@ export default function PostDetail() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Enhanced Image Container */}
         <View style={styles.imageContainer}>
-          {imageLoading && (
-            <View style={styles.imageLoader}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
+          {post.images && post.images.length > 1 ? (
+            <View>
+              <FlatList
+                ref={flatListRef}
+                data={post.images}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => {
+                  const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                  setCurrentImageIndex(index);
+                }}
+                renderItem={({ item, index }) => (
+                  <View style={{ width: screenWidth, height: screenHeight * 0.6 }}>
+                    <Image
+                      source={{ uri: item }}
+                      style={styles.postImage}
+                      resizeMode="cover"
+                    />
+                  </View>
+                )}
+                keyExtractor={(item, index) => index.toString()}
+              />
+              
+              {/* Image counter */}
+              <View style={styles.imageCounter}>
+                <Text style={styles.imageCounterText}>
+                  {currentImageIndex + 1} / {post.images.length}
+                </Text>
+              </View>
+              
+              {/* Image dots indicator */}
+              <View style={styles.dotsContainer}>
+                {post.images.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.dot,
+                      {
+                        backgroundColor: index === currentImageIndex 
+                          ? theme.colors.primary 
+                          : 'rgba(255,255,255,0.5)'
+                      }
+                    ]}
+                  />
+                ))}
+              </View>
             </View>
+          ) : (
+            <Image
+              source={{ uri: post.imageUrl }}
+              style={styles.postImage}
+              resizeMode="cover"
+            />
           )}
-          <Image
-            source={{ uri: post.imageUrl }}
-            style={styles.postImage}
-            resizeMode="cover"
-            onLoadStart={() => setImageLoading(true)}
-            onLoad={() => setImageLoading(false)}
-            onError={() => setImageLoading(false)}
-          />
           
           {/* Image Overlay Gradient */}
           <LinearGradient
@@ -733,7 +939,7 @@ const styles = StyleSheet.create({
   floatingActions: {
     position: 'absolute',
     top: 20,
-    right: 20,
+    left: 20,
     flexDirection: 'column',
     gap: 12,
   },
@@ -941,5 +1147,34 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 40,
+  },
+  imageCounter: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  imageCounterText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dotsContainer: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

@@ -13,11 +13,17 @@ const getToken = async () => {
 };
   
 const connectSocket = async () => {
-  if (socket && socket.connected) return socket;
+  console.log('Socket service - Attempting to connect...');
+  if (socket && socket.connected) {
+    console.log('Socket service - Already connected');
+    return socket;
+  }
   const token = await getToken();
+  console.log('Socket service - Token retrieved:', !!token);
   
   // Clean up existing socket if any
   if (socket) {
+    console.log('Socket service - Disconnecting existing socket');
     socket.disconnect();
     socket = null;
   }
@@ -38,13 +44,13 @@ const connectSocket = async () => {
   });
 
   socket.on('connect', () => {
-    console.log('Socket connected successfully to /app namespace');
+    console.log('Socket service - Connected successfully to /app namespace');
   });
   socket.on('disconnect', (reason) => {
-    console.log('Socket disconnected:', reason);
+    console.log('Socket service - Disconnected:', reason);
   });
   socket.on('connect_error', (err) => {
-    console.error('Socket connect error:', err);
+    console.error('Socket service - Connect error:', err);
   });
 
   // Forward all events to listeners
@@ -56,6 +62,7 @@ const connectSocket = async () => {
   });
 
   socket.connect();
+  console.log('Socket service - Connection initiated');
   return socket;
 };
 
@@ -74,8 +81,10 @@ export const socketService = {
     socket?.emit(event, ...args);
   },
   async subscribe(event: string, cb: (...args: any[]) => void) {
+    console.log('Socket service - Subscribing to event:', event);
     if (!listeners[event]) listeners[event] = new Set();
     listeners[event].add(cb);
+    console.log('Socket service - Total listeners for', event, ':', listeners[event].size);
     if (!socket) await connectSocket();
   },
   async unsubscribe(event: string, cb: (...args: any[]) => void) {
