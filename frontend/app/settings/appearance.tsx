@@ -20,7 +20,7 @@ export default function AppearanceSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const router = useRouter();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, setMode, mode } = useTheme();
   const { showError, showSuccess, showConfirm, showOptions } = useAlert();
 
   useEffect(() => {
@@ -53,8 +53,7 @@ export default function AppearanceSettingsScreen() {
       
       // If theme is being changed, also update the context
       if (key === 'theme') {
-        // The theme context will handle the actual theme change
-        // This is just for consistency with settings
+        setMode(value);
       }
     } catch (error) {
       showError('Failed to update setting');
@@ -148,10 +147,15 @@ export default function AppearanceSettingsScreen() {
               </View>
             </View>
             <TouchableOpacity
-              style={[styles.toggleButton, { backgroundColor: theme.colors.primary }]}
-              onPress={toggleTheme}
+              onPress={() => setMode(mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark')}
+              style={[styles.toggleButton, { borderWidth:1, borderColor: theme.colors.primary }]}
+              accessibilityLabel="Quick theme toggle"
             >
-              <Ionicons name="contrast-outline" size={16} color="white" />
+              <Ionicons 
+                name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sunny' : 'sync'} 
+                size={16} 
+                color={theme.colors.primary} 
+              />
             </TouchableOpacity>
           </View>
         </View>
