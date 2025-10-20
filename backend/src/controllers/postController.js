@@ -2,7 +2,7 @@ const { validationResult } = require('express-validator');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const { uploadImage, deleteImage, getOptimizedImageUrl } = require('../config/cloudinary');
+const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 
@@ -47,10 +47,16 @@ const getPosts = async (req, res) => {
         }
       }
 
+      // Debug likes for this specific post
+      let isLiked = false;
+      
+      isLiked = req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false;
+      
+
       return {
         ...post,
         imageUrl: optimizedImageUrl,
-        isLiked: req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false,
+        isLiked,
         likesCount: post.likes.length,
         commentsCount: post.comments.length
       };
@@ -171,20 +177,39 @@ const createPost = async (req, res) => {
       });
     }
 
-    if (!req.file) {
+    // Handle both single file and multiple files
+    const files = req.files ? req.files.images : (req.file ? [req.file] : []);
+    
+    if (!files || files.length === 0) {
       return res.status(400).json({
         error: 'Image required',
-        message: 'Please upload an image'
+        message: 'Please upload at least one image'
+      });
+    }
+
+    if (files.length > 10) {
+      return res.status(400).json({
+        error: 'Too many images',
+        message: 'Maximum 10 images are allowed'
       });
     }
 
     const { caption, address, latitude, longitude, tags } = req.body;
 
-    // Upload image to Cloudinary
-    const cloudinaryResult = await uploadImage(req.file.buffer, {
-      folder: 'taatom/posts',
-      public_id: `post_${req.user._id}_${Date.now()}`
-    });
+    // Upload all images to Cloudinary
+    const imageUrls = [];
+    const cloudinaryPublicIds = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const cloudinaryResult = await uploadImage(file.buffer, {
+        folder: 'taatom/posts',
+        public_id: `post_${req.user._id}_${Date.now()}_${i}`
+      });
+      
+      imageUrls.push(cloudinaryResult.secure_url);
+      cloudinaryPublicIds.push(cloudinaryResult.public_id);
+    }
 
     // Parse tags if provided
     let parsedTags = [];
@@ -196,12 +221,13 @@ const createPost = async (req, res) => {
       }
     }
 
-    // Create post
+    // Create post with multiple images
     const post = new Post({
       user: req.user._id,
       caption,
-      imageUrl: cloudinaryResult.secure_url,
-      cloudinaryPublicId: cloudinaryResult.public_id,
+      imageUrl: imageUrls[0], // Keep first image as primary for backward compatibility
+      images: imageUrls, // Store all images
+      cloudinaryPublicIds: cloudinaryPublicIds,
       tags: parsedTags,
       type: 'photo',
       location: {
@@ -454,11 +480,14 @@ const toggleLike = async (req, res) => {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
     }
 
-    // Emit socket events
+    // Emit real-time post like update to all connected users
     try {
       const io = getIO();
       if (io) {
         const nsp = io.of('/app');
+        // Emit the new real-time post like update
+        nsp.emitPostLike(post._id.toString(), isLiked, post.likes.length, req.user._id.toString());
+        // Also emit the legacy notification event
         nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
       }
     } catch (socketError) {
@@ -556,10 +585,14 @@ const addComment = async (req, res) => {
       }
     }
 
-    // Emit socket events
+    // Emit real-time post comment update to all connected users
     const io = getIO();
     if (io) {
       const nsp = io.of('/app');
+      // Emit the new real-time post comment update
+      nsp.emitPostComment(post._id.toString(), populatedComment, post.comments.length, req.user._id.toString());
+      
+      // Also emit legacy events
       const followers = await getFollowers(post.user);
       const audience = [post.user.toString(), ...followers];
       nsp.emitInvalidateFeed(audience);
@@ -776,7 +809,11 @@ const createShort = async (req, res) => {
       });
     }
 
-    if (!req.file) {
+    // req.files.video[0] if fields upload; req.file if single
+    const videoFile = (req.files && Array.isArray(req.files.video) && req.files.video[0]) || req.file;
+    const imageFile = (req.files && Array.isArray(req.files.image) && req.files.image[0]) || null;
+
+    if (!videoFile) {
       console.log('No file uploaded');
       return res.status(400).json({
         error: 'Video required',
@@ -786,12 +823,37 @@ const createShort = async (req, res) => {
 
     const { caption, address, latitude, longitude, tags } = req.body;
 
-    // Upload video to Cloudinary
-    const cloudinaryResult = await uploadImage(req.file.buffer, {
-      folder: 'taatom/shorts',
-      resource_type: 'video',
-      public_id: `short_${req.user._id}_${Date.now()}`
-    });
+    // Upload video to Cloudinary with async eager; fallback to upload_large for very big files
+    let cloudinaryResult;
+    try {
+      cloudinaryResult = await uploadImage(videoFile.buffer, {
+        folder: 'taatom/shorts',
+        resource_type: 'video',
+        public_id: `short_${req.user._id}_${Date.now()}`,
+        eager: [ { format: 'mp4', quality: 'auto', fetch_format: 'auto' } ],
+        eager_async: true,
+        chunk_size: 50 * 1024 * 1024,
+      });
+    } catch (streamErr) {
+      console.error('Cloudinary upload_stream error:', streamErr);
+      try {
+        const dataUri = `data:${videoFile.mimetype};base64,${videoFile.buffer.toString('base64')}`;
+        cloudinaryResult = await cloudinary.uploader.upload_large(dataUri, {
+          folder: 'taatom/shorts',
+          resource_type: 'video',
+          public_id: `short_${req.user._id}_${Date.now()}`,
+          eager: [ { format: 'mp4', quality: 'auto', fetch_format: 'auto' } ],
+          eager_async: true,
+          chunk_size: 50 * 1024 * 1024,
+        });
+      } catch (largeErr) {
+        console.error('Cloudinary upload_large error:', largeErr);
+        return res.status(400).json({
+          error: 'Upload failed',
+          message: largeErr.message || 'Video is too large to process. Please try a smaller clip.'
+        });
+      }
+    }
 
     // Parse tags if provided
     let parsedTags = [];
@@ -804,10 +866,23 @@ const createShort = async (req, res) => {
     }
 
     // Create short
+    // If user provided a custom image, upload and use its secure_url; else generate thumbnail URL
+    let thumbnailUrl = '';
+    if (imageFile) {
+      try {
+        const imgRes = await uploadImage(imageFile.buffer, { folder: 'taatom/shorts', resource_type: 'image' });
+        thumbnailUrl = imgRes.secure_url;
+      } catch (imgErr) {
+        console.error('Thumbnail image upload failed, falling back to generated thumbnail');
+      }
+    }
+    if (!thumbnailUrl) {
+      thumbnailUrl = getVideoThumbnailUrl(cloudinaryResult.public_id);
+    }
     const short = new Post({
       user: req.user._id,
       caption,
-      imageUrl: '', // Empty for shorts - only videoUrl should contain the video URL
+      imageUrl: thumbnailUrl || '',
       videoUrl: cloudinaryResult.secure_url, // Video URL goes here
       cloudinaryPublicId: cloudinaryResult.public_id,
       tags: parsedTags,

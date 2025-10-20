@@ -25,6 +25,8 @@ import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { savedEvents } from '../../utils/savedEvents';
 import CommentModal from '../../components/CommentModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -53,7 +55,16 @@ export default function ShortsScreen() {
   useEffect(() => {
     loadShorts();
     loadCurrentUser();
+    loadSavedShorts();
   }, []);
+
+  const loadSavedShorts = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('savedShorts');
+      const arr = stored ? JSON.parse(stored) : [];
+      setSavedShorts(new Set(Array.isArray(arr) ? arr : []));
+    } catch {}
+  };
 
   const loadCurrentUser = async () => {
     try {
@@ -248,7 +259,8 @@ export default function ShortsScreen() {
     // Update the selected short comments for the modal
     setSelectedShortComments(prev => [...prev, newComment]);
     
-    showSuccess('Comment added successfully!');
+    // Don't show success alert here - let the modal handle it
+    console.log('Comment added to shorts list');
   };
 
   // Handle share with enhanced functionality
@@ -291,6 +303,13 @@ export default function ShortsScreen() {
         // Log instead of alert
         console.log('Short saved:', shortId);
       }
+      // Persist to AsyncStorage so profile Saved tab can read it
+      try {
+        const arr = Array.from(newSaved);
+        AsyncStorage.setItem('savedShorts', JSON.stringify(arr));
+        // notify saved tab to refresh immediately
+        savedEvents.emitChanged();
+      } catch {}
       return newSaved;
     });
   };

@@ -67,7 +67,12 @@ export default function CommentModal({
 
   useEffect(() => {
     if (visible) {
-      // Animate in
+      // Reset animation values
+      translateY.setValue(screenHeight);
+      opacity.setValue(0);
+      scale.setValue(0.9);
+      
+      // Animate in with proper timing
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: 0,
@@ -84,25 +89,6 @@ export default function CommentModal({
           useNativeDriver: true,
           tension: 100,
           friction: 8,
-        }),
-      ]).start();
-    } else {
-      // Animate out
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: screenHeight,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scale, {
-          toValue: 0.8,
-          duration: 250,
-          useNativeDriver: true,
         }),
       ]).start();
     }
@@ -166,13 +152,15 @@ export default function CommentModal({
       onCommentAdded(response.comment);
       setNewComment('');
       
-      // Show success message and close modal after a short delay
-      showCustomAlertMessage('Success', 'Comment added successfully!', 'success', () => {
-        // Close modal after success
-        setTimeout(() => {
-          handleClose();
-        }, 500);
-      });
+      // Show success message but don't auto-close the modal
+      // showCustomAlertMessage('Success', 'Comment added successfully!', 'success');
+      console.log('Comment added successfully!');
+      
+      // Small delay to prevent rapid state changes
+      setTimeout(() => {
+        setIsSubmitting(false);
+      }, 100);
+      
     } catch (error: any) {
       console.error('Error adding comment:', error);
       
@@ -182,7 +170,6 @@ export default function CommentModal({
       } else {
         showCustomAlertMessage('Error', 'Failed to add comment. Please try again.', 'error');
       }
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -224,7 +211,7 @@ export default function CommentModal({
     // Close any open alerts first
     setShowCustomAlert(false);
     
-    // Animate out before closing
+    // Animate out smoothly
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: screenHeight,
@@ -236,11 +223,14 @@ export default function CommentModal({
         duration: 250,
         useNativeDriver: true,
       }),
+      Animated.timing(scale, {
+        toValue: 0.9,
+        duration: 250,
+        useNativeDriver: true,
+      }),
     ]).start(() => {
-      // Ensure all animations are complete before closing
-      setTimeout(() => {
-        onClose();
-      }, 100);
+      // Only close after animation completes
+      onClose();
     });
   };
 
@@ -278,6 +268,7 @@ export default function CommentModal({
                   { translateY: translateY },
                   { scale: scale }
                 ],
+                opacity: opacity,
               },
             ]}
           >

@@ -15,11 +15,15 @@ const uploadImage = async (buffer, options = {}) => {
         {
           folder: options.folder || 'taatom',
           resource_type: options.resource_type || 'image',
-          transformation: options.resource_type === 'video' ? [
-            { width: 720, height: 1280, crop: 'limit', quality: 'auto:good' }
-          ] : [
+          // IMPORTANT: Avoid synchronous video transcoding. Only apply transformations for images.
+          transformation: options.resource_type === 'image' ? [
             { width: 1200, height: 1200, crop: 'limit', quality: 'auto:good', format: 'auto' }
-          ],
+          ] : undefined,
+          // For big videos, ask Cloudinary to process derived versions asynchronously
+          eager: options.resource_type === 'video' ? [
+            { width: 720, height: 1280, crop: 'limit', quality: 'auto:good', format: 'mp4' }
+          ] : undefined,
+          eager_async: options.resource_type === 'video' ? true : undefined,
           ...options
         },
         (error, result) => {
@@ -65,9 +69,28 @@ const getOptimizedImageUrl = (publicId, options = {}) => {
   });
 };
 
+// Generate a JPEG thumbnail URL for a video public id
+const getVideoThumbnailUrl = (publicId, options = {}) => {
+  const {
+    width = 720,
+    height = 1280,
+    quality = 'auto:good',
+  } = options;
+
+  return cloudinary.url(publicId, {
+    resource_type: 'video',
+    format: 'jpg',
+    transformation: [
+      { width, height, crop: 'limit', quality },
+      { start_offset: 'auto' }
+    ]
+  });
+};
+
 module.exports = {
   cloudinary,
   uploadImage,
   deleteImage,
-  getOptimizedImageUrl
+  getOptimizedImageUrl,
+  getVideoThumbnailUrl
 };
