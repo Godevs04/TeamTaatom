@@ -256,7 +256,7 @@ export default function AccountSettingsScreen() {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => router.push('/(auth)/reset-password')}
+            onPress={() => router.push('/(auth)/forgot')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="key-outline" size={20} color={theme.colors.primary} />

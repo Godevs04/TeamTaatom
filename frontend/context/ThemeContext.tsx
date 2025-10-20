@@ -7,8 +7,8 @@ export type ThemeType = typeof darkTheme;
 
 interface ThemeContextProps {
   theme: ThemeType;
-  mode: 'dark' | 'light';
-  toggleTheme: () => void;
+  mode: 'dark' | 'light' | 'auto';
+  setMode: (m: 'dark' | 'light' | 'auto') => void;
 }
 
 const ThemeContext = createContext<ThemeContextProps | undefined>(undefined);
@@ -16,30 +16,27 @@ const ThemeContext = createContext<ThemeContextProps | undefined>(undefined);
 const THEME_KEY = 'themeMode';
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [mode, setMode] = useState<'dark' | 'light'>('dark');
+  const [mode, setMode] = useState<'dark' | 'light' | 'auto'>('auto');
 
   useEffect(() => {
     (async () => {
       const storedMode = await AsyncStorage.getItem(THEME_KEY);
-      if (storedMode === 'dark' || storedMode === 'light') {
+      if (storedMode === 'dark' || storedMode === 'light' || storedMode === 'auto') {
         setMode(storedMode);
       }
     })();
   }, []);
 
-  const toggleTheme = () => {
-    setMode((m) => {
-      const newMode = m === 'dark' ? 'light' : 'dark';
-      AsyncStorage.setItem(THEME_KEY, newMode);
-      return newMode;
-    });
+  const setModePersist = (m: 'dark' | 'light' | 'auto') => {
+    setMode(m);
+    AsyncStorage.setItem(THEME_KEY, m);
   };
 
   const value = useMemo(
     () => ({
-      theme: mode === 'dark' ? darkTheme : lightTheme,
+      theme: (mode === 'dark' ? darkTheme : mode === 'light' ? lightTheme : (new Date().getHours() >= 7 && new Date().getHours() <= 19) ? lightTheme : darkTheme),
       mode,
-      toggleTheme,
+      setMode: setModePersist,
     }),
     [mode]
   );
