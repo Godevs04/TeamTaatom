@@ -36,6 +36,17 @@ interface ProfileData extends UserType {
     address: string;
     date: string;
   }>;
+  tripScore: {
+    totalScore: number;
+    continents: { [key: string]: number };
+    countries: { [key: string]: number };
+    areas: Array<{
+      address: string;
+      continent: string;
+      likes: number;
+      date: string;
+    }>;
+  } | null;
   isFollowing: boolean;
   isOwnProfile: boolean;
 }
@@ -51,7 +62,7 @@ export default function ProfileScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme, toggleTheme } = useTheme();
+  const { theme } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
 
   const loadUnreadCount = useCallback(async () => {
@@ -261,17 +272,31 @@ export default function ProfileScreen() {
           </View>
           {profileData?.locations && profileData.locations.length > 0 && (
             <View style={[styles.mapContainer, { backgroundColor: theme.colors.surface }]}> 
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
-              <View style={{ alignItems: 'center', marginBottom: theme.spacing.md }}>
-                <RotatingGlobe locations={profileData.locations} size={40} />
+              <Text style={[styles.sectionTitleTight, { color: theme.colors.text }]}>Posted Locations</Text>
+              <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                <RotatingGlobe locations={profileData.locations} size={110} />
               </View>
-              <View style={[styles.mapPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}> 
-                <Ionicons name="map" size={48} color={theme.colors.primary} /> 
-                <Text style={[styles.mapText, { color: theme.colors.textSecondary }]}> 
-                  {profileData.locations.length} locations visited 
-                </Text> 
-              </View> 
             </View>
+          )}
+
+          {/* TripScore Section */}
+          {profileData?.tripScore && (
+            <TouchableOpacity 
+              style={[styles.tripScoreContainerTight, { backgroundColor: theme.colors.surface }]}
+              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+            >
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+              <View style={styles.tripScoreContent}>
+                <View style={styles.tripScoreMain}>
+                  <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
+                    {profileData.tripScore.totalScore}
+                  </Text>
+                  <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                    Total TripScore
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
           )}
         </View>
         {/* End Profile Header */}
@@ -435,14 +460,23 @@ const styles = StyleSheet.create({
       fontSize: 12,
     },
     mapContainer: {
-      margin: 16,
-      padding: 20,
+      marginHorizontal: 12,
+      marginTop: 12,
+      marginBottom: 8,
+      padding: 16,
       borderRadius: 12,
     },
     sectionTitle: {
       fontSize: 18,
-      fontWeight: 'bold',
+      fontWeight: '600',
       marginBottom: 16,
+      textAlign: 'center',
+    },
+    sectionTitleTight: {
+      fontSize: 18,
+      fontWeight: '600',
+      marginBottom: 5,
+      textAlign: 'left',
     },
     mapPlaceholder: {
       height: 150,
@@ -498,5 +532,28 @@ const styles = StyleSheet.create({
       flex: 1,
       marginLeft: 12,
       fontSize: 16,
+    },
+    // TripScore Styles
+    tripScoreContainerTight: {
+      marginHorizontal: 12,
+      marginTop: 8,
+      marginBottom: 12,
+      padding: 16,
+      borderRadius: 12,
+    },
+    tripScoreContent: {
+      alignItems: 'center',
+    },
+    tripScoreMain: {
+      alignItems: 'center',
+    },
+    tripScoreNumber: {
+      fontSize: 48,
+      fontWeight: 'bold',
+      marginBottom: 8,
+    },
+    tripScoreLabel: {
+      fontSize: 16,
+      fontWeight: '500',
     },
   });

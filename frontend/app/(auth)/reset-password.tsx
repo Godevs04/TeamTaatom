@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Tou
 import { router, useLocalSearchParams } from "expo-router";
 import axios from "../../services/api";
 import { theme } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from "@expo/vector-icons";
 import { Formik } from "formik";
@@ -19,6 +20,7 @@ export default function ResetPassword() {
   );
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { theme: appTheme } = useTheme();
 
   useEffect(() => {
     if (params.email) {
@@ -51,7 +53,7 @@ export default function ResetPassword() {
 
   return (
     <LinearGradient
-      colors={theme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
+      colors={appTheme.colors.gradient.dark as [ColorValue, ColorValue, ...ColorValue[]]}
       style={styles.container}
     >
       <KeyboardAvoidingView
@@ -67,7 +69,7 @@ export default function ResetPassword() {
             onPress={() => router.back()}
             accessibilityLabel="Go back"
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={24} color={appTheme.colors.text} />
           </TouchableOpacity>
 
           <View style={styles.header}>
@@ -76,13 +78,13 @@ export default function ResetPassword() {
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />
-            <Text style={styles.title}>Create New Password</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title,{color: appTheme.colors.text}]}>Create New Password</Text>
+            <Text style={[styles.subtitle,{color: appTheme.colors.textSecondary}] }>
               Enter your new Password and confirm to reset your password.
             </Text>
           </View>
 
-          <View style={styles.formContainer}>
+          <View style={[styles.formContainer,{ backgroundColor: appTheme.colors.surface }]}>
             <Formik
               initialValues={{
                 token: '',
@@ -133,7 +135,7 @@ export default function ResetPassword() {
                         <Ionicons
                           name={showPassword ? 'eye-off' : 'eye'}
                           size={22}
-                          color={theme.colors.textSecondary}
+                          color={appTheme.colors.textSecondary}
                         />
                       </TouchableOpacity>
                     }
@@ -153,7 +155,7 @@ export default function ResetPassword() {
                         <Ionicons
                           name={showConfirmPassword ? 'eye-off' : 'eye'}
                           size={22}
-                          color={theme.colors.textSecondary}
+                          color={appTheme.colors.textSecondary}
                         />
                       </TouchableOpacity>
                     }
@@ -164,12 +166,12 @@ export default function ResetPassword() {
                     </Text>
                   ) : null}
                   <TouchableOpacity
-                    style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
+                    style={[styles.resetButton, isLoading && styles.resetButtonDisabled, {backgroundColor: appTheme.colors.primary}]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
                     accessibilityLabel="Reset password"
                   >
-                    <Text style={styles.resetButtonText}>
+                    <Text style={[styles.resetButtonText,{color: appTheme.colors.text}] }>
                       {isLoading ? 'Resetting...' : 'Reset Password'}
                     </Text>
                   </TouchableOpacity>
@@ -177,9 +179,9 @@ export default function ResetPassword() {
               )}
             </Formik>
             <View style={styles.footer}>
-              <Text style={styles.footerText}>Remember your password? </Text>
+              <Text style={[styles.footerText,{color: appTheme.colors.textSecondary}]}>Remember your password? </Text>
               <TouchableOpacity onPress={() => router.push('/(auth)/signin')}>
-                <Text style={styles.linkText}>Sign In</Text>
+                <Text style={[styles.linkText,{color: appTheme.colors.primary}]}>Sign In</Text>
               </TouchableOpacity>
             </View>
           </View>
