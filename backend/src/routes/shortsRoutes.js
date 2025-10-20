@@ -15,14 +15,15 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit for videos
+    fileSize: 100 * 1024 * 1024, // 100MB per file
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only video files are allowed'), false);
+    const isVideo = file.fieldname === 'video' && file.mimetype.startsWith('video/');
+    const isImage = file.fieldname === 'image' && file.mimetype.startsWith('image/');
+    if (isVideo || isImage) {
+      return cb(null, true);
     }
+    return cb(new Error('Invalid file type for field'), false);
   }
 });
 
@@ -45,6 +46,10 @@ const createShortValidation = [
 // Routes
 router.get('/', optionalAuth, getShorts);
 router.get('/user/:userId', optionalAuth, getUserShorts);
-router.post('/', authMiddleware, upload.single('video'), createShortValidation, createShort);
+// Accept video and optional image (thumbnail) fields
+router.post('/', authMiddleware, upload.fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'image', maxCount: 1 }
+]), createShortValidation, createShort);
 
 module.exports = router;

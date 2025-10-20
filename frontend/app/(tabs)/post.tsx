@@ -24,6 +24,8 @@ import { getUserFromStorage } from "../../services/auth";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
+import * as VideoThumbnails from "expo-video-thumbnails";
+import { Video, ResizeMode } from "expo-av";
 
 
 interface PostFormValues {
@@ -39,8 +41,9 @@ interface ShortFormValues {
 }
 
 export default function PostScreen() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
+  const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [address, setAddress] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
@@ -91,43 +94,66 @@ export default function PostScreen() {
     setIsUploading(false);
   };
 
-  const pickImage = async () => {
+  const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== ImagePicker.PermissionStatus.GRANTED) {
       Alert.alert('Permission needed', 'Please grant photo library permissions.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8, // Increased for better quality
-    });
-    if (!result.canceled && result.assets?.[0]) {
-      clearUploadState();
-      
-      // Optimize image before setting
-      try {
-        const needsOptimization = await shouldOptimizeImage(result.assets[0].uri);
-        if (needsOptimization) {
-          const optimizedImage = await optimizeImageForUpload(result.assets[0].uri, {
-            maxWidth: 1200, // Increased for better quality
-            maxHeight: 1200, // Increased for better quality
-            quality: 0.9, // High quality
-            format: 'jpeg'
-          });
-          setSelectedImage(optimizedImage.uri);
-        } else {
-          setSelectedImage(result.assets[0].uri);
-        }
-      } catch (error) {
-        console.error('Image optimization error:', error);
-        setSelectedImage(result.assets[0].uri); // Fallback to original
+    
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => {
+          // Determine proper MIME type based on file extension or default to jpeg
+          let mimeType = 'image/jpeg';
+          if (asset.fileName) {
+            const extension = asset.fileName.split('.').pop()?.toLowerCase();
+            switch (extension) {
+              case 'png':
+                mimeType = 'image/png';
+                break;
+              case 'gif':
+                mimeType = 'image/gif';
+                break;
+              case 'webp':
+                mimeType = 'image/webp';
+                break;
+              default:
+                mimeType = 'image/jpeg';
+            }
+          }
+          
+          return {
+            uri: asset.uri,
+            type: mimeType,
+            name: asset.fileName || `image_${Date.now()}.jpg`
+          };
+        });
+        
+        setSelectedImages(prev => {
+          const combined = [...prev, ...newImages];
+          if (combined.length > 10) {
+            Alert.alert('Too many images', 'Maximum 10 images are allowed');
+            return prev;
+          }
+          return combined;
+        });
+        
+        setSelectedVideo(null);
+        setPostType('photo');
+        await getLocation();
       }
-      
-      setSelectedVideo(null);
-      setPostType('photo');
-      await getLocation();
+    } catch (error) {
+      console.error('Error picking images:', error);
+      Alert.alert('Error', 'Failed to pick images');
     }
   };
 
@@ -146,8 +172,16 @@ export default function PostScreen() {
     if (!result.canceled && result.assets?.[0]) {
       clearUploadState();
       setSelectedVideo(result.assets[0].uri);
-      setSelectedImage(null);
+        setSelectedImages([]);
       setPostType('short');
+      // Generate initial thumbnail
+      try {
+        const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
+        setVideoThumbnail(uri);
+      } catch (e) {
+        console.warn('Thumbnail generation failed:', e);
+        setVideoThumbnail(null);
+      }
       await getLocation();
     }
   };
@@ -158,36 +192,40 @@ export default function PostScreen() {
       Alert.alert('Permission needed', 'Please grant camera permissions to take photos.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8, // Increased for better quality
-    });
-    if (!result.canceled && result.assets?.[0]) {
-      clearUploadState();
+    
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
       
-      // Optimize image before setting
-      try {
-        const needsOptimization = await shouldOptimizeImage(result.assets[0].uri);
-        if (needsOptimization) {
-          const optimizedImage = await optimizeImageForUpload(result.assets[0].uri, {
-            maxWidth: 1200, // Increased for better quality
-            maxHeight: 1200, // Increased for better quality
-            quality: 0.9, // High quality
-            format: 'jpeg'
-          });
-          setSelectedImage(optimizedImage.uri);
-        } else {
-          setSelectedImage(result.assets[0].uri);
-        }
-      } catch (error) {
-        console.error('Image optimization error:', error);
-        setSelectedImage(result.assets[0].uri); // Fallback to original
+      if (!result.canceled && result.assets?.[0]) {
+        clearUploadState();
+        
+        const newImage = {
+          uri: result.assets[0].uri,
+          type: 'image/jpeg', // Camera photos are always JPEG
+          name: result.assets[0].fileName || `photo_${Date.now()}.jpg`
+        };
+        
+        setSelectedImages(prev => {
+          const combined = [...prev, newImage];
+          if (combined.length > 10) {
+            Alert.alert('Too many images', 'Maximum 10 images are allowed');
+            return prev;
+          }
+          return combined;
+        });
+        
+        setSelectedVideo(null);
+        setPostType('photo');
+        await getLocation();
       }
-      
-      setSelectedVideo(null);
-      setPostType('photo');
-      await getLocation();
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
     }
   };
 
@@ -205,8 +243,15 @@ export default function PostScreen() {
     });
     if (!result.canceled && result.assets?.[0]) {
       setSelectedVideo(result.assets[0].uri);
-      setSelectedImage(null);
+        setSelectedImages([]);
       setPostType('short');
+      try {
+        const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
+        setVideoThumbnail(uri);
+      } catch (e) {
+        console.warn('Thumbnail generation failed:', e);
+        setVideoThumbnail(null);
+      }
       await getLocation();
     }
   };
@@ -254,8 +299,8 @@ export default function PostScreen() {
   };
 
   const handlePost = async (values: PostFormValues) => {
-    if (!selectedImage) {
-      Alert.alert("Error", "Please select an image first.");
+    if (selectedImages.length === 0) {
+      Alert.alert("Error", "Please select at least one image first.");
       return;
     }
     if (!user) {
@@ -269,12 +314,14 @@ export default function PostScreen() {
     setUploadError(null);
     
     try {
-      console.log('Creating post with image:', selectedImage);
+      console.log('Creating post with images:', selectedImages);
       
-      // Extract filename from URI
-      const filename = selectedImage.split('/').pop() || 'post_image.jpg';
-      const match = /\.(\w+)$/.exec(filename);
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      // Prepare images data
+      const imagesData = selectedImages.map(img => ({
+        uri: img.uri,
+        type: img.type,
+        name: img.name
+      }));
 
       // Simulate progress updates since we can't track actual upload progress with fetch
       const progressInterval = setInterval(() => {
@@ -285,11 +332,7 @@ export default function PostScreen() {
       }, 200);
 
       const response = await createPostWithProgress({
-        image: {
-          uri: selectedImage,
-          type: type,
-          name: filename,
-        },
+        images: imagesData,
         caption: values.comment,
         address: values.placeName || address,
         latitude: location?.lat,
@@ -309,7 +352,7 @@ export default function PostScreen() {
           {
             text: 'OK',
             onPress: () => {
-              setSelectedImage(null);
+              setSelectedImages([]);
               setLocation(null);
               setAddress('');
               // Update existing posts state
@@ -377,6 +420,11 @@ export default function PostScreen() {
           type: type,
           name: filename,
         },
+        image: videoThumbnail ? {
+          uri: videoThumbnail,
+          type: 'image/jpeg',
+          name: 'thumbnail.jpg',
+        } : undefined,
         caption: values.caption,
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         address: values.placeName || address,
@@ -479,7 +527,7 @@ export default function PostScreen() {
           </TouchableOpacity>
         </View>
 
-        {!selectedImage && !selectedVideo ? (
+        {!selectedImages.length && !selectedVideo ? (
           <>
             <View style={{ alignItems: 'center', marginTop: theme.spacing.xl, marginBottom: theme.spacing.xl }}>
               <Ionicons 
@@ -513,7 +561,7 @@ export default function PostScreen() {
               </Text>
             </View>
             <View style={{ flexDirection: "row", justifyContent: "space-around", marginVertical: theme.spacing.xl }}>
-              <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={postType === 'photo' ? pickImage : pickVideo}>
+              <TouchableOpacity style={{ alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, width: "45%", ...theme.shadows.medium }} onPress={postType === 'photo' ? pickImages : pickVideo}>
                 <Ionicons name={postType === 'photo' ? "images" : "film"} size={48} color={theme.colors.primary} />
                 <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, marginTop: theme.spacing.sm, textAlign: "center" }}>
                   Choose from Library
@@ -529,17 +577,105 @@ export default function PostScreen() {
           </>
         ) : (
           <View style={{ position: "relative", marginVertical: theme.spacing.md }}>
-            {selectedImage ? (
-              <Image source={{ uri: selectedImage }} style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
+            {selectedImages.length > 0 ? (
+              <View>
+                {/* Image carousel */}
+                <ScrollView 
+                  horizontal 
+                  pagingEnabled 
+                  showsHorizontalScrollIndicator={false}
+                  style={{ borderRadius: theme.borderRadius.lg }}
+                >
+                  {selectedImages.map((image, index) => (
+                    <View key={index} style={{ width: 350, height: 300 }}>
+                      <Image 
+                        source={{ uri: image.uri }} 
+                        style={{ width: "100%", height: "100%", borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} 
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+                
+                {/* Image counter */}
+                {selectedImages.length > 1 && (
+                  <View style={{ 
+                    position: 'absolute', 
+                    top: theme.spacing.sm, 
+                    left: theme.spacing.sm, 
+                    backgroundColor: 'rgba(0,0,0,0.6)', 
+                    paddingHorizontal: theme.spacing.sm, 
+                    paddingVertical: theme.spacing.xs, 
+                    borderRadius: theme.borderRadius.md 
+                  }}>
+                    <Text style={{ color: 'white', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
+                      {selectedImages.length} photos
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Add more photos button */}
+                {selectedImages.length < 10 && (
+                  <TouchableOpacity
+                    onPress={pickImages}
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: theme.spacing.sm, 
+                      right: theme.spacing.sm, 
+                      backgroundColor: theme.colors.primary, 
+                      paddingHorizontal: theme.spacing.md, 
+                      paddingVertical: theme.spacing.sm, 
+                      borderRadius: theme.borderRadius.md 
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: '600' }}>+ Add More</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             ) : selectedVideo ? (
-              <View style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
-                <Ionicons name="play-circle" size={80} color={theme.colors.primary} />
-                <Text style={{ color: theme.colors.text, marginTop: theme.spacing.sm }}>Video Selected</Text>
+              <View>
+                {/* Video preview */}
+                <View style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                  <Video
+                    source={{ uri: selectedVideo }}
+                    style={{ width: '100%', height: '100%' }}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                  />
+                </View>
+                {/* Thumbnail preview below */}
+                <View style={{ marginTop: theme.spacing.sm }}>
+                  {videoThumbnail ? (
+                    <Image source={{ uri: videoThumbnail }} style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
+                  ) : (
+                    <View style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
+                      <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
+                      <Text style={{ color: theme.colors.text, marginTop: theme.spacing.xs }}>Generating thumbnail...</Text>
+                    </View>
+                  )}
+                  {/* Change/Regenerate thumbnail button */}
+                  <TouchableOpacity
+                    onPress={async () => {
+                      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (libPerm.status !== ImagePicker.PermissionStatus.GRANTED) {
+                        Alert.alert('Permission needed', 'Please grant photo library permissions.');
+                        return;
+                      }
+                      const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [9, 16], quality: 0.9 });
+                      if (!pick.canceled && pick.assets?.[0]) {
+                        setVideoThumbnail(pick.assets[0].uri);
+                      }
+                    }}
+                    style={{ position: 'absolute', right: theme.spacing.sm, bottom: theme.spacing.sm, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderRadius: theme.borderRadius.md, opacity: 0.9 }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Change Thumbnail</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : null}
             <TouchableOpacity style={{ position: "absolute", top: theme.spacing.sm, right: theme.spacing.sm, backgroundColor: theme.colors.background, borderRadius: 16 }} onPress={() => { 
-              setSelectedImage(null); 
+              setSelectedImages([]); 
               setSelectedVideo(null);
+              setVideoThumbnail(null);
               setLocation(null); 
               setAddress(""); 
             }}>
@@ -547,7 +683,7 @@ export default function PostScreen() {
             </TouchableOpacity>
           </View>
         )}
-        {(selectedImage || selectedVideo) && (
+        {(selectedImages.length > 0 || selectedVideo) && (
           <View style={{ backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, marginTop: theme.spacing.md, ...theme.shadows.medium }}>
             {postType === 'photo' ? (
               <Formik
@@ -710,7 +846,7 @@ export default function PostScreen() {
       <ProgressAlert
         visible={isUploading}
         title="Uploading Post"
-        message="Please wait while your image is being uploaded..."
+        message="Please wait while your media is being uploaded..."
         progress={uploadProgress}
         type="upload"
         showCancel={true}
