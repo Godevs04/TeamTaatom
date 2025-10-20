@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Share,
   Linking,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -23,6 +24,9 @@ import { loadImageWithFallback } from '../utils/imageLoader';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
 import CommentModal from './CommentModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { savedEvents } from '../utils/savedEvents';
+import { realtimePostsService } from '../services/realtimePosts';
 import LocationModal from './LocationModal';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -44,6 +48,7 @@ export default function PhotoCard({
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
+  
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
@@ -60,6 +65,9 @@ export default function PhotoCard({
     onConfirm: () => {},
   });
 
+  // Animation for multiple images indicator
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   React.useEffect(() => {
     const loadUser = async () => {
       const user = await getUserFromStorage();
@@ -67,6 +75,123 @@ export default function PhotoCard({
     };
     loadUser();
   }, []);
+
+  // Load saved state on mount
+  React.useEffect(() => {
+    const loadSavedState = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('savedPosts');
+        const arr = stored ? JSON.parse(stored) : [];
+        setIsSaved(Array.isArray(arr) && arr.includes(post._id));
+      } catch {}
+    };
+    loadSavedState();
+  }, [post._id]);
+
+  // Initialize real-time posts service
+  React.useEffect(() => {
+    realtimePostsService.initialize();
+  }, []);
+
+  // Listen for WebSocket real-time updates
+  React.useEffect(() => {
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
+      if (data.postId === post._id) {
+        console.log('Home page - WebSocket like update received:', data);
+        
+        // Only update if the WebSocket data is more recent than our current state
+        // This prevents stale WebSocket events from overriding correct initial data
+        const currentTimestamp = Date.now();
+        const eventTimestamp = new Date(data.timestamp).getTime();
+        const timeDiff = currentTimestamp - eventTimestamp;
+        
+        // If the event is older than 5 seconds, it's likely stale data
+        if (timeDiff > 5000) {
+          console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          return;
+        }
+        
+        console.log('Home page - Applying WebSocket update:', { 
+          timeDiff: timeDiff + 'ms',
+          from: { isLiked, likesCount }, 
+          to: { isLiked: data.isLiked, likesCount: data.likesCount }
+        });
+        
+        setIsLiked(data.isLiked);
+        setLikesCount(data.likesCount);
+      }
+    });
+
+    const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
+      if (data.postId === post._id) {
+        // Update comments count if needed
+        setComments(prev => [...prev, data.comment]);
+      }
+    });
+
+    const unsubscribeSaves = realtimePostsService.subscribeToSaves((data) => {
+      if (data.postId === post._id) {
+        setIsSaved(data.isSaved);
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeComments();
+      unsubscribeSaves();
+    };
+  }, [post._id]);
+
+  // Listen for post action events from other pages (legacy fallback)
+  React.useEffect(() => {
+    const unsubscribe = savedEvents.addPostActionListener((postId, action, data) => {
+      if (postId === post._id) {
+        switch (action) {
+          case 'like':
+          case 'unlike':
+            // Ensure we're setting the correct boolean value
+            const eventIsLiked = data.isLiked === true;
+            const eventLikesCount = data.likesCount || 0;
+            
+            setIsLiked(eventIsLiked);
+            setLikesCount(eventLikesCount);
+            break;
+          case 'save':
+          case 'unsave':
+            setIsSaved(data.isBookmarked);
+            break;
+          case 'comment':
+            // Update comments count if needed
+            break;
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [post._id, isLiked, likesCount]);
+
+  // Animation for multiple images indicator
+  React.useEffect(() => {
+    if (post.images && post.images.length > 1) {
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseAnimation.start();
+      
+      return () => pulseAnimation.stop();
+    }
+  }, [post.images, pulseAnim]);
 
   // Robust image loading with multiple strategies
   const [imageLoading, setImageLoading] = useState(true);
@@ -124,6 +249,16 @@ export default function PhotoCard({
       const response = await toggleLike(post._id);
       setIsLiked(response.isLiked);
       setLikesCount(response.likesCount);
+      
+      // Emit event to notify other pages
+      savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {
+        likesCount: response.likesCount,
+        isLiked: response.isLiked
+      });
+
+      // Emit WebSocket event for real-time updates
+      await realtimePostsService.emitLike(post._id, response.isLiked, response.likesCount);
+      
     } catch (error) {
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status.');
@@ -193,12 +328,24 @@ export default function PhotoCard({
       const newSaveState = !isSaved;
       setIsSaved(newSaveState);
       
-      // In a real app, you'd call an API to save/unsave the post
-      showCustomAlertMessage(
-        'Success', 
-        newSaveState ? 'Post saved to your collection!' : 'Post removed from your collection!', 
-        'success'
-      );
+      // Persist to AsyncStorage for Saved tab
+      const key = 'savedPosts';
+      const stored = await AsyncStorage.getItem(key);
+      const arr = stored ? JSON.parse(stored) : [];
+      let next: string[] = Array.isArray(arr) ? arr : [];
+      if (newSaveState) {
+        if (!next.includes(post._id)) next.push(post._id);
+      } else {
+        next = next.filter(id => id !== post._id);
+      }
+      await AsyncStorage.setItem(key, JSON.stringify(next));
+      console.log(newSaveState ? 'Post saved' : 'Post unsaved', post._id);
+      
+      // Emit events to notify other pages
+      savedEvents.emitChanged();
+      savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
+        isBookmarked: newSaveState
+      });
     } catch (error) {
       console.error('Error saving post:', error);
       showCustomAlertMessage('Error', 'Failed to save post', 'error');
@@ -229,6 +376,13 @@ export default function PhotoCard({
     try {
       const response = await addComment(post._id, text);
       setComments(prev => [...prev, response.comment]);
+      
+      // Emit event to notify other pages
+      savedEvents.emitPostAction(post._id, 'comment', {
+        comment: response.comment,
+        commentsCount: comments.length + 1
+      });
+      
       showCustomAlertMessage('Success', 'Comment added successfully!', 'success');
     } catch (error) {
       console.error('Error adding comment:', error);
@@ -354,34 +508,77 @@ export default function PhotoCard({
           )}
           
           {imageUri && !imageError ? (
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.image}
-              resizeMode="cover"
-              onLoadStart={() => {
-                console.log('PhotoCard: Image load started for post', post._id);
-                setImageLoading(true);
-              }}
-              onLoad={() => {
-                console.log('PhotoCard: Image loaded successfully for post', post._id);
-                setImageLoading(false);
-                setImageError(false);
-                setRetryCount(0); // Reset retry count on success
-              }}
-              onError={(error) => {
-                console.log('PhotoCard: Image load error for post', post._id, error);
-                if (retryCount < 2) {
-                  console.log('PhotoCard: Retrying image load for post', post._id);
-                  setTimeout(() => {
-                    setRetryCount(prev => prev + 1);
-                    setImageLoading(true);
-                  }, 1000); // Wait 1 second before retry
-                } else {
-                  setImageError(true);
+            <View style={styles.imageWrapper}>
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.image}
+                resizeMode="cover"
+                onLoadStart={() => {
+                  console.log('PhotoCard: Image load started for post', post._id);
+                  setImageLoading(true);
+                }}
+                onLoad={() => {
+                  console.log('PhotoCard: Image loaded successfully for post', post._id);
                   setImageLoading(false);
-                }
-              }}
-            />
+                  setImageError(false);
+                  setRetryCount(0); // Reset retry count on success
+                }}
+                onError={(error) => {
+                  console.log('PhotoCard: Image load error for post', post._id, error);
+                  if (retryCount < 2) {
+                    console.log('PhotoCard: Retrying image load for post', post._id);
+                    setTimeout(() => {
+                      setRetryCount(prev => prev + 1);
+                      setImageLoading(true);
+                    }, 1000); // Wait 1 second before retry
+                  } else {
+                    setImageError(true);
+                    setImageLoading(false);
+                  }
+                }}
+              />
+              
+              {/* Multiple Images Indicator */}
+              {post.images && post.images.length > 1 && (
+                <View style={styles.multipleImagesIndicator}>
+                  <Animated.View 
+                    style={[
+                      styles.imageCountBadge, 
+                      { 
+                        backgroundColor: theme.colors.background,
+                        transform: [{ scale: pulseAnim }]
+                      }
+                    ]}
+                  >
+                    <Ionicons name="images" size={16} color={theme.colors.primary} />
+                    <Text style={[styles.imageCountText, { color: theme.colors.primary }]}>
+                      {post.images.length}
+                    </Text>
+                  </Animated.View>
+                  
+                  {/* Subtle animation dots */}
+                  <View style={styles.imageDots}>
+                    {post.images.slice(0, 3).map((_, index) => (
+                      <View 
+                        key={index}
+                        style={[
+                          styles.dot, 
+                          { 
+                            backgroundColor: theme.colors.primary,
+                            opacity: index === 0 ? 1 : 0.4
+                          }
+                        ]} 
+                      />
+                    ))}
+                    {post.images.length > 3 && (
+                      <Text style={[styles.moreDots, { color: theme.colors.primary }]}>
+                        +{post.images.length - 3}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              )}
+            </View>
           ) : imageError ? (
             <View style={[styles.image, styles.imageError]}>
               <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
@@ -472,6 +669,16 @@ export default function PhotoCard({
             </Text>{' '}
             {post.caption}
           </Text>
+          
+          {/* Multiple images hint */}
+          {post.images && post.images.length > 1 && (
+            <View style={styles.multipleImagesHint}>
+              <Ionicons name="swap-horizontal" size={14} color={theme.colors.textSecondary} />
+              <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
+                Swipe to see {post.images.length} photos
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -770,9 +977,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.05)',
   },
+  imageWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+  },
   image: {
     width: '100%',
     height: '100%',
+  },
+  multipleImagesIndicator: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  imageCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    gap: 4,
+  },
+  imageCountText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  imageDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  moreDots: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginLeft: 2,
   },
   imageError: {
     justifyContent: 'center',
@@ -829,6 +1081,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     letterSpacing: 0.1,
+  },
+  multipleImagesHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  hintText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    opacity: 0.7,
   },
   menuOverlay: {
     flex: 1,
