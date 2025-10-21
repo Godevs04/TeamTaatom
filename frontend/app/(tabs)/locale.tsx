@@ -21,7 +21,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
-import { geocodeAddress } from '../../utils/geocodingService';
+import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');

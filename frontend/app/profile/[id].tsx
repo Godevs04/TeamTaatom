@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import WorldMap from '../../components/WorldMap';
-import PhotoCard from '../../components/PhotoCard';
+import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
 import BioDisplay from '../../components/BioDisplay';
 import Constants from 'expo-constants';
