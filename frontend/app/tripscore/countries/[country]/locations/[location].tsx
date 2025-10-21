@@ -51,6 +51,7 @@ export default function LocationDetailScreen() {
       // Check if this is a general location (from map) or a TripScore location
       if (countryParam === 'general') {
         // This is a location from the map, create mock data
+        const description = await generateLocationDescription(locationName, '');
         setData({
           name: locationName,
           score: 1,
@@ -60,7 +61,7 @@ export default function LocationDetailScreen() {
             fromYou: 'Drivable',
             typeOfSpot: 'General'
           },
-          description: generateLocationDescription(locationName, '')
+          description: description
         });
       } else {
         // This is a TripScore location, fetch from API
@@ -84,6 +85,7 @@ export default function LocationDetailScreen() {
       // Fallback to mock data if API fails
       const locationParam = Array.isArray(location) ? location[0] : location;
       const locationName = locationParam.replace(/-/g, ' ');
+      const description = await generateLocationDescription(locationName, '');
       setData({
         name: locationName,
         score: 1,
@@ -93,43 +95,27 @@ export default function LocationDetailScreen() {
           fromYou: 'Drivable',
           typeOfSpot: 'General'
         },
-        description: generateLocationDescription(locationName, '')
+        description: description
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const generateLocationDescription = (locationName: string, caption: string) => {
-    // Generate descriptions based on location name
-    const descriptions: { [key: string]: string } = {
-      'the great barrier reef': 'The Great Barrier Reef is the world\'s largest coral reef system, composed of over 2,900 individual reefs and 900 islands stretching for over 2,300 kilometres. It\'s a UNESCO World Heritage site and one of the most biodiverse ecosystems on Earth.',
-      'ooty': 'Ooty, with its scenic sightseeing spots and thrilling tourist attractions, is the ideal destination for nature lovers and thrill-seekers alike. Ooty has something for everyone!',
-      'rio de janeiro': 'Rio de Janeiro is a vibrant city known for its stunning beaches, iconic landmarks like Christ the Redeemer, and the world-famous Carnival celebration.',
-      'amazon rainforest': 'The Amazon Rainforest is the largest tropical rainforest in the world, home to incredible biodiversity and indigenous communities.',
-      'machu picchu': 'Machu Picchu is an ancient Incan citadel set high in the Andes Mountains, offering breathtaking views and rich historical significance.',
-      'niagara falls': 'Niagara Falls is a group of three waterfalls at the southern end of Niagara Gorge, between the Canadian province of Ontario and the US state of New York.',
-      'bristol': 'Bristol is a vibrant city in southwest England, known for its maritime history, creative culture, and iconic Clifton Suspension Bridge.',
-    };
+  const generateLocationDescription = async (locationName: string, caption: string) => {
+    // For general locations (from map), generate dynamic description
+    if (caption) {
+      return `${locationName} is a beautiful destination where you've shared "${caption}". This location offers unique attractions and natural beauty that makes it a memorable place to visit.`;
+    }
     
-    const key = locationName.toLowerCase();
-    return descriptions[key] || `${locationName} is a beautiful destination with unique attractions and natural beauty that makes it a memorable place to visit.`;
+    // Dynamic description based on location name
+    return `${locationName} is a beautiful destination with unique attractions and natural beauty that makes it a memorable place to visit. Explore the local culture, landmarks, and experiences that make this location special.`;
   };
 
   const getLocationImage = (locationName: string) => {
-    // Return placeholder image URLs based on location
-    const images: { [key: string]: string } = {
-      'the great barrier reef': 'https://images.unsplash.com/photo-1583212292454-1fe6229603b7?w=400',
-      'ooty': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400',
-      'rio de janeiro': 'https://images.unsplash.com/photo-1544989165-0c1b4b0b0b0b?w=400',
-      'amazon rainforest': 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=400',
-      'machu picchu': 'https://images.unsplash.com/photo-1526392060635-9d6019884377?w=400',
-      'niagara falls': 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
-      'bristol': 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=400',
-    };
-    
-    const key = locationName.toLowerCase();
-    return images[key] || 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400';
+    // Generate dynamic Unsplash image URL based on location name
+    const encodedLocation = encodeURIComponent(locationName);
+    return `https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop&q=80&auto=format&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80`;
   };
 
   if (loading) {
