@@ -16,6 +16,7 @@ const {
 router.post('/login', loginSuperAdmin)
 router.post('/create', createSuperAdmin) // For initial setup only
 
+
 // Protected routes (require authentication)
 router.use(verifySuperAdminToken)
 
@@ -185,10 +186,13 @@ router.get('/analytics/realtime', async (req, res) => {
 // Users management with advanced features
 router.get('/users', async (req, res) => {
   try {
+    
     const { page = 1, limit = 20, search, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query
     const skip = (page - 1) * limit
     
     const User = require('../models/User')
+    const Post = require('../models/Post')
+    
     let query = {}
     
     if (search) {
@@ -198,8 +202,9 @@ router.get('/users', async (req, res) => {
       ]
     }
     
-    if (status) {
-      query.isActive = status === 'active'
+    if (status && status !== 'undefined' && status !== 'all') {
+      // Use isVerified field instead of isActive
+      query.isVerified = status === 'active'
     }
     
     const sortOptions = {}
@@ -210,24 +215,35 @@ router.get('/users', async (req, res) => {
       .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit))
-      .populate('posts', 'content createdAt')
     
     const total = await User.countDocuments(query)
     
     // Add additional user metrics
     const usersWithMetrics = await Promise.all(users.map(async (user) => {
-      const userPosts = await Post.countDocuments({ user: user._id })
-      const userLikes = await Post.aggregate([
-        { $match: { user: user._id } },
-        { $group: { _id: null, totalLikes: { $sum: '$likes' } } }
-      ])
-      
-      return {
-        ...user.toObject(),
-        metrics: {
-          totalPosts: userPosts,
-          totalLikes: userLikes[0]?.totalLikes || 0,
-          lastActive: user.lastActive || user.createdAt
+      try {
+        const userPosts = await Post.countDocuments({ user: user._id })
+        const userLikes = await Post.aggregate([
+          { $match: { user: user._id } },
+          { $group: { _id: null, totalLikes: { $sum: '$likes' } } }
+        ])
+        
+        return {
+          ...user.toObject(),
+          metrics: {
+            totalPosts: userPosts,
+            totalLikes: userLikes[0]?.totalLikes || 0,
+            lastActive: user.lastActive || user.createdAt
+          }
+        }
+      } catch (error) {
+        console.error('Error processing user metrics for user:', user._id, error)
+        return {
+          ...user.toObject(),
+          metrics: {
+            totalPosts: 0,
+            totalLikes: 0,
+            lastActive: user.lastActive || user.createdAt
+          }
         }
       }
     }))
@@ -305,6 +321,7 @@ router.post('/users/bulk-action', async (req, res) => {
 // Travel content management
 router.get('/travel-content', async (req, res) => {
   try {
+    
     const { page = 1, limit = 20, search, type, status } = req.query
     const skip = (page - 1) * limit
     
@@ -356,45 +373,31 @@ router.get('/reports', async (req, res) => {
     const { page = 1, limit = 20, status, type } = req.query
     const skip = (page - 1) * limit
     
-    // Mock reports data - replace with real reports collection
-    const reports = [
-      {
-        id: '1',
-        type: 'inappropriate_content',
-        status: 'pending',
-        reportedBy: 'user123',
-        reportedContent: 'post456',
-        reason: 'Contains inappropriate language',
-        createdAt: new Date(),
-        priority: 'high'
-      },
-      {
-        id: '2',
-        type: 'spam',
-        status: 'resolved',
-        reportedBy: 'user789',
-        reportedContent: 'post789',
-        reason: 'Spam content',
-        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
-        priority: 'medium'
-      }
-    ]
-    
-    let filteredReports = reports
+    const Report = require('../models/Report')
+    let query = {}
     
     if (status) {
-      filteredReports = filteredReports.filter(report => report.status === status)
+      query.status = status
     }
     
     if (type) {
-      filteredReports = filteredReports.filter(report => report.type === type)
+      query.type = type
     }
     
-    const total = filteredReports.length
-    const paginatedReports = filteredReports.slice(skip, skip + parseInt(limit))
+    const reports = await Report.find(query)
+      .populate('reportedBy', 'fullName email')
+      .populate('reportedUser', 'fullName email')
+      .populate('reportedContent', 'caption type')
+      .populate('resolvedBy', 'fullName email')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean()
+    
+    const total = await Report.countDocuments(query)
     
     res.json({
-      reports: paginatedReports,
+      reports,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -850,5 +853,31 @@ function generateCSV(logs) {
   
   return [headers, ...rows].map(row => row.join(',')).join('\n')
 }
+
+// Test endpoint without authentication
+router.get('/test', async (req, res) => {
+  try {
+    const userCount = await User.countDocuments();
+    const postCount = await Post.countDocuments();
+    const reportCount = await Report.countDocuments();
+    
+    res.json({
+      status: 'OK',
+      message: 'Backend is working correctly',
+      data: {
+        users: userCount,
+        posts: postCount,
+        reports: reportCount,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      message: 'Backend error',
+      error: error.message
+    });
+  }
+});
 
 module.exports = router

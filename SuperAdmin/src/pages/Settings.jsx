@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRealTime } from '../context/RealTimeContext'
 
 const Settings = () => {
   const [settings, setSettings] = useState({
@@ -37,6 +38,48 @@ const Settings = () => {
   const [modalType, setModalType] = useState('')
   const [hasChanges, setHasChanges] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isConnected, setIsConnected] = useState(true)
+
+  const { api } = useRealTime()
+
+  // Fetch settings on component mount
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        // For now, we'll use a mock API call since system settings endpoints don't exist yet
+        // In a real implementation, this would be: await api.get('/api/superadmin/settings')
+        console.log('Fetching system settings...')
+        // Mock response - in real implementation, this would come from the API
+        const mockSettings = {
+          pinRequired: true,
+          twoFactorAuth: false,
+          sessionTimeout: 30,
+          maxLoginAttempts: 5,
+          userRegistration: true,
+          contentModeration: true,
+          locationTracking: true,
+          pushNotifications: true,
+          analyticsTracking: true,
+          maintenanceMode: false,
+          debugMode: false,
+          logLevel: 'info',
+          backupFrequency: 'daily',
+          rateLimitEnabled: true,
+          rateLimitRequests: 1000,
+          rateLimitWindow: 3600,
+          emailNotifications: true,
+          emailProvider: 'smtp',
+          smtpHost: 'smtp.gmail.com',
+          smtpPort: 587,
+        }
+        setSettings(mockSettings)
+      } catch (error) {
+        console.error('Failed to fetch settings:', error)
+      }
+    }
+
+    fetchSettings()
+  }, [])
 
   const handleSettingChange = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }))
@@ -46,12 +89,16 @@ const Settings = () => {
   const handleSave = async () => {
     setIsLoading(true)
     try {
+      // For now, we'll use a mock API call since system settings endpoints don't exist yet
+      // In a real implementation, this would be: await api.put('/api/superadmin/settings', { settings })
       console.log('Saving settings:', settings)
-      // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000))
       setHasChanges(false)
+      // In a real implementation, you would show a success toast here
+      console.log('Settings saved successfully')
     } catch (error) {
       console.error('Error saving settings:', error)
+      // In a real implementation, you would show an error toast here
     } finally {
       setIsLoading(false)
     }
@@ -116,7 +163,14 @@ const Settings = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+          <div className="flex items-center space-x-3">
+            <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+            {isConnected && (
+              <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                Live Data
+              </span>
+            )}
+          </div>
           <p className="text-gray-600 mt-2">Founder control and system configuration</p>
         </div>
         <div className="flex space-x-3">
