@@ -14,22 +14,22 @@ import {
   TouchableWithoutFeedback,
   Share,
   Platform,
+  Animated,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, toggleLike, addComment, getPostById } from '../../services/posts';
+import { getShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
 import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { savedEvents } from '../../utils/savedEvents';
 import CommentModal from '../../components/CommentModal';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ShortsScreen() {
   const [shorts, setShorts] = useState<PostType[]>([]);
@@ -45,17 +45,31 @@ export default function ShortsScreen() {
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
+  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
+  const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
+  const [showSwipeHint, setShowSwipeHint] = useState(true);
+  
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const swipeAnimation = useRef(new Animated.Value(0)).current;
+  const fadeAnimation = useRef(new Animated.Value(1)).current;
+  
   const { theme, mode } = useTheme();
   const router = useRouter();
-  const { showSuccess, showError, showInfo, showWarning } = useAlert();
+  const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
 
   useEffect(() => {
     loadShorts();
     loadCurrentUser();
     loadSavedShorts();
+    
+    // Hide swipe hint after 3 seconds
+    const timer = setTimeout(() => {
+      setShowSwipeHint(false);
+    }, 3000);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   const loadSavedShorts = async () => {
@@ -75,166 +89,135 @@ export default function ShortsScreen() {
     }
   };
 
-  // Cleanup videos when component unmounts
-  useEffect(() => {
-    return () => {
-      Object.values(videoRefs.current).forEach((videoRef) => {
-        if (videoRef) {
-          videoRef.pauseAsync();
-          videoRef.unloadAsync();
-        }
-      });
-      
-      // Clear all timeouts
-      Object.values(pauseTimeoutRefs.current).forEach((timeout) => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      });
-    };
-  }, []);
-
-  // Pause all videos when current index changes
-  useEffect(() => {
-    // Pause all videos first
-    Object.values(videoRefs.current).forEach((videoRef) => {
-      if (videoRef) {
-        videoRef.pauseAsync();
-        videoRef.setIsMutedAsync(true); // Mute all videos
-      }
-    });
-    
-    // Play and unmute only the current video
-    const currentVideoRef = videoRefs.current[shorts[currentIndex]?._id];
-    if (currentVideoRef) {
-      currentVideoRef.playAsync();
-      currentVideoRef.setIsMutedAsync(false); // Unmute current video
-    }
-    
-    // Unload videos that are far from current view for memory optimization
-    shorts.forEach((short, index) => {
-      const videoRef = videoRefs.current[short._id];
-      const distanceFromCurrent = Math.abs(index - currentIndex);
-      
-      if (distanceFromCurrent > 2 && videoRef) {
-        // Unload videos that are more than 2 positions away
-        videoRef.unloadAsync();
-      }
-    });
-    
-    // Update video states
-    const newVideoStates: { [key: string]: boolean } = {};
-    shorts.forEach((short, index) => {
-      newVideoStates[short._id] = index === currentIndex;
-    });
-    setVideoStates(newVideoStates);
-  }, [currentIndex, shorts]);
-
   const loadShorts = async () => {
     try {
       setLoading(true);
-      const response = await getShorts(1, 50); // Load shorts specifically
-      setShorts(response.shorts || []);
+      const response = await getShorts(1, 20);
+      setShorts(response.shorts);
       
-      // Initialize follow states for each short
-      const initialFollowStates: { [key: string]: boolean } = {};
-      response.shorts?.forEach((short: PostType) => {
-        // Check if the user object has isFollowing property
-        const userWithFollowStatus = short.user as any;
-        const followStatus = userWithFollowStatus.isFollowing || false;
-        initialFollowStates[short.user._id] = followStatus;
+      // Initialize follow states
+      const followStatesMap: { [key: string]: boolean } = {};
+      response.shorts.forEach((short: PostType) => {
+        // Check if the user object has isFollowing property, otherwise default to false
+        followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
       });
-      setFollowStates(initialFollowStates);
-      
-    } catch (error: any) {
-      console.error('Failed to fetch shorts:', error);
-      showError('Failed to load shorts. Please try again.');
+      setFollowStates(followStatesMap);
+    } catch (error) {
+      console.error('Error loading shorts:', error);
+      showError('Failed to load shorts');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleVideoPlayback = (itemId: string) => {
-    const videoRef = videoRefs.current[itemId];
-    const isCurrentlyPlaying = videoStates[itemId];
-    
-    if (isCurrentlyPlaying) {
-      videoRef?.pauseAsync();
-    } else {
-      videoRef?.playAsync();
+  const toggleVideoPlayback = (videoId: string) => {
+    const video = videoRefs.current[videoId];
+    if (video) {
+      const isCurrentlyPlaying = videoStates[videoId];
+      video.setStatusAsync({
+        shouldPlay: !isCurrentlyPlaying,
+      });
     }
   };
 
-  // Show pause button temporarily
-  const showPauseButtonTemporarily = (itemId: string) => {
-    setShowPauseButton(prev => ({ ...prev, [itemId]: true }));
+  const showPauseButtonTemporarily = (videoId: string) => {
+    setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
     
     // Clear existing timeout
-    if (pauseTimeoutRefs.current[itemId]) {
-      clearTimeout(pauseTimeoutRefs.current[itemId]);
+    if (pauseTimeoutRefs.current[videoId]) {
+      clearTimeout(pauseTimeoutRefs.current[videoId]);
     }
     
-    // Hide after 2 seconds
-    pauseTimeoutRefs.current[itemId] = setTimeout(() => {
-      setShowPauseButton(prev => ({ ...prev, [itemId]: false }));
+    // Set new timeout
+    pauseTimeoutRefs.current[videoId] = setTimeout(() => {
+      setShowPauseButton(prev => ({ ...prev, [videoId]: false }));
     }, 2000);
   };
 
-  // Handle like/unlike with enhanced feedback
   const handleLike = async (shortId: string) => {
-    if (!currentUser) {
-      showError('You must be signed in to like shorts');
-      return;
-    }
-
+    if (actionLoading === shortId) return;
+    
     try {
-      setActionLoading('like');
+      setActionLoading(shortId);
       const response = await toggleLike(shortId);
+      
       setShorts(prev => prev.map(short => 
         short._id === shortId 
-          ? { 
-              ...short, 
-              isLiked: response.isLiked, 
-              likesCount: response.likesCount 
-            }
+          ? { ...short, isLiked: response.isLiked, likesCount: response.likesCount }
           : short
       ));
       
       if (response.isLiked) {
-        // showSuccess('Liked! ❤️');
-        console.log('Short liked ❤️ :', shortId);
+        showSuccess('Added to favorites!');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error toggling like:', error);
-      showError('Failed to update like. Please try again.');
+      showError('Failed to update like status');
     } finally {
       setActionLoading(null);
     }
   };
 
-  // Handle comment with enhanced modal
-  const handleComment = async (shortId: string) => {
-    if (!currentUser) {
-      showError('You must be signed in to comment');
-      return;
-    }
+  const handleFollow = async (userId: string) => {
+    if (actionLoading === userId) return;
     
     try {
-      // First try to get comments from the shorts list
-      const selectedShort = shorts.find(short => short._id === shortId);
-      let comments = selectedShort?.comments || [];
+      setActionLoading(userId);
+      const response = await toggleFollow(userId);
       
-      // If no comments found, try to fetch fresh data from API
-      if (comments.length === 0) {
-        try {
-          const response = await getPostById(shortId);
-          comments = response.post?.comments || [];
-        } catch (apiError) {
-          console.log('Could not fetch fresh comments, using cached data');
-        }
+      setFollowStates(prev => ({
+        ...prev,
+        [userId]: response.isFollowing
+      }));
+      
+      if (response.isFollowing) {
+        showSuccess('Following user!');
+      } else {
+        showInfo('Unfollowed user');
       }
-      
-      setSelectedShortComments(comments);
+    } catch (error) {
+      console.error('Error toggling follow:', error);
+      showError('Failed to update follow status');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSave = async (shortId: string) => {
+    try {
+      const newSavedShorts = new Set(savedShorts);
+      if (newSavedShorts.has(shortId)) {
+        newSavedShorts.delete(shortId);
+        await AsyncStorage.setItem('savedShorts', JSON.stringify([...newSavedShorts]));
+        showInfo('Removed from saved');
+      } else {
+        newSavedShorts.add(shortId);
+        await AsyncStorage.setItem('savedShorts', JSON.stringify([...newSavedShorts]));
+        showSuccess('Saved to favorites!');
+      }
+      setSavedShorts(newSavedShorts);
+    } catch (error) {
+      console.error('Error saving short:', error);
+      showError('Failed to save short');
+    }
+  };
+
+  const handleShare = async (short: PostType) => {
+    try {
+      await Share.share({
+        message: `Check out this amazing short by ${short.user.fullName}: ${short.caption}`,
+        url: short.mediaUrl || short.imageUrl,
+      });
+    } catch (error) {
+      console.error('Error sharing:', error);
+      showError('Failed to share');
+    }
+  };
+
+  const handleComment = async (shortId: string) => {
+    try {
+      const response = await getPostById(shortId);
+      setSelectedShortComments(response.post.comments || []);
       setSelectedShortId(shortId);
       setShowCommentModal(true);
     } catch (error) {
@@ -243,296 +226,299 @@ export default function ShortsScreen() {
     }
   };
 
-  // Handle comment added
-  const handleCommentAdded = (newComment: any) => {
-    // Update the shorts list to reflect new comment count
+  const handleCommentAdded = (comment: any) => {
+    setSelectedShortComments(prev => [comment, ...prev]);
     setShorts(prev => prev.map(short => 
       short._id === selectedShortId 
-        ? { 
-            ...short, 
-            commentsCount: (short.commentsCount || 0) + 1,
-            comments: [...(short.comments || []), newComment]
-          }
+        ? { ...short, commentsCount: short.commentsCount + 1 }
         : short
     ));
-    
-    // Update the selected short comments for the modal
-    setSelectedShortComments(prev => [...prev, newComment]);
-    
-    // Don't show success alert here - let the modal handle it
-    console.log('Comment added to shorts list');
   };
 
-  // Handle share with enhanced functionality
-  const handleShare = async (short: PostType) => {
-    try {
-      const shareContent = {
-        title: `Short by ${short.user.fullName}`,
-        message: `${short.caption}\n\nCheck out this amazing short!`,
-        url: short.mediaUrl || short.imageUrl,
-      };
-
-      if (Platform.OS === 'ios') {
-        await Share.share(shareContent);
-      } else {
-        await Share.share(shareContent);
-      }
-      // Log success instead of showing a custom alert
-      console.log('Short shared successfully:', short._id);
-    } catch (error) {
-      console.error('Error sharing:', error);
-      showError('Failed to share. Please try again.');
-    }
+  const handleProfilePress = (userId: string) => {
+    router.push(`/profile/${userId}`);
   };
 
-  // Handle save/bookmark with enhanced feedback
-  const handleSave = (shortId: string) => {
-    if (!currentUser) {
-      showError('You must be signed in to save shorts');
-      return;
-    }
-
-    setSavedShorts(prev => {
-      const newSaved = new Set(prev);
-      if (newSaved.has(shortId)) {
-        newSaved.delete(shortId);
-        // Log instead of alert
-        console.log('Short removed from saved:', shortId);
-      } else {
-        newSaved.add(shortId);
-        // Log instead of alert
-        console.log('Short saved:', shortId);
-      }
-      // Persist to AsyncStorage so profile Saved tab can read it
-      try {
-        const arr = Array.from(newSaved);
-        AsyncStorage.setItem('savedShorts', JSON.stringify(arr));
-        // notify saved tab to refresh immediately
-        savedEvents.emitChanged();
-      } catch {}
-      return newSaved;
+  const handleSwipeLeft = (userId: string) => {
+    // Animate swipe gesture
+    Animated.sequence([
+      Animated.timing(swipeAnimation, {
+        toValue: -1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Navigate to profile
+      router.push(`/profile/${userId}`);
+      
+      // Reset animations
+      swipeAnimation.setValue(0);
+      fadeAnimation.setValue(1);
     });
   };
 
-  // Handle follow/unfollow
-  const handleFollow = async (userId: string, userName: string) => {
-    if (!currentUser) {
-      showError('You must be signed in to follow users');
-      return;
-    }
+  const handleDeleteShort = async (shortId: string) => {
+    showConfirm(
+      'Are you sure you want to delete this short?',
+      async () => {
+        try {
+          await deleteShort(shortId);
+          
+          // Remove from local state
+          setShorts(prev => prev.filter(short => short._id !== shortId));
+          
+          // Remove from saved shorts if it exists there
+          const savedShorts = await AsyncStorage.getItem('savedShorts');
+          if (savedShorts) {
+            const savedIds = JSON.parse(savedShorts);
+            const updatedIds = savedIds.filter((id: string) => id !== shortId);
+            await AsyncStorage.setItem('savedShorts', JSON.stringify(updatedIds));
+          }
+          
+          showSuccess('Short deleted successfully!');
+        } catch (error: any) {
+          showError(error.message || 'Failed to delete short');
+        }
+      },
+      'Delete',
+      'Delete',
+      'Cancel'
+    );
+  };
 
-    if (currentUser._id === userId) {
-      showInfo('You cannot follow yourself');
-      return;
-    }
+  const handleTouchStart = (event: any) => {
+    const { pageX, pageY } = event.nativeEvent;
+    setSwipeStartX(pageX);
+    setSwipeStartY(pageY);
+  };
 
-    try {
-      setActionLoading('follow');
-      const response = await toggleFollow(userId);
-      setFollowStates(prev => ({
-        ...prev,
-        [userId]: response.isFollowing
-      }));
-      
-      showSuccess(
-        response.isFollowing 
-          ? `You're now following ${userName}` 
-          : `You've unfollowed ${userName}`
-      );
-    } catch (error: any) {
-      // Don't log conflict errors (follow request already pending) as they are expected
-      if (!error.isConflict && error.response?.status !== 409) {
-        console.error('Error toggling follow:', error);
-      }
-      
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to update follow status. Please try again.';
-      
-      // Check if it's a follow request already pending message or conflict error
-      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || error.isConflict) {
-        showWarning(errorMessage);
-      } else {
-        showError(errorMessage);
-      }
-    } finally {
-      setActionLoading(null);
+  const handleTouchMove = (event: any) => {
+    if (swipeStartX === null || swipeStartY === null) return;
+    
+    const { pageX, pageY } = event.nativeEvent;
+    const deltaX = pageX - swipeStartX;
+    const deltaY = pageY - swipeStartY;
+    
+    // Update animation based on horizontal movement
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      const progress = Math.min(Math.abs(deltaX) / 100, 1);
+      swipeAnimation.setValue(-progress);
     }
   };
 
-  // Handle profile navigation
-  const handleProfilePress = (userId: string) => {
-    if (currentUser && currentUser._id === userId) {
-      // Navigate to own profile
-      router.push('/(tabs)/profile');
+  const handleTouchEnd = (event: any, userId: string) => {
+    if (swipeStartX === null || swipeStartY === null) return;
+    
+    const { pageX, pageY } = event.nativeEvent;
+    const deltaX = pageX - swipeStartX;
+    const deltaY = pageY - swipeStartY;
+    
+    // Check if it's a horizontal swipe (left)
+    if (Math.abs(deltaX) > Math.abs(deltaY) && deltaX < -50) {
+      console.log('Swipe left detected, navigating to profile:', userId);
+      handleSwipeLeft(userId);
     } else {
-      // Navigate to other user's profile
-      router.push(`/profile/${userId}`);
+      // Reset animation if not a valid swipe
+      Animated.spring(swipeAnimation, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
     }
+    
+    setSwipeStartX(null);
+    setSwipeStartY(null);
   };
 
   const renderShortItem = ({ item, index }: { item: PostType; index: number }) => {
     const isVideoPlaying = videoStates[item._id] || index === currentIndex;
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
+    const isLiked = item.isLiked || false;
 
     return (
       <View style={styles.shortItem}>
-        {/* Video Player with Tap Gesture */}
-        <TouchableWithoutFeedback 
-          onPress={() => {
-            toggleVideoPlayback(item._id);
-            showPauseButtonTemporarily(item._id);
-          }}
-        >
-          <Video
-            ref={(ref) => {
-              videoRefs.current[item._id] = ref;
-            }}
-            source={{ uri: item.mediaUrl || item.imageUrl }}
-            style={styles.shortVideo}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={isVideoPlaying}
-            isLooping
-            isMuted={index !== currentIndex} // Mute all videos except current
-            onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-              if (status.isLoaded) {
-                setVideoStates(prev => ({
-                  ...prev,
-                  [item._id]: status.isPlaying
-                }));
-              }
-            }}
-          />
-        </TouchableWithoutFeedback>
-        
-        {/* Gradient Overlay for better text readability */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-          style={styles.gradientOverlay}
-        />
-        
-        {/* Play/Pause Overlay - Only show when paused or temporarily after interaction */}
-        {(showPauseButton[item._id] || !videoStates[item._id]) && (
-          <View style={styles.playButton}>
-            <View style={styles.playButtonBackground}>
-              <Ionicons 
-                name={videoStates[item._id] ? "pause" : "play"} 
-                size={60} 
-                color="white" 
-              />
-            </View>
+          {/* Video Player with Gesture Handling */}
+          <View
+            style={styles.videoContainer}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={(event) => handleTouchEnd(event, item.user._id)}
+          >
+            <TouchableWithoutFeedback 
+              onPress={() => {
+                toggleVideoPlayback(item._id);
+                showPauseButtonTemporarily(item._id);
+              }}
+              onLongPress={() => {
+                // Only allow delete for own content
+                if (item.user._id === currentUser?._id) {
+                  handleDeleteShort(item._id);
+                }
+              }}
+            >
+              <Video
+              ref={(ref) => {
+                videoRefs.current[item._id] = ref;
+              }}
+              source={{ uri: item.mediaUrl || item.imageUrl }}
+              style={styles.shortVideo}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={isVideoPlaying}
+              isLooping
+              isMuted={index !== currentIndex}
+              onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+                if (status.isLoaded) {
+                  setVideoStates(prev => ({
+                    ...prev,
+                    [item._id]: status.isPlaying
+                  }));
+                }
+              }}
+            />
+            </TouchableWithoutFeedback>
           </View>
-        )}
-      
-        {/* Right Side Action Buttons */}
-        <View style={styles.rightActions}>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleLike(item._id)}
-            disabled={actionLoading === 'like'}
-          >
-            <View style={styles.actionButtonContainer}>
-              <Ionicons 
-                name={item.isLiked ? "heart" : "heart-outline"} 
-                size={32} 
-                color={item.isLiked ? "#ff3040" : "white"} 
-              />
-              <Text style={styles.actionText}>{item.likesCount || 0}</Text>
-            </View>
-          </TouchableOpacity>
           
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleComment(item._id)}
-          >
-            <View style={styles.actionButtonContainer}>
-              <Ionicons name="chatbubble-outline" size={32} color="white" />
-              <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
-            </View>
-          </TouchableOpacity>
+          {/* Elegant Gradient Overlays */}
+          <LinearGradient
+            colors={['rgba(0,0,0,0.1)', 'transparent', 'rgba(0,0,0,0.8)']}
+            style={styles.topGradient}
+          />
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.9)']}
+            style={styles.bottomGradient}
+          />
           
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleShare(item)}
-          >
-            <View style={styles.actionButtonContainer}>
-              <Ionicons name="paper-plane-outline" size={32} color="white" />
+          {/* Play/Pause Overlay */}
+          {(showPauseButton[item._id] || !videoStates[item._id]) && (
+            <View style={styles.playButton}>
+              <View style={styles.playButtonBlur}>
+                <Ionicons 
+                  name={videoStates[item._id] ? "pause" : "play"} 
+                  size={50} 
+                  color="white" 
+                />
+              </View>
             </View>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleSave(item._id)}
-          >
-            <View style={styles.actionButtonContainer}>
-              <Ionicons 
-                name={isSaved ? "bookmark" : "bookmark-outline"} 
-                size={32} 
-                color={isSaved ? "#4A90E2" : "white"} 
-              />
-            </View>
-          </TouchableOpacity>
-        </View>
+          )}
 
-        {/* Bottom Content with Enhanced Design */}
-        <View style={styles.bottomContent}>
-          {/* User Info */}
-          <View style={styles.userInfo}>
-            <TouchableOpacity onPress={() => handleProfilePress(item.user._id)}>
-              <Image 
-                source={{ uri: item.user.profilePic || 'https://via.placeholder.com/40' }} 
-                style={styles.userAvatar} 
-              />
-            </TouchableOpacity>
+          {/* Swipe Hint */}
+          {showSwipeHint && index === currentIndex && (
+            <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
+              <View style={styles.swipeHintBlur}>
+                <Ionicons name="arrow-back" size={24} color="white" />
+                <Text style={styles.swipeHintText}>Swipe left for profile</Text>
+              </View>
+            </Animated.View>
+          )}
+        
+          {/* Right Side Action Buttons */}
+          <View style={styles.rightActions}>
+            {/* Profile Picture */}
             <TouchableOpacity 
-              style={styles.userDetails}
+              style={styles.profileButton}
               onPress={() => handleProfilePress(item.user._id)}
             >
-              <Text style={styles.userName}>{item.user.fullName}</Text>
-              {/* <Text style={styles.userHandle}>{item.user.fullName.toLowerCase().replace(/\s+/g, '')}</Text> */}
+              <Image
+                source={{ uri: item.user.profilePic }}
+                style={styles.profileImage}
+              />
+              {/* Follow Button - Only show if not own user */}
+              {item.user._id !== currentUser?._id && (
+                <View style={[styles.followButton, isFollowing && styles.followingButton]}>
+                  <Ionicons 
+                    name={isFollowing ? "checkmark" : "add"} 
+                    size={12} 
+                    color="white" 
+                  />
+                </View>
+              )}
             </TouchableOpacity>
-            {/* Only show follow button if not own user */}
-            {currentUser && currentUser._id !== item.user._id && (
+
+            {/* Like Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleLike(item._id)}
+              disabled={actionLoading === item._id}
+            >
+              <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
+                <Ionicons 
+                  name={isLiked ? "heart" : "heart-outline"} 
+                  size={28} 
+                  color={isLiked ? "#FF3040" : "white"} 
+                />
+              </View>
+              <Text style={styles.actionText}>{item.likesCount || 0}</Text>
+            </TouchableOpacity>
+
+            {/* Comment Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleComment(item._id)}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="chatbubble-outline" size={28} color="white" />
+              </View>
+              <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
+            </TouchableOpacity>
+
+            {/* Share Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleShare(item)}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="paper-plane-outline" size={28} color="white" />
+              </View>
+            </TouchableOpacity>
+
+            {/* Save Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleSave(item._id)}
+            >
+              <View style={styles.actionIconContainer}>
+                <Ionicons 
+                  name={isSaved ? "bookmark" : "bookmark-outline"} 
+                  size={28} 
+                  color={isSaved ? "#FFD700" : "white"} 
+                />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom Content */}
+          <View style={styles.bottomContent}>
+            <View style={styles.userInfo}>
               <TouchableOpacity 
-                style={[
-                  styles.followButton,
-                  { backgroundColor: isFollowing ? 'rgba(255,255,255,0.2)' : '#4A90E2' }
-                ]}
-                onPress={() => handleFollow(item.user._id, item.user.fullName)}
-                disabled={actionLoading === 'follow'}
+                style={styles.userProfileSection}
+                onPress={() => handleProfilePress(item.user._id)}
+                activeOpacity={0.7}
               >
-                {actionLoading === 'follow' ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <Text style={styles.followButtonText}>
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </Text>
-                )}
+                <Image
+                  source={{ uri: item.user.profilePic }}
+                  style={styles.userAvatar}
+                />
+                <View style={styles.userDetails}>
+                  <Text style={styles.username}>@{item.user.fullName}</Text>
+                  <Text style={styles.caption}>{item.caption}</Text>
+                  {item.tags && item.tags.length > 0 && (
+                    <View style={styles.tagsContainer}>
+                      {item.tags.slice(0, 3).map((tag, tagIndex) => (
+                        <Text key={tagIndex} style={styles.tag}>#{tag}</Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
               </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Caption */}
-          <View style={styles.captionContainer}>
-            <Text style={styles.caption} numberOfLines={3}>{item.caption}</Text>
-          </View>
-
-          {/* Tags */}
-          {item.tags && item.tags.length > 0 && (
-            <View style={styles.tagsContainer}>
-              {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                <Text key={tagIndex} style={styles.tag}>#{tag}</Text>
-              ))}
             </View>
-          )}
-
-          {/* Location */}
-          {item.location?.address && (
-            <View style={styles.locationContainer}>
-              <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.8)" />
-              <Text style={styles.locationText} numberOfLines={1}>{item.location.address}</Text>
-            </View>
-          )}
-        </View>
+          </View>
       </View>
     );
   };
@@ -540,17 +526,12 @@ export default function ShortsScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <StatusBar 
-          barStyle="light-content" 
-          backgroundColor="black" 
-          translucent
-        />
+        <StatusBar barStyle="light-content" backgroundColor="black" translucent />
         <View style={styles.loadingContainer}>
           <View style={styles.loadingContent}>
-            <Ionicons name="videocam" size={60} color="#4A90E2" />
+            <ActivityIndicator size="large" color="#FF3040" style={styles.loadingSpinner} />
             <Text style={styles.loadingTitle}>Loading Shorts</Text>
-            <Text style={styles.loadingSubtitle}>Discover amazing content...</Text>
-            <ActivityIndicator size="large" color="#4A90E2" style={styles.loadingSpinner} />
+            <Text style={styles.loadingSubtitle}>Discover amazing content</Text>
           </View>
         </View>
       </View>
@@ -560,22 +541,24 @@ export default function ShortsScreen() {
   if (shorts.length === 0) {
     return (
       <View style={styles.container}>
-        <StatusBar 
-          barStyle="light-content" 
-          backgroundColor="black" 
-          translucent
-        />
+        <StatusBar barStyle="light-content" backgroundColor="black" translucent />
         <View style={styles.emptyContainer}>
-          <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.6)" />
-          <Text style={[styles.emptyTitle, { color: 'white' }]}>No Shorts Yet</Text>
-          <Text style={[styles.emptyDescription, { color: 'rgba(255,255,255,0.6)' }]}>
-            Create your first short video to share with your followers and start building your audience!
+          <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.3)" />
+          <Text style={styles.emptyTitle}>No Shorts Available</Text>
+          <Text style={styles.emptyDescription}>
+            Be the first to create amazing short videos and share your stories with the world.
           </Text>
           <TouchableOpacity 
-            style={[styles.createShortButton, { backgroundColor: '#4A90E2' }]}
+            style={styles.createShortButton}
             onPress={() => router.push('/(tabs)/post')}
           >
-            <Text style={styles.createShortButtonText}>Create Short</Text>
+            <LinearGradient
+              colors={['#FF3040', '#FF6B6B']}
+              style={styles.createShortGradient}
+            >
+              <Ionicons name="add" size={20} color="white" />
+              <Text style={styles.createShortButtonText}>Create Short</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       </View>
@@ -604,6 +587,10 @@ export default function ShortsScreen() {
         initialNumToRender={3}
         maxToRenderPerBatch={2}
         windowSize={5}
+        scrollEventThrottle={16}
+        directionalLockEnabled={false}
+        alwaysBounceVertical={true}
+        bounces={true}
         onMomentumScrollEnd={(event) => {
           const index = Math.round(event.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
           setCurrentIndex(index);
@@ -638,19 +625,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'black',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -660,21 +634,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
   },
+  loadingSpinner: {
+    marginBottom: 16,
+  },
   loadingTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: 'white',
-    marginTop: 16,
     marginBottom: 8,
   },
   loadingSubtitle: {
     fontSize: 16,
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
-    marginBottom: 24,
-  },
-  loadingSpinner: {
-    marginTop: 16,
   },
   emptyContainer: {
     flex: 1,
@@ -683,160 +655,206 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 24,
+    fontWeight: '700',
+    color: 'white',
     marginTop: 16,
     marginBottom: 8,
   },
   emptyDescription: {
     fontSize: 16,
+    color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 24,
+    marginBottom: 32,
   },
   createShortButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+  },
+  createShortGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 25,
   },
   createShortButtonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 8,
   },
   shortItem: {
     width: '100%',
     height: SCREEN_HEIGHT,
     position: 'relative',
   },
-  shortImage: {
+  videoContainer: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
+    position: 'relative',
   },
   shortVideo: {
     width: '100%',
     height: '100%',
   },
-  gradientOverlay: {
+  topGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    zIndex: 1,
+  },
+  bottomGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 200,
+    height: 300,
     zIndex: 1,
   },
   playButton: {
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: [{ translateX: -40 }, { translateY: -40 }],
+    transform: [{ translateX: -35 }, { translateY: -35 }],
     zIndex: 10,
   },
-  playButtonBackground: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderRadius: 40,
-    width: 80,
-    height: 80,
+  playButtonBlur: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  swipeHint: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    zIndex: 15,
+  },
+  swipeHintBlur: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  swipeHintText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 6,
   },
   rightActions: {
     position: 'absolute',
     right: 16,
-    bottom: 180,
+    bottom: 120,
     alignItems: 'center',
     zIndex: 5,
   },
+  profileButton: {
+    marginBottom: 20,
+    position: 'relative',
+  },
+  profileImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  followButton: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FF3040',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  followingButton: {
+    backgroundColor: '#2196F3',
+    borderColor: 'white',
+    borderWidth: 2,
+  },
   actionButton: {
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 20,
   },
-  actionButtonContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+  actionIconContainer: {
+    width: 50,
+    height: 50,
     borderRadius: 25,
-    padding: 8,
-    minWidth: 50,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  likedContainer: {
+    backgroundColor: 'rgba(255, 48, 64, 0.2)',
   },
   actionText: {
     color: 'white',
     fontSize: 12,
-    marginTop: 4,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    fontWeight: '600',
   },
   bottomContent: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 20,
     left: 0,
-    right: 0,
+    right: 80,
     padding: 20,
-    paddingBottom: 60,
     zIndex: 5,
   },
   userInfo: {
+    marginBottom: 8,
+  },
+  userProfileSection: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingRight: 80, // Add padding to avoid overlap with action buttons
+    alignItems: 'flex-start',
+    marginBottom: 46,
   },
   userAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 2,
-    borderColor: 'white',
-    opacity: 0.9,
+    borderColor: 'rgba(255,255,255,0.3)',
+    marginRight: 12,
   },
   userDetails: {
     flex: 1,
-    paddingVertical: 4,
   },
-  userName: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  userHandle: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-    marginTop: 2,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  followButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  followButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  captionContainer: {
-    marginBottom: 12,
-  },
-  caption: {
+  username: {
     color: 'white',
     fontSize: 16,
-    lineHeight: 24,
-    fontWeight: '500',
+    fontWeight: '700',
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  caption: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 8,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -844,26 +862,13 @@ const styles = StyleSheet.create({
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 12,
   },
   tag: {
-    color: '#4A90E2',
-    fontSize: 14,
-    fontWeight: '700',
+    color: '#FFD700',
+    fontSize: 12,
+    fontWeight: '600',
     marginRight: 8,
     marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationText: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 14,
-    marginLeft: 4,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,

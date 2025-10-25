@@ -13,9 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
+import { useAlert } from '../context/AlertContext';
 import NavBar from '../components/NavBar';
 import FollowRequestPopup from '../components/FollowRequestPopup';
-import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../services/notifications';
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
 
@@ -40,6 +41,7 @@ export default function NotificationsScreen() {
   });
   const router = useRouter();
   const { theme, mode } = useTheme();
+  const { showSuccess, showError, showInfo, showWarning } = useAlert();
 
   const loadNotifications = useCallback(async (pageNum = 1, isRefresh = false) => {
     try {
@@ -84,42 +86,43 @@ export default function NotificationsScreen() {
   }, [loadNotifications]);
 
   const handleNotificationPress = async (notification: Notification) => {
-    // Mark as read if not already read
-    if (!notification.isRead) {
-      try {
-        await markNotificationAsRead(notification._id);
-        setNotifications(prev =>
-          prev.map(n =>
-            n._id === notification._id ? { ...n, isRead: true } : n
-          )
-        );
-      } catch (error) {
-        console.error('Failed to mark notification as read:', error);
-      }
-    }
-
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'like':
-      case 'comment':
-        if (notification.post) {
-          router.push(`/post/${notification.post._id}`);
-        }
-        break;
-      case 'follow':
-      case 'follow_approved':
-        router.push(`/profile/${notification.fromUser._id}`);
-        break;
-      case 'follow_request':
-        // Show popup for follow request instead of navigating
+    try {
+      // Handle special cases first
+      if (notification.type === 'follow_request') {
         setFollowRequestPopup({
           visible: true,
           notification: notification,
           loading: false,
         });
-        break;
-      default:
-        break;
+        return;
+      }
+
+      // Use the new handleNotificationClick service
+      const result = await handleNotificationClick(notification);
+      
+      if (result.success) {
+        // Update notification as read in local state
+        setNotifications(prev =>
+          prev.map(n =>
+            n._id === notification._id ? { ...n, isRead: true } : n
+          )
+        );
+
+        // Navigate if needed
+        if (result.shouldNavigate && result.navigationPath) {
+          console.log('Navigating to:', result.navigationPath);
+          router.push(result.navigationPath);
+        } else {
+          // Show info message for non-navigable notifications
+          console.log('Showing info message:', result.message);
+          showInfo(result.message);
+        }
+      } else {
+        showError(result.message);
+      }
+    } catch (error: any) {
+      console.error('Failed to handle notification press:', error);
+      showError('Failed to process notification. Please try again.');
     }
   };
 
@@ -222,17 +225,6 @@ export default function NotificationsScreen() {
       notification: null,
       loading: false,
     });
-  };
-
-  // Alert functions
-  const showSuccess = (message: string) => {
-    // For now, just log success - you can integrate with your alert system
-    console.log('Success:', message);
-  };
-
-  const showError = (message: string) => {
-    // For now, just log error - you can integrate with your alert system
-    console.error('Error:', message);
   };
 
   const groupNotificationsByTime = (notifications: Notification[]): NotificationSection[] => {

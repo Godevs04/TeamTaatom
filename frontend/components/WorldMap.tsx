@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,144 +7,102 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import Constants from 'expo-constants';
+import { getTravelMapData } from '../services/posts';
 
-interface Location {
-  latitude: number;
-  longitude: number;
-  address: string;
-  date?: string;
+interface TravelMapData {
+  locations: Array<{
+    number: number;
+    latitude: number;
+    longitude: number;
+    address: string;
+    date: string;
+  }>;
+  statistics: {
+    totalLocations: number;
+    totalDistance: number;
+    totalDays: number;
+  };
 }
 
 interface WorldMapProps {
   visible: boolean;
-  locations: Location[];
+  userId: string;
   onClose: () => void;
 }
 
 const { width, height } = Dimensions.get('window');
-const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
-function getPolylineCoordinates(locations: Location[]) {
-  return locations.map(loc => ({ latitude: loc.latitude, longitude: loc.longitude }));
+// Helper functions
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
 }
 
-export default function WorldMap({ visible, locations, onClose }: WorldMapProps) {
+function calculateTotalDistance(locations: TravelMapData['locations']): number {
+  if (locations.length < 2) return 0;
+  
+  let totalDistance = 0;
+  for (let i = 1; i < locations.length; i++) {
+    const prev = locations[i - 1];
+    const curr = locations[i];
+    totalDistance += calculateDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+  }
+  return totalDistance;
+}
+
+function calculateTotalDays(locations: TravelMapData['locations']): number {
+  if (locations.length === 0) return 0;
+  
+  const dates = locations
+    .map(loc => loc.date)
+    .filter(date => date)
+    .map(date => new Date(date!).toDateString())
+    .filter((date, index, arr) => arr.indexOf(date) === index);
+  
+  return dates.length;
+}
+
+export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
   const { theme, mode } = useTheme();
-  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [travelMapData, setTravelMapData] = useState<TravelMapData | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const getMapHTML = () => {
-    const backgroundColor = theme.colors.background;
-    const primaryLocation = locations[0];
-    
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { 
-            margin: 0; 
-            padding: 0; 
-            background: ${backgroundColor}; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          }
-          #map { 
-            width: 100vw; 
-            height: 100vh; 
-          }
-          .info-panel {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
-            background: ${theme.colors.surface};
-            border-radius: 12px;
-            padding: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-          }
-          .location-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: ${theme.colors.text};
-            margin-bottom: 8px;
-          }
-          .location-address {
-            font-size: 14px;
-            color: ${theme.colors.textSecondary};
-            margin-bottom: 4px;
-          }
-          .location-date {
-            font-size: 12px;
-            color: ${theme.colors.textSecondary};
-          }
-        </style>
-        <script>
-          function initMap() {
-            const map = new google.maps.Map(document.getElementById('map'), {
-              center: { lat: ${primaryLocation.latitude}, lng: ${primaryLocation.longitude} },
-              zoom: 12,
-              styles: ${mode === 'dark' ? JSON.stringify([
-                { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-                { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-                { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-                { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] }
-              ]) : '[]'}
-            });
+  // Fetch travel map data when component becomes visible
+  useEffect(() => {
+    if (visible && userId) {
+      fetchTravelMapData();
+    }
+  }, [visible, userId]);
 
-            ${locations.map((location, index) => `
-              new google.maps.Marker({
-                position: { lat: ${location.latitude}, lng: ${location.longitude} },
-                map: map,
-                title: '${location.address}',
-                icon: {
-                  url: 'data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-                    <svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
-                      <circle cx="15" cy="15" r="12" fill="#FF3040" stroke="#fff" stroke-width="2"/>
-                      <circle cx="15" cy="15" r="4" fill="#fff"/>
-                    </svg>
-                  `)}',
-                  scaledSize: new google.maps.Size(30, 30),
-                  anchor: new google.maps.Point(15, 15)
-                }
-              });
-            `).join('')}
-
-            ${locations.length > 1 ? `
-              const path = [${locations.map(loc => `{ lat: ${loc.latitude}, lng: ${loc.longitude} }`).join(', ')}];
-              new google.maps.Polyline({
-                path: path,
-                geodesic: true,
-                strokeColor: '${theme.colors.primary}',
-                strokeOpacity: 1.0,
-                strokeWeight: 3,
-                map: map
-              });
-            ` : ''}
-          }
-        </script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <div class="info-panel">
-          <div class="location-title">📍 ${primaryLocation.address}</div>
-          ${primaryLocation.date ? `<div class="location-date">📅 ${new Date(primaryLocation.date).toLocaleDateString()}</div>` : ''}
-        </div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&callback=initMap"></script>
-      </body>
-      </html>
-    `;
+  const fetchTravelMapData = async () => {
+    try {
+      setLoading(true);
+      setMapError(null);
+      const data = await getTravelMapData(userId);
+      setTravelMapData(data.data);
+    } catch (error) {
+      console.error('Error fetching travel map data:', error);
+      setMapError('Failed to load travel data');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // Define styles first
   const styles = StyleSheet.create({
-    overlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.9)',
-    },
     container: {
       flex: 1,
       backgroundColor: theme.colors.background,
@@ -159,7 +117,7 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
     },
-    title: {
+    headerTitle: {
       fontSize: theme.typography.h3.fontSize,
       fontWeight: '700',
       color: theme.colors.text,
@@ -167,57 +125,181 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
     closeButton: {
       padding: theme.spacing.xs,
     },
-    map: {
-      flex: 1,
-    },
-    locationInfo: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: theme.colors.surface,
-      padding: theme.spacing.md,
-      borderTopLeftRadius: theme.borderRadius.lg,
-      borderTopRightRadius: theme.borderRadius.lg,
-      ...theme.shadows.large,
-    },
-    locationTitle: {
-      fontSize: theme.typography.h3.fontSize,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: theme.spacing.xs,
-    },
-    locationAddress: {
-      fontSize: theme.typography.body.fontSize,
-      color: theme.colors.textSecondary,
-      marginBottom: theme.spacing.xs,
-    },
-    locationDate: {
-      fontSize: theme.typography.small.fontSize,
-      color: theme.colors.textSecondary,
-    },
     statsContainer: {
       flexDirection: 'row',
-      justifyContent: 'space-around',
-      paddingVertical: theme.spacing.sm,
-      backgroundColor: theme.colors.background,
+      backgroundColor: theme.colors.surface,
+      paddingVertical: theme.spacing.md,
+      paddingHorizontal: theme.spacing.lg,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
     },
     statItem: {
+      flex: 1,
       alignItems: 'center',
     },
     statNumber: {
-      fontSize: theme.typography.h3.fontSize,
-      fontWeight: '700',
+      fontSize: 24,
+      fontWeight: '800',
       color: theme.colors.text,
+      marginBottom: 4,
     },
     statLabel: {
-      fontSize: theme.typography.small.fontSize,
+      fontSize: 12,
       color: theme.colors.textSecondary,
-      marginTop: 2,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    mapContainer: {
+      flex: 1,
+    },
+    map: {
+      flex: 1,
+    },
+    errorContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: theme.spacing.lg,
+    },
+    errorIcon: {
+      marginBottom: theme.spacing.md,
+    },
+    errorTitle: {
+      fontSize: theme.typography.h3.fontSize,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: theme.spacing.sm,
+    },
+    errorMessage: {
+      fontSize: theme.typography.body.fontSize,
+      color: theme.colors.textSecondary,
+      textAlign: 'center',
+      lineHeight: 20,
     },
   });
+
+  // Use travel map data
+  const displayLocations = travelMapData?.locations || [];
+  const statistics = travelMapData?.statistics || {
+    totalLocations: 0,
+    totalDistance: 0,
+    totalDays: 0
+  };
+
+  // Debug logging
+  console.log('WorldMap - Travel map data:', travelMapData);
+  console.log('WorldMap - Display locations:', displayLocations);
+  console.log('WorldMap - Statistics:', statistics);
+
+  // Validate locations have proper coordinates
+  const validLocations = displayLocations.filter(loc => 
+    loc.latitude && loc.longitude && 
+    typeof loc.latitude === 'number' && 
+    typeof loc.longitude === 'number' &&
+    !isNaN(loc.latitude) && !isNaN(loc.longitude)
+  );
+
+  console.log('WorldMap - Valid locations:', validLocations);
+  console.log('WorldMap - Valid locations count:', validLocations.length);
+
+  // Use valid locations from travel map data
+  const finalLocations = validLocations;
+
+  console.log('WorldMap - Final locations:', finalLocations);
+  console.log('WorldMap - Final locations count:', finalLocations.length);
+
+  const getMapHTML = () => {
+    // Calculate bounds to fit all locations
+    const lats = finalLocations.map(loc => loc.latitude);
+    const lngs = finalLocations.map(loc => loc.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    
+    // Add padding to bounds
+    const latPadding = Math.max((maxLat - minLat) * 0.2, 0.01);
+    const lngPadding = Math.max((maxLng - minLng) * 0.2, 0.01);
+    
+    const bounds = {
+      north: maxLat + latPadding,
+      south: minLat - latPadding,
+      east: maxLng + lngPadding,
+      west: minLng - lngPadding
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <style>
+          body { 
+            margin: 0; 
+            padding: 0; 
+            background: ${theme.colors.background}; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          }
+          #map { 
+            width: 100vw; 
+            height: 100vh; 
+          }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+          try {
+            console.log('Starting map initialization...');
+            
+            // Create map
+            const map = L.map('map').fitBounds([
+              [${bounds.south}, ${bounds.west}],
+              [${bounds.north}, ${bounds.east}]
+            ]);
+            
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '© OpenStreetMap contributors',
+              maxZoom: 18
+            }).addTo(map);
+            
+            console.log('Map created successfully');
+            
+            // Add dynamic markers based on travel map data
+            const locations = ${JSON.stringify(finalLocations)};
+            console.log('Adding markers for locations:', locations);
+            
+            locations.forEach((location, index) => {
+              const marker = L.marker([location.latitude, location.longitude])
+                .addTo(map)
+                .bindPopup(\`<b>\${location.address}</b><br/>📅 \${new Date(location.date).toLocaleDateString()}\`);
+              
+              const icon = L.divIcon({
+                className: 'custom-marker',
+                html: \`<div style="background: #FF3040; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">\${location.number}</div>\`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+              });
+              
+              marker.setIcon(icon);
+              console.log(\`Marker \${location.number} added at \${location.address}\`);
+            });
+            
+            console.log(\`Map initialization completed with \${locations.length} markers\`);
+            
+          } catch (error) {
+            console.error('Map initialization error:', error);
+            document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; color: #333; font-family: Arial, sans-serif;"><div style="font-size: 48px; margin-bottom: 20px;">⚠️</div><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Map Error</div><div style="font-size: 16px; text-align: center;">Failed to load map. Please check your internet connection.</div></div>';
+          }
+        </script>
+      </body>
+      </html>
+    `;
+  };
 
   return (
     <Modal
@@ -227,8 +309,9 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
       onRequestClose={onClose}
     >
       <SafeAreaView style={styles.container}>
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Travel Map</Text>
+          <Text style={styles.headerTitle}>Travel Map</Text>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Ionicons name="close" size={24} color={theme.colors.text} />
           </TouchableOpacity>
@@ -237,69 +320,57 @@ export default function WorldMap({ visible, locations, onClose }: WorldMapProps)
         {/* Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{locations.length}</Text>
+            <Text style={styles.statNumber}>{statistics.totalLocations}</Text>
             <Text style={styles.statLabel}>Locations</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>
-              {locations.length > 1 ? 
-                Math.round(getPolylineCoordinates(locations).reduce((acc, curr, index, arr) => {
-                  if (index === 0) return 0;
-                  const prev = arr[index - 1];
-                  // Simple distance calculation (not exact but gives an idea)
-                  const distance = Math.sqrt(
-                    Math.pow(curr.latitude - prev.latitude, 2) + 
-                    Math.pow(curr.longitude - prev.longitude, 2)
-                  ) * 111; // Rough km conversion
-                  return acc + distance;
-                }, 0)) : 0
-              }
-            </Text>
+            <Text style={styles.statNumber}>{statistics.totalDistance}</Text>
             <Text style={styles.statLabel}>KM Traveled</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>
-              {locations.length > 0 && locations[0].date ? 
-                Math.ceil((new Date().getTime() - new Date(locations[0].date).getTime()) / (1000 * 60 * 60 * 24)) : 0
-              }
-            </Text>
+            <Text style={styles.statNumber}>{statistics.totalDays}</Text>
             <Text style={styles.statLabel}>Days</Text>
           </View>
         </View>
 
         {/* Map */}
-        <WebView
-          style={styles.map}
-          source={{ html: getMapHTML() }}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          startInLoadingState={true}
-          scalesPageToFit={true}
-        />
-
-        {/* Location Info Panel */}
-        {selectedLocation && (
-          <View style={styles.locationInfo}>
-            <TouchableOpacity
-              style={{ position: 'absolute', top: theme.spacing.sm, right: theme.spacing.sm }}
-              onPress={() => setSelectedLocation(null)}
-            >
-              <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-            
-            <Text style={styles.locationTitle}>📍 Location Details</Text>
-            <Text style={styles.locationAddress}>{selectedLocation.address}</Text>
-            {selectedLocation.date && (
-              <Text style={styles.locationDate}>
-                📅 {new Date(selectedLocation.date).toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
+        <View style={styles.mapContainer}>
+          {loading ? (
+            <View style={styles.errorContainer}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={styles.errorTitle}>Loading Travel Map...</Text>
+            </View>
+          ) : mapError ? (
+            <View style={styles.errorContainer}>
+              <View style={styles.errorIcon}>
+                <Ionicons name="warning" size={48} color={theme.colors.error} />
+              </View>
+              <Text style={styles.errorTitle}>Map Error</Text>
+              <Text style={styles.errorMessage}>
+                {mapError}. Please try again later.
               </Text>
-            )}
-          </View>
-        )}
+            </View>
+          ) : (
+            <WebView
+              style={styles.map}
+              source={{ html: getMapHTML() }}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              startInLoadingState={true}
+              scalesPageToFit={true}
+              onError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.error('WebView error: ', nativeEvent);
+                setMapError('Failed to load map');
+              }}
+              onHttpError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.error('WebView HTTP error: ', nativeEvent);
+                setMapError('Failed to load map');
+              }}
+            />
+          )}
+        </View>
       </SafeAreaView>
     </Modal>
   );

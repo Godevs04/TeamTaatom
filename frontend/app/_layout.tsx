@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
 import { updateExpoPushToken } from '../services/profile';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
@@ -277,13 +278,15 @@ function RootLayoutInner() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <SettingsProvider>
-        <AlertProvider>
-          <RootLayoutInner />
-        </AlertProvider>
-      </SettingsProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <SettingsProvider>
+          <AlertProvider>
+            <RootLayoutInner />
+          </AlertProvider>
+        </SettingsProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 

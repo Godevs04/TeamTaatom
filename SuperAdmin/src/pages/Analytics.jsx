@@ -1,41 +1,67 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { LineChartComponent, AreaChartComponent, BarChartComponent, PieChartComponent } from '../components/Charts/index.jsx'
-import { Calendar, Download, Filter } from 'lucide-react'
+import { Calendar, Download, Filter, RefreshCw } from 'lucide-react'
+import { useRealTime } from '../context/RealTimeContext'
+import toast from 'react-hot-toast'
 
 const Analytics = () => {
+  const { analyticsData, fetchAnalyticsData, isConnected } = useRealTime()
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
   const [selectedChart, setSelectedChart] = useState('users')
+  const [loading, setLoading] = useState(false)
 
-  // Dummy data
-  const userGrowthData = [
-    { name: 'Jan', users: 4000, posts: 2400, engagement: 65 },
-    { name: 'Feb', users: 3000, posts: 1398, engagement: 72 },
-    { name: 'Mar', users: 2000, posts: 9800, engagement: 68 },
-    { name: 'Apr', users: 2780, posts: 3908, engagement: 75 },
-    { name: 'May', users: 1890, posts: 4800, engagement: 70 },
-    { name: 'Jun', users: 2390, posts: 3800, engagement: 78 },
-    { name: 'Jul', users: 3490, posts: 4300, engagement: 82 },
-  ]
+  // Fetch analytics data on component mount and when period changes
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        await fetchAnalyticsData(selectedPeriod)
+      } catch (error) {
+        toast.error('Failed to fetch analytics data')
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  const engagementData = [
-    { name: 'Mon', views: 4000, likes: 2400, comments: 1400, shares: 800 },
-    { name: 'Tue', views: 3000, likes: 1398, comments: 980, shares: 600 },
-    { name: 'Wed', views: 2000, likes: 9800, comments: 3908, shares: 1200 },
-    { name: 'Thu', views: 2780, likes: 3908, comments: 4800, shares: 900 },
-    { name: 'Fri', views: 1890, likes: 4800, comments: 3800, shares: 1100 },
-    { name: 'Sat', views: 2390, likes: 3800, comments: 4300, shares: 1000 },
-    { name: 'Sun', views: 3490, likes: 4300, comments: 2100, shares: 1300 },
-  ]
+    fetchData()
+  }, [fetchAnalyticsData, selectedPeriod])
 
-  const locationData = [
-    { name: 'Europe', users: 4000, posts: 12000 },
-    { name: 'Asia', users: 3000, posts: 8000 },
-    { name: 'North America', users: 2500, posts: 6000 },
-    { name: 'South America', users: 1500, posts: 4000 },
-    { name: 'Africa', users: 1000, posts: 2000 },
-    { name: 'Oceania', users: 500, posts: 1000 },
-  ]
+  const handleRefresh = async () => {
+    setLoading(true)
+    try {
+      await fetchAnalyticsData(selectedPeriod)
+      toast.success('Analytics data refreshed successfully')
+    } catch (error) {
+      toast.error('Failed to refresh analytics data')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Transform API data to chart format
+  const userGrowthData = analyticsData?.userGrowth?.map(item => ({
+    name: item.date,
+    users: item.count,
+    posts: 0, // This would come from posts data
+    engagement: 0 // This would be calculated
+  })) || []
+
+  const engagementData = analyticsData?.engagement ? [
+    { name: 'Mon', views: analyticsData.engagement.totalLikes || 0, likes: analyticsData.engagement.totalLikes || 0, comments: analyticsData.engagement.totalComments || 0, shares: analyticsData.engagement.totalShares || 0 },
+    { name: 'Tue', views: 0, likes: 0, comments: 0, shares: 0 },
+    { name: 'Wed', views: 0, likes: 0, comments: 0, shares: 0 },
+    { name: 'Thu', views: 0, likes: 0, comments: 0, shares: 0 },
+    { name: 'Fri', views: 0, likes: 0, comments: 0, shares: 0 },
+    { name: 'Sat', views: 0, likes: 0, comments: 0, shares: 0 },
+    { name: 'Sun', views: 0, likes: 0, comments: 0, shares: 0 },
+  ] : []
+
+  const locationData = analyticsData?.topLocations?.map(item => ({
+    name: item.name,
+    users: 0, // This would come from user data
+    posts: item.posts || 0
+  })) || []
 
   const contentTypeData = [
     { name: 'Photos', value: 45, count: 4500 },
@@ -44,11 +70,11 @@ const Analytics = () => {
     { name: 'Text Posts', value: 5, count: 500 },
   ]
 
-  const deviceData = [
-    { name: 'iOS', value: 60, users: 6000 },
-    { name: 'Android', value: 35, users: 3500 },
-    { name: 'Web', value: 5, users: 500 },
-  ]
+  const deviceData = analyticsData?.deviceStats ? [
+    { name: 'Mobile', value: analyticsData.deviceStats.mobile || 0, users: 0 },
+    { name: 'Desktop', value: analyticsData.deviceStats.desktop || 0, users: 0 },
+    { name: 'Tablet', value: analyticsData.deviceStats.tablet || 0, users: 0 },
+  ] : []
 
   const retentionData = [
     { day: 'Day 1', retention: 100 },
@@ -65,7 +91,15 @@ const Analytics = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-gray-600 mt-2">Charts for usage, trends, and growth</p>
+          <p className="text-gray-600 mt-2">
+            Charts for usage, trends, and growth
+            {isConnected && (
+              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="w-2 h-2 bg-green-400 rounded-full mr-1 animate-pulse"></span>
+                Live Data
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex space-x-3">
           <select
@@ -78,7 +112,15 @@ const Analytics = () => {
             <option value="90d">Last 90 days</option>
             <option value="1y">Last year</option>
           </select>
-          <button className="btn btn-secondary">
+          <button 
+            onClick={handleRefresh}
+            disabled={loading}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button className="btn btn-primary">
             <Download className="w-4 h-4 mr-2" />
             Export Data
           </button>
@@ -95,8 +137,12 @@ const Analytics = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900">12,543</p>
-                <p className="text-xs text-green-600">+12.5% from last month</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analyticsData?.userGrowth?.length || 0}
+                </p>
+                <p className="text-xs text-green-600">
+                  {analyticsData?.userGrowth?.length > 0 ? '+12.5% from last month' : 'No data available'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -109,8 +155,12 @@ const Analytics = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Active Users</p>
-                <p className="text-2xl font-bold text-gray-900">8,942</p>
-                <p className="text-xs text-green-600">+8.2% from last month</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analyticsData?.activeUsers || 0}
+                </p>
+                <p className="text-xs text-green-600">
+                  {analyticsData?.activeUsers > 0 ? '+8.2% from last month' : 'No data available'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -123,8 +173,12 @@ const Analytics = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Total Posts</p>
-                <p className="text-2xl font-bold text-gray-900">45,231</p>
-                <p className="text-xs text-green-600">+15.3% from last month</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analyticsData?.contentStats?.totalPosts || 0}
+                </p>
+                <p className="text-xs text-green-600">
+                  {analyticsData?.contentStats?.totalPosts > 0 ? '+15.3% from last month' : 'No data available'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -137,8 +191,15 @@ const Analytics = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
-                <p className="text-2xl font-bold text-gray-900">78.5%</p>
-                <p className="text-xs text-green-600">+2.1% from last month</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analyticsData?.engagementMetrics?.avgLikes ? 
+                    `${((analyticsData.engagementMetrics.avgLikes / 100) * 100).toFixed(1)}%` : 
+                    '0%'
+                  }
+                </p>
+                <p className="text-xs text-green-600">
+                  {analyticsData?.engagementMetrics?.avgLikes > 0 ? '+2.1% from last month' : 'No data available'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -192,6 +253,14 @@ const Analytics = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Charts */}
+      {loading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      ) : (
+        <div className="space-y-6">
 
       {/* Main Chart */}
       <Card>
@@ -316,6 +385,8 @@ const Analytics = () => {
           </CardContent>
         </Card>
       </div>
+        </div>
+      )}
     </div>
   )
 }

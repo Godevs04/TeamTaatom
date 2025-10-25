@@ -21,8 +21,9 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
-import { geocodeAddress } from '../../utils/geocodingService';
+import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
+import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 
 const { width } = Dimensions.get('window');
 
@@ -149,7 +150,9 @@ const mockSavedLocations = [
 
 interface FilterState {
   country: string;
+  countryCode: string;
   stateProvince: string;
+  stateCode: string;
   spotTypes: string[];
   searchRadius: string;
 }
@@ -162,9 +165,17 @@ export default function LocaleScreen() {
   const [activeTab, setActiveTab] = useState<'locale' | 'saved'>('locale');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [showStateDropdown, setShowStateDropdown] = useState(false);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [states, setStates] = useState<State[]>([]);
+  const [loadingCountries, setLoadingCountries] = useState(false);
+  const [loadingStates, setLoadingStates] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
     country: 'United Kingdom',
+    countryCode: 'GB',
     stateProvince: 'Bristol',
+    stateCode: 'BRI',
     spotTypes: [],
     searchRadius: '',
   });
@@ -183,7 +194,67 @@ export default function LocaleScreen() {
 
   useEffect(() => {
     loadUserLocations();
+    loadCountries();
   }, []);
+
+  const loadCountries = async () => {
+    try {
+      setLoadingCountries(true);
+      const countriesData = await getCountries();
+      setCountries(countriesData);
+      
+      // Load states for the default country
+      if (countriesData.length > 0) {
+        await loadStatesForCountry(filters.countryCode);
+      }
+    } catch (error) {
+      console.log('Countries loaded from static data');
+      // Countries will be loaded from static data automatically
+    } finally {
+      setLoadingCountries(false);
+    }
+  };
+
+  const loadStatesForCountry = async (countryCode: string) => {
+    try {
+      setLoadingStates(true);
+      const statesData = await getStatesByCountry(countryCode);
+      setStates(statesData);
+      
+      // If no states found, show a message
+      if (statesData.length === 0) {
+        console.log(`No states/provinces available for country code: ${countryCode}`);
+      }
+    } catch (error) {
+      console.log(`States loaded from static data for ${countryCode}`);
+      setStates([]); // Ensure states array is empty on error
+    } finally {
+      setLoadingStates(false);
+    }
+  };
+
+  const handleCountrySelect = async (country: Country) => {
+    setFilters(prev => ({
+      ...prev,
+      country: country.name,
+      countryCode: country.code,
+      stateProvince: '', // Reset state when country changes
+      stateCode: '',
+    }));
+    setShowCountryDropdown(false);
+    
+    // Load states for the selected country
+    await loadStatesForCountry(country.code);
+  };
+
+  const handleStateSelect = (state: State) => {
+    setFilters(prev => ({
+      ...prev,
+      stateProvince: state.name,
+      stateCode: state.code,
+    }));
+    setShowStateDropdown(false);
+  };
 
   const loadUserLocations = async () => {
     try {
@@ -232,43 +303,163 @@ export default function LocaleScreen() {
       animationType="slide"
       presentationStyle="pageSheet"
     >
-      <SafeAreaView style={styles.filterModalContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
+        <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
         
         {/* Header */}
-        <View style={styles.filterHeader}>
+        <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => setShowFilterModal(false)}
           >
-            <Ionicons name="chevron-back" size={24} color="#000000" />
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={styles.filterTitle}>FILTER</Text>
+          <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
           <View style={styles.placeholder} />
         </View>
 
-        <ScrollView style={styles.filterContent} showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          style={styles.filterContent} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
           {/* Country */}
           <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>COUNTRY</Text>
-            <TouchableOpacity style={styles.dropdownField}>
-              <Text style={styles.dropdownText}>{filters.country}</Text>
-              <Ionicons name="chevron-down" size={20} color="#999999" />
+            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>COUNTRY</Text>
+            <TouchableOpacity 
+              style={[styles.dropdownField, { 
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              }]}
+              onPress={() => setShowCountryDropdown(!showCountryDropdown)}
+            >
+              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                {filters.country || 'Select Country'}
+              </Text>
+              <View style={styles.dropdownIconContainer}>
+                {loadingCountries ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Ionicons 
+                    name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
+                    size={20} 
+                    color={theme.colors.textSecondary} 
+                  />
+                )}
+              </View>
             </TouchableOpacity>
+            
+            {/* Country Dropdown */}
+            {showCountryDropdown && (
+              <View style={[styles.dropdownList, { 
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                shadowColor: theme.colors.text,
+              }]}>
+                <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
+                  {countries.map((country, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[styles.dropdownItem, { 
+                        backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
+                        borderBottomColor: theme.colors.border,
+                      }]}
+                      onPress={() => handleCountrySelect(country)}
+                    >
+                      <Text style={[styles.dropdownItemText, { 
+                        color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
+                        fontWeight: filters.countryCode === country.code ? '600' : '400',
+                      }]}>
+                        {country.name}
+                      </Text>
+                      {filters.countryCode === country.code && (
+                        <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
           </View>
 
           {/* State/Province */}
           <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>STATE/PROVINCE</Text>
-            <TouchableOpacity style={styles.dropdownField}>
-              <Text style={styles.dropdownText}>{filters.stateProvince}</Text>
-              <Ionicons name="chevron-down" size={20} color="#999999" />
+            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>STATE/PROVINCE</Text>
+            <TouchableOpacity 
+              style={[styles.dropdownField, { 
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                opacity: !filters.countryCode ? 0.5 : 1,
+              }]}
+              onPress={() => filters.countryCode && setShowStateDropdown(!showStateDropdown)}
+              disabled={!filters.countryCode}
+            >
+              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                {filters.stateProvince || 'Select State/Province'}
+              </Text>
+              <View style={styles.dropdownIconContainer}>
+                {loadingStates ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <Ionicons 
+                    name={showStateDropdown ? "chevron-up" : "chevron-down"} 
+                    size={20} 
+                    color={theme.colors.textSecondary} 
+                  />
+                )}
+              </View>
             </TouchableOpacity>
+            
+            {/* State Dropdown */}
+            {showStateDropdown && (
+              <View style={[styles.dropdownList, { 
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                shadowColor: theme.colors.text,
+              }]}>
+                {states.length > 0 ? (
+                  <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
+                    {states.map((state, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={[styles.dropdownItem, { 
+                          backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                          borderBottomColor: theme.colors.border,
+                        }]}
+                        onPress={() => handleStateSelect(state)}
+                      >
+                        <Text style={[styles.dropdownItemText, { 
+                          color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
+                          fontWeight: filters.stateCode === state.code ? '600' : '400',
+                        }]}>
+                          {state.name}
+                        </Text>
+                        {filters.stateCode === state.code && (
+                          <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <View style={[styles.dropdownItem, { 
+                    backgroundColor: 'transparent',
+                    borderBottomColor: theme.colors.border,
+                  }]}>
+                    <Text style={[styles.dropdownItemText, { 
+                      color: theme.colors.textSecondary,
+                      fontStyle: 'italic',
+                    }]}>
+                      No states/provinces available
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
 
           {/* Type of Spot */}
           <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>TYPE OF SPOT</Text>
+            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>TYPE OF SPOT</Text>
             {spotTypeOptions.map((spotType, index) => (
               <TouchableOpacity
                 key={index}
@@ -277,34 +468,47 @@ export default function LocaleScreen() {
               >
                 <View style={[
                   styles.checkbox,
-                  filters.spotTypes.includes(spotType) && styles.checkboxSelected
+                  { 
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.surface,
+                  },
+                  filters.spotTypes.includes(spotType) && {
+                    backgroundColor: theme.colors.primary,
+                    borderColor: theme.colors.primary,
+                  }
                 ]}>
                   {filters.spotTypes.includes(spotType) && (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                    <Ionicons name="checkmark" size={16} color="white" />
                   )}
                 </View>
-                <Text style={styles.spotTypeText}>{spotType}</Text>
+                <Text style={[styles.spotTypeText, { color: theme.colors.text }]}>{spotType}</Text>
               </TouchableOpacity>
             ))}
           </View>
 
           {/* Search Radius */}
           <View style={styles.filterSection}>
-            <Text style={styles.filterSectionTitle}>SEARCH RADIUS</Text>
-            <TextInput
-              style={styles.radiusInput}
-              placeholder="Enter radius in km"
-              placeholderTextColor="#999999"
-              value={filters.searchRadius}
-              onChangeText={(text) => setFilters(prev => ({ ...prev, searchRadius: text }))}
-              keyboardType="numeric"
-            />
+            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>SEARCH RADIUS</Text>
+            <View style={[styles.radiusContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+              <TextInput
+                style={[styles.radiusInput, { color: theme.colors.text }]}
+                placeholder="Enter radius in km"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={filters.searchRadius}
+                onChangeText={(text) => setFilters(prev => ({ ...prev, searchRadius: text }))}
+                keyboardType="numeric"
+              />
+              <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
+            </View>
           </View>
         </ScrollView>
 
         {/* Search Button */}
-        <View style={styles.filterFooter}>
-          <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+        <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
+          <TouchableOpacity 
+            style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
+            onPress={handleSearch}
+          >
             <Text style={styles.searchButtonText}>Search</Text>
           </TouchableOpacity>
         </View>
@@ -331,22 +535,35 @@ export default function LocaleScreen() {
           try {
             console.log('Navigating to location:', item.name);
             
-            // Geocode the location name to get coordinates
-            const coordinates = await geocodeAddress(item.name);
-            
-            if (coordinates) {
-              console.log('Geocoding successful, navigating to map:', coordinates);
+            // If it's the current location, use existing coordinates
+            if (item.id === 'current-location' && item.coordinates) {
+              console.log('Navigating to current location with existing coordinates:', item.coordinates);
               router.push({
                 pathname: '/map/current-location',
                 params: {
-                  latitude: coordinates.latitude.toString(),
-                  longitude: coordinates.longitude.toString(),
+                  latitude: item.coordinates.latitude.toString(),
+                  longitude: item.coordinates.longitude.toString(),
                   address: item.name,
                 }
               });
             } else {
-              console.log('Geocoding failed, falling back to current location');
-              router.push('/map/current-location');
+              // For other locations, geocode the location name to get coordinates
+              const coordinates = await geocodeAddress(item.name);
+              
+              if (coordinates) {
+                console.log('Geocoding successful, navigating to map:', coordinates);
+                router.push({
+                  pathname: '/map/current-location',
+                  params: {
+                    latitude: coordinates.latitude.toString(),
+                    longitude: coordinates.longitude.toString(),
+                    address: item.name,
+                  }
+                });
+              } else {
+                console.log('Geocoding failed, falling back to current location');
+                router.push('/map/current-location');
+              }
             }
           } catch (error) {
             console.error('Error navigating to location:', error);
@@ -372,17 +589,123 @@ export default function LocaleScreen() {
     );
   };
 
+  const renderCurrentLocationCard = (currentLocation: any) => {
+    // Use OpenStreetMap since Google Maps is failing
+    const mapUrl = `https://tile.openstreetmap.org/15/${Math.floor((currentLocation.longitude + 180) / 360 * Math.pow(2, 15))}/${Math.floor((1 - Math.log(Math.tan(currentLocation.latitude * Math.PI / 180) + 1 / Math.cos(currentLocation.latitude * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, 15))}.png`;
+    
+    console.log('Using OpenStreetMap URL:', mapUrl);
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.locationCard,
+          styles.halfCard,
+          { marginLeft: 0 }
+        ]}
+        onPress={async () => {
+          if (isGeocoding) return;
+          
+          setIsGeocoding('Current Location');
+          
+          try {
+            console.log('Navigating to current location:', currentLocation.address);
+            
+            router.push({
+              pathname: '/map/current-location',
+              params: {
+                latitude: currentLocation.latitude.toString(),
+                longitude: currentLocation.longitude.toString(),
+                address: currentLocation.address,
+              }
+            });
+          } catch (error) {
+            console.error('Error navigating to current location:', error);
+            router.push('/map/current-location');
+          } finally {
+            setIsGeocoding(null);
+          }
+        }}
+      >
+        <Image
+          source={{ uri: mapUrl }}
+          style={styles.cardImage}
+          resizeMode="cover"
+          onError={(error) => {
+            console.error('OpenStreetMap failed:', error.nativeEvent.error);
+          }}
+
+          onLoad={() => {
+            console.log('OpenStreetMap loaded successfully!');
+          }}
+        />
+        {/* Red marker overlay for location */}
+        <View style={styles.markerOverlay}>
+          <Ionicons name="location" size={20} color="red" />
+        </View>
+        {/* Fallback gradient if image fails - positioned behind the image */}
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={[styles.cardImage, { position: 'absolute', top: 0, left: 0, zIndex: -1 }]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+            <Text style={styles.mapPlaceholderText}>Current Location</Text>
+          </View>
+        </LinearGradient>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          style={styles.cardGradient}
+        />
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle}>{currentLocation.address}</Text>
+        </View>
+        {isGeocoding === 'Current Location' && (
+          <View style={styles.loadingIndicator}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   const renderCustomLayout = () => {
+    // Create a modified locations array with current location replacing SNOW HILL
+    const modifiedLocations = [...mockLocations];
+    
+    // Replace SNOW HILL (index 1) with current location if available
+    if (locations.length > 0) {
+      const currentLocation = locations[0];
+      
+      return (
+        <View style={styles.listContainer}>
+          {/* First row - Current Location (WebView) and BRISTOL */}
+          <View style={styles.firstRow}>
+            {renderCurrentLocationCard(currentLocation)}
+            {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
+          </View>
+          
+          {/* Rest of the cards - all wide cards */}
+          {modifiedLocations.slice(2).map((item, index) => (
+            <View key={item.id}>
+              {renderLocationCard({ item, index: index + 2 })}
+            </View>
+          ))}
+        </View>
+      );
+    }
+    
     return (
       <View style={styles.listContainer}>
         {/* First row - two half cards side by side */}
         <View style={styles.firstRow}>
-          {renderLocationCard({ item: mockLocations[0], index: 0 })}
-          {renderLocationCard({ item: mockLocations[1], index: 1 })}
+          {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
+          {renderLocationCard({ item: modifiedLocations[1], index: 1 })}
         </View>
         
         {/* Rest of the cards - all wide cards */}
-        {mockLocations.slice(2).map((item, index) => (
+        {modifiedLocations.slice(2).map((item, index) => (
           <View key={item.id}>
             {renderLocationCard({ item, index: index + 2 })}
           </View>
@@ -727,6 +1050,24 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  mapPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapPlaceholderText: {
+    color: '#2C5530',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  markerOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -10 }, { translateY: -10 }],
+    zIndex: 1,
+  },
   cardGradient: {
     position: 'absolute',
     bottom: 0,
@@ -828,56 +1169,87 @@ const styles = StyleSheet.create({
   // Filter Modal Styles
   filterModalContainer: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   filterHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
   },
   backButton: {
     padding: 8,
   },
   filterTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000000',
-    fontFamily: 'serif',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   placeholder: {
     width: 40,
   },
   filterContent: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+  },
+  filterScrollContent: {
+    paddingBottom: 20,
   },
   filterSection: {
     marginTop: 24,
   },
   filterSectionTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000000',
+    fontWeight: '700',
     marginBottom: 12,
+    letterSpacing: 0.5,
   },
   dropdownField: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    minHeight: 56,
   },
   dropdownText: {
     fontSize: 16,
-    color: '#000000',
+    flex: 1,
+  },
+  dropdownIconContainer: {
+    marginLeft: 12,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 56,
+    left: 0,
+    right: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    maxHeight: 200,
+    zIndex: 1000,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  dropdownScrollView: {
+    maxHeight: 200,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    flex: 1,
   },
   spotTypeOption: {
     flexDirection: 'row',
@@ -885,51 +1257,55 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#F8F9FA',
-    marginRight: 12,
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    marginRight: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  checkboxSelected: {
-    backgroundColor: '#4A90E2',
-    borderColor: '#4A90E2',
-  },
   spotTypeText: {
     fontSize: 16,
-    color: '#000000',
+    flex: 1,
+  },
+  radiusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    minHeight: 56,
   },
   radiusInput: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
     fontSize: 16,
-    color: '#000000',
+    flex: 1,
+  },
+  radiusUnit: {
+    fontSize: 16,
+    marginLeft: 8,
+    fontWeight: '500',
   },
   filterFooter: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 20,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
   },
   searchButton: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
+    borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   searchButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000000',
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });
+

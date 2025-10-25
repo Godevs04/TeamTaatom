@@ -218,6 +218,32 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
   }
 };
 
+// Get travel map data for a user
+export const getTravelMapData = async (userId: string): Promise<{
+  success: boolean;
+  data: {
+    locations: Array<{
+      number: number;
+      latitude: number;
+      longitude: number;
+      address: string;
+      date: string;
+    }>;
+    statistics: {
+      totalLocations: number;
+      totalDistance: number;
+      totalDays: number;
+    };
+  };
+}> => {
+  try {
+    const response = await api.get(`/profile/${userId}/travel-map`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch travel map data');
+  }
+};
+
 // Get user's posts
 export const getUserPosts = async (userId: string, page: number = 1, limit: number = 20): Promise<UserPostsResponse> => {
   try {
@@ -262,9 +288,23 @@ export const deleteComment = async (postId: string, commentId: string): Promise<
 export const deletePost = async (postId: string): Promise<{ message: string }> => {
   try {
     const response = await api.delete(`/posts/${postId}`);
+    // Clear cache for this post
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to delete post');
+  }
+};
+
+// Delete short
+export const deleteShort = async (shortId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.delete(`/shorts/${shortId}`);
+    // Clear cache for this short
+    postByIdCache.delete(shortId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to delete short');
   }
 };
 

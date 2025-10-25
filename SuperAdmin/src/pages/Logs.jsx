@@ -1,81 +1,86 @@
-import React, { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
+import React, { useState, useEffect } from 'react'
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { formatDate } from '../utils/formatDate'
 import { Search, Filter, Download, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react'
+import { useRealTime } from '../context/RealTimeContext'
 
 const Logs = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterLevel, setFilterLevel] = useState('all')
   const [filterType, setFilterType] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
+  const [isLoading, setIsLoading] = useState(false)
 
-  // Dummy data
-  const logs = [
-    {
-      id: 1,
-      timestamp: '2024-10-15T10:30:00Z',
-      level: 'info',
-      type: 'user_action',
-      message: 'User John Doe created a new travel post',
-      userId: 'user_123',
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0)',
-      details: { postId: 'post_456', location: 'Paris, France' },
-    },
-    {
-      id: 2,
-      timestamp: '2024-10-15T10:25:00Z',
-      level: 'warning',
-      type: 'security',
-      message: 'Multiple failed login attempts detected',
-      userId: 'user_789',
-      ipAddress: '192.168.1.200',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      details: { attempts: 5, blocked: true },
-    },
-    {
-      id: 3,
-      timestamp: '2024-10-15T10:20:00Z',
-      level: 'error',
-      type: 'system',
-      message: 'Database connection timeout',
-      userId: null,
-      ipAddress: '127.0.0.1',
-      userAgent: 'System',
-      details: { timeout: '30s', retries: 3 },
-    },
-    {
-      id: 4,
-      timestamp: '2024-10-15T10:15:00Z',
-      level: 'info',
-      type: 'moderation',
-      message: 'Moderator Alice Johnson reviewed flagged content',
-      userId: 'moderator_001',
-      ipAddress: '192.168.1.150',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-      details: { contentId: 'content_789', action: 'approved' },
-    },
-    {
-      id: 5,
-      timestamp: '2024-10-15T10:10:00Z',
-      level: 'error',
-      type: 'api',
-      message: 'Rate limit exceeded for user',
-      userId: 'user_456',
-      ipAddress: '192.168.1.300',
-      userAgent: 'Mozilla/5.0 (Android 11; Mobile)',
-      details: { endpoint: '/api/posts', limit: '100/hour' },
-    },
-  ]
+  const { auditLogs, fetchAuditLogs, exportAuditLogs, isConnected } = useRealTime()
 
-  const filteredLogs = logs.filter(log => {
-    const matchesSearch = log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         log.userId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         log.ipAddress.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesLevel = filterLevel === 'all' || log.level === filterLevel
-    const matchesType = filterType === 'all' || log.type === filterType
-    return matchesSearch && matchesLevel && matchesType
-  })
+  // Fetch logs on component mount and when filters change
+  useEffect(() => {
+    const fetchLogs = async () => {
+      setIsLoading(true)
+      try {
+        await fetchAuditLogs({
+          page: currentPage,
+          limit: itemsPerPage,
+          level: filterLevel !== 'all' ? filterLevel : undefined,
+          type: filterType !== 'all' ? filterType : undefined,
+          search: searchTerm || undefined
+        })
+      } catch (error) {
+        console.error('Failed to fetch logs:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchLogs()
+  }, [currentPage, filterLevel, filterType, searchTerm, fetchAuditLogs, itemsPerPage])
+
+  // Debounced search
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchTerm !== '') {
+        setCurrentPage(1) // Reset to first page when searching
+      }
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm])
+
+  // Use auditLogs from context instead of filtered logs
+  const logs = auditLogs?.logs || []
+  const totalLogs = auditLogs?.total || 0
+  const totalPages = Math.ceil(totalLogs / itemsPerPage)
+
+  const handleRefresh = async () => {
+    setIsLoading(true)
+    try {
+      await fetchAuditLogs({
+        page: currentPage,
+        limit: itemsPerPage,
+        level: filterLevel !== 'all' ? filterLevel : undefined,
+        type: filterType !== 'all' ? filterType : undefined,
+        search: searchTerm || undefined
+      })
+    } catch (error) {
+      console.error('Failed to refresh logs:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleExport = async (format) => {
+    try {
+      await exportAuditLogs(format, {
+        level: filterLevel !== 'all' ? filterLevel : undefined,
+        type: filterType !== 'all' ? filterType : undefined,
+        search: searchTerm || undefined
+      })
+    } catch (error) {
+      console.error('Failed to export logs:', error)
+    }
+  }
 
   const getLevelColor = (level) => {
     switch (level) {
@@ -113,18 +118,45 @@ const Logs = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">System Logs</h1>
+          <div className="flex items-center space-x-3">
+            <h1 className="text-3xl font-bold text-gray-900">System Logs</h1>
+            {isConnected && (
+              <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                Live Data
+              </span>
+            )}
+          </div>
           <p className="text-gray-600 mt-2">Monitor system and app events</p>
         </div>
         <div className="flex space-x-3">
-          <button className="btn btn-secondary">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+          <button 
+            className="btn btn-secondary"
+            onClick={handleRefresh}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            {isLoading ? 'Refreshing...' : 'Refresh'}
           </button>
-          <button className="btn btn-primary">
-            <Download className="w-4 h-4 mr-2" />
-            Export Logs
-          </button>
+          <div className="relative">
+            <button className="btn btn-primary">
+              <Download className="w-4 h-4 mr-2" />
+              Export Logs
+            </button>
+            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border">
+              <button
+                onClick={() => handleExport('csv')}
+                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Export as CSV
+              </button>
+              <button
+                onClick={() => handleExport('json')}
+                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Export as JSON
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -139,7 +171,7 @@ const Logs = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Errors</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {logs.filter(l => l.level === 'error').length}
+                  {(logs || []).filter(l => l.level === 'error').length}
                 </p>
               </div>
             </div>
@@ -154,7 +186,7 @@ const Logs = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Warnings</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {logs.filter(l => l.level === 'warning').length}
+                  {(logs || []).filter(l => l.level === 'warning').length}
                 </p>
               </div>
             </div>
@@ -169,7 +201,7 @@ const Logs = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Info</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {logs.filter(l => l.level === 'info').length}
+                  {(logs || []).filter(l => l.level === 'info').length}
                 </p>
               </div>
             </div>
@@ -182,9 +214,9 @@ const Logs = () => {
                 <CheckCircle className="w-6 h-6 text-green-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Success</p>
+                <p className="text-sm font-medium text-gray-600">Total Logs</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {logs.filter(l => l.level === 'success').length}
+                  {totalLogs}
                 </p>
               </div>
             </div>
@@ -244,7 +276,7 @@ const Logs = () => {
       {/* Logs Table */}
       <Card>
         <CardHeader>
-          <CardTitle>System Logs ({filteredLogs.length})</CardTitle>
+          <CardTitle>System Logs ({totalLogs})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -261,46 +293,87 @@ const Logs = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLogs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell className="font-mono text-sm">
-                      {formatDate(log.timestamp)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        {getLevelIcon(log.level)}
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(log.level)}`}>
-                          {log.level}
-                        </span>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <div className="flex items-center justify-center">
+                        <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                        Loading logs...
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(log.type)}`}>
-                        {log.type.replace('_', ' ')}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-xs">
-                      <div className="truncate" title={log.message}>
-                        {log.message}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {log.userId || 'N/A'}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {log.ipAddress}
-                    </TableCell>
-                    <TableCell>
-                      <button className="p-1 text-gray-400 hover:text-gray-600">
-                        <Info className="w-4 h-4" />
-                      </button>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : logs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      No logs found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  logs.map((log) => (
+                    <TableRow key={log._id || log.id}>
+                      <TableCell className="font-mono text-sm">
+                        {formatDate(log.timestamp)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          {getLevelIcon(log.level)}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(log.level)}`}>
+                            {log.level}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(log.type)}`}>
+                          {log.type?.replace('_', ' ') || 'N/A'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-xs">
+                        <div className="truncate" title={log.message}>
+                          {log.message}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {log.userId || 'N/A'}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {log.ipAddress || 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        <button className="p-1 text-gray-400 hover:text-gray-600">
+                          <Info className="w-4 h-4" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
         </CardContent>
+        <CardFooter className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalLogs)} of {totalLogs} logs
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1 || isLoading}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1 text-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages || isLoading}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Next
+            </button>
+          </div>
+        </CardFooter>
       </Card>
 
       {/* Log Details Modal would go here */}

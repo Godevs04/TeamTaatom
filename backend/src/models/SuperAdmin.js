@@ -181,21 +181,20 @@ superAdminSchema.methods.generateAuthToken = function() {
 
 // Method to log security events
 superAdminSchema.methods.logSecurityEvent = function(action, details = '', ipAddress = '', userAgent = '', success = true) {
-  this.securityLogs.push({
+  const newLog = {
     action,
     details,
     ipAddress,
     userAgent,
     success,
     timestamp: new Date()
-  })
-  
-  // Keep only last 100 security logs
-  if (this.securityLogs.length > 100) {
-    this.securityLogs = this.securityLogs.slice(-100)
   }
   
-  return this.save()
+  // Use updateOne to avoid parallel save conflicts
+  return this.updateOne({
+    $push: { securityLogs: newLog },
+    $slice: { securityLogs: -100 } // Keep only last 100 security logs
+  })
 }
 
 // Method to handle failed login attempts

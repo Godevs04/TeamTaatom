@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import WorldMap from '../../components/WorldMap';
-import PhotoCard from '../../components/PhotoCard';
+import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
 import BioDisplay from '../../components/BioDisplay';
 import Constants from 'expo-constants';
@@ -21,7 +21,6 @@ export default function UserProfileScreen() {
   const [followLoading, setFollowLoading] = useState(false);
   const [followRequestSent, setFollowRequestSent] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [selectedPost, setSelectedPost] = useState<any>(null);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -31,8 +30,16 @@ export default function UserProfileScreen() {
   // Remove selectedPost and modal logic
 
   // Use expoConfig for SDK 49+, fallback to manifest for older
-  const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY;
-
+  const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || 
+                               Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY || 
+                               "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"; // Fallback key
+  
+  // Debug logging
+  console.log('Profile - API Key check:', {
+    expoConfig: Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY,
+    manifest: Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY,
+    final: GOOGLE_MAPS_API_KEY
+  });
   const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
     setAlertConfig({ title: title || '', message, type });
     setAlertVisible(true);
@@ -76,7 +83,6 @@ export default function UserProfileScreen() {
     setLoading(true);
     setIsFollowing(false);
     setShowWorldMap(false);
-    setSelectedPost(null);
   }, [id]);
 
   useEffect(() => {
@@ -140,97 +146,129 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FlatList
         ListHeaderComponent={
-          <View style={{ alignItems: 'center', padding: theme.spacing.lg }}>
-            {/* Back Button */}
-            <TouchableOpacity onPress={() => router.back()} style={{ position: 'absolute', left: 16, top: 16, zIndex: 10 }}>
-              <Ionicons name="arrow-back" size={32} color={theme.colors.text} />
-            </TouchableOpacity>
-            <Image
-              source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-              style={{ width: 90, height: 90, borderRadius: 45, borderWidth: 2, borderColor: theme.colors.primary, marginBottom: theme.spacing.md, marginTop: 16 }}
-            />
-            <Text style={{ fontSize: 22, fontWeight: '700', color: theme.colors.text }}>{profile.fullName}</Text>
-            {profile.email && (
-              <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginTop: 4 }}>{profile.email}</Text>
-            )}
-            <BioDisplay bio={profile.bio || ''} />
-            {/* Stats Row */}
-            <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
-              <View style={{ alignItems: 'center', marginHorizontal: 16 }}>
-                <Text style={{ fontWeight: '700', fontSize: 18, color: theme.colors.text }}>
+          <View style={styles.profileContainer}>
+            {/* Header with Back Button */}
+            <View style={styles.header}>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Profile Picture */}
+            <View style={styles.profilePictureContainer}>
+              <Image
+                source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                style={styles.profilePicture}
+              />
+              <View style={styles.profilePictureBorder} />
+            </View>
+
+            {/* User Info */}
+            <View style={styles.userInfo}>
+              <Text style={[styles.userName, { color: theme.colors.text }]}>{profile.fullName}</Text>
+              {profile.email && (
+                <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>{profile.email}</Text>
+              )}
+              <BioDisplay bio={profile.bio || ''} />
+            </View>
+
+            {/* Stats Cards */}
+            <View style={styles.statsContainer}>
+              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {typeof profile.followers === 'number' ? profile.followers : Array.isArray(profile.followers) ? profile.followers.length : 0}
                 </Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Followers</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
               </View>
-              <View style={{ alignItems: 'center', marginHorizontal: 16 }}>
-                <Text style={{ fontWeight: '700', fontSize: 18, color: theme.colors.text }}>
+              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {typeof profile.following === 'number' ? profile.following : Array.isArray(profile.following) ? profile.following.length : 0}
                 </Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Following</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
               </View>
-              <View style={{ alignItems: 'center', marginHorizontal: 16 }}>
-                <Text style={{ fontWeight: '700', fontSize: 18, color: theme.colors.text }}>
+              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
                   {(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
                 </Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Locations</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Locations</Text>
               </View>
             </View>
+
+            {/* Action Buttons */}
             {currentUser && currentUser._id !== profile._id && (
-              <TouchableOpacity
-                style={{ 
-                  marginTop: theme.spacing.sm, 
-                  backgroundColor: isFollowing ? theme.colors.surface : followRequestSent ? '#FF9800' : theme.colors.primary, 
-                  borderRadius: 20, 
-                  paddingHorizontal: 32, 
-                  paddingVertical: 10 
-                }}
-                onPress={handleFollow}
-                disabled={followLoading}
-              >
-                <Text style={{ color: isFollowing ? theme.colors.text : '#fff', fontWeight: '700', fontSize: 16 }}>
-                  {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {currentUser && currentUser._id !== profile._id && isFollowing && (
-              <TouchableOpacity
-                style={{ marginTop: theme.spacing.sm, backgroundColor: theme.colors.primary, borderRadius: 20, paddingHorizontal: 32, paddingVertical: 10 }}
-                onPress={() => router.push(`/chat?userId=${profile._id}`)}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Message</Text>
-              </TouchableOpacity>
-            )}
-            {/* 3D Globe (WorldMap) */}
-            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
-              <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg }}>
-                <TouchableOpacity onPress={() => setShowWorldMap(true)}>
-                  <Ionicons name="earth" size={90} color={theme.colors.primary} />
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    styles.followButton,
+                    { 
+                      backgroundColor: isFollowing ? theme.colors.surface : followRequestSent ? '#FF9800' : theme.colors.primary,
+                      borderColor: isFollowing ? theme.colors.primary : 'transparent'
+                    }
+                  ]}
+                  onPress={handleFollow}
+                  disabled={followLoading}
+                >
+                  <Text style={[
+                    styles.actionButtonText,
+                    { color: isFollowing ? theme.colors.primary : '#fff' }
+                  ]}>
+                    {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                  </Text>
                 </TouchableOpacity>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 4 }}>{profile.locations.length} locations visited</Text>
-              </View>
-            ) : (
-              <View style={{ alignItems: 'center', marginVertical: theme.spacing.lg, padding: 32 }}>
-                <Ionicons name="earth" size={80} color={theme.colors.textSecondary} />
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 18, marginTop: 16 }}>
-                  {profile.canViewLocations 
-                    ? 'No locations yet'
-                    : profile.profileVisibility === 'followers' 
-                    ? 'Follow to view posted locations'
-                    : profile.profileVisibility === 'private'
-                    ? 'Follow request pending to view locations'
-                    : 'Follow to view posted locations'
-                  }
-                </Text>
+                
+                {isFollowing && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.messageButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => router.push(`/chat?userId=${profile._id}`)}
+                  >
+                    <Text style={[styles.actionButtonText, { color: '#fff' }]}>Message</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
-            {/* Recent Posts Section Title */}
+
+            {/* Posted Locations Section */}
+            <View style={styles.sectionContainer}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
+              {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
+                <View style={styles.locationsContainer}>
+                  <TouchableOpacity onPress={() => setShowWorldMap(true)} style={styles.globeContainer}>
+                    <View style={styles.globeIconContainer}>
+                      <Ionicons name="earth" size={60} color={theme.colors.primary} />
+                    </View>
+                    <Text style={[styles.locationsCount, { color: theme.colors.textSecondary }]}>
+                      {profile.locations.length} locations visited
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.emptyLocationsContainer}>
+                  <View style={styles.emptyGlobeContainer}>
+                    <Ionicons name="earth" size={50} color={theme.colors.textSecondary} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                    {profile.canViewLocations 
+                      ? 'No locations yet'
+                      : profile.profileVisibility === 'followers' 
+                      ? 'Follow to view posted locations'
+                      : profile.profileVisibility === 'private'
+                      ? 'Follow request pending to view locations'
+                      : 'Follow to view posted locations'
+                    }
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Recent Posts Section */}
             {profile.canViewPosts && (
-              <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm }}>
-                Recent Posts
-              </Text>
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
+              </View>
             )}
           </View>
         }
@@ -239,52 +277,37 @@ export default function UserProfileScreen() {
         numColumns={3}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={{ flex: 1 / 3, aspectRatio: 1, margin: 2, borderRadius: 8, overflow: 'hidden' }}
-            onPress={() => setSelectedPost(item)}
+            style={styles.postThumbnail}
+            onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
           >
-            <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 32 }}>
-            {profile.canViewPosts 
-              ? 'No posts yet.' 
-              : profile.profileVisibility === 'followers' 
-              ? 'Follow to view posts'
-              : profile.profileVisibility === 'private'
-              ? 'Follow request pending to view posts'
-              : 'Follow to view posts'
-            }
-          </Text>
+          <View style={styles.emptyPostsContainer}>
+            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+              {profile.canViewPosts 
+                ? 'No posts yet.' 
+                : profile.profileVisibility === 'followers' 
+                ? 'Follow to view posts'
+                : profile.profileVisibility === 'private'
+                ? 'Follow request pending to view posts'
+                : 'Follow to view posts'
+              }
+            </Text>
+          </View>
         }
         contentContainerStyle={{ paddingBottom: 40 }}
       />
-      {/* Post Modal: show image and location */}
-      <Modal visible={!!selectedPost} transparent animationType="fade" onRequestClose={() => setSelectedPost(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
-          {selectedPost && (
-            <>
-              <Image source={{ uri: selectedPost.imageUrl }} style={{ width: '90%', height: '60%', borderRadius: 16 }} resizeMode="contain" />
-              {selectedPost.location?.address && (
-                <Text style={{ color: '#fff', fontSize: 18, marginTop: 16, textAlign: 'center' }}>
-                  📍 {selectedPost.location.address}
-                </Text>
-              )}
-              <TouchableOpacity onPress={() => setSelectedPost(null)} style={{ marginTop: 24 }}>
-                <Ionicons name="close-circle" size={48} color="#fff" />
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </Modal>
       {/* World Map Modal */}
-      {profile.locations && profile.locations.length > 0 &&
-        ((currentUser && currentUser._id === profile._id) || isFollowing) && GOOGLE_MAPS_API_KEY ? (
-        <WorldMap
-          visible={showWorldMap}
-          locations={profile.locations}
-          onClose={() => setShowWorldMap(false)}
-        />
+      {((currentUser && currentUser._id === profile._id) || isFollowing) && GOOGLE_MAPS_API_KEY ? (
+        <>
+          <WorldMap
+            visible={showWorldMap}
+            userId={id as string}
+            onClose={() => setShowWorldMap(false)}
+          />
+        </>
       ) : showWorldMap ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }}>
           <Text style={{ color: theme.colors.textSecondary, fontSize: 18 }}>Unable to load map. GOOGLE_MAPS_API_KEY is missing.</Text>
@@ -304,3 +327,219 @@ export default function UserProfileScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  profileContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  
+  // Header Styles
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    width: '100%',
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+
+  // Profile Picture Styles
+  profilePictureContainer: {
+    position: 'relative',
+    marginBottom: 24,
+  },
+  profilePicture: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  profilePictureBorder: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 64,
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+
+  // User Info Styles
+  userInfo: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  userName: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  userEmail: {
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+
+  // Stats Styles
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 32,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
+
+  // Action Buttons Styles
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 32,
+    width: '100%',
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  followButton: {
+    borderWidth: 2,
+  },
+  messageButton: {
+    // Additional styles for message button if needed
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // Section Styles
+  sectionContainer: {
+    width: '100%',
+    marginBottom: 32,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+
+  // Locations Styles
+  locationsContainer: {
+    alignItems: 'center',
+  },
+  globeContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  globeIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  locationsCount: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  emptyLocationsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyGlobeContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  // Posts Styles
+  postThumbnail: {
+    flex: 1 / 3,
+    aspectRatio: 1,
+    margin: 2,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  postImage: {
+    width: '100%',
+    height: '100%',
+  },
+  emptyPostsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+});

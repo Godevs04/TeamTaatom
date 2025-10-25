@@ -16,6 +16,7 @@ const {
   getTripScoreCountries,
   getTripScoreCountryDetails,
   getTripScoreLocations,
+  getTravelMapData,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -139,6 +140,9 @@ router.get('/:id/tripscore/continents', optionalAuth, getTripScoreContinents);
 router.get('/:id/tripscore/continents/:continent/countries', optionalAuth, getTripScoreCountries);
 router.get('/:id/tripscore/countries/:country', optionalAuth, getTripScoreCountryDetails);
 router.get('/:id/tripscore/countries/:country/locations', optionalAuth, getTripScoreLocations);
+
+// Travel Map route
+router.get('/:id/travel-map', optionalAuth, getTravelMapData);
 
 router.put('/:id/push-token', authMiddleware, async (req, res) => {
   try {

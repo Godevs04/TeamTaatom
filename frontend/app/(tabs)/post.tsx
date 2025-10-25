@@ -18,7 +18,7 @@ import { useRouter } from "expo-router";
 import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
-import { getCurrentLocation, getAddressFromCoords } from "../../utils/geo";
+import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { createPost, createPostWithProgress, createShort, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage } from "../../services/auth";
 import { UserType } from "../../types/user";
