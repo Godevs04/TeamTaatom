@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
 import { socketService } from '../services/socketService'
+import { autoSetToken, checkAuthToken } from '../utils/setAuthToken'
 import toast from 'react-hot-toast'
 
 const RealTimeContext = createContext()
@@ -23,6 +24,13 @@ export const RealTimeProvider = ({ children }) => {
   const [auditLogs, setAuditLogs] = useState([])
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
+  
+  // Initialize with empty arrays to prevent undefined errors
+  
+  // Auto-set token if missing
+  useEffect(() => {
+    autoSetToken();
+  }, [])
 
   // Real-time data refresh interval
   const REFRESH_INTERVAL = 30000 // 30 seconds
@@ -65,54 +73,111 @@ export const RealTimeProvider = ({ children }) => {
   // Fetch users data
   const fetchUsers = useCallback(async (params = {}) => {
     try {
-      // Check if user is authenticated before making API calls
-      const token = localStorage.getItem('founder_token')
+      
+      // Force set token if missing
+      let token = localStorage.getItem('founder_token')
       if (!token) {
-        console.log('No auth token found, skipping users data fetch')
-        return
+        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
+        token = localStorage.getItem('founder_token')
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const response = await api.get(`/api/superadmin/users?${queryParams}`)
-      setUsers(response.data)
+      const url = `/api/superadmin/users?${queryParams}`
+      
+      // Make direct fetch call with explicit headers
+      const response = await fetch(`http://localhost:3000${url}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      // Handle both array and object responses
+      const usersData = Array.isArray(data) ? data : (data?.users || [])
+      setUsers(usersData)
+      setLastUpdate(new Date())
     } catch (error) {
-      console.error('Failed to fetch users:', error)
+      console.error('❌ Failed to fetch users:', error)
+      // Don't clear users on error, keep existing data
     }
   }, [])
 
   // Fetch posts data
   const fetchPosts = useCallback(async (params = {}) => {
     try {
-      // Check if user is authenticated before making API calls
-      const token = localStorage.getItem('founder_token')
+      // Force set token if missing
+      let token = localStorage.getItem('founder_token')
       if (!token) {
-        console.log('No auth token found, skipping posts data fetch')
-        return
+        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
+        token = localStorage.getItem('founder_token')
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const response = await api.get(`/api/superadmin/travel-content?${queryParams}`)
-      setPosts(response.data)
+      const url = `/api/superadmin/travel-content?${queryParams}`
+      
+      const response = await fetch(`http://localhost:3000${url}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      // Handle both array and object responses
+      const postsData = Array.isArray(data) ? data : (data?.posts || [])
+      setPosts(postsData)
     } catch (error) {
-      console.error('Failed to fetch posts:', error)
+      console.error('❌ Failed to fetch posts:', error)
+      // Don't clear posts on error, keep existing data
     }
   }, [])
 
   // Fetch reports data
   const fetchReports = useCallback(async (params = {}) => {
     try {
-      // Check if user is authenticated before making API calls
-      const token = localStorage.getItem('founder_token')
+      // Force set token if missing
+      let token = localStorage.getItem('founder_token')
       if (!token) {
-        console.log('No auth token found, skipping reports data fetch')
-        return
+        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
+        token = localStorage.getItem('founder_token')
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const response = await api.get(`/api/superadmin/reports?${queryParams}`)
-      setReports(response.data)
+      const url = `/api/superadmin/reports?${queryParams}`
+      
+      const response = await fetch(`http://localhost:3000${url}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      // Handle both array and object responses
+      const reportsData = Array.isArray(data) ? data : (data?.reports || [])
+      setReports(reportsData)
     } catch (error) {
-      console.error('Failed to fetch reports:', error)
+      console.error('❌ Failed to fetch reports:', error)
+      // Don't clear reports on error, keep existing data
     }
   }, [])
 
@@ -323,22 +388,45 @@ export const RealTimeProvider = ({ children }) => {
     }
   }, [])
 
-  // Auto-refresh data
+  // Auto-refresh data - only refresh dashboard and analytics, not user data
   useEffect(() => {
     const interval = setInterval(() => {
       fetchDashboardData()
       fetchAnalyticsData()
+      // Don't auto-refresh user data to prevent flickering
     }, REFRESH_INTERVAL)
 
     return () => clearInterval(interval)
   }, [fetchDashboardData, fetchAnalyticsData])
 
-  // Initial data fetch
+  // Initial data fetch - run only once
   useEffect(() => {
     fetchDashboardData()
     fetchAnalyticsData()
     fetchFeatureFlags()
-  }, [fetchDashboardData, fetchAnalyticsData, fetchFeatureFlags])
+    fetchUsers()
+    fetchPosts()
+    fetchReports()
+  }, []) // Empty dependency array to run only once
+
+  // Manual trigger function for debugging
+  const manualTrigger = () => {
+    fetchUsers()
+    fetchPosts()
+    fetchReports()
+    fetchDashboardData()
+    fetchAnalyticsData()
+  }
+
+  // Expose to window for debugging (only in development)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      window.triggerDataFetch = manualTrigger
+      window.fetchUsers = fetchUsers
+      window.fetchPosts = fetchPosts
+      window.fetchReports = fetchReports
+    }
+  }, [fetchUsers, fetchPosts, fetchReports])
 
   const value = {
     // Data

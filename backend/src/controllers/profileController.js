@@ -1319,6 +1319,95 @@ const getTripScoreLocations = async (req, res) => {
   }
 };
 
+// @desc    Get user's travel map data (locations, stats)
+// @route   GET /profile/:id/travel-map
+// @access  Public
+const getTravelMapData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid user id', message: 'User id must be a valid ObjectId' });
+    }
+
+    // Get all posts with valid locations
+    const posts = await Post.find({ 
+      user: id, 
+      isActive: true,
+      'location.coordinates.latitude': { $ne: 0 },
+      'location.coordinates.longitude': { $ne: 0 }
+    })
+    .select('location createdAt')
+    .sort({ createdAt: 1 }) // Sort by creation date to maintain order
+    .lean();
+
+    // Extract unique locations for the map (numbered points)
+    const uniqueLocations = new Map();
+    const locations = [];
+    let locationCounter = 1;
+
+    posts.forEach(post => {
+      const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+      
+      // Only add unique locations
+      if (!uniqueLocations.has(locationKey)) {
+        uniqueLocations.set(locationKey, locationCounter);
+        
+        locations.push({
+          number: locationCounter,
+          latitude: post.location.coordinates.latitude,
+          longitude: post.location.coordinates.longitude,
+          address: post.location.address,
+          date: post.createdAt
+        });
+        
+        locationCounter++;
+      }
+    });
+
+    // Calculate statistics
+    const totalLocations = locations.length;
+    const totalDays = posts.length > 0 ? Math.ceil((Date.now() - new Date(posts[0].createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    
+    // Calculate approximate distance traveled (simplified calculation)
+    let totalDistance = 0;
+    for (let i = 1; i < locations.length; i++) {
+      const prev = locations[i - 1];
+      const curr = locations[i];
+      
+      // Haversine formula for distance calculation
+      const R = 6371; // Earth's radius in kilometers
+      const dLat = (curr.latitude - prev.latitude) * Math.PI / 180;
+      const dLon = (curr.longitude - prev.longitude) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(prev.latitude * Math.PI / 180) * Math.cos(curr.latitude * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distance = R * c;
+      
+      totalDistance += distance;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        locations,
+        statistics: {
+          totalLocations,
+          totalDistance: Math.round(totalDistance),
+          totalDays
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get travel map data error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching travel map data'
+    });
+  }
+};
+
 // Helper function to determine continent from location
 const getContinentFromLocation = (address) => {
   if (!address) return 'Unknown';
@@ -1541,5 +1630,6 @@ module.exports = {
   getTripScoreContinents,
   getTripScoreCountries,
   getTripScoreCountryDetails,
-  getTripScoreLocations
+  getTripScoreLocations,
+  getTravelMapData
 };
