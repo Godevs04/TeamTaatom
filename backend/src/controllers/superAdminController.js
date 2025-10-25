@@ -65,6 +65,9 @@ const loginSuperAdmin = async (req, res) => {
     // Generate OTP and send email
     const { otp, expiresAt } = superAdmin.generateOTP()
     
+    // Save the tempAuth object to database
+    await superAdmin.save()
+    
     try {
       await sendSuperAdmin2FAEmail(
         superAdmin.email, 
@@ -227,6 +230,7 @@ const changePassword = async (req, res) => {
     superAdmin.password = newPassword
     await superAdmin.save()
     
+    // Log the event after save is complete
     await superAdmin.logSecurityEvent('password_changed', 'Password changed successfully', req.ip, req.get('User-Agent'), true)
     
     res.json({ message: 'Password changed successfully' })
@@ -316,8 +320,8 @@ const verify2FA = async (req, res) => {
       return res.status(401).json({ message: 'Invalid token type' })
     }
     
-    // Find SuperAdmin
-    const superAdmin = await SuperAdmin.findById(decoded.id)
+    // Find SuperAdmin - explicitly select tempAuth field
+    const superAdmin = await SuperAdmin.findById(decoded.id).select('+tempAuth')
     if (!superAdmin) {
       return res.status(401).json({ message: 'Invalid token' })
     }
@@ -330,7 +334,7 @@ const verify2FA = async (req, res) => {
       return res.status(401).json({ message: otpResult.message })
     }
     
-    // Complete login
+    // Complete login - call sequentially to avoid parallel save error
     await superAdmin.resetLoginAttempts()
     await superAdmin.logSecurityEvent('2fa_success', '2FA verification successful', ipAddress, userAgent, true)
     
@@ -410,6 +414,9 @@ const resend2FA = async (req, res) => {
     
     // Generate new OTP and send email
     const { otp, expiresAt } = superAdmin.generateOTP()
+    
+    // Save the tempAuth object to database
+    await superAdmin.save()
     
     try {
       await sendSuperAdmin2FAEmail(

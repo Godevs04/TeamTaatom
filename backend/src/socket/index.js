@@ -136,6 +136,74 @@ function setupSocket(server) {
         timestamp: new Date()
       });
     });
+
+    // Call events
+    socket.on('call:invite', ({ to, callId, callType, from }) => {
+      console.log('WebSocket - Call invite:', { from: from || socket.userId, to, callId, callType });
+      emitToUser(to, 'call:incoming', { 
+        from: from || socket.userId, 
+        callId, 
+        callType,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:accept', ({ callId, to, from }) => {
+      console.log('WebSocket - Call accept:', { from: from || socket.userId, to, callId });
+      emitToUser(to, 'call:accepted', { 
+        from: from || socket.userId, 
+        callId,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:reject', ({ callId, to, from }) => {
+      console.log('WebSocket - Call reject:', { from: from || socket.userId, to, callId });
+      emitToUser(to, 'call:rejected', { 
+        from: from || socket.userId, 
+        callId,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:end', ({ callId, to, from }) => {
+      console.log('WebSocket - Call end:', { from: from || socket.userId, to, callId });
+      emitToUser(to, 'call:ended', { 
+        from: from || socket.userId, 
+        callId,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:offer', ({ to, callId, offer }) => {
+      console.log('WebSocket - Call offer:', { from: socket.userId, to, callId });
+      emitToUser(to, 'call:offer', { 
+        from: socket.userId, 
+        callId, 
+        offer,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:answer', ({ to, callId, answer }) => {
+      console.log('WebSocket - Call answer:', { from: socket.userId, to, callId });
+      emitToUser(to, 'call:answer', { 
+        from: socket.userId, 
+        callId, 
+        answer,
+        timestamp: new Date()
+      });
+    });
+
+    socket.on('call:ice-candidate', ({ to, callId, candidate }) => {
+      console.log('WebSocket - ICE candidate:', { from: socket.userId, to, callId });
+      emitToUser(to, 'call:ice-candidate', { 
+        from: socket.userId, 
+        callId, 
+        candidate,
+        timestamp: new Date()
+      });
+    });
     // Presence
     socket.on('disconnect', () => {
       if (onlineUsers.has(socket.userId)) {

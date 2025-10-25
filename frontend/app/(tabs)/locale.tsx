@@ -331,22 +331,35 @@ export default function LocaleScreen() {
           try {
             console.log('Navigating to location:', item.name);
             
-            // Geocode the location name to get coordinates
-            const coordinates = await geocodeAddress(item.name);
-            
-            if (coordinates) {
-              console.log('Geocoding successful, navigating to map:', coordinates);
+            // If it's the current location, use existing coordinates
+            if (item.id === 'current-location' && item.coordinates) {
+              console.log('Navigating to current location with existing coordinates:', item.coordinates);
               router.push({
                 pathname: '/map/current-location',
                 params: {
-                  latitude: coordinates.latitude.toString(),
-                  longitude: coordinates.longitude.toString(),
+                  latitude: item.coordinates.latitude.toString(),
+                  longitude: item.coordinates.longitude.toString(),
                   address: item.name,
                 }
               });
             } else {
-              console.log('Geocoding failed, falling back to current location');
-              router.push('/map/current-location');
+              // For other locations, geocode the location name to get coordinates
+              const coordinates = await geocodeAddress(item.name);
+              
+              if (coordinates) {
+                console.log('Geocoding successful, navigating to map:', coordinates);
+                router.push({
+                  pathname: '/map/current-location',
+                  params: {
+                    latitude: coordinates.latitude.toString(),
+                    longitude: coordinates.longitude.toString(),
+                    address: item.name,
+                  }
+                });
+              } else {
+                console.log('Geocoding failed, falling back to current location');
+                router.push('/map/current-location');
+              }
             }
           } catch (error) {
             console.error('Error navigating to location:', error);
@@ -372,17 +385,123 @@ export default function LocaleScreen() {
     );
   };
 
+  const renderCurrentLocationCard = (currentLocation: any) => {
+    // Use OpenStreetMap since Google Maps is failing
+    const mapUrl = `https://tile.openstreetmap.org/15/${Math.floor((currentLocation.longitude + 180) / 360 * Math.pow(2, 15))}/${Math.floor((1 - Math.log(Math.tan(currentLocation.latitude * Math.PI / 180) + 1 / Math.cos(currentLocation.latitude * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, 15))}.png`;
+    
+    console.log('Using OpenStreetMap URL:', mapUrl);
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.locationCard,
+          styles.halfCard,
+          { marginLeft: 0 }
+        ]}
+        onPress={async () => {
+          if (isGeocoding) return;
+          
+          setIsGeocoding('Current Location');
+          
+          try {
+            console.log('Navigating to current location:', currentLocation.address);
+            
+            router.push({
+              pathname: '/map/current-location',
+              params: {
+                latitude: currentLocation.latitude.toString(),
+                longitude: currentLocation.longitude.toString(),
+                address: currentLocation.address,
+              }
+            });
+          } catch (error) {
+            console.error('Error navigating to current location:', error);
+            router.push('/map/current-location');
+          } finally {
+            setIsGeocoding(null);
+          }
+        }}
+      >
+        <Image
+          source={{ uri: mapUrl }}
+          style={styles.cardImage}
+          resizeMode="cover"
+          onError={(error) => {
+            console.error('OpenStreetMap failed:', error.nativeEvent.error);
+          }}
+
+          onLoad={() => {
+            console.log('OpenStreetMap loaded successfully!');
+          }}
+        />
+        {/* Red marker overlay for location */}
+        <View style={styles.markerOverlay}>
+          <Ionicons name="location" size={20} color="red" />
+        </View>
+        {/* Fallback gradient if image fails - positioned behind the image */}
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={[styles.cardImage, { position: 'absolute', top: 0, left: 0, zIndex: -1 }]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+            <Text style={styles.mapPlaceholderText}>Current Location</Text>
+          </View>
+        </LinearGradient>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          style={styles.cardGradient}
+        />
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle}>{currentLocation.address}</Text>
+        </View>
+        {isGeocoding === 'Current Location' && (
+          <View style={styles.loadingIndicator}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   const renderCustomLayout = () => {
+    // Create a modified locations array with current location replacing SNOW HILL
+    const modifiedLocations = [...mockLocations];
+    
+    // Replace SNOW HILL (index 1) with current location if available
+    if (locations.length > 0) {
+      const currentLocation = locations[0];
+      
+      return (
+        <View style={styles.listContainer}>
+          {/* First row - Current Location (WebView) and BRISTOL */}
+          <View style={styles.firstRow}>
+            {renderCurrentLocationCard(currentLocation)}
+            {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
+          </View>
+          
+          {/* Rest of the cards - all wide cards */}
+          {modifiedLocations.slice(2).map((item, index) => (
+            <View key={item.id}>
+              {renderLocationCard({ item, index: index + 2 })}
+            </View>
+          ))}
+        </View>
+      );
+    }
+    
     return (
       <View style={styles.listContainer}>
         {/* First row - two half cards side by side */}
         <View style={styles.firstRow}>
-          {renderLocationCard({ item: mockLocations[0], index: 0 })}
-          {renderLocationCard({ item: mockLocations[1], index: 1 })}
+          {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
+          {renderLocationCard({ item: modifiedLocations[1], index: 1 })}
         </View>
         
         {/* Rest of the cards - all wide cards */}
-        {mockLocations.slice(2).map((item, index) => (
+        {modifiedLocations.slice(2).map((item, index) => (
           <View key={item.id}>
             {renderLocationCard({ item, index: index + 2 })}
           </View>
@@ -727,6 +846,24 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  mapPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapPlaceholderText: {
+    color: '#2C5530',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  markerOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -10 }, { translateY: -10 }],
+    zIndex: 1,
+  },
   cardGradient: {
     position: 'absolute',
     bottom: 0,
@@ -933,3 +1070,4 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
 });
+
