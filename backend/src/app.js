@@ -30,7 +30,10 @@ app.use(helmet());
 app.use(cors({
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:8081',
-    process.env.SUPERADMIN_URL || 'http://localhost:5001'
+    process.env.SUPERADMIN_URL || 'http://localhost:5001',
+    'http://localhost:5003',
+    'file://', // Allow local file access
+    'null' // Allow local file access
   ],
   credentials: true
 }));
@@ -38,7 +41,7 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 1000, // limit each IP to 1000 requests per windowMs (increased for development)
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);

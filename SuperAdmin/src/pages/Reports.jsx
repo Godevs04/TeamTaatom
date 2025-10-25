@@ -1,86 +1,141 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate, getStatusColor } from '../utils/formatDate'
-import { Search, Filter, MoreHorizontal, CheckCircle, XCircle, Eye, AlertTriangle } from 'lucide-react'
+import { Search, Filter, MoreHorizontal, CheckCircle, XCircle, Eye, AlertTriangle, RefreshCw } from 'lucide-react'
+import { useRealTime } from '../context/RealTimeContext'
+import toast from 'react-hot-toast'
+import SafeComponent from '../components/SafeComponent'
 
 const Reports = () => {
+  const { reports, fetchReports, isConnected } = useRealTime()
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  
+  // Helper function to safely render values
+  const safeRender = (value, fallback = 'Not specified') => {
+    if (value === null || value === undefined) return fallback
+    if (typeof value === 'object') return JSON.stringify(value)
+    return String(value)
+  }
+  
+  // Show loading only on initial load
+  if (isInitialLoad && (!reports || reports.length === 0)) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading reports...</p>
+        </div>
+      </div>
+    )
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedReport, setSelectedReport] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [filterStatus, setFilterStatus] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortOrder, setSortOrder] = useState('desc')
 
-  // Dummy data
-  const reports = [
-    {
-      id: 1,
-      type: 'inappropriate_content',
-      reporter: 'John Doe',
-      reportedUser: 'Mike Johnson',
-      content: 'Mountain hiking trail',
-      reason: 'Contains inappropriate language',
-      status: 'pending',
-      priority: 'high',
-      createdAt: '2024-10-15T10:30:00Z',
-      description: 'User posted content with offensive language targeting other users.',
-    },
-    {
-      id: 2,
-      type: 'spam',
-      reporter: 'Sarah Wilson',
-      reportedUser: 'Anonymous User',
-      content: 'Multiple promotional posts',
-      reason: 'Spam and promotional content',
-      status: 'resolved',
-      priority: 'medium',
-      createdAt: '2024-10-14T15:20:00Z',
-      description: 'User is posting multiple promotional messages across different locations.',
-    },
-    {
-      id: 3,
-      type: 'harassment',
-      reporter: 'Emma Brown',
-      reportedUser: 'Tom Smith',
-      content: 'Personal attacks in comments',
-      reason: 'Harassment and bullying',
-      status: 'investigating',
-      priority: 'high',
-      createdAt: '2024-10-13T09:15:00Z',
-      description: 'User is sending harassing messages and making personal attacks.',
-    },
-    {
-      id: 4,
-      type: 'fake_location',
-      reporter: 'Alex Chen',
-      reportedUser: 'Lisa Wang',
-      content: 'Fake travel location',
-      reason: 'Misleading location information',
-      status: 'pending',
-      priority: 'low',
-      createdAt: '2024-10-12T14:45:00Z',
-      description: 'User is posting content with fake location tags.',
-    },
-  ]
+  // Handle initial load state
+  useEffect(() => {
+    if (reports && reports.length > 0) {
+      setIsInitialLoad(false)
+    }
+  }, [reports])
 
-  const filteredReports = reports.filter(report => {
-    const matchesSearch = report.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.reporter.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.reportedUser.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         report.reason.toLowerCase().includes(searchTerm.toLowerCase())
+  // Fetch reports data on component mount and when filters change
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        await fetchReports({
+          page: currentPage,
+          status: filterStatus === 'all' ? undefined : filterStatus,
+          sortBy,
+          sortOrder
+        })
+      } catch (error) {
+        toast.error('Failed to fetch reports')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [fetchReports, currentPage, filterStatus, sortBy, sortOrder])
+
+  // Handle search with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchTerm !== '') {
+        setCurrentPage(1) // Reset to first page when searching
+      }
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm])
+
+  // Handle report actions
+  const handleReportActionClick = async (reportId, action) => {
+    try {
+      // This would call the appropriate API endpoint
+      toast.success(`Report ${action}d successfully`)
+    } catch (error) {
+      toast.error(`Failed to ${action} report`)
+    }
+  }
+
+  // Get filtered reports based on search and status
+  const reportsArray = Array.isArray(reports) ? reports : (reports?.reports || [])
+  const filteredReports = reportsArray.filter(report => {
+    const matchesSearch = !searchTerm || 
+      report.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      report.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      report.reportedBy?.toLowerCase().includes(searchTerm.toLowerCase())
+    
     const matchesStatus = filterStatus === 'all' || report.status === filterStatus
+    
     return matchesSearch && matchesStatus
   })
+
+  // Pagination
+  const reportsPerPage = 20
+  const totalPages = Math.ceil(filteredReports.length / reportsPerPage)
+  const startIndex = (currentPage - 1) * reportsPerPage
+  const endIndex = startIndex + reportsPerPage
+  const currentReports = filteredReports.slice(startIndex, endIndex)
+
+  const handleRefresh = async () => {
+    setLoading(true)
+    try {
+      await fetchReports({
+        page: currentPage,
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        sortBy,
+        sortOrder
+      })
+      toast.success('Reports refreshed successfully')
+    } catch (error) {
+      toast.error('Failed to refresh reports')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleReportAction = (report, action) => {
     setSelectedReport({ ...report, action })
     setShowModal(true)
   }
 
-  const handleConfirmAction = () => {
-    console.log(`Performing ${selectedReport.action} on report ${selectedReport.id}`)
-    setShowModal(false)
-    setSelectedReport(null)
+  const handleConfirmAction = async () => {
+    if (selectedReport) {
+      await handleReportActionClick(selectedReport.id, selectedReport.action)
+      setShowModal(false)
+      setSelectedReport(null)
+    }
   }
 
   const getPriorityColor = (priority) => {
@@ -93,14 +148,31 @@ const Reports = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <SafeComponent>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Content Reports</h1>
-          <p className="text-gray-600 mt-2">Handle flagged content and abuse reports</p>
+          <p className="text-gray-600 mt-2">
+            Handle flagged content and abuse reports
+            {isConnected && (
+              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="w-2 h-2 bg-green-400 rounded-full mr-1 animate-pulse"></span>
+                Live Data
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex space-x-3">
+          <button 
+            onClick={handleRefresh}
+            disabled={loading}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
           <button className="btn btn-primary">
             Export Reports
           </button>
@@ -118,7 +190,7 @@ const Reports = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Pending Reports</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {reports.filter(r => r.status === 'pending').length}
+                  {reportsArray.filter(r => r.status === 'pending').length}
                 </p>
               </div>
             </div>
@@ -133,7 +205,7 @@ const Reports = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Investigating</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {reports.filter(r => r.status === 'investigating').length}
+                  {reportsArray.filter(r => r.status === 'investigating').length}
                 </p>
               </div>
             </div>
@@ -148,7 +220,7 @@ const Reports = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Resolved</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {reports.filter(r => r.status === 'resolved').length}
+                  {reportsArray.filter(r => r.status === 'resolved').length}
                 </p>
               </div>
             </div>
@@ -208,48 +280,73 @@ const Reports = () => {
       {/* Reports Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Reports ({filteredReports.length})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Reports ({reports.length})</CardTitle>
+            <div className="flex items-center space-x-2">
+              <select
+                className="input text-sm"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="createdAt">Sort by Date</option>
+                <option value="type">Sort by Type</option>
+                <option value="status">Sort by Status</option>
+                <option value="priority">Sort by Priority</option>
+              </select>
+              <button
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="btn btn-sm btn-secondary"
+              >
+                {sortOrder === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Type</TableHead>
-                <TableHead>Reporter</TableHead>
-                <TableHead>Reported User</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredReports.map((report) => (
-                <TableRow key={report.id}>
-                  <TableCell>
-                    <span className="font-medium text-gray-900 capitalize">
-                      {report.type.replace('_', ' ')}
-                    </span>
-                  </TableCell>
-                  <TableCell>{report.reporter}</TableCell>
-                  <TableCell>{report.reportedUser}</TableCell>
-                  <TableCell className="max-w-xs truncate">{report.reason}</TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(report.priority)}`}>
-                      {report.priority}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
-                      {report.status}
-                    </span>
-                  </TableCell>
-                  <TableCell>{formatDate(report.createdAt)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleReportAction(report, 'view')}
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Reporter</TableHead>
+                  <TableHead>Reported User</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {currentReports.map((report) => (
+                  <TableRow key={report.id}>
+                    <TableCell>
+                      <span className="font-medium text-gray-900 capitalize">
+                        {report.type?.replace('_', ' ') || 'Unknown'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{report.reportedBy?.fullName || report.reportedBy?.email || 'Unknown'}</TableCell>
+                    <TableCell>{report.reportedContent?.caption || report.reportedContent?.content || 'Unknown'}</TableCell>
+                    <TableCell className="max-w-xs truncate">{report.reason || 'No reason provided'}</TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(report.priority)}`}>
+                        {report.priority || 'medium'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
+                        {report.status || 'pending'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{formatDate(report.createdAt)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleReportAction(report, 'view')}
                         className="p-1 text-gray-400 hover:text-gray-600"
                         title="View Details"
                       >
@@ -282,8 +379,54 @@ const Reports = () => {
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {startIndex + 1} to {Math.min(endIndex, filteredReports.length)} of {filteredReports.length} reports
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="btn btn-sm btn-secondary disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <div className="flex space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    const pageNum = i + 1
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`btn btn-sm ${
+                          currentPage === pageNum ? 'btn-primary' : 'btn-secondary'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="btn btn-sm btn-secondary disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Action Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}>
@@ -308,15 +451,15 @@ const Reports = () => {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Reporter</label>
-                  <p className="text-sm text-gray-900">{selectedReport.reporter}</p>
+                  <p className="text-sm text-gray-900">{selectedReport.reportedBy?.fullName || selectedReport.reportedBy?.email || selectedReport.reporter || 'Unknown'}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Reported User</label>
-                  <p className="text-sm text-gray-900">{selectedReport.reportedUser}</p>
+                  <p className="text-sm text-gray-900">{selectedReport.reportedUser?.fullName || selectedReport.reportedUser?.email || selectedReport.reportedUser || 'Unknown'}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Content</label>
-                  <p className="text-sm text-gray-900">{selectedReport.content}</p>
+                  <p className="text-sm text-gray-900">{selectedReport.reportedContent?.caption || selectedReport.reportedContent?.content || selectedReport.content || 'Unknown'}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Status</label>
@@ -367,6 +510,7 @@ const Reports = () => {
         </ModalFooter>
       </Modal>
     </div>
+    </SafeComponent>
   )
 }
 

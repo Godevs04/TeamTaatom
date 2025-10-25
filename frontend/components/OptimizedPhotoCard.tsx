@@ -27,7 +27,7 @@ import CommentModal from './CommentModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { savedEvents } from '../utils/savedEvents';
 import { realtimePostsService } from '../services/realtimePosts';
-import { geocodeAddress, validateCoordinates } from '../utils/geocodingService';
+import { geocodeAddress } from '../utils/locationUtils';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -497,30 +497,9 @@ export default function PhotoCard({
                       
                       let finalCoordinates = null;
                       
-                      // Check if we have existing coordinates
-                      if (post.location?.coordinates) {
-                        const { latitude, longitude } = post.location.coordinates;
-                        
-                        console.log('Validating existing coordinates:', {
-                          address: post.location.address,
-                          latitude,
-                          longitude,
-                        });
-                        
-                        // Validate if existing coordinates seem reasonable
-                        if (validateCoordinates(post.location.address, latitude, longitude)) {
-                          console.log('Using existing valid coordinates');
-                          finalCoordinates = { latitude, longitude };
-                        } else {
-                          console.log('Existing coordinates seem invalid, geocoding address...');
-                        }
-                      }
-                      
-                      // If no valid coordinates, geocode the address
-                      if (!finalCoordinates) {
-                        console.log('Geocoding address:', post.location.address);
-                        finalCoordinates = await geocodeAddress(post.location.address);
-                      }
+                      // Always use API for geocoding - no cached coordinates
+                      console.log('🌍 Always using API for geocoding:', post.location.address);
+                      finalCoordinates = await geocodeAddress(post.location.address);
                       
                       if (finalCoordinates) {
                         console.log('Navigating to location with coordinates:', finalCoordinates);

@@ -15,6 +15,8 @@ import Moderators from './pages/Moderators'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import FeatureFlags from './pages/FeatureFlags'
+import TestPage from './pages/TestPage'
+import DebugPanel from './components/DebugPanel'
 import { Toaster } from 'react-hot-toast'
 
 function App() {
@@ -22,6 +24,7 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <RealTimeProvider>
+          <DebugPanel />
           <Toaster
             position="top-right"
             toastOptions={{
@@ -64,6 +67,7 @@ function App() {
                       <Route path="/logs" element={<Logs />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/feature-flags" element={<FeatureFlags />} />
+                      <Route path="/test" element={<TestPage />} />
                     </Routes>
                   </Layout>
                 </ProtectedRoute>

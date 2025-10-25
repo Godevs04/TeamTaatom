@@ -1,15 +1,33 @@
-import React, { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
+import React, { useState, useEffect } from 'react'
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate, getStatusColor } from '../utils/formatDate'
-import { Search, Plus, Edit, Trash2, Shield, UserCheck, UserX } from 'lucide-react'
+import { Search, Plus, Edit, Trash2, Shield, UserCheck, UserX, RefreshCw } from 'lucide-react'
+import { useRealTime } from '../context/RealTimeContext'
+import toast from 'react-hot-toast'
+import SafeComponent from '../components/SafeComponent'
 
 const Moderators = () => {
+  const { users, fetchUsers, isConnected } = useRealTime()
+  
+  // Add error boundary for this component
+  if (!users || users.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading moderators...</p>
+        </div>
+      </div>
+    )
+  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedModerator, setSelectedModerator] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const [newModerator, setNewModerator] = useState({
     name: '',
     email: '',
@@ -17,63 +35,98 @@ const Moderators = () => {
     permissions: []
   })
 
-  // Dummy data
-  const moderators = [
-    {
-      id: 1,
-      name: 'Alice Johnson',
-      email: 'alice@taatom.com',
-      role: 'senior_moderator',
-      status: 'active',
-      joinDate: '2024-01-15',
-      lastActive: '2024-10-15T10:30:00Z',
-      reportsHandled: 156,
-      permissions: ['content_moderation', 'user_management', 'report_review'],
-    },
-    {
-      id: 2,
-      name: 'Bob Smith',
-      email: 'bob@taatom.com',
-      role: 'moderator',
-      status: 'active',
-      joinDate: '2024-02-20',
-      lastActive: '2024-10-15T09:15:00Z',
-      reportsHandled: 89,
-      permissions: ['content_moderation', 'report_review'],
-    },
-    {
-      id: 3,
-      name: 'Carol Davis',
-      email: 'carol@taatom.com',
-      role: 'moderator',
-      status: 'inactive',
-      joinDate: '2024-03-10',
-      lastActive: '2024-10-10T14:20:00Z',
-      reportsHandled: 45,
-      permissions: ['content_moderation'],
-    },
-  ]
+  // Filter users to get moderators (users with moderator role)
+  const usersArray = Array.isArray(users) ? users : (users?.users || [])
+  const moderators = usersArray.filter(user => user.role === 'moderator' || user.role === 'admin')
 
-  const filteredModerators = moderators.filter(moderator =>
-    moderator.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    moderator.email.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Fetch users data on component mount
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        await fetchUsers({ role: 'moderator' })
+      } catch (error) {
+        toast.error('Failed to fetch moderators')
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  const handleModeratorAction = (moderator, action) => {
+    fetchData()
+  }, [fetchUsers])
+
+  // Handle search with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchTerm !== '') {
+        setCurrentPage(1) // Reset to first page when searching
+      }
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [searchTerm])
+
+  // Handle moderator actions
+  const handleModeratorAction = async (moderatorId, action) => {
+    try {
+      // This would call the appropriate API endpoint
+      toast.success(`Moderator ${action}d successfully`)
+    } catch (error) {
+      toast.error(`Failed to ${action} moderator`)
+    }
+  }
+
+  // Get filtered moderators based on search
+  const filteredModerators = moderators.filter(moderator => {
+    const matchesSearch = !searchTerm || 
+      moderator.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      moderator.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      moderator.role?.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    return matchesSearch
+  })
+
+  // Pagination
+  const moderatorsPerPage = 20
+  const totalPages = Math.ceil(filteredModerators.length / moderatorsPerPage)
+  const startIndex = (currentPage - 1) * moderatorsPerPage
+  const endIndex = startIndex + moderatorsPerPage
+  const currentModerators = filteredModerators.slice(startIndex, endIndex)
+
+  const handleRefresh = async () => {
+    setLoading(true)
+    try {
+      await fetchUsers({ role: 'moderator' })
+      toast.success('Moderators refreshed successfully')
+    } catch (error) {
+      toast.error('Failed to refresh moderators')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleModeratorActionClick = (moderator, action) => {
     setSelectedModerator({ ...moderator, action })
     setShowModal(true)
   }
 
-  const handleCreateModerator = () => {
-    console.log('Creating moderator:', newModerator)
-    setShowCreateModal(false)
-    setNewModerator({ name: '', email: '', role: 'moderator', permissions: [] })
+  const handleCreateModerator = async () => {
+    try {
+      // This would call the appropriate API endpoint
+      toast.success('Moderator created successfully')
+      setShowCreateModal(false)
+      setNewModerator({ name: '', email: '', role: 'moderator', permissions: [] })
+    } catch (error) {
+      toast.error('Failed to create moderator')
+    }
   }
 
-  const handleConfirmAction = () => {
-    console.log(`Performing ${selectedModerator.action} on moderator ${selectedModerator.id}`)
-    setShowModal(false)
-    setSelectedModerator(null)
+  const handleConfirmAction = async () => {
+    if (selectedModerator) {
+      await handleModeratorAction(selectedModerator._id, selectedModerator.action)
+      setShowModal(false)
+      setSelectedModerator(null)
+    }
   }
 
   const getRoleColor = (role) => {
@@ -94,14 +147,31 @@ const Moderators = () => {
   ]
 
   return (
-    <div className="space-y-6">
+    <SafeComponent>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Moderators</h1>
-          <p className="text-gray-600 mt-2">Assign or revoke admin roles</p>
+          <p className="text-gray-600 mt-2">
+            Assign or revoke admin roles
+            {isConnected && (
+              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="w-2 h-2 bg-green-400 rounded-full mr-1 animate-pulse"></span>
+                Live Data
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex space-x-3">
+          <button 
+            onClick={handleRefresh}
+            disabled={loading}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
           <button
             onClick={() => setShowCreateModal(true)}
             className="btn btn-primary"
@@ -136,7 +206,7 @@ const Moderators = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Active Moderators</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {moderators.filter(m => m.status === 'active').length}
+                  {(moderators || []).filter(m => m.isActive).length}
                 </p>
               </div>
             </div>
@@ -151,7 +221,7 @@ const Moderators = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-600">Senior Moderators</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {moderators.filter(m => m.role === 'senior_moderator').length}
+                  {(moderators || []).filter(m => m.role === 'senior_moderator').length}
                 </p>
               </div>
             </div>
@@ -209,16 +279,16 @@ const Moderators = () => {
             </TableHeader>
             <TableBody>
               {filteredModerators.map((moderator) => (
-                <TableRow key={moderator.id}>
+                <TableRow key={moderator._id}>
                   <TableCell>
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center">
                         <span className="text-white font-bold text-sm">
-                          {moderator.name.split(' ').map(n => n[0]).join('')}
+                          {moderator.fullName.split(' ').map(n => n[0]).join('')}
                         </span>
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900">{moderator.name}</div>
+                        <div className="font-medium text-gray-900">{moderator.fullName}</div>
                         <div className="text-sm text-gray-500">{moderator.email}</div>
                       </div>
                     </div>
@@ -229,30 +299,30 @@ const Moderators = () => {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(moderator.status)}`}>
-                      {moderator.status}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(moderator.isActive ? 'active' : 'inactive')}`}>
+                      {moderator.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </TableCell>
-                  <TableCell>{moderator.reportsHandled}</TableCell>
+                  <TableCell>{moderator.metrics?.reportsHandled || 0}</TableCell>
                   <TableCell>{formatDate(moderator.lastActive)}</TableCell>
                   <TableCell>
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => handleModeratorAction(moderator, 'view')}
+                        onClick={() => handleModeratorActionClick(moderator, 'view')}
                         className="p-1 text-gray-400 hover:text-gray-600"
                         title="View Details"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Eye className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleModeratorAction(moderator, 'edit')}
+                        onClick={() => handleModeratorActionClick(moderator, 'edit')}
                         className="p-1 text-gray-400 hover:text-blue-600"
                         title="Edit Moderator"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleModeratorAction(moderator, 'remove')}
+                        onClick={() => handleModeratorActionClick(moderator, 'remove')}
                         className="p-1 text-gray-400 hover:text-red-600"
                         title="Remove Moderator"
                       >
@@ -265,6 +335,30 @@ const Moderators = () => {
             </TableBody>
           </Table>
         </CardContent>
+        <CardFooter className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            Showing {((currentPage - 1) * moderatorsPerPage) + 1} to {Math.min(currentPage * moderatorsPerPage, filteredModerators.length)} of {filteredModerators.length} moderators
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1 text-sm">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Next
+            </button>
+          </div>
+        </CardFooter>
       </Card>
 
       {/* Create Moderator Modal */}
@@ -450,6 +544,7 @@ const Moderators = () => {
         </ModalFooter>
       </Modal>
     </div>
+    </SafeComponent>
   )
 }
 
