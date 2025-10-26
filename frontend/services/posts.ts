@@ -296,6 +296,91 @@ export const deletePost = async (postId: string): Promise<{ message: string }> =
   }
 };
 
+// Archive post
+export const archivePost = async (postId: string): Promise<{ message: string; post: any }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}/archive`);
+    postByIdCache.delete(postId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to archive post');
+  }
+};
+
+// Unarchive post
+export const unarchivePost = async (postId: string): Promise<{ message: string; post: any }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}/unarchive`);
+    postByIdCache.delete(postId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to unarchive post');
+  }
+};
+
+// Hide post
+export const hidePost = async (postId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}/hide`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to hide post');
+  }
+};
+
+// Unhide post
+export const unhidePost = async (postId: string): Promise<{ message: string; post: any }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}/unhide`);
+    postByIdCache.delete(postId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to unhide post');
+  }
+};
+
+// Get archived posts
+export const getArchivedPosts = async (page: number = 1, limit: number = 20): Promise<{ success: boolean; posts: PostType[]; page: number; limit: number; total: number }> => {
+  try {
+    const response = await api.get(`/posts/archived?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch archived posts');
+  }
+};
+
+// Get hidden posts
+export const getHiddenPosts = async (page: number = 1, limit: number = 20): Promise<{ success: boolean; posts: PostType[]; page: number; limit: number; total: number }> => {
+  try {
+    const response = await api.get(`/posts/hidden?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch hidden posts');
+  }
+};
+
+// Toggle comments
+export const toggleComments = async (postId: string): Promise<{ message: string; commentsDisabled: boolean }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}/toggle-comments`);
+    postByIdCache.delete(postId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to toggle comments');
+  }
+};
+
+// Update post
+export const updatePost = async (postId: string, caption: string): Promise<{ message: string; post: any }> => {
+  try {
+    const response = await api.patch(`/posts/${postId}`, { caption });
+    postByIdCache.delete(postId);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to update post');
+  }
+};
+
 // Delete short
 export const deleteShort = async (shortId: string): Promise<{ message: string }> => {
   try {
