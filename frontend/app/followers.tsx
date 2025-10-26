@@ -104,39 +104,119 @@ export default function FollowersFollowingList() {
     }
   };
 
-  const renderItem = ({ item }: { item: UserType & { isFollowing?: boolean } }) => (
-    <View style={styles(theme).row}>
-      <TouchableOpacity style={styles(theme).avatarWrap} onPress={() => router.push(`/profile/${item._id}`)}>
-        <Image source={item.profilePic ? { uri: item.profilePic } : require('../assets/avatars/male_avatar.png')} style={styles(theme).avatar} />
-      </TouchableOpacity>
-      <TouchableOpacity style={styles(theme).nameWrap} onPress={() => router.push(`/profile/${item._id}`)}>
-        <Text style={styles(theme).name}>{item.fullName}</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles(theme).chatBtn} onPress={() => router.push(`/chat?userId=${item._id}`)}>
-        <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.primary} />
-      </TouchableOpacity>
-      {item._id !== userId && (
-        <TouchableOpacity
-          style={[styles(theme).followBtn, item.isFollowing ? styles(theme).following : styles(theme).notFollowing]}
-          onPress={() => handleToggleFollow(item._id)}
-          disabled={followLoading === item._id}
+  const renderItem = ({ item }: { item: UserType & { isFollowing?: boolean } }) => {
+    const isFollowing = item.isFollowing ?? false;
+    const isLoading = followLoading === item._id;
+    
+    return (
+      <View style={styles(theme).cardContainer}>
+        <TouchableOpacity 
+          style={styles(theme).card}
+          onPress={() => router.push(`/profile/${item._id}`)}
+          activeOpacity={0.7}
         >
-          <Text style={styles(theme).followBtnText}>
-            {item.isFollowing ? 'Unfollow' : 'Follow'}
-          </Text>
+          {/* Avatar Container */}
+          <View style={styles(theme).avatarContainer}>
+            <Image 
+              source={item.profilePic ? { uri: item.profilePic } : require('../assets/avatars/male_avatar.png')} 
+              style={styles(theme).avatar} 
+            />
+            {isFollowing && (
+              <View style={styles(theme).followingBadge}>
+                <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} />
+              </View>
+            )}
+          </View>
+          
+          {/* User Info */}
+          <View style={styles(theme).userInfo}>
+            <Text style={styles(theme).name} numberOfLines={1}>
+              {item.fullName}
+            </Text>
+            {isFollowing && (
+              <Text style={styles(theme).followingLabel}>Following</Text>
+            )}
+          </View>
+          
+          {/* Action Buttons */}
+          <View style={styles(theme).actionButtons}>
+            <TouchableOpacity
+              style={[styles(theme).iconButton, { marginRight: 8 }]}
+              onPress={() => router.push(`/chat?userId=${item._id}`)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons 
+                name="chatbubble-ellipses-outline" 
+                size={22} 
+                color={theme.colors.primary} 
+              />
+            </TouchableOpacity>
+            
+            {item._id !== userId && (
+              <TouchableOpacity
+                style={[
+                  styles(theme).followButton,
+                  isFollowing && styles(theme).followButtonFollowing,
+                  isLoading && styles(theme).followButtonLoading
+                ]}
+                onPress={() => handleToggleFollow(item._id)}
+                disabled={isLoading}
+                activeOpacity={0.8}
+              >
+                {isLoading ? (
+                  <ActivityIndicator 
+                    size="small" 
+                    color={isFollowing ? theme.colors.primary : '#FFFFFF'} 
+                  />
+                ) : (
+                  <Text style={[
+                    styles(theme).followButtonText,
+                    isFollowing && styles(theme).followButtonTextFollowing
+                  ]}>
+                    {isFollowing ? 'Unfollow' : 'Follow'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         </TouchableOpacity>
-      )}
-    </View>
-  );
+      </View>
+    );
+  };
 
   const renderFooter = () => {
     if (!loadingMore) return null;
-    return <ActivityIndicator style={{ marginVertical: 16 }} color={theme.colors.primary} />;
+    return (
+      <View style={styles(theme).footerLoader}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      </View>
+    );
   };
 
+  const renderEmptyState = () => (
+    <View style={styles(theme).emptyContainer}>
+      <View style={styles(theme).emptyIconContainer}>
+        <Ionicons 
+          name={type === 'followers' ? 'people-outline' : 'person-add-outline'} 
+          size={64} 
+          color={theme.colors.textSecondary} 
+        />
+      </View>
+      <Text style={styles(theme).emptyTitle}>
+        No {type === 'followers' ? 'Followers' : 'Following'} Yet
+      </Text>
+      <Text style={styles(theme).emptyMessage}>
+        {type === 'followers' 
+          ? 'When someone follows you, they\'ll appear here.' 
+          : 'Start following people to see them here.'}
+      </Text>
+    </View>
+  );
+
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: theme.colors.surface }}>
+    <View style={styles(theme).container}>
+      <SafeAreaView edges={['top']} style={styles(theme).safeArea}>
+        {/* Header */}
         <View style={styles(theme).header}>
           <TouchableOpacity
             onPress={() => {
@@ -146,28 +226,37 @@ export default function FollowersFollowingList() {
                 router.replace('/profile');
               }
             }}
-            style={styles(theme).backBtn}
+            style={styles(theme).backButton}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
             <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={styles(theme).headerTitle}>{type === 'followers' ? 'Followers' : 'Following'}</Text>
-          <View style={{ width: 34 }} />
+          <Text style={styles(theme).headerTitle}>
+            {type === 'followers' ? 'Followers' : 'Following'}
+          </Text>
+          <View style={styles(theme).headerSpacer} />
         </View>
       </SafeAreaView>
+
+      {/* Content */}
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 32 }} color={theme.colors.primary} />
+        <View style={styles(theme).loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       ) : (
         <FlatList
           data={users}
           keyExtractor={(item, index) => `${item._id}-${index}`}
           renderItem={renderItem}
-          contentContainerStyle={{ padding: 16 }}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-          ListEmptyComponent={<Text style={{ color: theme.colors.textSecondary, textAlign: 'center', marginTop: 48 }}>No users found.</Text>}
+          contentContainerStyle={[
+            styles(theme).listContent,
+            users.length === 0 && styles(theme).listContentEmpty
+          ]}
+          ListEmptyComponent={renderEmptyState}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={renderFooter}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </View>
@@ -175,78 +264,176 @@ export default function FollowersFollowingList() {
 }
 
 const styles = (theme: any) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  safeArea: {
+    backgroundColor: theme.colors.surface,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
-    minHeight: 48,
   },
-  backBtn: {
+  backButton: {
     width: 40,
     height: 40,
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 20,
   },
   headerTitle: {
     flex: 1,
     textAlign: 'center',
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: theme.colors.text,
+    letterSpacing: 0.3,
   },
-  row: {
+  headerSpacer: {
+    width: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  listContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  listContentEmpty: {
+    flex: 1,
+  },
+  cardContainer: {
+    marginBottom: 12,
+  },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 10,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    borderRadius: 16,
+    padding: 14,
+    ...theme.shadows.small,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
   },
-  avatarWrap: {
-    marginRight: 12,
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 14,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: theme.colors.background,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.colors.surfaceSecondary,
   },
-  nameWrap: {
-    flex: 1,
-  },
-  name: {
-    fontSize: 16,
-    color: theme.colors.text,
-    fontWeight: '600',
-  },
-  chatBtn: {
-    marginHorizontal: 8,
-  },
-  followBtn: {
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    minWidth: 80,
+  followingBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.surface,
   },
-  followBtnText: {
-    fontWeight: 'bold',
-    fontSize: 14,
+  userInfo: {
+    flex: 1,
+    marginRight: 12,
   },
-  following: {
+  name: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  followingLabel: {
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+    fontWeight: '500',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
     backgroundColor: theme.colors.surfaceSecondary,
-    borderWidth: 1,
+  },
+  followButton: {
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    minWidth: 90,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    ...theme.shadows.small,
+  },
+  followButtonFollowing: {
+    backgroundColor: theme.colors.surfaceSecondary,
+    borderWidth: 1.5,
     borderColor: theme.colors.primary,
   },
-  notFollowing: {
-    backgroundColor: theme.colors.primary,
+  followButtonLoading: {
+    opacity: 0.7,
+  },
+  followButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  followButtonTextFollowing: {
+    color: theme.colors.primary,
+  },
+  footerLoader: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 48,
+    paddingTop: 100,
+  },
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: theme.colors.surfaceSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  emptyMessage: {
+    fontSize: 16,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 24,
+    letterSpacing: 0.2,
   },
 });
