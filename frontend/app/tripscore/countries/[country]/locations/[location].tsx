@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../../../../services/api';
 import { calculateDistance, geocodeAddress } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LocationDetail {
   name: string;
@@ -39,13 +40,72 @@ export default function LocationDetailScreen() {
   const [data, setData] = useState<LocationDetail | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const { theme } = useTheme();
   const router = useRouter();
   const { country, location, userId } = useLocalSearchParams();
 
   useEffect(() => {
     loadLocationData();
+    checkBookmarkStatus();
   }, []);
+
+  useEffect(() => {
+    if (data?.name) {
+      checkBookmarkStatus();
+    }
+  }, [data?.name]);
+
+  const checkBookmarkStatus = async () => {
+    try {
+      const savedLocations = await AsyncStorage.getItem('savedLocations');
+      const saved = savedLocations ? JSON.parse(savedLocations) : [];
+      const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+      const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
+      setIsBookmarked(saved.some((loc: any) => loc.slug === locationSlug || loc.name === locationName));
+    } catch (error) {
+      console.error('Error checking bookmark status:', error);
+    }
+  };
+
+  const handleBookmark = async () => {
+    try {
+      setBookmarkLoading(true);
+      const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+      const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
+      
+      const savedLocations = await AsyncStorage.getItem('savedLocations');
+      const saved = savedLocations ? JSON.parse(savedLocations) : [];
+      
+      const locationData = {
+        id: `loc-${Date.now()}`,
+        name: locationName.toUpperCase(),
+        slug: locationSlug,
+        imageUrl: data?.imageUrl || getLocationImage(locationName),
+        type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
+        description: data?.description || `${locationName} is a beautiful destination`,
+        savedDate: new Date().toISOString(),
+        coordinates: data?.coordinates,
+      };
+
+      if (isBookmarked) {
+        // Remove bookmark
+        const updated = saved.filter((loc: any) => loc.slug !== locationSlug && loc.name !== locationName);
+        await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+        setIsBookmarked(false);
+      } else {
+        // Add bookmark
+        const updated = [...saved, locationData];
+        await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+        setIsBookmarked(true);
+      }
+    } catch (error) {
+      console.error('Error bookmarking location:', error);
+    } finally {
+      setBookmarkLoading(false);
+    }
+  };
 
   const loadLocationData = async () => {
     try {
@@ -61,6 +121,17 @@ export default function LocationDetailScreen() {
       if (countryParam === 'general') {
         // This is a location from the map, create mock data
         const description = await generateLocationDescription(locationName, '');
+        // Get coordinates for the location
+        let locationCoords = getLocationCoordinates(locationName);
+        
+        // Try geocoding if coordinates seem like fallback
+        if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
+          const geocodedCoords = await geocodeAddress(locationName);
+          if (geocodedCoords) {
+            locationCoords = geocodedCoords;
+          }
+        }
+        
         setData({
           name: locationName,
           score: 1,
@@ -70,7 +141,8 @@ export default function LocationDetailScreen() {
             fromYou: 'Drivable',
             typeOfSpot: 'General'
           },
-          description: description
+          description: description,
+          coordinates: locationCoords
         });
       } else {
         // This is a TripScore location, fetch from API
@@ -83,9 +155,22 @@ export default function LocationDetailScreen() {
         );
         
         if (foundLocation) {
+          // Get coordinates for the location
+          const locationCoords = getLocationCoordinates(foundLocation.name);
+          let finalCoords = locationCoords;
+          
+          // Try geocoding if coordinates seem like fallback
+          if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
+            const geocodedCoords = await geocodeAddress(foundLocation.name);
+            if (geocodedCoords) {
+              finalCoords = geocodedCoords;
+            }
+          }
+          
           setData({
             ...foundLocation,
-            description: generateLocationDescription(foundLocation.name, foundLocation.caption)
+            description: generateLocationDescription(foundLocation.name, foundLocation.caption),
+            coordinates: finalCoords || foundLocation.coordinates
           });
         }
       }
@@ -260,9 +345,29 @@ export default function LocationDetailScreen() {
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
           {displayLocationName}
         </Text>
-        <TouchableOpacity style={styles.closeButton}>
-          <Ionicons name="close" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.bookmarkButton}
+            onPress={handleBookmark}
+            disabled={bookmarkLoading}
+          >
+            {bookmarkLoading ? (
+              <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
+            ) : (
+              <Ionicons
+                name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                size={24}
+                color={isBookmarked ? '#FFD700' : theme.colors.textSecondary}
+              />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Content */}
@@ -302,9 +407,9 @@ export default function LocationDetailScreen() {
 
             {/* Quick Info Cards */}
             <View style={styles.quickInfoContainer}>
-              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface }]}>
+              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                 <View style={styles.quickInfoHeader}>
-                  <Ionicons name="navigate" size={20} color={theme.colors.primary} />
+                  <Ionicons name="navigate" size={22} color={theme.colors.primary} />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 </View>
                 <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
@@ -313,9 +418,9 @@ export default function LocationDetailScreen() {
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>from your location</Text>
               </View>
 
-              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface }]}>
+              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                 <View style={styles.quickInfoHeader}>
-                  <Ionicons name="leaf" size={20} color="#4CAF50" />
+                  <Ionicons name="leaf" size={22} color="#4CAF50" />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
                 </View>
                 <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Natural</Text>
@@ -323,25 +428,79 @@ export default function LocationDetailScreen() {
               </View>
             </View>
 
-            {/* Detailed Info Section */}
-            <View style={styles.detailedInfoContainer}>
-              <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface }]}>
-                <View style={styles.cardHeader}>
-                  <Ionicons name="car" size={24} color={theme.colors.primary} />
-                  <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Travel Info</Text>
-                </View>
-                <View style={styles.infoGrid}>
-                  <View style={styles.infoItem}>
-                    <Text style={[styles.infoLabel, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
-                    <Text style={[styles.infoValue, { color: theme.colors.text }]}>{data.category?.fromYou || 'Unknown'}</Text>
+            {/* Travel Info and Explore on Map - Two Box Model */}
+            <View style={styles.quickInfoContainer}>
+                {/* Left Box - Travel Info */}
+                <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+                  <View style={styles.quickInfoHeader}>
+                    <Ionicons name="car" size={22} color={theme.colors.primary} />
+                    <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
                   </View>
-                  <View style={styles.infoItem}>
-                    <Text style={[styles.infoLabel, { color: theme.colors.textSecondary }]}>TYPE OF SPOT</Text>
-                    <Text style={[styles.infoValue, { color: theme.colors.text }]}>{data.category?.typeOfSpot || 'General'}</Text>
-                  </View>
+                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{data.category?.fromYou || 'Unknown'}</Text>
+                  <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
                 </View>
+
+                {/* Right Box - Explore on Map */}
+                <TouchableOpacity
+                  style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    // Try to get coordinates from data or calculate them
+                    let coords = data.coordinates;
+                    
+                    if (!coords || !coords.latitude || !coords.longitude) {
+                      // Fallback: try to get coordinates from location name
+                      const locationCoords = getLocationCoordinates(data.name);
+                      if (locationCoords) {
+                        coords = locationCoords;
+                      }
+                    }
+                    
+                    if (coords && coords.latitude && coords.longitude) {
+                      router.push({
+                        pathname: '/map/current-location',
+                        params: {
+                          latitude: coords.latitude.toString(),
+                          longitude: coords.longitude.toString(),
+                          address: data.name,
+                          locationName: data.name,
+                        },
+                      });
+                    } else {
+                      console.warn('Location coordinates not available for:', data.name);
+                      // Try geocoding as last resort
+                      geocodeAddress(data.name).then((geocodedCoords) => {
+                        if (geocodedCoords) {
+                          router.push({
+                            pathname: '/map/current-location',
+                            params: {
+                              latitude: geocodedCoords.latitude.toString(),
+                              longitude: geocodedCoords.longitude.toString(),
+                              address: data.name,
+                              locationName: data.name,
+                            },
+                          });
+                        }
+                      });
+                    }
+                  }}
+                >
+                  <View style={styles.quickInfoHeader}>
+                    <View style={styles.headerLeft}>
+                      <Ionicons name="globe-outline" size={22} color="#4CAF50" />
+                      <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
+                    </View>
+                    <View style={styles.clickableIndicator}>
+                      <Ionicons name="chevron-forward" size={18} color="#4CAF50" />
+                    </View>
+                  </View>
+                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Navigate</Text>
+                  <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
+                </TouchableOpacity>
               </View>
 
+            {/* Detailed Info Section */}
+            <View style={styles.detailedInfoContainer}>
               <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface }]}>
                 <View style={styles.cardHeader}>
                   <Ionicons name="information-circle" size={24} color={theme.colors.primary} />
@@ -373,27 +532,42 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
   backButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   headerTitle: {
-    flex: 1,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
+    flex: 1,
     textAlign: 'center',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bookmarkButton: {
+    padding: 8,
+    borderRadius: 20,
   },
   closeButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   content: {
     flex: 1,
@@ -401,8 +575,9 @@ const styles = StyleSheet.create({
   
   // Hero Section Styles
   heroSection: {
-    height: 320,
+    height: 340,
     position: 'relative',
+    marginBottom: 8,
   },
   heroImage: {
     width: '100%',
@@ -467,40 +642,69 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    gap: 12,
+    gap: 14,
   },
   quickInfoCard: {
     flex: 1,
-    padding: 16,
-    borderRadius: 16,
+    padding: 20,
+    borderRadius: 18,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowRadius: 16,
     elevation: 4,
+    minHeight: 140,
+    justifyContent: 'space-between',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   quickInfoHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   quickInfoTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
     opacity: 0.8,
   },
   quickInfoValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontSize: 26,
+    fontWeight: '800',
+    marginBottom: 8,
+    lineHeight: 32,
+    letterSpacing: -0.8,
   },
   quickInfoSubtext: {
     fontSize: 12,
     opacity: 0.6,
+    lineHeight: 16,
+    letterSpacing: 0.2,
+    fontWeight: '500',
+  },
+  clickableCard: {
+    position: 'relative',
+  },
+  clickableIndicator: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 20,
+    padding: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 32,
+    height: 32,
+    marginTop: -10,
   },
 
   // Detailed Info Section

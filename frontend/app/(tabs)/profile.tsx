@@ -381,48 +381,35 @@ export default function ProfileScreen() {
           
           {/* Stats Cards */}
           <View style={styles.statsContainer}>
-            <View style={[styles.statCard, { backgroundColor: theme.colors.background }]}>
+            <View style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
             <TouchableOpacity 
-              style={[styles.statCard, { backgroundColor: theme.colors.background }]} 
+              style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]} 
               onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
             >
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.statCard, { backgroundColor: theme.colors.background }]} 
+              style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]} 
               onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
             >
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
             </TouchableOpacity>
-            <View style={[styles.statCard, { backgroundColor: theme.colors.background }]}>
+            <View style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
               <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.totalLikes || 0}</Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
             </View>
           </View>
         </View>
 
-        {/* Posted Locations Section */}
-        <View style={[styles.locationsSection, { backgroundColor: theme.colors.surface }]}> 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
-          </Text>
-          <View style={styles.globeContainer}>
-            <RotatingGlobe 
-              locations={profileData?.locations || []} 
-              size={120} 
-            />
-          </View>
-        </View>
-
         {/* TripScore Section */}
         {profileData?.tripScore && (
           <TouchableOpacity 
-            style={[styles.tripScoreSection, { backgroundColor: theme.colors.surface }]}
+            style={[styles.tripScoreSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
           >
             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
@@ -438,6 +425,19 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
         )}
+
+        {/* Posted Locations Section */}
+        <View style={[styles.locationsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}> 
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
+          </Text>
+          <View style={styles.globeContainer}>
+            <RotatingGlobe 
+              locations={profileData?.locations || []} 
+              size={120} 
+            />
+          </View>
+        </View>
 
         {/* Posts/Shorts/Saved Tabs */}
         <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
@@ -654,7 +654,9 @@ const styles = StyleSheet.create({
   // Profile Header Styles
   profileHeader: {
     padding: 24,
-    margin: 16,
+    marginTop: 5,
+    marginHorizontal: 16,
+    marginBottom: 8,
     borderRadius: 20,
     alignItems: 'center',
     shadowColor: '#000',
@@ -665,7 +667,7 @@ const styles = StyleSheet.create({
   },
   profileInfo: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 18,
   },
   avatarContainer: {
     position: 'relative',
@@ -708,7 +710,7 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 12,
     borderRadius: 16,
     shadowColor: '#000',
@@ -716,6 +718,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   statNumber: {
     fontSize: 20,
@@ -730,7 +733,9 @@ const styles = StyleSheet.create({
   
   // Locations Section Styles
   locationsSection: {
-    margin: 16,
+    marginTop: 0,
+    marginHorizontal: 16,
+    marginBottom: 8,
     padding: 20,
     borderRadius: 20,
     alignItems: 'center',
@@ -739,6 +744,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   sectionTitle: {
     fontSize: 18,
@@ -753,7 +759,9 @@ const styles = StyleSheet.create({
   
   // TripScore Section Styles
   tripScoreSection: {
-    margin: 16,
+    marginTop: 0,
+    marginHorizontal: 16,
+    marginBottom: 8,
     padding: 20,
     borderRadius: 20,
     alignItems: 'center',
@@ -762,6 +770,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   tripScoreContent: {
     alignItems: 'center',
