@@ -62,6 +62,13 @@ const settingsSections: SettingsSection[] = [
     route: '/settings/data'
   },
   {
+    id: 'manage-posts',
+    title: 'Manage Posts',
+    icon: 'library-outline',
+    description: 'View and restore archived or hidden posts',
+    route: '/settings/manage-posts'
+  },
+  {
     id: 'about',
     title: 'About',
     icon: 'information-circle-outline',

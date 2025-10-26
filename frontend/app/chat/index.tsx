@@ -221,13 +221,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      marginHorizontal: 16,
+      marginHorizontal: 8,
+      minWidth: 0,
     },
     chatName: {
       fontSize: 18,
       fontWeight: '700',
       color: theme.colors.text,
       textAlign: 'center',
+      maxWidth: '100%',
     },
     onlineStatus: {
       fontSize: 12,
@@ -396,7 +398,13 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           </View>
           
           <View style={styles.headerCenter}>
-            <Text style={styles.chatName}>{otherUser.fullName}</Text>
+            <Text 
+              style={styles.chatName} 
+              numberOfLines={1} 
+              ellipsizeMode="tail"
+            >
+              {otherUser.fullName}
+            </Text>
             <Text style={[
               styles.onlineStatus,
               { color: isOnline ? theme.colors.primary : theme.colors.textSecondary }
@@ -928,7 +936,27 @@ export default function ChatModal() {
             ...chat,
             me: myUserId,
           }));
-          setConversations(chats);
+          
+          // Frontend deduplication as safety measure
+          const chatMap = new Map<string, any>();
+          chats.forEach((chat: any) => {
+            const participantIds = chat.participants
+              .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+              .sort()
+              .join('_');
+            
+            if (!chatMap.has(participantIds) || 
+                new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
+              chatMap.set(participantIds, chat);
+            }
+          });
+          
+          const uniqueChats = Array.from(chatMap.values());
+          uniqueChats.sort((a: any, b: any) => 
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+          );
+          
+          setConversations(uniqueChats);
           // Optionally fetch following users as before
           if (myUserId) {
             api.get(`/profile/${myUserId}/following`)
@@ -997,7 +1025,27 @@ export default function ChatModal() {
               console.log('Reloaded /chat data:', JSON.stringify(data, null, 2));
               let chats = data.chats || [];
               chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
-              setConversations(chats);
+              
+              // Frontend deduplication as safety measure
+              const chatMap = new Map<string, any>();
+              chats.forEach((chat: any) => {
+                const participantIds = chat.participants
+                  .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+                  .sort()
+                  .join('_');
+                
+                if (!chatMap.has(participantIds) || 
+                    new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
+                  chatMap.set(participantIds, chat);
+                }
+              });
+              
+              const uniqueChats = Array.from(chatMap.values());
+              uniqueChats.sort((a: any, b: any) => 
+                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+              );
+              
+              setConversations(uniqueChats);
             });
         };
         reloadChats();

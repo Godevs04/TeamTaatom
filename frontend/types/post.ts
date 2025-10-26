@@ -30,6 +30,10 @@ export interface PostType {
   likesCount: number;
   commentsCount: number;
   isLiked: boolean;
+  // Post settings
+  commentsDisabled?: boolean;
+  isArchived?: boolean;
+  isHidden?: boolean;
 }
 
 export interface CommentType {

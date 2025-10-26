@@ -15,7 +15,12 @@ const getPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ isActive: true, type: 'photo' })
+    const posts = await Post.find({ 
+      isActive: true, 
+      isArchived: { $ne: true },
+      isHidden: { $ne: true },
+      type: 'photo' 
+    })
       .populate('user', 'fullName profilePic')
       .populate('comments.user', 'fullName profilePic')
       .sort({ createdAt: -1 })
@@ -530,6 +535,14 @@ const addComment = async (req, res) => {
       });
     }
 
+    // Check if comments are disabled
+    if (post.commentsDisabled) {
+      return res.status(403).json({
+        error: 'Comments disabled',
+        message: 'Comments are disabled for this post'
+      });
+    }
+
     const { text } = req.body;
     const newComment = post.addComment(req.user._id, text);
     await post.save();
@@ -720,6 +733,310 @@ const deletePost = async (req, res) => {
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error deleting post'
+    });
+  }
+};
+
+// @desc    Archive post
+// @route   PATCH /posts/:id/archive
+// @access  Private
+const archivePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only archive your own posts'
+      });
+    }
+
+    post.isArchived = true;
+    await post.save();
+
+    res.status(200).json({
+      message: 'Post archived successfully',
+      post
+    });
+  } catch (error) {
+    console.error('Archive post error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error archiving post'
+    });
+  }
+};
+
+// @desc    Unarchive post
+// @route   PATCH /posts/:id/unarchive
+// @access  Private
+const unarchivePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only unarchive your own posts'
+      });
+    }
+
+    post.isArchived = false;
+    await post.save();
+
+    res.status(200).json({
+      message: 'Post unarchived successfully',
+      post
+    });
+  } catch (error) {
+    console.error('Unarchive post error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error unarchiving post'
+    });
+  }
+};
+
+// @desc    Get archived posts for authenticated user
+// @route   GET /posts/archived
+// @access  Private
+const getArchivedPosts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const posts = await Post.find({ 
+      user: req.user._id, 
+      isArchived: true, 
+      isActive: true, 
+      type: 'photo' 
+    })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const postsWithLikeStatus = posts.map(post => ({
+      ...post,
+      isLiked: post.likes.some(like => like.toString() === req.user._id.toString()),
+      likesCount: post.likes.length,
+      commentsCount: post.comments.length
+    }));
+
+    res.status(200).json({
+      success: true,
+      posts: postsWithLikeStatus,
+      page,
+      limit,
+      total: posts.length
+    });
+  } catch (error) {
+    console.error('Get archived posts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching archived posts'
+    });
+  }
+};
+
+// @desc    Hide post from feed
+// @route   PATCH /posts/:id/hide
+// @access  Private
+const hidePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    post.isHidden = true;
+    await post.save();
+
+    res.status(200).json({
+      message: 'Post hidden successfully',
+      post
+    });
+  } catch (error) {
+    console.error('Hide post error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error hiding post'
+    });
+  }
+};
+
+// @desc    Unhide post
+// @route   PATCH /posts/:id/unhide
+// @access  Private
+const unhidePost = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only unhide your own posts'
+      });
+    }
+
+    post.isHidden = false;
+    await post.save();
+
+    res.status(200).json({
+      message: 'Post unhidden successfully',
+      post
+    });
+  } catch (error) {
+    console.error('Unhide post error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error unhiding post'
+    });
+  }
+};
+
+// @desc    Get hidden posts for authenticated user
+// @route   GET /posts/hidden
+// @access  Private
+const getHiddenPosts = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const posts = await Post.find({ 
+      user: req.user._id, 
+      isHidden: true, 
+      isActive: true, 
+      type: 'photo' 
+    })
+      .populate('user', 'fullName profilePic')
+      .populate('comments.user', 'fullName profilePic')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const postsWithLikeStatus = posts.map(post => ({
+      ...post,
+      isLiked: post.likes.some(like => like.toString() === req.user._id.toString()),
+      likesCount: post.likes.length,
+      commentsCount: post.comments.length
+    }));
+
+    res.status(200).json({
+      success: true,
+      posts: postsWithLikeStatus,
+      page,
+      limit,
+      total: posts.length
+    });
+  } catch (error) {
+    console.error('Get hidden posts error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error fetching hidden posts'
+    });
+  }
+};
+
+// @desc    Toggle comments on post
+// @route   PATCH /posts/:id/toggle-comments
+// @access  Private
+const toggleComments = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only toggle comments on your own posts'
+      });
+    }
+
+    post.commentsDisabled = !post.commentsDisabled;
+    await post.save();
+
+    res.status(200).json({
+      message: post.commentsDisabled ? 'Comments disabled' : 'Comments enabled',
+      commentsDisabled: post.commentsDisabled
+    });
+  } catch (error) {
+    console.error('Toggle comments error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error toggling comments'
+    });
+  }
+};
+
+// @desc    Update post
+// @route   PATCH /posts/:id
+// @access  Private
+const updatePost = async (req, res) => {
+  try {
+    const { caption } = req.body;
+    const post = await Post.findById(req.params.id);
+    
+    if (!post) {
+      return res.status(404).json({
+        error: 'Post not found',
+        message: 'Post does not exist'
+      });
+    }
+
+    if (post.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only edit your own posts'
+      });
+    }
+
+    if (caption) {
+      post.caption = caption;
+    }
+
+    await post.save();
+
+    res.status(200).json({
+      message: 'Post updated successfully',
+      post
+    });
+  } catch (error) {
+    console.error('Update post error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error updating post'
     });
   }
 };
@@ -950,5 +1267,13 @@ module.exports = {
   deleteComment,
   deletePost,
   getShorts,
-  createShort
+  createShort,
+  archivePost,
+  unarchivePost,
+  hidePost,
+  unhidePost,
+  toggleComments,
+  updatePost,
+  getArchivedPosts,
+  getHiddenPosts
 };

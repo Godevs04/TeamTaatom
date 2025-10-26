@@ -19,9 +19,12 @@ import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { imageCacheManager } from '../../utils/imageCacheManager';
 import AnimatedHeader from '../../components/AnimatedHeader';
+import api from '../../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 export default function HomeScreen() {
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -30,6 +33,7 @@ export default function HomeScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
@@ -75,6 +79,56 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const fetchUnseenMessageCount = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      let myUserId = '';
+      if (userData) {
+        try {
+          myUserId = JSON.parse(userData)._id;
+        } catch {}
+      }
+      
+      if (!token || !myUserId) return;
+      
+      const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        }
+      });
+      
+      const data = await response.json();
+      const chats = data.chats || [];
+      
+      // Calculate total unseen messages
+      let totalUnseen = 0;
+      chats.forEach((chat: any) => {
+        if (chat.messages && Array.isArray(chat.messages)) {
+          const otherUser = chat.participants.find((p: any) => 
+            (p._id ? p._id.toString() : p.toString()) !== myUserId
+          );
+          if (otherUser) {
+            const unseen = chat.messages.filter((msg: any) => 
+              msg.sender && 
+              (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) === 
+              (otherUser._id ? otherUser._id.toString() : otherUser.toString()) &&
+              !msg.seen
+            ).length;
+            totalUnseen += unseen;
+          }
+        }
+      });
+      
+      setUnseenMessageCount(totalUnseen);
+    } catch (error) {
+      console.error('Error fetching unseen message count:', error);
+      // Silently fail - don't show error to user
+    }
+  }, []);
+
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true);
@@ -82,6 +136,9 @@ export default function HomeScreen() {
         // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
+        
+        // Fetch unseen message count
+        await fetchUnseenMessageCount();
         
         // Try to load posts without blocking on connectivity test
         console.log('Loading posts...');
@@ -96,13 +153,23 @@ export default function HomeScreen() {
     };
 
     loadInitialData();
-  }, [fetchPosts]);
+  }, [fetchPosts, fetchUnseenMessageCount]);
+
+  // Refresh unseen count when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchUnseenMessageCount();
+    }, [fetchUnseenMessageCount])
+  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchPosts(1, false);
+    await Promise.all([
+      fetchPosts(1, false),
+      fetchUnseenMessageCount()
+    ]);
     setRefreshing(false);
-  }, [fetchPosts]);
+  }, [fetchPosts, fetchUnseenMessageCount]);
 
   const handleLoadMore = useCallback(async () => {
     if (!loading && hasMore) {
@@ -173,7 +240,7 @@ export default function HomeScreen() {
     },
   });
 
-  const renderHeader = () => <AnimatedHeader />;
+  const renderHeader = () => <AnimatedHeader unseenMessageCount={unseenMessageCount} />;
 
   if (loading) {
     return (
