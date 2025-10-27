@@ -10,13 +10,11 @@ import Dashboard from './pages/Dashboard'
 import Users from './pages/Users'
 import TravelContent from './pages/TravelContent'
 import Reports from './pages/Reports'
-import Analytics from './pages/Analytics'
 import Moderators from './pages/Moderators'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import FeatureFlags from './pages/FeatureFlags'
 import TestPage from './pages/TestPage'
-import DebugPanel from './components/DebugPanel'
 import { Toaster } from 'react-hot-toast'
 
 function App() {
@@ -24,7 +22,6 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <RealTimeProvider>
-          <DebugPanel />
           <Toaster
             position="top-right"
             toastOptions={{
@@ -62,7 +59,6 @@ function App() {
                       <Route path="/users" element={<Users />} />
                       <Route path="/travel-content" element={<TravelContent />} />
                       <Route path="/reports" element={<Reports />} />
-                      <Route path="/analytics" element={<Analytics />} />
                       <Route path="/moderators" element={<Moderators />} />
                       <Route path="/logs" element={<Logs />} />
                       <Route path="/settings" element={<Settings />} />
