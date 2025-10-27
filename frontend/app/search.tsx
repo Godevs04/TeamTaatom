@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import { searchUsers } from '../services/profile';
@@ -30,9 +31,14 @@ export default function SearchScreen() {
   const [searchResults, setSearchResults] = useState<SearchResult>({ users: [], posts: [] });
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'posts'>('users');
+  const [searchHistory, setSearchHistory] = useState<{ type: 'users' | 'posts'; query: string }[]>([]);
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
+
+  useEffect(() => {
+    loadSearchHistory();
+  }, []);
 
   useEffect(() => {
     if (searchQuery.trim().length >= 2) {
@@ -41,6 +47,56 @@ export default function SearchScreen() {
       setSearchResults({ users: [], posts: [] });
     }
   }, [searchQuery]);
+
+  const loadSearchHistory = async () => {
+    try {
+      const history = await AsyncStorage.getItem('searchHistory');
+      if (history) {
+        setSearchHistory(JSON.parse(history));
+      }
+    } catch (error) {
+      console.error('Error loading search history:', error);
+    }
+  };
+
+  const saveSearchHistory = async (type: 'users' | 'posts', query: string) => {
+    try {
+      const newHistoryItem = { type, query };
+      const updatedHistory = [
+        newHistoryItem,
+        ...searchHistory.filter(item => !(item.type === type && item.query === query))
+      ].slice(0, 10); // Keep only last 10 searches
+      
+      await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
+      setSearchHistory(updatedHistory);
+    } catch (error) {
+      console.error('Error saving search history:', error);
+    }
+  };
+
+  const deleteSearchHistory = async (index: number) => {
+    try {
+      const updatedHistory = searchHistory.filter((_, i) => i !== index);
+      await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
+      setSearchHistory(updatedHistory);
+    } catch (error) {
+      console.error('Error deleting search history:', error);
+    }
+  };
+
+  const clearAllHistory = async () => {
+    try {
+      await AsyncStorage.removeItem('searchHistory');
+      setSearchHistory([]);
+    } catch (error) {
+      console.error('Error clearing search history:', error);
+    }
+  };
+
+  const selectFromHistory = (query: string, type: 'users' | 'posts') => {
+    setSearchQuery(query);
+    setActiveTab(type);
+  };
 
   const performSearch = async () => {
     if (searchQuery.trim().length < 2) return;
@@ -61,6 +117,13 @@ export default function SearchScreen() {
         users: usersResponse.users,
         posts: filteredPosts,
       });
+
+      // Save to history
+      if (activeTab === 'users' && usersResponse.users.length > 0) {
+        await saveSearchHistory('users', searchQuery);
+      } else if (activeTab === 'posts' && filteredPosts.length > 0) {
+        await saveSearchHistory('posts', searchQuery);
+      }
     } catch (error: any) {
       showError('Failed to search');
       console.error('Search error:', error);
@@ -147,6 +210,46 @@ export default function SearchScreen() {
     </View>
   );
 
+  const renderSearchHistory = () => {
+    const filteredHistory = searchHistory.filter(item => item.type === activeTab);
+    
+    if (filteredHistory.length === 0) return null;
+
+    return (
+      <View style={[styles.historyContainer, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.historyHeader}>
+          <Text style={[styles.historyTitle, { color: theme.colors.text }]}>Recent Searches</Text>
+          <TouchableOpacity onPress={clearAllHistory}>
+            <Text style={[styles.clearAllText, { color: theme.colors.primary }]}>Clear All</Text>
+          </TouchableOpacity>
+        </View>
+        {filteredHistory.map((item, index) => (
+          <TouchableOpacity
+            key={`${item.type}-${index}-${item.query}`}
+            style={[styles.historyItem, { borderBottomColor: theme.colors.border }]}
+            onPress={() => selectFromHistory(item.query, item.type)}
+          >
+            <Ionicons 
+              name="time-outline" 
+              size={20} 
+              color={theme.colors.textSecondary} 
+              style={styles.historyIcon}
+            />
+            <Text style={[styles.historyText, { color: theme.colors.text }]} numberOfLines={1}>
+              {item.query}
+            </Text>
+            <TouchableOpacity
+              onPress={() => deleteSearchHistory(searchHistory.indexOf(item))}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close-circle-outline" size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
@@ -210,11 +313,13 @@ export default function SearchScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search Results */}
+      {/* Search History or Results */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
+      ) : searchQuery.length === 0 ? (
+        renderSearchHistory()
       ) : activeTab === 'users' ? (
         <FlatList
           data={searchResults.users}
@@ -384,5 +489,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
     marginRight: 12,
+  },
+  historyContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  historyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  clearAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  historyIcon: {
+    marginRight: 12,
+  },
+  historyText: {
+    flex: 1,
+    fontSize: 16,
   },
 });

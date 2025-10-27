@@ -406,8 +406,8 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* TripScore Section */}
-        {profileData?.tripScore && (
+        {/* TripScore Section - Only show if user has posted locations */}
+        {profileData?.tripScore && profileData.locations && profileData.locations.length > 0 && (
           <TouchableOpacity 
             style={[styles.tripScoreSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
