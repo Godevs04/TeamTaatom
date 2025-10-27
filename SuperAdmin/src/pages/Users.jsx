@@ -11,17 +11,6 @@ import SafeComponent from '../components/SafeComponent'
 const Users = () => {
   const { users, fetchUsers, performBulkAction, isConnected } = useRealTime()
   
-  // Add error boundary for this component
-  if (!users || users.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading users...</p>
-        </div>
-      </div>
-    )
-  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -101,6 +90,9 @@ const Users = () => {
     )
   }
 
+  // Get filtered users based on search and status
+  const usersArray = Array.isArray(users) ? users : (users?.users || [])
+  
   // Handle select all
   const handleSelectAll = () => {
     if (selectedUsers.length === usersArray.length) {
@@ -109,9 +101,6 @@ const Users = () => {
       setSelectedUsers(usersArray.map(user => user._id))
     }
   }
-
-  // Get filtered users based on search and status
-  const usersArray = Array.isArray(users) ? users : (users?.users || [])
   
   const filteredUsers = usersArray.filter(user => {
     const matchesSearch = !searchTerm || 
@@ -302,7 +291,7 @@ const Users = () => {
                   <TableHead>
                     <input
                       type="checkbox"
-                      checked={selectedUsers.length === users.length && users.length > 0}
+                      checked={selectedUsers.length === currentUsers.length && currentUsers.length > 0}
                       onChange={handleSelectAll}
                       className="rounded"
                     />

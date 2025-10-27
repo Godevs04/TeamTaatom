@@ -11,25 +11,6 @@ import SafeComponent from '../components/SafeComponent'
 const Reports = () => {
   const { reports, fetchReports, isConnected } = useRealTime()
   const [isInitialLoad, setIsInitialLoad] = useState(true)
-  
-  // Helper function to safely render values
-  const safeRender = (value, fallback = 'Not specified') => {
-    if (value === null || value === undefined) return fallback
-    if (typeof value === 'object') return JSON.stringify(value)
-    return String(value)
-  }
-  
-  // Show loading only on initial load
-  if (isInitialLoad && (!reports || reports.length === 0)) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading reports...</p>
-        </div>
-      </div>
-    )
-  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedReport, setSelectedReport] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -38,7 +19,7 @@ const Reports = () => {
   const [loading, setLoading] = useState(false)
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
-
+  
   // Handle initial load state
   useEffect(() => {
     if (reports && reports.length > 0) {
@@ -322,8 +303,8 @@ const Reports = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {currentReports.map((report) => (
-                  <TableRow key={report.id}>
+                {currentReports.map((report, index) => (
+                  <TableRow key={report.id || report._id || `report-${index}`}>
                     <TableCell>
                       <span className="font-medium text-gray-900 capitalize">
                         {report.type?.replace('_', ' ') || 'Unknown'}

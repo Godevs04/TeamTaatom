@@ -11,27 +11,6 @@ import SafeComponent from '../components/SafeComponent'
 const TravelContent = () => {
   const { posts, fetchPosts, isConnected } = useRealTime()
   const [isInitialLoad, setIsInitialLoad] = useState(true)
-  
-  // Helper function to safely render values
-  const safeRender = (value, fallback = 'Not specified') => {
-    if (value === null || value === undefined) return fallback
-    if (typeof value === 'object') return JSON.stringify(value)
-    return String(value)
-  }
-  
-  // Show loading only on initial load
-  if (isInitialLoad && (!posts || posts.length === 0)) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading travel content...</p>
-        </div>
-      </div>
-    )
-  }
-  
-  // Ensure posts is an array (will be redeclared later)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedContent, setSelectedContent] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -40,7 +19,7 @@ const TravelContent = () => {
   const [loading, setLoading] = useState(false)
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
-
+  
   // Handle initial load state
   useEffect(() => {
     if (posts && posts.length > 0) {
@@ -140,6 +119,25 @@ const TravelContent = () => {
       setShowModal(false)
       setSelectedContent(null)
     }
+  }
+  
+  // Helper function to safely render values
+  const safeRender = (value, fallback = 'Not specified') => {
+    if (value === null || value === undefined) return fallback
+    if (typeof value === 'object') return JSON.stringify(value)
+    return String(value)
+  }
+  
+  // Show loading only on initial load
+  if (isInitialLoad && (!posts || posts.length === 0)) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading travel content...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

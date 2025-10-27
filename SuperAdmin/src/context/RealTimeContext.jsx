@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
 import { socketService } from '../services/socketService'
-import { autoSetToken, checkAuthToken } from '../utils/setAuthToken'
 import toast from 'react-hot-toast'
 
 const RealTimeContext = createContext()
@@ -24,13 +23,6 @@ export const RealTimeProvider = ({ children }) => {
   const [auditLogs, setAuditLogs] = useState([])
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
-  
-  // Initialize with empty arrays to prevent undefined errors
-  
-  // Auto-set token if missing
-  useEffect(() => {
-    autoSetToken();
-  }, [])
 
   // Real-time data refresh interval
   const REFRESH_INTERVAL = 30000 // 30 seconds
@@ -73,34 +65,19 @@ export const RealTimeProvider = ({ children }) => {
   // Fetch users data
   const fetchUsers = useCallback(async (params = {}) => {
     try {
-      
-      // Force set token if missing
-      let token = localStorage.getItem('founder_token')
+      const token = localStorage.getItem('founder_token')
       if (!token) {
-        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
-        token = localStorage.getItem('founder_token')
+        console.log('No auth token found, skipping users fetch')
+        return
       }
       
       const queryParams = new URLSearchParams(params).toString()
       const url = `/api/superadmin/users?${queryParams}`
       
-      // Make direct fetch call with explicit headers
-      const response = await fetch(`http://localhost:3000${url}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
+      const response = await api.get(url)
       
       // Handle both array and object responses
-      const usersData = Array.isArray(data) ? data : (data?.users || [])
+      const usersData = Array.isArray(response.data) ? response.data : (response.data?.users || [])
       setUsers(usersData)
       setLastUpdate(new Date())
     } catch (error) {
@@ -112,32 +89,19 @@ export const RealTimeProvider = ({ children }) => {
   // Fetch posts data
   const fetchPosts = useCallback(async (params = {}) => {
     try {
-      // Force set token if missing
-      let token = localStorage.getItem('founder_token')
+      const token = localStorage.getItem('founder_token')
       if (!token) {
-        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
-        token = localStorage.getItem('founder_token')
+        console.log('No auth token found, skipping posts fetch')
+        return
       }
       
       const queryParams = new URLSearchParams(params).toString()
       const url = `/api/superadmin/travel-content?${queryParams}`
       
-      const response = await fetch(`http://localhost:3000${url}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
+      const response = await api.get(url)
       
       // Handle both array and object responses
-      const postsData = Array.isArray(data) ? data : (data?.posts || [])
+      const postsData = Array.isArray(response.data) ? response.data : (response.data?.posts || [])
       setPosts(postsData)
     } catch (error) {
       console.error('❌ Failed to fetch posts:', error)
@@ -148,32 +112,19 @@ export const RealTimeProvider = ({ children }) => {
   // Fetch reports data
   const fetchReports = useCallback(async (params = {}) => {
     try {
-      // Force set token if missing
-      let token = localStorage.getItem('founder_token')
+      const token = localStorage.getItem('founder_token')
       if (!token) {
-        localStorage.setItem('founder_token', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs')
-        token = localStorage.getItem('founder_token')
+        console.log('No auth token found, skipping reports fetch')
+        return
       }
       
       const queryParams = new URLSearchParams(params).toString()
       const url = `/api/superadmin/reports?${queryParams}`
       
-      const response = await fetch(`http://localhost:3000${url}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
+      const response = await api.get(url)
       
       // Handle both array and object responses
-      const reportsData = Array.isArray(data) ? data : (data?.reports || [])
+      const reportsData = Array.isArray(response.data) ? response.data : (response.data?.reports || [])
       setReports(reportsData)
     } catch (error) {
       console.error('❌ Failed to fetch reports:', error)
