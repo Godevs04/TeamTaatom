@@ -387,7 +387,7 @@ export default function ShortsScreen() {
           
           {/* Elegant Gradient Overlays */}
           <LinearGradient
-            colors={['rgba(0,0,0,0.1)', 'transparent', 'rgba(0,0,0,0.8)']}
+            colors={['transparent', 'transparent']}
             style={styles.topGradient}
           />
           <LinearGradient
@@ -526,7 +526,7 @@ export default function ShortsScreen() {
   if (loading) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="black" translucent />
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.loadingContainer}>
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#FF3040" style={styles.loadingSpinner} />
@@ -541,7 +541,7 @@ export default function ShortsScreen() {
   if (shorts.length === 0) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="black" translucent />
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.emptyContainer}>
           <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.3)" />
           <Text style={styles.emptyTitle}>No Shorts Available</Text>
@@ -569,8 +569,8 @@ export default function ShortsScreen() {
     <View style={styles.container}>
       <StatusBar 
         barStyle="light-content" 
-        backgroundColor="black" 
-        translucent
+        backgroundColor="transparent" 
+        translucent={true}
       />
 
       <FlatList
@@ -591,6 +591,9 @@ export default function ShortsScreen() {
         directionalLockEnabled={false}
         alwaysBounceVertical={true}
         bounces={true}
+        contentInsetAdjustmentBehavior="never"
+        automaticallyAdjustContentInsets={false}
+        contentInset={{ top: 0, bottom: 0, left: 0, right: 0 }}
         onMomentumScrollEnd={(event) => {
           const index = Math.round(event.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
           setCurrentIndex(index);
@@ -624,6 +627,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
+    paddingTop: 0,
+    marginTop: 0,
   },
   loadingContainer: {
     flex: 1,
@@ -688,22 +693,25 @@ const styles = StyleSheet.create({
     width: '100%',
     height: SCREEN_HEIGHT,
     position: 'relative',
+    backgroundColor: 'black',
   },
   videoContainer: {
     width: '100%',
     height: '100%',
     position: 'relative',
+    backgroundColor: 'black',
   },
   shortVideo: {
     width: '100%',
     height: '100%',
+    backgroundColor: 'black',
   },
   topGradient: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 120,
+    height: 160,
     zIndex: 1,
   },
   bottomGradient: {

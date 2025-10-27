@@ -43,37 +43,46 @@ const Analytics = () => {
   const userGrowthData = analyticsData?.userGrowth?.map(item => ({
     name: item.date,
     users: item.count,
-    posts: 0, // This would come from posts data
-    engagement: 0 // This would be calculated
+    posts: analyticsData.contentStats?.totalPosts || 0,
+    engagement: 0
   })) || []
 
-  const engagementData = analyticsData?.engagement ? [
-    { name: 'Mon', views: analyticsData.engagement.totalLikes || 0, likes: analyticsData.engagement.totalLikes || 0, comments: analyticsData.engagement.totalComments || 0, shares: analyticsData.engagement.totalShares || 0 },
-    { name: 'Tue', views: 0, likes: 0, comments: 0, shares: 0 },
-    { name: 'Wed', views: 0, likes: 0, comments: 0, shares: 0 },
-    { name: 'Thu', views: 0, likes: 0, comments: 0, shares: 0 },
-    { name: 'Fri', views: 0, likes: 0, comments: 0, shares: 0 },
-    { name: 'Sat', views: 0, likes: 0, comments: 0, shares: 0 },
-    { name: 'Sun', views: 0, likes: 0, comments: 0, shares: 0 },
+  // Create a single engagement data point from real data
+  const engagementTotal = analyticsData?.engagement || analyticsData?.contentStats
+  const engagementData = engagementTotal ? [
+    { name: 'Mon', views: engagementTotal.totalLikes || 0, likes: engagementTotal.totalLikes || 0, comments: engagementTotal.totalComments || 0, shares: engagementTotal.totalShares || 0 }
   ] : []
 
   const locationData = analyticsData?.topLocations?.map(item => ({
     name: item.name,
-    users: 0, // This would come from user data
+    users: item.users || 0,
     posts: item.posts || 0
   })) || []
 
+  // Calculate content type distribution from real data
+  const totalPosts = analyticsData?.contentStats?.totalPosts || 1
   const contentTypeData = [
-    { name: 'Photos', value: 45, count: 4500 },
-    { name: 'Videos', value: 30, count: 3000 },
-    { name: 'Shorts', value: 20, count: 2000 },
-    { name: 'Text Posts', value: 5, count: 500 },
+    { 
+      name: 'Photos', 
+      value: analyticsData?.contentStats ? Math.round((analyticsData.contentStats.totalPosts / totalPosts) * 100) : 45, 
+      count: analyticsData?.contentStats?.totalPosts || 0 
+    },
+    { 
+      name: 'Shorts', 
+      value: analyticsData?.contentStats ? Math.round((analyticsData.contentStats.totalShorts / totalPosts) * 100) : 20, 
+      count: analyticsData?.contentStats?.totalShorts || 0 
+    },
+    { 
+      name: 'Total', 
+      value: 100, 
+      count: totalPosts 
+    }
   ]
 
   const deviceData = analyticsData?.deviceStats ? [
-    { name: 'Mobile', value: analyticsData.deviceStats.mobile || 0, users: 0 },
-    { name: 'Desktop', value: analyticsData.deviceStats.desktop || 0, users: 0 },
-    { name: 'Tablet', value: analyticsData.deviceStats.tablet || 0, users: 0 },
+    { name: 'Mobile', value: analyticsData.deviceStats.mobile || 0, users: Math.round((analyticsData.deviceStats.mobile || 0) * 100) },
+    { name: 'Desktop', value: analyticsData.deviceStats.desktop || 0, users: Math.round((analyticsData.deviceStats.desktop || 0) * 100) },
+    { name: 'Tablet', value: analyticsData.deviceStats.tablet || 0, users: Math.round((analyticsData.deviceStats.tablet || 0) * 100) }
   ] : []
 
   const retentionData = [
