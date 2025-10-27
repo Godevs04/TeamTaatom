@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useTheme } from "../../context/ThemeContext";
@@ -100,17 +102,39 @@ export default function PostScreen() {
       Alert.alert('Permission needed', 'Please grant photo library permissions.');
       return;
     }
-    
+
     try {
+      // Reset location before picking new images
+      setLocation(null);
+      setAddress('');
+      
+      // Record the timestamp before opening the picker
+      const selectionStartTime = Date.now();
+      
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         selectionLimit: 10,
         quality: 0.8,
         allowsEditing: false,
+        exif: true, // Preserve EXIF data including location
       });
 
       if (!result.canceled && result.assets) {
+        console.log('📸 Selected assets data:', result.assets.map(asset => ({
+          uri: asset.uri,
+          fileName: asset.fileName,
+          id: (asset as any).id,
+          type: asset.type,
+          width: asset.width,
+          height: asset.height,
+        })));
+        
+        // IMPORTANT: Clear location state explicitly before processing new images
+        console.log('🔄 Clearing location state for new selection');
+        setLocation(null);
+        setAddress('');
+        
         const newImages = result.assets.map(asset => {
           // Determine proper MIME type based on file extension or default to jpeg
           let mimeType = 'image/jpeg';
@@ -134,7 +158,9 @@ export default function PostScreen() {
           return {
             uri: asset.uri,
             type: mimeType,
-            name: asset.fileName || `image_${Date.now()}.jpg`
+            name: asset.fileName || `image_${Date.now()}.jpg`,
+            id: (asset as any).id, // Pass through asset ID if available
+            originalAsset: asset, // Keep reference to original asset
           };
         });
         
@@ -149,7 +175,23 @@ export default function PostScreen() {
         
         setSelectedVideo(null);
         setPostType('photo');
-        await getLocation();
+        
+        // Add a small delay to ensure MediaLibrary is updated with the selected photo
+        console.log('⏳ Waiting for MediaLibrary to update...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log('🔍 Starting location extraction for new photo');
+        console.log('📅 Selection started at:', new Date(selectionStartTime));
+        
+        // Try to get location from photo EXIF data first
+        const hasLocation = await getLocationFromPhotos(result.assets, selectionStartTime);
+        console.log('📍 Location extraction result:', hasLocation ? 'Found' : 'Not found');
+        
+        if (!hasLocation) {
+          // Fall back to current device location
+          console.log('📱 Falling back to device location');
+          await getLocation();
+        }
       }
     } catch (error) {
       console.error('Error picking images:', error);
@@ -163,15 +205,24 @@ export default function PostScreen() {
       Alert.alert('Permission needed', 'Please grant photo library permissions.');
       return;
     }
+    
+    // Reset location before picking new video
+    setLocation(null);
+    setAddress('');
+    
+    // Record the timestamp before opening the picker
+    const selectionStartTime = Date.now();
+    
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsEditing: true,
       aspect: [9, 16], // Vertical aspect ratio for shorts
       quality: 0.8,
+      exif: true, // Preserve EXIF data including location
     });
-    if (!result.canceled && result.assets?.[0]) {
-      clearUploadState();
-      setSelectedVideo(result.assets[0].uri);
+      if (!result.canceled && result.assets?.[0]) {
+        clearUploadState();
+        setSelectedVideo(result.assets[0].uri);
         setSelectedImages([]);
       setPostType('short');
       // Generate initial thumbnail
@@ -182,7 +233,16 @@ export default function PostScreen() {
         console.warn('Thumbnail generation failed:', e);
         setVideoThumbnail(null);
       }
-      await getLocation();
+      
+      // Add a small delay to ensure MediaLibrary is updated with the selected video
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Try to get location from video metadata
+      const hasLocation = await getLocationFromPhotos(result.assets, selectionStartTime);
+      if (!hasLocation) {
+        // Fall back to current device location
+        await getLocation();
+      }
     }
   };
 
@@ -193,12 +253,20 @@ export default function PostScreen() {
       return;
     }
     
+    // Reset location before taking new photo
+    setLocation(null);
+    setAddress('');
+    
+    // Record timestamp before capturing
+    const captureStartTime = Date.now();
+    
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
+        exif: true, // Preserve EXIF data including location
       });
       
       if (!result.canceled && result.assets?.[0]) {
@@ -221,7 +289,16 @@ export default function PostScreen() {
         
         setSelectedVideo(null);
         setPostType('photo');
-        await getLocation();
+        
+        // Add a small delay to ensure MediaLibrary is updated with the captured photo
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to get location from photo EXIF data first
+        const hasLocation = await getLocationFromPhotos(result.assets, captureStartTime);
+        if (!hasLocation) {
+          // Fall back to current device location
+          await getLocation();
+        }
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -235,11 +312,20 @@ export default function PostScreen() {
       Alert.alert('Permission needed', 'Please grant camera permissions to take videos.');
       return;
     }
+    
+    // Reset location before taking new video
+    setLocation(null);
+    setAddress('');
+    
+    // Record timestamp before capturing
+    const captureStartTime = Date.now();
+    
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       allowsEditing: true,
       aspect: [9, 16], // Vertical aspect ratio for shorts
       quality: 0.8,
+      exif: true, // Preserve EXIF data including location
     });
     if (!result.canceled && result.assets?.[0]) {
       setSelectedVideo(result.assets[0].uri);
@@ -252,7 +338,16 @@ export default function PostScreen() {
         console.warn('Thumbnail generation failed:', e);
         setVideoThumbnail(null);
       }
-      await getLocation();
+      
+      // Add a small delay to ensure MediaLibrary is updated with the captured video
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Try to get location from video metadata
+      const hasLocation = await getLocationFromPhotos(result.assets, captureStartTime);
+      if (!hasLocation) {
+        // Fall back to current device location
+        await getLocation();
+      }
     }
   };
 
@@ -263,6 +358,178 @@ export default function PostScreen() {
   };
   let lastAddress = "";
   let lastGeocodeTime = 0;
+  
+  // Get location from photo/video metadata (EXIF data)
+  const getLocationFromPhotos = async (assets: any[], selectionStartTime?: number): Promise<boolean> => {
+    try {
+      // Request media library permissions
+      const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
+      if (mediaStatus === 'granted') {
+        try {
+          // Try to get location using the asset ID from ImagePicker
+          for (const asset of assets) {
+            const assetId = (asset as any).id;
+            console.log('📸 Processing asset:', { 
+              uri: asset.uri,
+              id: assetId,
+              hasId: !!assetId
+            });
+            
+            // If asset has an ID, try to get info directly
+            if (assetId) {
+              try {
+                const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
+                
+                console.log('📱 Asset info from ID:', {
+                  id: assetInfo.id,
+                  hasLocation: !!assetInfo.location
+                });
+                
+                if (assetInfo.location) {
+                  console.log('📱 Raw location data:', assetInfo.location);
+                  
+                  const latValue: any = (assetInfo.location as any).latitude;
+                  const lngValue: any = (assetInfo.location as any).longitude;
+                  
+                  console.log('📱 Extracted lat/lng values:', { latValue, lngValue });
+                  
+                  const lat = typeof latValue === 'number' ? latValue : parseFloat(latValue?.toString() || '0');
+                  const lng = typeof lngValue === 'number' ? lngValue : parseFloat(lngValue?.toString() || '0');
+                  
+                  if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                    const coords = { lat, lng };
+                    setLocation(coords);
+                    
+                    const addressText = await getAddressFromCoords(coords.lat, coords.lng);
+                    setAddress(addressText);
+                    
+                    console.log('✅ Got location from photo using ID:', addressText);
+                    return true;
+                  }
+                }
+              } catch (idError) {
+                console.log('Error getting asset by ID:', idError);
+              }
+            }
+          }
+          
+          // Fallback: Get recent photos sorted by modification time
+          const recentAssets = await MediaLibrary.getAssetsAsync({
+            first: 30,
+            mediaType: MediaLibrary.MediaType.photo,
+            sortBy: MediaLibrary.SortBy.modificationTime,
+          });
+          
+          console.log('📱 Found recent assets:', recentAssets.assets.length);
+          
+          // Try to match the selected photo by filename from ImagePicker
+          let assetsToCheck: any[] = [];
+          let matchedAssetInfo: any = null;
+          
+          for (const selectedAsset of assets) {
+            const selectedFileName = selectedAsset.fileName;
+            console.log('🔍 Looking for photo with filename:', selectedFileName);
+            
+            if (selectedFileName) {
+              console.log('🔍 Searching through recent photos for filename match...');
+              
+              // Check each recent photo to find the one with matching filename
+              for (const mediaAsset of recentAssets.assets) {
+                try {
+                  const assetInfo = await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
+                  const assetFileName = assetInfo.localUri?.split('/').pop() || '';
+                  
+                  console.log('📋 Comparing:', assetFileName, 'with', selectedFileName);
+                  
+                  // Check if filename matches (case insensitive)
+                  if (assetFileName.toLowerCase().includes(selectedFileName.toLowerCase()) ||
+                      selectedFileName.toLowerCase().includes(assetFileName.toLowerCase())) {
+                    console.log('✅ Found matching photo by filename!');
+                    assetsToCheck = [mediaAsset];
+                    matchedAssetInfo = assetInfo; // Cache the asset info to avoid duplicate calls
+                    break;
+                  }
+                } catch (err) {
+                  // Continue searching
+                }
+              }
+              
+              if (assetsToCheck.length > 0) break;
+            }
+          }
+          
+          // If no filename match found, fallback to most recent photo
+          if (assetsToCheck.length === 0) {
+            // Sort by modification time and get most recent
+            const sortedAssets = recentAssets.assets.sort((a, b) => 
+              (b.modificationTime || 0) - (a.modificationTime || 0)
+            );
+            assetsToCheck = sortedAssets.slice(0, 1);
+            console.log('📱 No filename match, using most recent photo:', assetsToCheck[0]?.modificationTime);
+          } else {
+            console.log('📱 Using filename-matched photo');
+          }
+          
+          for (const mediaAsset of assetsToCheck) {
+            try {
+              // Use cached asset info if available, otherwise fetch it
+              const assetInfo = matchedAssetInfo || await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
+              
+              console.log('📱 Checking asset:', {
+                id: mediaAsset.id,
+                modificationTime: mediaAsset.modificationTime,
+                hasLocation: !!assetInfo.location
+              });
+              
+              if (assetInfo.location) {
+                console.log('📱 Raw location data:', assetInfo.location);
+                
+                const latValue: any = (assetInfo.location as any).latitude;
+                const lngValue: any = (assetInfo.location as any).longitude;
+                
+                console.log('📱 Extracted lat/lng values:', { latValue, lngValue });
+                
+                const lat = typeof latValue === 'number' ? latValue : parseFloat(latValue?.toString() || '0');
+                const lng = typeof lngValue === 'number' ? lngValue : parseFloat(lngValue?.toString() || '0');
+                
+                if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                  const coords = { lat, lng };
+                  
+                  console.log('✅ Setting NEW location from photo:', coords);
+                  
+                  // Use functional setState to ensure we overwrite any previous location
+                  setLocation(prevLoc => {
+                    console.log('Previous location was:', prevLoc, 'setting to:', coords);
+                    return coords;
+                  });
+                  
+                  // Clear address first, then set new one
+                  setAddress('');
+                  
+                  const addressText = await getAddressFromCoords(coords.lat, coords.lng);
+                  setAddress(addressText);
+                  
+                  console.log('✅ Got location from photo:', addressText);
+                  return true;
+                }
+              }
+            } catch (infoError) {
+              console.log('Error getting asset info:', infoError);
+            }
+          }
+        } catch (libraryError) {
+          console.log('MediaLibrary query failed:', libraryError);
+        }
+      }
+      
+      console.log('⚠️ No location found in photo metadata');
+      return false;
+    } catch (error) {
+      console.error('Error getting location from photos:', error);
+      return false;
+    }
+  };
+  
   const getLocation = async () => {
     try {
       const currentLocation = await getCurrentLocation();

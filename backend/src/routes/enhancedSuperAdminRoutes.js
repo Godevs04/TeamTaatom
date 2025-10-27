@@ -4,6 +4,8 @@ const SuperAdmin = require('../models/SuperAdmin')
 const {
   verifySuperAdminToken,
   loginSuperAdmin,
+  verify2FA,
+  resend2FA,
   verifyToken,
   createSuperAdmin,
   getSecurityLogs,
@@ -15,6 +17,8 @@ const {
 // Public routes (no authentication required)
 router.post('/login', loginSuperAdmin)
 router.post('/create', createSuperAdmin) // For initial setup only
+router.post('/verify-2fa', verify2FA)
+router.post('/resend-2fa', resend2FA)
 
 
 // Protected routes (require authentication)
