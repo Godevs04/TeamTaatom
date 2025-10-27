@@ -13,7 +13,6 @@ const profileRoutes = require('./routes/profileRoutes');
 const chatRoutes = require('./routes/chat.routes');
 const shortsRoutes = require('./routes/shortsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-const superAdminRoutes = require('./routes/superAdminRoutes');
 const enhancedSuperAdminRoutes = require('./routes/enhancedSuperAdminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 
@@ -57,7 +56,6 @@ app.use('/profile', profileRoutes);
 app.use('/chat', chatRoutes);
 app.use('/shorts', shortsRoutes);
 app.use('/settings', settingsRoutes);
-app.use('/api/founder', superAdminRoutes);
 app.use('/api/superadmin', enhancedSuperAdminRoutes);
 app.use('/notifications', notificationRoutes);
 

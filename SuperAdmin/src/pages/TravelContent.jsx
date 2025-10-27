@@ -73,9 +73,17 @@ const TravelContent = () => {
   // Get filtered content based on search and type
   const postsArray = Array.isArray(posts) ? posts : (posts?.posts || [])
   const filteredContent = postsArray.filter(post => {
+    // Handle location as either string or object
+    let locationString = ''
+    if (typeof post.location === 'string') {
+      locationString = post.location
+    } else if (post.location && typeof post.location === 'object') {
+      locationString = post.location.address || post.location.name || ''
+    }
+    
     const matchesSearch = !searchTerm || 
-      post.content?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      post.location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      post.caption?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      locationString.toLowerCase().includes(searchTerm.toLowerCase()) ||
       post.user?.fullName?.toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesType = filterType === 'all' || post.type === filterType
@@ -196,7 +204,6 @@ const TravelContent = () => {
               >
                 <option value="all">All Types</option>
                 <option value="photo">Photos</option>
-                <option value="video">Videos</option>
                 <option value="short">Shorts</option>
               </select>
               <button className="btn btn-secondary">
