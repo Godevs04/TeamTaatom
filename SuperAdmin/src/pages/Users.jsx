@@ -3,10 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate, getStatusColor } from '../utils/formatDate'
-import { Search, Filter, MoreHorizontal, Ban, CheckCircle, Eye, Edit, RefreshCw } from 'lucide-react'
+import { Search, Filter, MoreHorizontal, Ban, CheckCircle, Eye, Edit, RefreshCw, UserX, Shield, Mail, Trash2 } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
+import { api } from '../services/api'
 
 const Users = () => {
   const { users, fetchUsers, performBulkAction, isConnected } = useRealTime()
@@ -21,6 +22,14 @@ const Users = () => {
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
+  const [editFormData, setEditFormData] = useState({})
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [moreFilters, setMoreFilters] = useState({
+    dateRange: '',
+    sortField: 'createdAt',
+    role: 'all'
+  })
 
   // Fetch users data on component mount and when filters change
   useEffect(() => {
@@ -75,9 +84,19 @@ const Users = () => {
 
   // Handle individual user actions
   const handleUserActionClick = async (userId, action) => {
-    const result = await performBulkAction(action, [userId], `Individual ${action}`)
-    if (result.success) {
+    try {
+      await performBulkAction(action, [userId], `Individual ${action}`)
       toast.success(`User ${action}d successfully`)
+      // Refresh users after action
+      await fetchUsers({
+        page: currentPage,
+        search: searchTerm,
+        status: filterStatus === 'all' ? undefined : filterStatus,
+        sortBy,
+        sortOrder
+      })
+    } catch (error) {
+      toast.error(`Failed to ${action} user`)
     }
   }
 
@@ -109,7 +128,9 @@ const Users = () => {
     
     const matchesStatus = filterStatus === 'all' || 
       (filterStatus === 'active' && user.isVerified) ||
-      (filterStatus === 'inactive' && !user.isVerified)
+      (filterStatus === 'inactive' && !user.isVerified) ||
+      (filterStatus === 'pending' && (!user.isVerified || user.isVerified === false)) ||
+      (filterStatus === 'banned' && user.deletedAt)
     
     return matchesSearch && matchesStatus
   })
@@ -123,14 +144,88 @@ const Users = () => {
 
   const handleUserAction = (user, action) => {
     setSelectedUser({ ...user, action })
+    if (action === 'edit') {
+      setEditFormData({
+        fullName: user.fullName || '',
+        email: user.email || '',
+        bio: user.bio || '',
+        isVerified: user.isVerified || false
+      })
+    }
     setShowModal(true)
   }
 
   const handleConfirmAction = async () => {
     if (selectedUser) {
-      await handleUserActionClick(selectedUser._id, selectedUser.action)
-      setShowModal(false)
-      setSelectedUser(null)
+      try {
+        if (selectedUser.action === 'edit') {
+          // Handle edit action separately
+          try {
+            await api.patch(`/api/superadmin/users/${selectedUser._id}`, editFormData)
+            toast.success('User updated successfully')
+            setShowModal(false)
+            setSelectedUser(null)
+            setEditFormData({})
+            // Refresh users
+            await fetchUsers({
+              page: currentPage,
+              search: searchTerm,
+              status: filterStatus === 'all' ? undefined : filterStatus,
+              sortBy,
+              sortOrder
+            })
+          } catch (error) {
+            toast.error('Failed to update user')
+            console.error('Update error:', error)
+          }
+        } else if (selectedUser.action === 'delete') {
+          // Handle delete action
+          try {
+            await api.delete(`/api/superadmin/users/${selectedUser._id}`)
+            toast.success('User deleted successfully')
+            setShowModal(false)
+            setSelectedUser(null)
+            // Refresh users
+            await fetchUsers({
+              page: currentPage,
+              search: searchTerm,
+              status: filterStatus === 'all' ? undefined : filterStatus,
+              sortBy,
+              sortOrder
+            })
+          } catch (error) {
+            toast.error('Failed to delete user')
+            console.error('Delete error:', error)
+          }
+        } else {
+          await handleUserActionClick(selectedUser._id, selectedUser.action)
+          setShowModal(false)
+          setSelectedUser(null)
+        }
+      } catch (error) {
+        toast.error(`Failed to ${selectedUser.action} user`)
+      }
+    }
+  }
+  
+  // Handle bulk delete/ban
+  const handleBulkDelete = async () => {
+    if (selectedUsers.length === 0) {
+      toast.error('Please select users first')
+      return
+    }
+    
+    if (!confirm(`Are you sure you want to permanently ban ${selectedUsers.length} users?`)) {
+      return
+    }
+    
+    try {
+      await performBulkAction('ban', selectedUsers, 'Bulk ban operation')
+      setSelectedUsers([])
+      setShowBulkActions(false)
+      toast.success(`Successfully banned ${selectedUsers.length} users`)
+    } catch (error) {
+      toast.error('Failed to ban users')
     }
   }
 
@@ -149,6 +244,66 @@ const Users = () => {
       toast.error('Failed to refresh users')
     } finally {
       setLoading(false)
+    }
+  }
+  
+  const handleExportUsers = () => {
+    setShowExportModal(true)
+  }
+  
+  const performExport = (exportType) => {
+    try {
+      let usersToExport = []
+      
+      if (exportType === 'selected' && selectedUsers.length > 0) {
+        // Export selected users only
+        const usersArray = Array.isArray(users) ? users : (users?.users || [])
+        usersToExport = usersArray.filter(user => selectedUsers.includes(user._id))
+        if (usersToExport.length === 0) {
+          toast.error('No users to export')
+          return
+        }
+      } else if (exportType === 'selected') {
+        // No users selected
+        toast.error('Please select at least one user to export')
+        setShowExportModal(false)
+        return
+      } else {
+        // Export all users
+        usersToExport = Array.isArray(users) ? users : (users?.users || [])
+      }
+      
+      const csvContent = [
+        ['Name', 'Email', 'Status', 'Posts', 'Likes', 'Followers', 'Created At', 'Last Active'].join(','),
+        ...usersToExport.map(user => [
+          `"${user.fullName || 'Unknown'}"`,
+          `"${user.email}"`,
+          `"${user.isVerified ? 'Active' : 'Inactive'}"`,
+          user.metrics?.totalPosts || 0,
+          user.metrics?.totalLikes || 0,
+          user.metrics?.totalFollowers || 0,
+          `"${formatDate(user.createdAt)}"`,
+          `"${formatDate(user.metrics?.lastActive || user.createdAt)}"`
+        ].join(','))
+      ].join('\n')
+      
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const fileName = exportType === 'selected' 
+        ? `users_export_selected_${selectedUsers.length}_${new Date().toISOString().split('T')[0]}.csv`
+        : `users_export_all_${new Date().toISOString().split('T')[0]}.csv`
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      toast.success(`Successfully exported ${usersToExport.length} user(s)`)
+      setShowExportModal(false)
+    } catch (error) {
+      toast.error('Failed to export users')
+      console.error('Export error:', error)
     }
   }
 
@@ -178,7 +333,10 @@ const Users = () => {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          <button className="btn btn-primary">
+          <button 
+            onClick={handleExportUsers}
+            className="btn btn-primary"
+          >
             Export Users
           </button>
         </div>
@@ -208,10 +366,14 @@ const Users = () => {
               >
                 <option value="all">All Status</option>
                 <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
                 <option value="pending">Pending</option>
                 <option value="banned">Banned</option>
               </select>
-              <button className="btn btn-secondary">
+              <button 
+                onClick={() => setShowMoreFilters(!showMoreFilters)}
+                className="btn btn-secondary"
+              >
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters
               </button>
@@ -219,6 +381,62 @@ const Users = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* More Filters Panel */}
+      {showMoreFilters && (
+        <Card>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date Range
+                </label>
+                <select
+                  className="input w-full"
+                  value={moreFilters.dateRange}
+                  onChange={(e) => setMoreFilters({ ...moreFilters, dateRange: e.target.value })}
+                >
+                  <option value="">All Time</option>
+                  <option value="today">Today</option>
+                  <option value="week">Last 7 Days</option>
+                  <option value="month">Last 30 Days</option>
+                  <option value="3months">Last 3 Months</option>
+                  <option value="year">Last Year</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Sort By
+                </label>
+                <select
+                  className="input w-full"
+                  value={moreFilters.sortField}
+                  onChange={(e) => setMoreFilters({ ...moreFilters, sortField: e.target.value })}
+                >
+                  <option value="createdAt">Join Date</option>
+                  <option value="fullName">Full Name</option>
+                  <option value="email">Email</option>
+                  <option value="updatedAt">Last Active</option>
+                </select>
+              </div>
+              
+              <div className="flex items-end">
+                <button
+                  onClick={() => {
+                    setSortBy(moreFilters.sortField)
+                    toast.success('Filters applied')
+                    setShowMoreFilters(false)
+                  }}
+                  className="btn btn-primary w-full"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Bulk Actions */}
       {selectedUsers.length > 0 && (
@@ -318,9 +536,20 @@ const Users = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center">
+                        {user.profilePic ? (
+                          <img 
+                            src={user.profilePic} 
+                            alt={user.fullName || 'User'} 
+                            className="w-10 h-10 rounded-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none'
+                              e.target.nextSibling.style.display = 'flex'
+                            }}
+                          />
+                        ) : null}
+                        <div className={`w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center ${user.profilePic ? 'hidden' : 'flex'}`}>
                           <span className="text-white font-bold text-sm">
-                            {user.fullName?.split(' ').map(n => n[0]).join('') || 'U'}
+                            {user.fullName?.split(' ').map(n => n[0]).join('').substring(0, 2) || 'U'}
                           </span>
                         </div>
                         <div>
@@ -337,44 +566,63 @@ const Users = () => {
                       </span>
                     </TableCell>
                     <TableCell>{user.metrics?.totalPosts || 0}</TableCell>
-                    <TableCell>{user.metrics?.totalLikes || 0}</TableCell>
+                    <TableCell>{user.metrics?.totalFollowers || 0}</TableCell>
                     <TableCell>{user.location || 'Not specified'}</TableCell>
                     <TableCell>{formatDate(user.metrics?.lastActive || user.createdAt)}</TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() => handleUserAction(user, 'view')}
-                          className="p-1 text-gray-400 hover:text-gray-600"
-                          title="View Details"
+                          className="p-1 text-blue-400 hover:text-blue-600 transition-colors relative group"
+                          title="View user details and activity"
                         >
                           <Eye className="w-4 h-4" />
+                          <span className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            View Details
+                          </span>
                         </button>
                         <button
                           onClick={() => handleUserAction(user, 'edit')}
-                          className="p-1 text-gray-400 hover:text-gray-600"
-                          title="Edit User"
+                          className="p-1 text-green-400 hover:text-green-600 transition-colors relative group"
+                          title="Edit user information and settings"
                         >
                           <Edit className="w-4 h-4" />
+                          <span className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            Edit User
+                          </span>
                         </button>
                         {user.isVerified ? (
                           <button
                             onClick={() => handleUserActionClick(user._id, 'deactivate')}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                            title="Deactivate User"
+                            className="p-1 text-orange-400 hover:text-orange-600 transition-colors relative group"
+                            title="Deactivate user account and restrict access"
                           >
                             <Ban className="w-4 h-4" />
+                            <span className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              Deactivate User
+                            </span>
                           </button>
                         ) : (
                           <button
                             onClick={() => handleUserActionClick(user._id, 'activate')}
-                            className="p-1 text-gray-400 hover:text-green-600"
-                            title="Activate User"
+                            className="p-1 text-green-400 hover:text-green-600 transition-colors relative group"
+                            title="Activate user account and restore access"
                           >
                             <CheckCircle className="w-4 h-4" />
+                            <span className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              Activate User
+                            </span>
                           </button>
                         )}
-                        <button className="p-1 text-gray-400 hover:text-gray-600">
-                          <MoreHorizontal className="w-4 h-4" />
+                        <button
+                          onClick={() => handleUserAction(user, 'delete')}
+                          className="p-1 text-red-400 hover:text-red-600 transition-colors relative group"
+                          title="Permanently delete user account"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            Delete User
+                          </span>
                         </button>
                       </div>
                     </TableCell>
@@ -437,15 +685,26 @@ const Users = () => {
           {selectedUser?.action === 'view' && 'User Details'}
           {selectedUser?.action === 'edit' && 'Edit User'}
           {selectedUser?.action === 'ban' && 'Ban User'}
-          {selectedUser?.action === 'unban' && 'Unban User'}
+          {selectedUser?.action === 'delete' && 'Delete User'}
         </ModalHeader>
         <ModalContent>
           {selectedUser?.action === 'view' && (
             <div className="space-y-4">
               <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center">
+                {selectedUser.profilePic ? (
+                  <img 
+                    src={selectedUser.profilePic} 
+                    alt={selectedUser.fullName || 'User'} 
+                    className="w-12 h-12 rounded-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'flex'
+                    }}
+                  />
+                ) : null}
+                <div className={`w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center ${selectedUser.profilePic ? 'hidden' : 'flex'}`}>
                   <span className="text-white font-bold">
-                    {selectedUser.fullName?.split(' ').map(n => n[0]).join('') || 'U'}
+                    {selectedUser.fullName?.split(' ').map(n => n[0]).join('').substring(0, 2) || 'U'}
                   </span>
                 </div>
                 <div>
@@ -453,48 +712,170 @@ const Users = () => {
                   <p className="text-gray-600">{selectedUser.email}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Status</label>
-                  <p className="text-sm text-gray-900">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      selectedUser.isVerified ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedUser.isVerified ? 'Active' : 'Inactive'}
-                    </span>
-                  </p>
+              <div className="border-t pt-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Status</label>
+                    <p className="text-sm text-gray-900 mt-1">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        selectedUser.isVerified ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {selectedUser.isVerified ? 'Active' : 'Inactive'}
+                      </span>
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">User ID</label>
+                    <p className="text-sm text-gray-900 mt-1 font-mono">{selectedUser._id}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Join Date</label>
+                    <p className="text-sm text-gray-900 mt-1">{formatDate(selectedUser.createdAt)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Last Active</label>
+                    <p className="text-sm text-gray-900 mt-1">{formatDate(selectedUser.metrics?.lastActive || selectedUser.createdAt)}</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Join Date</label>
-                  <p className="text-sm text-gray-900">{formatDate(selectedUser.createdAt)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Posts</label>
-                  <p className="text-sm text-gray-900">{selectedUser.metrics?.totalPosts || 0}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Total Likes</label>
-                  <p className="text-sm text-gray-900">{selectedUser.metrics?.totalLikes || 0}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Location</label>
-                  <p className="text-sm text-gray-900">{selectedUser.location || 'Not specified'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Last Active</label>
-                  <p className="text-sm text-gray-900">{formatDate(selectedUser.metrics?.lastActive || selectedUser.createdAt)}</p>
+              </div>
+              
+              <div className="border-t pt-4 mt-4">
+                <h4 className="text-sm font-semibold text-gray-900 mb-3">User Activity</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Total Posts</label>
+                    <p className="text-sm text-gray-900 mt-1">{selectedUser.metrics?.totalPosts || 0}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Total Likes</label>
+                    <p className="text-sm text-gray-900 mt-1">{selectedUser.metrics?.totalLikes || 0}</p>
+                  </div>
                 </div>
               </div>
             </div>
           )}
-          {(selectedUser?.action === 'ban' || selectedUser?.action === 'unban') && (
+          
+          {selectedUser?.action === 'edit' && (
             <div className="space-y-4">
-              <p className="text-gray-600">
-                Are you sure you want to {selectedUser.action} {selectedUser.fullName || 'this user'}?
+              <div className="flex items-center space-x-3 pb-4 border-b">
+                {selectedUser.profilePic ? (
+                  <img 
+                    src={selectedUser.profilePic} 
+                    alt={selectedUser.fullName || 'User'} 
+                    className="w-12 h-12 rounded-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'flex'
+                    }}
+                  />
+                ) : null}
+                <div className={`w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center ${selectedUser.profilePic ? 'hidden' : 'flex'}`}>
+                  <span className="text-white font-bold">
+                    {selectedUser.fullName?.split(' ').map(n => n[0]).join('').substring(0, 2) || 'U'}
+                  </span>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{selectedUser.fullName || 'Unknown'}</h3>
+                  <p className="text-gray-600">{selectedUser.email}</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.fullName || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, fullName: e.target.value })}
+                    className="input w-full"
+                    placeholder="Enter full name"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={editFormData.email || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    className="input w-full"
+                    placeholder="Enter email"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bio
+                  </label>
+                  <textarea
+                    value={editFormData.bio || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, bio: e.target.value })}
+                    className="input w-full h-24 resize-none"
+                    placeholder="Enter bio"
+                  />
+                </div>
+                
+                <div>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editFormData.isVerified || false}
+                      onChange={(e) => setEditFormData({ ...editFormData, isVerified: e.target.checked })}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Verified User</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+          {selectedUser?.action === 'ban' && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 pb-4 border-b">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <Ban className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{selectedUser.fullName || 'Unknown User'}</h3>
+                  <p className="text-gray-600">{selectedUser.email}</p>
+                </div>
+              </div>
+              
+              <p className="text-gray-700">
+                Are you sure you want to <strong className="text-red-600">permanently ban</strong> this user?
               </p>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-                <p className="text-sm text-yellow-800">
-                  This action will {selectedUser.action === 'ban' ? 'restrict' : 'restore'} the user's access to the platform.
+              
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <p className="text-sm text-red-800">
+                  <strong>Warning:</strong> This action cannot be undone. The user will lose all access to the platform.
+                </p>
+              </div>
+            </div>
+          )}
+          
+          {selectedUser?.action === 'delete' && (
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 pb-4 border-b">
+                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-6 h-6 text-orange-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{selectedUser.fullName || 'Unknown User'}</h3>
+                  <p className="text-gray-600">{selectedUser.email}</p>
+                </div>
+              </div>
+              
+              <p className="text-gray-700">
+                Are you sure you want to <strong className="text-orange-600">delete</strong> this user?
+              </p>
+              
+              <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
+                <p className="text-sm text-orange-800">
+                  <strong>Warning:</strong> This will permanently delete the user account and all associated data.
                 </p>
               </div>
             </div>
@@ -509,12 +890,80 @@ const Users = () => {
           </button>
           <button
             onClick={handleConfirmAction}
-            className={`btn ${selectedUser?.action === 'ban' ? 'btn-destructive' : 'btn-primary'}`}
+            className={`btn ${
+              selectedUser?.action === 'ban' || selectedUser?.action === 'delete' 
+                ? 'bg-red-600 hover:bg-red-700' 
+                : 'btn-primary'
+            }`}
           >
             {selectedUser?.action === 'view' && 'Close'}
             {selectedUser?.action === 'edit' && 'Save Changes'}
-            {selectedUser?.action === 'ban' && 'Ban User'}
-            {selectedUser?.action === 'unban' && 'Unban User'}
+            {selectedUser?.action === 'ban' && 'Confirm Ban'}
+            {selectedUser?.action === 'delete' && 'Confirm Delete'}
+          </button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Export Modal */}
+      <Modal isOpen={showExportModal} onClose={() => setShowExportModal(false)}>
+        <ModalHeader onClose={() => setShowExportModal(false)}>
+          Export Users
+        </ModalHeader>
+        <ModalContent>
+          <div className="space-y-4">
+            <p className="text-gray-600">
+              Choose what you want to export:
+            </p>
+            
+            <div className="space-y-3">
+              <button
+                onClick={() => performExport('selected')}
+                disabled={selectedUsers.length === 0}
+                className="w-full p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-900">Export Selected Users</div>
+                    <div className="text-sm text-gray-600">
+                      Export {selectedUsers.length} selected user(s)
+                    </div>
+                  </div>
+                  {selectedUsers.length > 0 && (
+                    <CheckCircle className="w-6 h-6 text-blue-600" />
+                  )}
+                </div>
+              </button>
+              
+              <button
+                onClick={() => performExport('all')}
+                className="w-full p-4 border-2 border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-900">Export All Users</div>
+                    <div className="text-sm text-gray-600">
+                      Export all users in the current view
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+            
+            {selectedUsers.length === 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <p className="text-sm text-yellow-800">
+                  <strong>No users selected.</strong> Please select at least one user to export selected users, or choose "Export All Users" to export all.
+                </p>
+              </div>
+            )}
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            onClick={() => setShowExportModal(false)}
+            className="btn btn-secondary"
+          >
+            Cancel
           </button>
         </ModalFooter>
       </Modal>
