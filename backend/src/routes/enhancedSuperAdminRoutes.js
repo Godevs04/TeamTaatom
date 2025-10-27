@@ -14,6 +14,9 @@ const {
   logout
 } = require('../controllers/superAdminController')
 
+// Alias for clarity
+const authenticateSuperAdmin = verifySuperAdminToken
+
 // Public routes (no authentication required)
 router.post('/login', loginSuperAdmin)
 router.post('/create', createSuperAdmin) // For initial setup only
@@ -432,7 +435,6 @@ router.post('/users/bulk-action', async (req, res) => {
 // Travel content management
 router.get('/travel-content', async (req, res) => {
   try {
-    
     const { page = 1, limit = 20, search, type, status } = req.query
     const skip = (page - 1) * limit
     
@@ -446,16 +448,27 @@ router.get('/travel-content', async (req, res) => {
       ]
     }
     
-    if (type) {
-      query.type = type
+    // Only filter by type if it's not 'all' and is a valid type
+    if (type && type !== 'all') {
+      if (type === 'video') {
+        // Map 'video' to 'short' since that's what's stored in DB
+        query.type = 'short'
+      } else {
+        query.type = type
+      }
     }
     
     if (status) {
       query.isActive = status === 'active'
     }
     
+    // Get all posts with active status if not specified
+    if (!status) {
+      query.isActive = true
+    }
+    
     const posts = await Post.find(query)
-      .populate('user', 'fullName email')
+      .populate('user', 'fullName email profilePic')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -473,33 +486,112 @@ router.get('/travel-content', async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Travel content error:', error)
+    console.error('Travel content fetch error:', error)
     res.status(500).json({ message: 'Failed to fetch travel content' })
+  }
+})
+
+// Delete a post
+router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const Post = require('../models/Post')
+    const post = await Post.findById(req.params.id)
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    await Post.findByIdAndDelete(req.params.id)
+    
+    await req.superAdmin.logSecurityEvent(
+      'content_deleted',
+      `Deleted post: ${post._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Post deleted successfully' })
+  } catch (error) {
+    console.error('Delete post error:', error)
+    res.status(500).json({ message: 'Failed to delete post' })
+  }
+})
+
+// Update a post (activate/deactivate/flag)
+router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { isActive, flagged } = req.body
+    const Post = require('../models/Post')
+    
+    const updateData = {}
+    if (isActive !== undefined) updateData.isActive = isActive
+    if (flagged !== undefined) updateData.flagged = flagged
+    
+    const post = await Post.findByIdAndUpdate(req.params.id, updateData, { new: true })
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    res.json({ message: 'Post updated successfully', post })
+  } catch (error) {
+    console.error('Update post error:', error)
+    res.status(500).json({ message: 'Failed to update post' })
+  }
+})
+
+// Flag a post
+router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const Post = require('../models/Post')
+    const post = await Post.findByIdAndUpdate(req.params.id, { flagged: true }, { new: true })
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    await req.superAdmin.logSecurityEvent(
+      'content_flagged',
+      `Flagged post: ${post._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Post flagged successfully', post })
+  } catch (error) {
+    console.error('Flag post error:', error)
+    res.status(500).json({ message: 'Failed to flag post' })
   }
 })
 
 // Reports management
 router.get('/reports', async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, type } = req.query
+    const { page = 1, limit = 20, status, type, priority } = req.query
     const skip = (page - 1) * limit
     
     const Report = require('../models/Report')
     let query = {}
     
-    if (status) {
+    if (status && status !== 'all') {
       query.status = status
     }
     
-    if (type) {
+    if (type && type !== 'all') {
       query.type = type
     }
     
+    if (priority && priority !== 'all') {
+      query.priority = priority
+    }
+    
     const reports = await Report.find(query)
-      .populate('reportedBy', 'fullName email')
-      .populate('reportedUser', 'fullName email')
-      .populate('reportedContent', 'caption type')
-      .populate('resolvedBy', 'fullName email')
+      .populate('reportedBy', 'fullName email profilePic')
+      .populate('reportedUser', 'fullName email profilePic')
+      .populate('reportedContent', 'caption type imageUrl videoUrl')
+      .populate('resolvedBy', 'profile firstName lastName')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -519,6 +611,46 @@ router.get('/reports', async (req, res) => {
   } catch (error) {
     console.error('Reports error:', error)
     res.status(500).json({ message: 'Failed to fetch reports' })
+  }
+})
+
+// Update report status (accept/reject)
+router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { status, adminNotes } = req.body
+    const Report = require('../models/Report')
+    
+    const updateData = {
+      status,
+      resolvedBy: req.superAdmin._id,
+      resolvedAt: new Date()
+    }
+    
+    if (adminNotes) {
+      updateData.adminNotes = adminNotes
+    }
+    
+    const report = await Report.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .populate('reportedBy', 'fullName email')
+      .populate('reportedUser', 'fullName email')
+      .populate('reportedContent', 'caption type')
+    
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' })
+    }
+    
+    await req.superAdmin.logSecurityEvent(
+      'report_processed',
+      `Report ${status}: ${report._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Report updated successfully', report })
+  } catch (error) {
+    console.error('Update report error:', error)
+    res.status(500).json({ message: 'Failed to update report' })
   }
 })
 
