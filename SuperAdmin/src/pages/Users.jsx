@@ -19,6 +19,7 @@ const Users = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [selectedUsers, setSelectedUsers] = useState([])
+  const [itemsPerPage, setItemsPerPage] = useState(20)
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
@@ -136,10 +137,9 @@ const Users = () => {
   })
 
   // Pagination
-  const usersPerPage = 20
-  const totalPages = Math.ceil(filteredUsers.length / usersPerPage)
-  const startIndex = (currentPage - 1) * usersPerPage
-  const endIndex = startIndex + usersPerPage
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
   const currentUsers = filteredUsers.slice(startIndex, endIndex)
 
   const handleUserAction = (user, action) => {
@@ -635,45 +635,66 @@ const Users = () => {
       </Card>
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {filteredUsers.length > 0 && (
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Showing {startIndex + 1} to {Math.min(endIndex, filteredUsers.length)} of {filteredUsers.length} users
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className="btn btn-sm btn-secondary disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <div className="flex space-x-1">
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const pageNum = i + 1
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`btn btn-sm ${
-                          currentPage === pageNum ? 'btn-primary' : 'btn-secondary'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    )
-                  })}
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-gray-600">
+                  Showing {startIndex + 1} to {Math.min(endIndex, filteredUsers.length)} of {filteredUsers.length} users
                 </div>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className="btn btn-sm btn-secondary disabled:opacity-50"
-                >
-                  Next
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">Per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value))
+                      setCurrentPage(1)
+                    }}
+                    className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value={20}>20</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={75}>75</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="btn btn-sm btn-secondary disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <div className="flex space-x-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const pageNum = i + 1
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`btn btn-sm ${
+                            currentPage === pageNum ? 'btn-primary' : 'btn-secondary'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="btn btn-sm btn-secondary disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
