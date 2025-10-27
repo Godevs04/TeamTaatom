@@ -10,18 +10,6 @@ import SafeComponent from '../components/SafeComponent'
 
 const Moderators = () => {
   const { users, fetchUsers, isConnected } = useRealTime()
-  
-  // Add error boundary for this component
-  if (!users || users.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading moderators...</p>
-        </div>
-      </div>
-    )
-  }
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedModerator, setSelectedModerator] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -145,6 +133,18 @@ const Moderators = () => {
     { id: 'analytics_access', label: 'Analytics Access' },
     { id: 'system_settings', label: 'System Settings' },
   ]
+  
+  // Show loading if no moderators data
+  if ((!users || users.length === 0) && loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading moderators...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <SafeComponent>

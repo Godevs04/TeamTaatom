@@ -9,13 +9,15 @@ interface AnimatedHeaderProps {
   showChat?: boolean;
   rightComponent?: React.ReactNode;
   adjustRightComponent?: boolean;
+  unseenMessageCount?: number;
 }
 
 export default function AnimatedHeader({ 
   showSearch = true, 
   showChat = true, 
   rightComponent,
-  adjustRightComponent = false
+  adjustRightComponent = false,
+  unseenMessageCount = 0
 }: AnimatedHeaderProps) {
   const router = useRouter();
   const { theme } = useTheme();
@@ -75,6 +77,8 @@ export default function AnimatedHeader({
     router.push('/chat');
   }, [chatIconAnim, router]);
 
+  const styles = getStyles(theme);
+
   return (
     <View style={[styles.header, { backgroundColor: 'transparent' }]}>
       {(showSearch || showChat) && (
@@ -103,7 +107,16 @@ export default function AnimatedHeader({
         {showChat && (
           <TouchableOpacity onPress={handleChat} style={styles.iconButton}>
             <Animated.View style={{ transform: [{ scale: chatIconAnim }] }}>
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.text} />
+              <View style={styles.chatIconContainer}>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.text} />
+                {unseenMessageCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {unseenMessageCount > 99 ? '99+' : unseenMessageCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
             </Animated.View>
           </TouchableOpacity>
         )}
@@ -114,7 +127,7 @@ export default function AnimatedHeader({
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme: any) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -156,5 +169,28 @@ const styles = StyleSheet.create({
     minHeight: 36,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  chatIconContainer: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#0A84FF',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.surface || theme.colors.background,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

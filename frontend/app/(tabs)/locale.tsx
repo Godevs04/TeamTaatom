@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -159,6 +160,7 @@ interface FilterState {
 
 export default function LocaleScreen() {
   const [locations, setLocations] = useState<LocationData[]>([]);
+  const [savedLocations, setSavedLocations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
@@ -195,7 +197,26 @@ export default function LocaleScreen() {
   useEffect(() => {
     loadUserLocations();
     loadCountries();
+    loadSavedLocations();
   }, []);
+
+  useEffect(() => {
+    // Reload saved locations when tab changes
+    if (activeTab === 'saved') {
+      loadSavedLocations();
+    }
+  }, [activeTab]);
+
+  const loadSavedLocations = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('savedLocations');
+      const locations = saved ? JSON.parse(saved) : [];
+      setSavedLocations(locations);
+    } catch (error) {
+      console.error('Error loading saved locations:', error);
+      setSavedLocations([]);
+    }
+  };
 
   const loadCountries = async () => {
     try {
@@ -517,14 +538,12 @@ export default function LocaleScreen() {
   );
 
   const renderLocationCard = ({ item, index }: { item: any; index: number }) => {
-    // First two cards (BRISTOL, SNOW HILL) are half cards, all others are wide cards
-    const isWideCard = index >= 2;
-    
+    // All cards are wide cards now
     return (
       <TouchableOpacity 
         style={[
           styles.locationCard,
-          isWideCard ? styles.wideCard : styles.halfCard,
+          styles.wideCard,
           { marginLeft: 0 }
         ]}
         onPress={async () => {
@@ -533,41 +552,26 @@ export default function LocaleScreen() {
           setIsGeocoding(item.name);
           
           try {
-            console.log('Navigating to location:', item.name);
+            console.log('Navigating to location detail:', item.name);
             
-            // If it's the current location, use existing coordinates
-            if (item.id === 'current-location' && item.coordinates) {
-              console.log('Navigating to current location with existing coordinates:', item.coordinates);
-              router.push({
-                pathname: '/map/current-location',
-                params: {
-                  latitude: item.coordinates.latitude.toString(),
-                  longitude: item.coordinates.longitude.toString(),
-                  address: item.name,
-                }
-              });
-            } else {
-              // For other locations, geocode the location name to get coordinates
-              const coordinates = await geocodeAddress(item.name);
-              
-              if (coordinates) {
-                console.log('Geocoding successful, navigating to map:', coordinates);
-                router.push({
-                  pathname: '/map/current-location',
-                  params: {
-                    latitude: coordinates.latitude.toString(),
-                    longitude: coordinates.longitude.toString(),
-                    address: item.name,
-                  }
-                });
-              } else {
-                console.log('Geocoding failed, falling back to current location');
-                router.push('/map/current-location');
+            // Get user ID for navigation
+            const user = await getUserFromStorage();
+            const userId = user?._id || 'current-user';
+            
+            // Convert location name to slug format
+            const locationSlug = item.name.toLowerCase().replace(/\s+/g, '-');
+            
+            // Navigate to location detail page first
+            router.push({
+              pathname: '/tripscore/countries/[country]/locations/[location]',
+              params: {
+                country: 'general',
+                location: locationSlug,
+                userId: userId,
               }
-            }
+            });
           } catch (error) {
             console.error('Error navigating to location:', error);
-            router.push('/map/current-location');
           } finally {
             setIsGeocoding(null);
           }
@@ -608,19 +612,26 @@ export default function LocaleScreen() {
           setIsGeocoding('Current Location');
           
           try {
-            console.log('Navigating to current location:', currentLocation.address);
+            console.log('Navigating to current location detail:', currentLocation.address);
             
+            // Get user ID for navigation
+            const user = await getUserFromStorage();
+            const userId = user?._id || 'current-user';
+            
+            // Convert location name to slug format
+            const locationSlug = currentLocation.address.toLowerCase().replace(/\s+/g, '-');
+            
+            // Navigate to location detail page first
             router.push({
-              pathname: '/map/current-location',
+              pathname: '/tripscore/countries/[country]/locations/[location]',
               params: {
-                latitude: currentLocation.latitude.toString(),
-                longitude: currentLocation.longitude.toString(),
-                address: currentLocation.address,
+                country: 'general',
+                location: locationSlug,
+                userId: userId,
               }
             });
           } catch (error) {
             console.error('Error navigating to current location:', error);
-            router.push('/map/current-location');
           } finally {
             setIsGeocoding(null);
           }
@@ -671,43 +682,15 @@ export default function LocaleScreen() {
   };
 
   const renderCustomLayout = () => {
-    // Create a modified locations array with current location replacing SNOW HILL
+    // Create a modified locations array
     const modifiedLocations = [...mockLocations];
-    
-    // Replace SNOW HILL (index 1) with current location if available
-    if (locations.length > 0) {
-      const currentLocation = locations[0];
-      
-      return (
-        <View style={styles.listContainer}>
-          {/* First row - Current Location (WebView) and BRISTOL */}
-          <View style={styles.firstRow}>
-            {renderCurrentLocationCard(currentLocation)}
-            {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
-          </View>
-          
-          {/* Rest of the cards - all wide cards */}
-          {modifiedLocations.slice(2).map((item, index) => (
-            <View key={item.id}>
-              {renderLocationCard({ item, index: index + 2 })}
-            </View>
-          ))}
-        </View>
-      );
-    }
     
     return (
       <View style={styles.listContainer}>
-        {/* First row - two half cards side by side */}
-        <View style={styles.firstRow}>
-          {renderLocationCard({ item: modifiedLocations[0], index: 0 })}
-          {renderLocationCard({ item: modifiedLocations[1], index: 1 })}
-        </View>
-        
-        {/* Rest of the cards - all wide cards */}
-        {modifiedLocations.slice(2).map((item, index) => (
+        {/* All cards - all wide cards */}
+        {modifiedLocations.map((item, index) => (
           <View key={item.id}>
-            {renderLocationCard({ item, index: index + 2 })}
+            {renderLocationCard({ item, index: index })}
           </View>
         ))}
       </View>
@@ -728,28 +711,26 @@ export default function LocaleScreen() {
           setIsGeocoding(item.name);
           
           try {
-            console.log('Navigating to saved location:', item.name);
+            console.log('Navigating to saved location detail:', item.name);
             
-            // Geocode the location name to get coordinates
-            const coordinates = await geocodeAddress(item.name);
+            // Get user ID for navigation
+            const user = await getUserFromStorage();
+            const userId = user?._id || 'current-user';
             
-            if (coordinates) {
-              console.log('Geocoding successful, navigating to map:', coordinates);
-              router.push({
-                pathname: '/map/current-location',
-                params: {
-                  latitude: coordinates.latitude.toString(),
-                  longitude: coordinates.longitude.toString(),
-                  address: item.name,
-                }
-              });
-            } else {
-              console.log('Geocoding failed, falling back to current location');
-              router.push('/map/current-location');
-            }
+            // Convert location name to slug format
+            const locationSlug = item.name.toLowerCase().replace(/\s+/g, '-');
+            
+            // Navigate to location detail page first
+            router.push({
+              pathname: '/tripscore/countries/[country]/locations/[location]',
+              params: {
+                country: 'general',
+                location: locationSlug,
+                userId: userId,
+              }
+            });
           } catch (error) {
             console.error('Error navigating to saved location:', error);
-            router.push('/map/current-location');
           } finally {
             setIsGeocoding(null);
           }
@@ -794,6 +775,16 @@ export default function LocaleScreen() {
       >
         <Text style={styles.exploreButtonText}>Start Exploring</Text>
       </TouchableOpacity>
+    </View>
+  );
+
+  const renderEmptySavedState = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="bookmark-outline" size={60} color={theme.colors.textSecondary} />
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Locations</Text>
+      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+        Bookmark locations you love to find them here later
+      </Text>
     </View>
   );
 
@@ -897,34 +888,22 @@ export default function LocaleScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={mockSavedLocations}
+          data={savedLocations.length > 0 ? savedLocations : mockSavedLocations}
           renderItem={renderSavedLocationCard}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          showsVerticalScrollIndicator={false}
+          keyExtractor={(item) => item.id || `saved-${item.slug || item.name}`}
+          ListEmptyComponent={savedLocations.length === 0 && mockSavedLocations.length === 0 ? renderEmptySavedState() : null}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#4A90E2']}
-              tintColor="#4A90E2"
+              onRefresh={async () => {
+                setRefreshing(true);
+                await loadSavedLocations();
+                setRefreshing(false);
+              }}
             />
           }
-          ListEmptyComponent={() => (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="bookmark-outline" size={60} color={theme.colors.textSecondary} />
-              <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Locations</Text>
-              <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-                Start exploring and save your favorite places
-              </Text>
-              <TouchableOpacity 
-                style={[styles.exploreButton, { backgroundColor: theme.colors.primary }]}
-                onPress={() => setActiveTab('locale')}
-              >
-                <Text style={styles.exploreButtonText}>Explore Locations</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          numColumns={2}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContainer}
           columnWrapperStyle={styles.row}
         />

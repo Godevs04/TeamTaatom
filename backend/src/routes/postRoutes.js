@@ -10,7 +10,15 @@ const {
   toggleLike,
   addComment,
   deleteComment,
-  deletePost
+  deletePost,
+  archivePost,
+  unarchivePost,
+  hidePost,
+  unhidePost,
+  toggleComments,
+  updatePost,
+  getArchivedPosts,
+  getHiddenPosts
 } = require('../controllers/postController');
 
 const router = express.Router();
@@ -66,6 +74,8 @@ const addCommentValidation = [
 
 // Routes
 router.get('/', optionalAuth, getPosts);
+router.get('/archived', authMiddleware, getArchivedPosts);
+router.get('/hidden', authMiddleware, getHiddenPosts);
 router.get('/:id', optionalAuth, getPostById);
 router.post('/', authMiddleware, upload.fields([{ name: 'images', maxCount: 10 }]), createPostValidation, createPost);
 router.get('/user/:userId', optionalAuth, getUserPosts);
@@ -73,5 +83,11 @@ router.post('/:id/like', authMiddleware, toggleLike);
 router.post('/:id/comments', authMiddleware, addCommentValidation, addComment);
 router.delete('/:id/comments/:commentId', authMiddleware, deleteComment);
 router.delete('/:id', authMiddleware, deletePost);
+router.patch('/:id/archive', authMiddleware, archivePost);
+router.patch('/:id/unarchive', authMiddleware, unarchivePost);
+router.patch('/:id/hide', authMiddleware, hidePost);
+router.patch('/:id/unhide', authMiddleware, unhidePost);
+router.patch('/:id/toggle-comments', authMiddleware, toggleComments);
+router.patch('/:id', authMiddleware, updatePost);
 
 module.exports = router;

@@ -231,6 +231,26 @@ export default function UserProfileScreen() {
               </View>
             )}
 
+            {/* TripScore Section - Only show if user has posted locations */}
+            {profile.tripScore && profile.locations && profile.locations.length > 0 && (
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+                <TouchableOpacity 
+                  style={styles.tripScoreContainer}
+                  onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
+                >
+                  <View style={styles.tripScoreCard}>
+                    <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
+                      {profile.tripScore.totalScore}
+                    </Text>
+                    <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                      Total TripScore
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Posted Locations Section */}
             <View style={styles.sectionContainer}>
               <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
@@ -541,5 +561,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     lineHeight: 24,
+  },
+
+  // TripScore Styles
+  tripScoreContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  tripScoreCard: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 20,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  tripScoreNumber: {
+    fontSize: 42,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  tripScoreLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    opacity: 0.7,
   },
 });

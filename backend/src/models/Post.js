@@ -81,6 +81,18 @@ const postSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  isArchived: {
+    type: Boolean,
+    default: false
+  },
+  isHidden: {
+    type: Boolean,
+    default: false
+  },
+  commentsDisabled: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

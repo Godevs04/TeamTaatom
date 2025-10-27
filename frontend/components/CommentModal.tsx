@@ -39,6 +39,7 @@ interface CommentModalProps {
   comments: Comment[];
   onClose: () => void;
   onCommentAdded: (newComment: Comment) => void;
+  commentsDisabled?: boolean;
 }
 
 export default function CommentModal({
@@ -47,6 +48,7 @@ export default function CommentModal({
   comments,
   onClose,
   onCommentAdded,
+  commentsDisabled = false,
 }: CommentModalProps) {
   const { theme } = useTheme();
   const [newComment, setNewComment] = useState('');
@@ -136,6 +138,11 @@ export default function CommentModal({
   };
 
   const handleSubmitComment = async () => {
+    if (commentsDisabled) {
+      showCustomAlertMessage('Comments Disabled', 'Comments are disabled for this post.', 'warning');
+      return;
+    }
+
     if (!newComment.trim()) {
       showCustomAlertMessage('Error', 'Please enter a comment.', 'error');
       return;
@@ -318,52 +325,64 @@ export default function CommentModal({
               />
 
               {/* Comment Input */}
-              <View style={[styles.inputContainer, { borderTopColor: theme.colors.border }]}>
-                <Image
-                  source={{
-                    uri: currentUser?.profilePic || 'https://via.placeholder.com/32',
-                  }}
-                  style={styles.userAvatar}
-                />
-                <TextInput
-                  style={[
-                    styles.commentInput,
-                    {
-                      backgroundColor: theme.colors.surface,
-                      color: theme.colors.text,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                  placeholder="Add a comment..."
-                  placeholderTextColor={theme.colors.textSecondary}
-                  value={newComment}
-                  onChangeText={setNewComment}
-                  multiline
-                  maxLength={500}
-                  returnKeyType="default"
-                  blurOnSubmit={false}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.sendButton,
-                    {
-                      backgroundColor: newComment.trim() ? theme.colors.primary : theme.colors.border,
-                    },
-                  ]}
-                  onPress={handleSubmitComment}
-                  disabled={!newComment.trim() || isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <Ionicons name="hourglass-outline" size={20} color={theme.colors.textSecondary} />
-                  ) : (
-                    <Ionicons
-                      name="send"
-                      size={20}
-                      color={newComment.trim() ? 'white' : theme.colors.textSecondary}
-                    />
-                  )}
-                </TouchableOpacity>
-              </View>
+              {commentsDisabled ? (
+                <View style={[styles.inputContainer, styles.disabledInputContainer, { 
+                  borderTopColor: theme.colors.border,
+                  backgroundColor: theme.colors.surfaceSecondary 
+                }]}>
+                  <Ionicons name="lock-closed" size={20} color={theme.colors.textSecondary} />
+                  <Text style={[styles.disabledText, { color: theme.colors.textSecondary }]}>
+                    Comments are disabled for this post
+                  </Text>
+                </View>
+              ) : (
+                <View style={[styles.inputContainer, { borderTopColor: theme.colors.border }]}>
+                  <Image
+                    source={{
+                      uri: currentUser?.profilePic || 'https://via.placeholder.com/32',
+                    }}
+                    style={styles.userAvatar}
+                  />
+                  <TextInput
+                    style={[
+                      styles.commentInput,
+                      {
+                        backgroundColor: theme.colors.surface,
+                        color: theme.colors.text,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                    placeholder="Add a comment..."
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={newComment}
+                    onChangeText={setNewComment}
+                    multiline
+                    maxLength={500}
+                    returnKeyType="default"
+                    blurOnSubmit={false}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.sendButton,
+                      {
+                        backgroundColor: newComment.trim() ? theme.colors.primary : theme.colors.border,
+                      },
+                    ]}
+                    onPress={handleSubmitComment}
+                    disabled={!newComment.trim() || isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <Ionicons name="hourglass-outline" size={20} color={theme.colors.textSecondary} />
+                    ) : (
+                      <Ionicons
+                        name="send"
+                        size={20}
+                        color={newComment.trim() ? 'white' : theme.colors.textSecondary}
+                      />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
             </KeyboardAvoidingView>
           </Animated.View>
         </Animated.View>
@@ -528,5 +547,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+  },
+  disabledInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  disabledText: {
+    fontSize: 15,
+    fontWeight: '500',
+    fontStyle: 'italic',
   },
 });

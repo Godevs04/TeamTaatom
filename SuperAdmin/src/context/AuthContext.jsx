@@ -55,10 +55,20 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
+  const logout = useCallback(() => {
+    localStorage.removeItem('founder_token')
+    delete api.defaults.headers.common['Authorization']
+    setUser(null)
+    setRequires2FA(false)
+    setTempToken(null)
+    socketService.disconnect()
+    navigate('/login')
+  }, [navigate])
+
   const handleAutoLogout = useCallback(() => {
     toast.error('Session expired due to inactivity')
     logout()
-  }, [])
+  }, [logout])
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -102,7 +112,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/api/founder/login', { 
+      const response = await api.post('/api/superadmin/login', { 
         email, 
         password 
       })
@@ -138,7 +148,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'No temporary token found. Please try logging in again.' }
       }
       
-      const response = await api.post('/api/founder/verify-2fa', {
+      const response = await api.post('/api/superadmin/verify-2fa', {
         token: tempToken,
         code
       })
@@ -170,7 +180,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'No temporary token found. Please try logging in again.' }
       }
       
-      await api.post('/api/founder/resend-2fa', {
+      await api.post('/api/superadmin/resend-2fa', {
         token: tempToken
       })
       toast.success('New 2FA code sent to your email')
@@ -182,16 +192,6 @@ export const AuthProvider = ({ children }) => {
       return { success: false, error: errorMessage }
     }
   }
-
-  const logout = useCallback(() => {
-    localStorage.removeItem('founder_token')
-    delete api.defaults.headers.common['Authorization']
-    setUser(null)
-    setRequires2FA(false)
-    setTempToken(null)
-    socketService.disconnect()
-    navigate('/login')
-  }, [navigate])
 
   const updateProfile = async (profileData) => {
     try {
