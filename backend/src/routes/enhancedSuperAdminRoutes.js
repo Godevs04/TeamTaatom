@@ -4,6 +4,8 @@ const SuperAdmin = require('../models/SuperAdmin')
 const {
   verifySuperAdminToken,
   loginSuperAdmin,
+  verify2FA,
+  resend2FA,
   verifyToken,
   createSuperAdmin,
   getSecurityLogs,
@@ -12,9 +14,14 @@ const {
   logout
 } = require('../controllers/superAdminController')
 
+// Alias for clarity
+const authenticateSuperAdmin = verifySuperAdminToken
+
 // Public routes (no authentication required)
 router.post('/login', loginSuperAdmin)
 router.post('/create', createSuperAdmin) // For initial setup only
+router.post('/verify-2fa', verify2FA)
+router.post('/resend-2fa', resend2FA)
 
 
 // Protected routes (require authentication)
@@ -43,24 +50,32 @@ router.get('/dashboard/overview', async (req, res) => {
       recentUsers
     ] = await Promise.all([
       User.countDocuments(),
-      User.countDocuments({ lastActive: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
-      Post.countDocuments({ type: 'post' }),
-      Post.countDocuments({ type: 'short' }),
+      User.countDocuments({ 
+        $or: [
+          { lastLogin: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+          { updatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+        ]
+      }),
+      Post.countDocuments({ type: 'photo', isActive: true }),
+      Post.countDocuments({ type: 'short', isActive: true }),
       Chat.countDocuments(),
       User.find().sort({ createdAt: -1 }).limit(5).select('fullName email createdAt')
     ])
+    
+    // Calculate total active posts (photos + shorts)
+    const totalActivePosts = totalPosts + totalShorts
 
     // Get recent posts with proper user population
     const recentPostsRaw = await Post.find()
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('content type createdAt user')
+      .select('caption type createdAt user')
       .populate('user', 'fullName email')
     
     // Transform to plain objects to avoid virtual field issues
     const recentPosts = recentPostsRaw.map(post => ({
       _id: post._id,
-      content: post.content,
+      content: post.caption,
       type: post.type,
       createdAt: post.createdAt,
       user: post.user ? {
@@ -85,7 +100,7 @@ router.get('/dashboard/overview', async (req, res) => {
       metrics: {
         totalUsers,
         activeUsers,
-        totalPosts,
+        totalPosts: totalActivePosts,
         totalShorts,
         totalChats,
         userGrowth: {
@@ -95,10 +110,10 @@ router.get('/dashboard/overview', async (req, res) => {
           monthlyGrowth: totalUsers > 0 ? ((usersLastMonth / totalUsers) * 100).toFixed(1) : 0
         },
         contentGrowth: {
-          weekly: postsLastWeek,
-          monthly: postsLastMonth,
-          weeklyGrowth: totalPosts > 0 ? ((postsLastWeek / totalPosts) * 100).toFixed(1) : 0,
-          monthlyGrowth: totalPosts > 0 ? ((postsLastMonth / totalPosts) * 100).toFixed(1) : 0
+          weekly: postsLastWeek + totalShorts, // Include shorts in weekly growth
+          monthly: postsLastMonth + totalShorts, // Include shorts in monthly growth
+          weeklyGrowth: totalActivePosts > 0 ? ((postsLastWeek / totalActivePosts) * 100).toFixed(1) : 0,
+          monthlyGrowth: totalActivePosts > 0 ? ((postsLastMonth / totalActivePosts) * 100).toFixed(1) : 0
         }
       },
       recentActivity: {
@@ -160,12 +175,24 @@ router.get('/analytics/realtime', async (req, res) => {
         { $group: { _id: { $dateToString: { format: '%Y-%m-%d %H:00', date: '$createdAt' } }, count: { $sum: 1 } } },
         { $sort: { _id: 1 } }
       ]),
-      User.countDocuments({ lastActive: timeFilter }),
+      User.countDocuments({ 
+        $or: [
+          { lastLogin: timeFilter },
+          { updatedAt: timeFilter }
+        ]
+      }),
       Post.aggregate([
         { $match: { createdAt: timeFilter } },
-        { $group: { _id: null, totalLikes: { $sum: '$likes' }, totalComments: { $sum: '$comments' }, totalShares: { $sum: '$shares' } } }
+        { $group: { 
+          _id: null, 
+          totalLikes: { $sum: { $size: '$likes' } }, 
+          totalComments: { $sum: { $size: '$comments' } }
+        }}
       ])
     ])
+    
+    // Calculate total shares (not stored in Post model, so set to 0)
+    const totalShares = 0
 
     const analytics = {
       timestamp: new Date().toISOString(),
@@ -173,7 +200,11 @@ router.get('/analytics/realtime', async (req, res) => {
       userRegistrations: userRegistrations.map(item => ({ time: item._id, count: item.count })),
       postCreations: postCreations.map(item => ({ time: item._id, count: item.count })),
       activeUsers: userActivity,
-      engagement: contentEngagement[0] || { totalLikes: 0, totalComments: 0, totalShares: 0 }
+      engagement: {
+        totalLikes: contentEngagement[0]?.totalLikes || 0,
+        totalComments: contentEngagement[0]?.totalComments || 0,
+        totalShares: totalShares
+      }
     }
 
     res.json(analytics)
@@ -203,15 +234,27 @@ router.get('/users', async (req, res) => {
     }
     
     if (status && status !== 'undefined' && status !== 'all') {
-      // Use isVerified field instead of isActive
-      query.isVerified = status === 'active'
+      // Handle different status filters
+      if (status === 'active') {
+        query.isVerified = true
+        query.deletedAt = { $exists: false }
+      } else if (status === 'inactive') {
+        query.isVerified = false
+        query.deletedAt = { $exists: false }
+      } else if (status === 'pending') {
+        // For pending users, check if they haven't verified their email
+        query.isVerified = false
+        query.deletedAt = { $exists: false }
+      } else if (status === 'banned') {
+        query.deletedAt = { $exists: true }
+      }
     }
     
     const sortOptions = {}
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1
     
     const users = await User.find(query)
-      .select('-password')
+      .select('fullName email bio profilePic isVerified deletedAt createdAt updatedAt')
       .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit))
@@ -222,17 +265,23 @@ router.get('/users', async (req, res) => {
     const usersWithMetrics = await Promise.all(users.map(async (user) => {
       try {
         const userPosts = await Post.countDocuments({ user: user._id })
-        const userLikes = await Post.aggregate([
+        
+        // Calculate total likes correctly by summing the size of likes arrays
+        const userLikesResult = await Post.aggregate([
           { $match: { user: user._id } },
-          { $group: { _id: null, totalLikes: { $sum: '$likes' } } }
+          { $group: { _id: null, totalLikes: { $sum: { $size: '$likes' } } } }
         ])
+        
+        // Get followers count
+        const followersCount = await User.findById(user._id).select('followers')
         
         return {
           ...user.toObject(),
           metrics: {
             totalPosts: userPosts,
-            totalLikes: userLikes[0]?.totalLikes || 0,
-            lastActive: user.lastActive || user.createdAt
+            totalLikes: userLikesResult[0]?.totalLikes || 0,
+            totalFollowers: followersCount?.followers?.length || 0,
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt
           }
         }
       } catch (error) {
@@ -242,7 +291,8 @@ router.get('/users', async (req, res) => {
           metrics: {
             totalPosts: 0,
             totalLikes: 0,
-            lastActive: user.lastActive || user.createdAt
+            totalFollowers: 0,
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt
           }
         }
       }
@@ -263,6 +313,66 @@ router.get('/users', async (req, res) => {
   }
 })
 
+// Update single user
+router.patch('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const updates = req.body
+    const User = require('../models/User')
+    
+    const user = await User.findByIdAndUpdate(id, updates, { new: true, runValidators: true }).select('-password')
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' })
+    }
+    
+    // Log the action
+    await req.superAdmin.logSecurityEvent(
+      'update_user',
+      `Updated user: ${user.email}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'User updated successfully', user })
+  } catch (error) {
+    console.error('User update error:', error)
+    res.status(500).json({ message: 'Failed to update user' })
+  }
+})
+
+// Delete single user
+router.delete('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params
+    const User = require('../models/User')
+    
+    const user = await User.findById(id)
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' })
+    }
+    
+    // Log before deletion
+    await req.superAdmin.logSecurityEvent(
+      'delete_user',
+      `Deleted user: ${user.email}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    // Soft delete by marking as inactive
+    await User.findByIdAndUpdate(id, { isActive: false, deletedAt: new Date() })
+    
+    res.json({ message: 'User deleted successfully' })
+  } catch (error) {
+    console.error('User deletion error:', error)
+    res.status(500).json({ message: 'Failed to delete user' })
+  }
+})
+
 // Bulk actions for users
 router.post('/users/bulk-action', async (req, res) => {
   try {
@@ -278,16 +388,20 @@ router.post('/users/bulk-action', async (req, res) => {
     
     switch (action) {
       case 'activate':
-        updateQuery = { isActive: true }
+        updateQuery = { isVerified: true }
         logAction = 'bulk_activate_users'
         break
       case 'deactivate':
-        updateQuery = { isActive: false }
+        updateQuery = { isVerified: false }
         logAction = 'bulk_deactivate_users'
+        break
+      case 'ban':
+        updateQuery = { isVerified: false, deletedAt: new Date() }
+        logAction = 'bulk_ban_users'
         break
       case 'delete':
         // Soft delete by deactivating
-        updateQuery = { isActive: false, deletedAt: new Date() }
+        updateQuery = { isVerified: false, deletedAt: new Date() }
         logAction = 'bulk_delete_users'
         break
       default:
@@ -321,7 +435,6 @@ router.post('/users/bulk-action', async (req, res) => {
 // Travel content management
 router.get('/travel-content', async (req, res) => {
   try {
-    
     const { page = 1, limit = 20, search, type, status } = req.query
     const skip = (page - 1) * limit
     
@@ -330,21 +443,32 @@ router.get('/travel-content', async (req, res) => {
     
     if (search) {
       query.$or = [
-        { content: { $regex: search, $options: 'i' } },
-        { location: { $regex: search, $options: 'i' } }
+        { caption: { $regex: search, $options: 'i' } },
+        { 'location.address': { $regex: search, $options: 'i' } }
       ]
     }
     
-    if (type) {
-      query.type = type
+    // Only filter by type if it's not 'all' and is a valid type
+    if (type && type !== 'all') {
+      if (type === 'video') {
+        // Map 'video' to 'short' since that's what's stored in DB
+        query.type = 'short'
+      } else {
+        query.type = type
+      }
     }
     
     if (status) {
       query.isActive = status === 'active'
     }
     
+    // Get all posts with active status if not specified
+    if (!status) {
+      query.isActive = true
+    }
+    
     const posts = await Post.find(query)
-      .populate('user', 'fullName email')
+      .populate('user', 'fullName email profilePic')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -362,33 +486,112 @@ router.get('/travel-content', async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Travel content error:', error)
+    console.error('Travel content fetch error:', error)
     res.status(500).json({ message: 'Failed to fetch travel content' })
+  }
+})
+
+// Delete a post
+router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const Post = require('../models/Post')
+    const post = await Post.findById(req.params.id)
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    await Post.findByIdAndDelete(req.params.id)
+    
+    await req.superAdmin.logSecurityEvent(
+      'content_deleted',
+      `Deleted post: ${post._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Post deleted successfully' })
+  } catch (error) {
+    console.error('Delete post error:', error)
+    res.status(500).json({ message: 'Failed to delete post' })
+  }
+})
+
+// Update a post (activate/deactivate/flag)
+router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { isActive, flagged } = req.body
+    const Post = require('../models/Post')
+    
+    const updateData = {}
+    if (isActive !== undefined) updateData.isActive = isActive
+    if (flagged !== undefined) updateData.flagged = flagged
+    
+    const post = await Post.findByIdAndUpdate(req.params.id, updateData, { new: true })
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    res.json({ message: 'Post updated successfully', post })
+  } catch (error) {
+    console.error('Update post error:', error)
+    res.status(500).json({ message: 'Failed to update post' })
+  }
+})
+
+// Flag a post
+router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const Post = require('../models/Post')
+    const post = await Post.findByIdAndUpdate(req.params.id, { flagged: true }, { new: true })
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' })
+    }
+    
+    await req.superAdmin.logSecurityEvent(
+      'content_flagged',
+      `Flagged post: ${post._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Post flagged successfully', post })
+  } catch (error) {
+    console.error('Flag post error:', error)
+    res.status(500).json({ message: 'Failed to flag post' })
   }
 })
 
 // Reports management
 router.get('/reports', async (req, res) => {
   try {
-    const { page = 1, limit = 20, status, type } = req.query
+    const { page = 1, limit = 20, status, type, priority } = req.query
     const skip = (page - 1) * limit
     
     const Report = require('../models/Report')
     let query = {}
     
-    if (status) {
+    if (status && status !== 'all') {
       query.status = status
     }
     
-    if (type) {
+    if (type && type !== 'all') {
       query.type = type
     }
     
+    if (priority && priority !== 'all') {
+      query.priority = priority
+    }
+    
     const reports = await Report.find(query)
-      .populate('reportedBy', 'fullName email')
-      .populate('reportedUser', 'fullName email')
-      .populate('reportedContent', 'caption type')
-      .populate('resolvedBy', 'fullName email')
+      .populate('reportedBy', 'fullName email profilePic')
+      .populate('reportedUser', 'fullName email profilePic')
+      .populate('reportedContent', 'caption type imageUrl videoUrl')
+      .populate('resolvedBy', 'profile firstName lastName')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -408,6 +611,46 @@ router.get('/reports', async (req, res) => {
   } catch (error) {
     console.error('Reports error:', error)
     res.status(500).json({ message: 'Failed to fetch reports' })
+  }
+})
+
+// Update report status (accept/reject)
+router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { status, adminNotes } = req.body
+    const Report = require('../models/Report')
+    
+    const updateData = {
+      status,
+      resolvedBy: req.superAdmin._id,
+      resolvedAt: new Date()
+    }
+    
+    if (adminNotes) {
+      updateData.adminNotes = adminNotes
+    }
+    
+    const report = await Report.findByIdAndUpdate(req.params.id, updateData, { new: true })
+      .populate('reportedBy', 'fullName email')
+      .populate('reportedUser', 'fullName email')
+      .populate('reportedContent', 'caption type')
+    
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' })
+    }
+    
+    await req.superAdmin.logSecurityEvent(
+      'report_processed',
+      `Report ${status}: ${report._id}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({ message: 'Report updated successfully', report })
+  } catch (error) {
+    console.error('Update report error:', error)
+    res.status(500).json({ message: 'Failed to update report' })
   }
 })
 
@@ -674,8 +917,14 @@ router.get('/audit-logs', async (req, res) => {
 async function getTopPerformingRegions() {
   const Post = require('../models/Post')
   const regions = await Post.aggregate([
-    { $match: { location: { $exists: true, $ne: null } } },
-    { $group: { _id: '$location', count: { $sum: 1 }, totalLikes: { $sum: '$likes' } } },
+    { $match: { 'location.address': { $exists: true, $ne: '' } } },
+    { 
+      $group: { 
+        _id: '$location.address', 
+        count: { $sum: 1 }, 
+        totalLikes: { $sum: { $size: '$likes' } } 
+      } 
+    },
     { $sort: { totalLikes: -1 } },
     { $limit: 5 }
   ])
@@ -687,18 +936,24 @@ async function getInactiveUsers() {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const users = await User.find({
     $or: [
-      { lastActive: { $lt: thirtyDaysAgo } },
-      { lastActive: { $exists: false } }
+      { lastLogin: { $lt: thirtyDaysAgo } },
+      { lastLogin: { $exists: false } },
+      { updatedAt: { $lt: thirtyDaysAgo } }
     ]
   })
-  .select('fullName email lastActive createdAt')
+  .select('fullName email lastLogin updatedAt createdAt')
   .limit(10)
-  return users
+  .lean()
+  
+  // Transform to include lastActive for frontend compatibility
+  return users.map(user => ({
+    ...user,
+    lastActive: user.lastLogin || user.updatedAt
+  }))
 }
 
 async function getVIPUsers() {
   const User = require('../models/User')
-  const Post = require('../models/Post')
   
   const vipUsers = await User.aggregate([
     {
@@ -712,14 +967,14 @@ async function getVIPUsers() {
     {
       $addFields: {
         totalPosts: { $size: '$posts' },
-        totalLikes: { $sum: '$posts.likes' }
+        totalLikes: { $sum: { $map: { input: '$posts', as: 'post', in: { $size: '$$post.likes' } } } } 
       }
     },
     {
       $match: {
         $or: [
-          { totalPosts: { $gte: 10 } },
-          { totalLikes: { $gte: 100 } }
+          { totalPosts: { $gte: 5 } },
+          { totalLikes: { $gte: 50 } }
         ]
       }
     },
@@ -783,9 +1038,8 @@ async function getContentStats(timeFilter) {
       $group: {
         _id: null,
         totalPosts: { $sum: 1 },
-        totalLikes: { $sum: '$likes' },
-        totalComments: { $sum: '$comments' },
-        totalShares: { $sum: '$shares' }
+        totalLikes: { $sum: { $size: '$likes' } },
+        totalComments: { $sum: { $size: '$comments' } }
       }
     }
   ])
@@ -795,12 +1049,12 @@ async function getContentStats(timeFilter) {
 async function getTopLocations(timeFilter) {
   const Post = require('../models/Post')
   const locations = await Post.aggregate([
-    { $match: { createdAt: timeFilter, location: { $exists: true, $ne: null } } },
-    { $group: { _id: '$location', count: { $sum: 1 } } },
+    { $match: { createdAt: timeFilter, 'location.address': { $exists: true, $ne: '' } } },
+    { $group: { _id: '$location.address', count: { $sum: 1 } } },
     { $sort: { count: -1 } },
     { $limit: 10 }
   ])
-  return locations.map(item => ({ name: item._id, posts: item.count }))
+  return locations.map(item => ({ name: item._id || 'Unknown Location', posts: item.count }))
 }
 
 async function getEngagementMetrics(timeFilter) {
@@ -810,9 +1064,8 @@ async function getEngagementMetrics(timeFilter) {
     {
       $group: {
         _id: null,
-        avgLikes: { $avg: '$likes' },
-        avgComments: { $avg: '$comments' },
-        avgShares: { $avg: '$shares' }
+        avgLikes: { $avg: { $size: '$likes' } },
+        avgComments: { $avg: { $size: '$comments' } }
       }
     }
   ])

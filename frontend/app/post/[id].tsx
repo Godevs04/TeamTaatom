@@ -825,6 +825,7 @@ export default function PostDetail() {
           comments={comments}
           onClose={() => setShowCommentModal(false)}
           onCommentAdded={handleCommentAdded}
+          commentsDisabled={post.commentsDisabled || false}
         />
       )}
 

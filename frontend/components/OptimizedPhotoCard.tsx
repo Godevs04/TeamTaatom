@@ -11,11 +11,12 @@ import {
   Share,
   Linking,
   Animated,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, addComment, deletePost } from '../services/posts';
+import { toggleLike, addComment, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
 import CommentBox from './CommentBox';
 import RotatingGlobe from './RotatingGlobe';
@@ -58,6 +59,10 @@ export default function PhotoCard({
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCaption, setEditCaption] = useState(post.caption || '');
+  const [isMenuLoading, setIsMenuLoading] = useState(false);
+  const [commentsDisabled, setCommentsDisabled] = useState((post as any).commentsDisabled || false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
@@ -365,6 +370,13 @@ export default function PhotoCard({
       onConfirm: onConfirm || (() => {}),
     });
     setShowCustomAlert(true);
+    
+    // Auto-close success messages after 2 seconds
+    if (type === 'success') {
+      setTimeout(() => {
+        setShowCustomAlert(false);
+      }, 2000);
+    }
   };
 
   const handleComment = async (text: string) => {
@@ -423,17 +435,101 @@ export default function PhotoCard({
           style: 'destructive',
           onPress: async () => {
             try {
+              setIsMenuLoading(true);
               await deletePost(post._id);
-              Alert.alert('Success', 'Post deleted successfully.');
+              showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
               if (onRefresh) onRefresh();
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post.');
+              showCustomAlertMessage('Error', error.message || 'Failed to delete post.', 'error');
+            } finally {
+              setIsMenuLoading(false);
             }
           },
         },
       ]
     );
+  };
+
+  const handleArchivePost = async () => {
+    try {
+      setIsMenuLoading(true);
+      setShowCustomAlert(false);
+      await archivePost(post._id);
+      setShowMenu(false);
+      setIsMenuLoading(false);
+      if (onRefresh) {
+        onRefresh();
+      }
+      setTimeout(() => {
+        showCustomAlertMessage('Success', 'Post archived successfully!', 'success');
+      }, 300);
+    } catch (error: any) {
+      console.error('Error archiving post:', error);
+      setIsMenuLoading(false);
+      setShowMenu(false);
+      showCustomAlertMessage('Error', error.message || 'Failed to archive post.', 'error');
+    }
+  };
+
+  const handleHidePost = async () => {
+    try {
+      setIsMenuLoading(true);
+      setShowCustomAlert(false);
+      await hidePost(post._id);
+      setShowMenu(false);
+      setIsMenuLoading(false);
+      if (onRefresh) {
+        onRefresh();
+      }
+      setTimeout(() => {
+        showCustomAlertMessage('Success', 'Post hidden successfully!', 'success');
+      }, 300);
+    } catch (error: any) {
+      console.error('Error hiding post:', error);
+      setIsMenuLoading(false);
+      setShowMenu(false);
+      showCustomAlertMessage('Error', error.message || 'Failed to hide post.', 'error');
+    }
+  };
+
+  const handleToggleComments = async () => {
+    try {
+      setIsMenuLoading(true);
+      const response = await toggleComments(post._id);
+      setCommentsDisabled(response.commentsDisabled);
+      showCustomAlertMessage(
+        'Success', 
+        response.commentsDisabled ? 'Comments turned off successfully!' : 'Comments enabled successfully!',
+        'success'
+      );
+    } catch (error: any) {
+      console.error('Error toggling comments:', error);
+      showCustomAlertMessage('Error', error.message || 'Failed to toggle comments.', 'error');
+    } finally {
+      setIsMenuLoading(false);
+      setShowMenu(false);
+    }
+  };
+
+  const handleEditPost = async () => {
+    if (!editCaption.trim()) {
+      showCustomAlertMessage('Error', 'Caption cannot be empty.', 'error');
+      return;
+    }
+    try {
+      setIsMenuLoading(true);
+      await updatePost(post._id, editCaption);
+      showCustomAlertMessage('Success', 'Post updated successfully!', 'success');
+      if (onRefresh) onRefresh();
+    } catch (error: any) {
+      console.error('Error updating post:', error);
+      showCustomAlertMessage('Error', error.message || 'Failed to update post.', 'error');
+    } finally {
+      setIsMenuLoading(false);
+      setShowEditModal(false);
+      setShowMenu(false);
+    }
   };
 
   const handlePress = () => {
@@ -755,14 +851,24 @@ export default function PhotoCard({
         </View>
       </Modal>
 
-      {/* Menu Modal */}
+      {/* Elegant Menu Modal */}
       <Modal
         visible={showMenu}
         transparent
         animationType="fade"
+        onRequestClose={() => !isMenuLoading && setShowMenu(false)}
       >
-        <View style={styles.menuOverlay}>
+        <TouchableOpacity 
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => !isMenuLoading && setShowMenu(false)}
+        >
           <View style={[styles.menuContainer, { backgroundColor: theme.colors.surface }]}>
+            {isMenuLoading && (
+              <View style={styles.menuLoadingContainer}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              </View>
+            )}
             {currentUser && currentUser._id === post.user._id ? (
               // Own post options
               <>
@@ -774,14 +880,14 @@ export default function PhotoCard({
                       'Archive Post',
                       'Are you sure you want to archive this post? It will be hidden from your profile but can be restored later.',
                       'warning',
-                      () => {
-                        // Archive functionality would go here
-                        showCustomAlertMessage('Success', 'Post archived successfully!', 'success');
-                      }
+                      handleArchivePost
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="archive-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="archive-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Archive</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -792,14 +898,14 @@ export default function PhotoCard({
                       'Hide Post',
                       'Are you sure you want to hide this post? It will be hidden from your feed.',
                       'warning',
-                      () => {
-                        // Hide functionality would go here
-                        showCustomAlertMessage('Success', 'Post hidden successfully!', 'success');
-                      }
+                      handleHidePost
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="eye-off-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="eye-off-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Hide</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -808,8 +914,11 @@ export default function PhotoCard({
                     setShowMenu(false);
                     handleShare();
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="share-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="share-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -817,49 +926,57 @@ export default function PhotoCard({
                   onPress={() => {
                     setShowMenu(false);
                     showCustomAlertMessage(
-                      'Turn Off Comments',
-                      'Are you sure you want to turn off comments for this post? Users won\'t be able to comment.',
+                      commentsDisabled ? 'Turn On Comments' : 'Turn Off Comments',
+                      commentsDisabled 
+                        ? 'Are you sure you want to enable comments for this post?'
+                        : 'Are you sure you want to turn off comments for this post? Users won\'t be able to comment.',
                       'warning',
-                      () => {
-                        // Turn off comments functionality would go here
-                        showCustomAlertMessage('Success', 'Comments turned off successfully!', 'success');
-                      }
+                      handleToggleComments
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="chatbubbles-outline" size={20} color={theme.colors.text} />
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Turn Off Comments</Text>
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons 
+                      name={commentsDisabled ? "chatbubbles" : "chatbubbles-outline"} 
+                      size={22} 
+                      color={theme.colors.text} 
+                    />
+                  </View>
+                  <Text style={[styles.menuText, { color: theme.colors.text }]}>
+                    {commentsDisabled ? 'Turn On Comments' : 'Turn Off Comments'}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Edit Post',
-                      'Edit functionality will be implemented soon. You\'ll be able to modify your post content and caption.',
-                      'info'
-                    );
+                    setShowEditModal(true);
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="create-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="create-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                  style={[styles.menuItem, styles.menuItemDestructive]}
                   onPress={() => {
                     setShowMenu(false);
                     showCustomAlertMessage(
                       'Delete Post',
                       'Are you sure you want to delete this post? This action cannot be undone.',
                       'error',
-                      () => {
-                        handleDeletePost();
-                      }
+                      handleDeletePost
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="trash-outline" size={20} color="#ff3040" />
-                  <Text style={[styles.menuText, { color: '#ff3040' }]}>Delete</Text>
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="trash-outline" size={22} color="#FF453A" />
+                  </View>
+                  <Text style={[styles.menuText, styles.menuTextDestructive]}>Delete</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -878,8 +995,11 @@ export default function PhotoCard({
                       }
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="flag-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="flag-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Report</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -895,30 +1015,107 @@ export default function PhotoCard({
                       }
                     );
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="person-remove-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                  style={[styles.menuItem]}
                   onPress={() => {
                     setShowMenu(false);
                     handleShare();
                   }}
+                  disabled={isMenuLoading}
                 >
-                  <Ionicons name="share-outline" size={20} color={theme.colors.text} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="share-outline" size={22} color={theme.colors.text} />
+                  </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
                 </TouchableOpacity>
               </>
             )}
+            <View style={styles.menuDivider} />
             <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => setShowMenu(false)}
+              style={styles.menuCancelItem}
+              onPress={() => !isMenuLoading && setShowMenu(false)}
+              disabled={isMenuLoading}
             >
-              <Text style={[styles.menuText, { color: theme.colors.text }]}>Cancel</Text>
+              <Text style={[styles.menuCancelText, { color: theme.colors.text }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isMenuLoading) {
+            setShowEditModal(false);
+            setEditCaption(post.caption || '');
+          }
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.editModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isMenuLoading) {
+              setShowEditModal(false);
+              setEditCaption(post.caption || '');
+            }
+          }}
+        >
+          <TouchableOpacity 
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={[styles.editModalContainer, { backgroundColor: theme.colors.surface }]}>
+              <Text style={[styles.editModalTitle, { color: theme.colors.text }]}>Edit Post</Text>
+              <TextInput
+                style={[styles.editInput, { 
+                  color: theme.colors.text, 
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.border 
+                }]}
+                value={editCaption}
+                onChangeText={setEditCaption}
+                placeholder="Enter caption..."
+                placeholderTextColor={theme.colors.textSecondary}
+                multiline
+                maxLength={1000}
+                autoFocus
+              />
+              <View style={styles.editModalActions}>
+                <TouchableOpacity
+                  style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
+                  onPress={() => {
+                    setShowEditModal(false);
+                    setEditCaption(post.caption || '');
+                  }}
+                >
+                  <Text style={[styles.editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.editModalButton, styles.editModalButtonSave, { backgroundColor: theme.colors.primary, marginLeft: 6 }]}
+                  onPress={handleEditPost}
+                  disabled={isMenuLoading || !editCaption.trim()}
+                >
+                  {isMenuLoading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.editModalButtonTextSave}>Save</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Comment Modal */}
@@ -928,6 +1125,7 @@ export default function PhotoCard({
         comments={comments}
         onClose={() => setShowCommentModal(false)}
         onCommentAdded={handleCommentAdded}
+        commentsDisabled={commentsDisabled}
       />
 
       {/* Custom Alert */}
@@ -1132,30 +1330,140 @@ const styles = StyleSheet.create({
   },
   menuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
     alignItems: 'center',
   },
   menuContainer: {
-    borderRadius: 16,
+    width: '100%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     overflow: 'hidden',
-    minWidth: 200,
-    elevation: 8,
+    paddingBottom: 20,
+    maxHeight: '80%',
+    ...StyleSheet.absoluteFillObject,
+    top: 'auto',
+    bottom: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  menuLoadingContainer: {
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 0.5,
-    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 56,
+  },
+  menuItemDestructive: {
+    borderBottomWidth: 0,
+  },
+  menuIconContainer: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
   },
   menuText: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '500',
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
+    flex: 1,
+  },
+  menuTextDestructive: {
+    color: '#FF453A',
+  },
+  menuDivider: {
+    height: 8,
+    backgroundColor: 'transparent',
+  },
+  menuCancelItem: {
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: 'transparent',
+  },
+  menuCancelText: {
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  editModalContainer: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 16,
+  },
+  editModalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 20,
+    letterSpacing: 0.3,
+  },
+  editInput: {
+    minHeight: 120,
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    borderWidth: 1,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  editModalActions: {
+    flexDirection: 'row',
+  },
+  editModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editModalButtonCancel: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  editModalButtonSave: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  editModalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  editModalButtonTextSave: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });

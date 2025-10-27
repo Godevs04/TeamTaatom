@@ -34,9 +34,10 @@ const getProfile = async (req, res) => {
       .select('location createdAt likes')
       .lean();
 
-    // Extract unique locations for the map
+    // Extract unique locations for the map (only posts with valid coordinates)
     const locations = posts
-      .filter(post => post.location.coordinates.latitude !== 0 || post.location.coordinates.longitude !== 0)
+      .filter(post => post.location && post.location.coordinates && 
+               (post.location.coordinates.latitude !== 0 || post.location.coordinates.longitude !== 0))
       .map(post => ({
         latitude: post.location.coordinates.latitude,
         longitude: post.location.coordinates.longitude,
@@ -44,18 +45,17 @@ const getProfile = async (req, res) => {
         date: post.createdAt
       }));
 
-    // Calculate TripScore based on unique locations (same logic as TripScore page)
-    const likedPosts = await Post.find({ 
+    // Calculate TripScore based on unique locations (count all posts with locations, not just liked posts)
+    const postsWithLocations = await Post.find({ 
       user: id, 
       isActive: true,
-      'likes.0': { $exists: true }, // Posts that have at least one like
       'location.coordinates.latitude': { $ne: 0 },
       'location.coordinates.longitude': { $ne: 0 }
     })
     .select('location likes createdAt')
     .lean();
 
-    // Group liked posts by continent/country for TripScore
+    // Group posts by continent/country for TripScore
     const tripScoreData = {
       totalScore: 0,
       continents: {},
@@ -63,42 +63,40 @@ const getProfile = async (req, res) => {
       areas: []
     };
 
-    // Track unique locations to avoid counting same location multiple times
-    const uniqueLocations = new Set();
+    // Track all locations (count every post with valid location)
+    const allLocations = [];
 
-    // Process liked posts to calculate TripScore
-    likedPosts.forEach(post => {
-      if (post.location && post.location.address && post.location.coordinates && post.likes.length > 0) {
-        const address = post.location.address;
-        const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
-        
-        // Only count unique locations (same coordinates = same location)
-        if (!uniqueLocations.has(locationKey)) {
-          uniqueLocations.add(locationKey);
-          
-          // Extract continent using the same logic as TripScore page
-          let continent = getContinentFromLocation(address);
-          
-          // Convert to uppercase format to match TripScore page
-          const continentKey = continent.toUpperCase();
-
-          // Add to continent score (count unique locations, not likes)
-          if (!tripScoreData.continents[continentKey]) {
-            tripScoreData.continents[continentKey] = 0;
-          }
-          tripScoreData.continents[continentKey] += 1;
-
-          // Add to total score
-          tripScoreData.totalScore += 1;
-
-          // Add to areas list
-          tripScoreData.areas.push({
-            address: address,
-            continent: continentKey,
-            likes: post.likes.length,
-            date: post.createdAt
-          });
+    // Process posts to calculate TripScore (all posts with locations count towards trip score)
+    postsWithLocations.forEach(post => {
+      if (post.location && post.location.coordinates) {
+        // Try to get continent from address, fallback to coordinates
+        let continent = getContinentFromLocation(post.location.address);
+        if (continent === 'Unknown') {
+          continent = getContinentFromCoordinates(
+            post.location.coordinates.latitude,
+            post.location.coordinates.longitude
+          );
         }
+        
+        const address = post.location.address;
+        const continentKey = continent.toUpperCase();
+
+        // Add to continent score (count all posts with valid locations)
+        if (!tripScoreData.continents[continentKey]) {
+          tripScoreData.continents[continentKey] = 0;
+        }
+        tripScoreData.continents[continentKey] += 1;
+
+        // Add to total score (every post with valid location counts)
+        tripScoreData.totalScore += 1;
+
+        // Add to areas list with likes count
+        tripScoreData.areas.push({
+          address: address || 'Unknown Location',
+          continent: continentKey,
+          likes: post.likes ? post.likes.length : 0,
+          date: post.createdAt
+        });
       }
     });
 
@@ -163,13 +161,16 @@ const getProfile = async (req, res) => {
       }
     }
 
+    // Only return tripScore if there's actually a score (meaning user has posted locations)
+    const tripScore = canViewProfile && tripScoreData.totalScore > 0 ? tripScoreData : null;
+
     const profile = {
       ...user.toObject(),
       postsCount: posts.length,
       followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
       followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
       locations: canViewLocations ? locations : [],
-      tripScore: canViewProfile ? tripScoreData : null,
+      tripScore: tripScore,
       isFollowing,
       isOwnProfile,
       canViewProfile,
@@ -1010,62 +1011,74 @@ const getTripScoreContinents = async (req, res) => {
       return res.status(400).json({ error: 'Invalid user id' });
     }
 
-    // Get all posts with likes and location data
-    const likedPosts = await Post.find({ 
+    // Get all posts with location data (all posts with locations count towards trip score)
+    const postsWithLocations = await Post.find({ 
       user: id, 
       isActive: true,
-      'likes.0': { $exists: true },
       'location.coordinates.latitude': { $ne: 0 },
       'location.coordinates.longitude': { $ne: 0 }
     })
     .select('location likes createdAt')
     .lean();
 
-    // Calculate continent scores and distances based on unique locations
+    // Calculate continent scores and distances based on all locations
     const continentScores = {};
-    const continentDistances = {};
-    const uniqueLocations = new Set(); // Track unique locations
+    const continentLocations = {}; // Store locations per continent for distance calculation
     let totalScore = 0;
-    let previousLocation = null;
 
-    likedPosts.forEach(post => {
-      if (post.location && post.location.address && post.location.coordinates) {
-        const continent = getContinentFromLocation(post.location.address);
-        const continentKey = continent.toUpperCase(); // Convert to uppercase format
-        const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
-        
-        // Only count unique locations (same coordinates = same location)
-        if (!uniqueLocations.has(locationKey)) {
-          uniqueLocations.add(locationKey);
-          
-          if (!continentScores[continentKey]) {
-            continentScores[continentKey] = 0;
-          }
-          continentScores[continentKey] += 1; // Count unique locations, not likes
-          totalScore += 1;
-
-          // Calculate distance if there's a previous location
-          if (previousLocation) {
-            const distance = calculateDistance(
-              previousLocation.latitude,
-              previousLocation.longitude,
-              post.location.coordinates.latitude,
-              post.location.coordinates.longitude
-            );
-
-            if (!continentDistances[continentKey]) {
-              continentDistances[continentKey] = 0;
-            }
-            continentDistances[continentKey] += distance;
-          }
-
-          // Update previous location
-          previousLocation = {
-            latitude: post.location.coordinates.latitude,
-            longitude: post.location.coordinates.longitude
-          };
+    postsWithLocations.forEach(post => {
+      if (post.location && post.location.coordinates) {
+        // Try to get continent from address, fallback to coordinates
+        let continent = getContinentFromLocation(post.location.address);
+        if (continent === 'Unknown') {
+          continent = getContinentFromCoordinates(
+            post.location.coordinates.latitude,
+            post.location.coordinates.longitude
+          );
         }
+        
+        const continentKey = continent.toUpperCase(); // Convert to uppercase format
+        
+        // Initialize continent scores and location arrays if needed
+        if (!continentScores[continentKey]) {
+          continentScores[continentKey] = 0;
+          continentLocations[continentKey] = [];
+        }
+        
+        // Count every post with valid location
+        continentScores[continentKey] += 1;
+        totalScore += 1;
+        
+        // Store location for distance calculation per continent
+        continentLocations[continentKey].push({
+          latitude: post.location.coordinates.latitude,
+          longitude: post.location.coordinates.longitude,
+          createdAt: post.createdAt
+        });
       }
+    });
+
+    // Calculate distances per continent
+    const continentDistances = {};
+    Object.keys(continentLocations).forEach(continentKey => {
+      const locations = continentLocations[continentKey];
+      let totalDistance = 0;
+      
+      // Sort locations by date
+      locations.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      
+      // Calculate distance between consecutive locations
+      for (let i = 1; i < locations.length; i++) {
+        const distance = calculateDistance(
+          locations[i - 1].latitude,
+          locations[i - 1].longitude,
+          locations[i].latitude,
+          locations[i].longitude
+        );
+        totalDistance += distance;
+      }
+      
+      continentDistances[continentKey] = totalDistance;
     });
 
     // Format response like the screenshot
@@ -1106,46 +1119,54 @@ const getTripScoreCountries = async (req, res) => {
 
     const continentName = continent.toUpperCase();
     
-    // Get posts for this continent
-    const likedPosts = await Post.find({ 
+    // Get posts for this continent (all posts with locations count)
+    const postsWithLocations = await Post.find({ 
       user: id, 
       isActive: true,
-      'likes.0': { $exists: true },
       'location.coordinates.latitude': { $ne: 0 },
       'location.coordinates.longitude': { $ne: 0 }
     })
     .select('location likes createdAt')
     .lean();
 
-    // Filter posts by continent and calculate country scores based on unique locations
+    // Filter posts by continent and calculate country scores based on all locations
     const countryScores = {};
-    const uniqueLocations = new Set();
     let continentScore = 0;
 
-    likedPosts.forEach(post => {
-      if (post.location && post.location.address && post.location.coordinates) {
-        const continentFromPost = getContinentFromLocation(post.location.address);
+    postsWithLocations.forEach(post => {
+      if (post.location && post.location.coordinates) {
+        // Try to get continent from address, fallback to coordinates
+        let continentFromPost = getContinentFromLocation(post.location.address);
+        if (continentFromPost === 'Unknown') {
+          continentFromPost = getContinentFromCoordinates(
+            post.location.coordinates.latitude,
+            post.location.coordinates.longitude
+          );
+        }
+        
         if (continentFromPost.toUpperCase() === continentName) {
           const country = getCountryFromLocation(post.location.address);
-          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
           
-          // Only count unique locations
-          if (!uniqueLocations.has(locationKey)) {
-            uniqueLocations.add(locationKey);
-            
-            if (!countryScores[country]) {
-              countryScores[country] = 0;
-            }
-            countryScores[country] += 1; // Count unique locations, not likes
-            continentScore += 1;
+          // Count all posts with valid locations
+          if (!countryScores[country]) {
+            countryScores[country] = 0;
           }
+          countryScores[country] += 1; // Count all posts
+          continentScore += 1;
         }
       }
     });
 
     // Get countries for this continent
-    const countries = getCountriesForContinent(continentName);
-    const countryList = countries.map(country => ({
+    const predefinedCountries = getCountriesForContinent(continentName);
+    
+    // Combine predefined countries with detected countries (including Unknown)
+    const allCountriesSet = new Set([
+      ...predefinedCountries,
+      ...Object.keys(countryScores)
+    ]);
+    
+    const countryList = Array.from(allCountriesSet).map(country => ({
       name: country,
       score: countryScores[country] || 0,
       visited: countryScores[country] > 0
@@ -1175,38 +1196,39 @@ const getTripScoreCountryDetails = async (req, res) => {
     const { id } = req.params;
     const { country } = req.params;
 
-    // Get all liked posts for the user
-    const likedPosts = await Post.find({ 
+    // Get all posts with locations for the user (all posts with locations count)
+    const postsWithLocations = await Post.find({ 
       user: id, 
       isActive: true,
-      'likes.0': { $exists: true }, // Posts that have at least one like
       'location.coordinates.latitude': { $ne: 0 },
       'location.coordinates.longitude': { $ne: 0 }
     })
     .select('location likes createdAt caption')
     .lean();
 
-    // Filter posts by country and calculate unique locations
+    // Filter posts by country and calculate locations (show unique in list, count all in score)
     const locations = [];
-    const uniqueLocations = new Set();
+    const uniqueLocations = new Set(); // Track unique locations for display
     let countryScore = 0;
     let totalDistance = 0;
     let previousLocation = null;
 
-    likedPosts.forEach(post => {
+    postsWithLocations.forEach(post => {
       if (post.location && post.location.address && post.location.coordinates) {
         const countryFromPost = getCountryFromLocation(post.location.address);
         if (countryFromPost.toLowerCase() === country.toLowerCase()) {
+          // Count all posts (for score)
+          countryScore += 1;
+          
           const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
           
-          // Only count unique locations
+          // Only show unique locations in the list (avoid duplicates)
           if (!uniqueLocations.has(locationKey)) {
             uniqueLocations.add(locationKey);
-            countryScore += 1; // Count unique locations, not likes
             
             locations.push({
               name: post.location.address,
-              score: 1, // Each unique location gets score of 1
+              score: 1, // Display count
               date: post.createdAt,
               caption: post.caption,
               category: getLocationCategory(post.caption, post.location.address),
@@ -1264,11 +1286,10 @@ const getTripScoreLocations = async (req, res) => {
       return res.status(400).json({ error: 'Invalid user id' });
     }
 
-    // Get posts for this country
-    const likedPosts = await Post.find({ 
+    // Get posts for this country (all posts with locations count)
+    const postsWithLocations = await Post.find({ 
       user: id, 
       isActive: true,
-      'likes.0': { $exists: true },
       'location.coordinates.latitude': { $ne: 0 },
       'location.coordinates.longitude': { $ne: 0 }
     })
@@ -1280,20 +1301,22 @@ const getTripScoreLocations = async (req, res) => {
     const uniqueLocations = new Set();
     let countryScore = 0;
 
-    likedPosts.forEach(post => {
+    postsWithLocations.forEach(post => {
       if (post.location && post.location.address && post.location.coordinates) {
         const countryFromPost = getCountryFromLocation(post.location.address);
         if (countryFromPost.toLowerCase() === country.toLowerCase()) {
+          // Count all posts (for score)
+          countryScore += 1;
+          
           const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
           
-          // Only count unique locations
+          // Only show unique locations in the list
           if (!uniqueLocations.has(locationKey)) {
             uniqueLocations.add(locationKey);
-            countryScore += 1; // Count unique locations, not likes
             
             locations.push({
               name: post.location.address,
-              score: 1, // Each unique location gets score of 1
+              score: 1,
               date: post.createdAt,
               caption: post.caption,
               category: getLocationCategory(post.caption, post.location.address)

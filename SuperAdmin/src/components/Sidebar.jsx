@@ -20,7 +20,6 @@ const Sidebar = () => {
     { name: 'Users', href: '/users', icon: Users },
     { name: 'Travel Content', href: '/travel-content', icon: MapPin },
     { name: 'Reports', href: '/reports', icon: Flag },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3 },
     { name: 'Moderators', href: '/moderators', icon: Shield },
     { name: 'Logs', href: '/logs', icon: FileText },
     { name: 'Feature Flags', href: '/feature-flags', icon: Zap },

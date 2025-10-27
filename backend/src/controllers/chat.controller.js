@@ -71,8 +71,31 @@ exports.listChats = async (req, res) => {
       chat.messages = chat.messages.map(msg => ({ ...msg, seen: typeof msg.seen === 'boolean' ? msg.seen : false }));
     }
   });
-  console.log('Chats found:', chats.length);
-  res.json({ chats });
+  
+  // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
+  const chatMap = new Map();
+  chats.forEach(chat => {
+    // Sort participant IDs to create a consistent key
+    const participantIds = chat.participants
+      .map(p => p._id ? p._id.toString() : p.toString())
+      .sort()
+      .join('_');
+    
+    // If chat doesn't exist or this one is more recent, keep it
+    if (!chatMap.has(participantIds) || 
+        new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
+      chatMap.set(participantIds, chat);
+    }
+  });
+  
+  // Convert map back to array
+  const uniqueChats = Array.from(chatMap.values());
+  
+  // Sort by updatedAt descending
+  uniqueChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  
+  console.log('Chats found:', chats.length, 'Unique chats:', uniqueChats.length);
+  res.json({ chats: uniqueChats });
 };
 
 exports.getChat = async (req, res) => {
