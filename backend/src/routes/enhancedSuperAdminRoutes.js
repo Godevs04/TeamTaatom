@@ -1,8 +1,10 @@
 const express = require('express')
 const router = express.Router()
 const SuperAdmin = require('../models/SuperAdmin')
+const SystemSettings = require('../models/SystemSettings')
 const {
   verifySuperAdminToken,
+  checkPermission,
   loginSuperAdmin,
   verify2FA,
   resend2FA,
@@ -28,12 +30,27 @@ router.post('/resend-2fa', resend2FA)
 router.use(verifySuperAdminToken)
 
 // Authentication routes
-router.get('/verify', verifyToken)
+router.get('/verify', (req, res) => {
+  try {
+    res.json({
+      message: 'Token is valid',
+      user: {
+        id: req.superAdmin._id,
+        email: req.superAdmin.email,
+        role: req.superAdmin.role,
+        isActive: req.superAdmin.isActive,
+        permissions: req.superAdmin.permissions
+      }
+    })
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' })
+  }
+})
 router.post('/logout', logout)
 router.patch('/change-password', changePassword)
 router.patch('/profile', updateProfile)
 
-// Dashboard overview with real-time data
+// Dashboard overview with real-time data (all roles can view)
 router.get('/dashboard/overview', async (req, res) => {
   try {
     const User = require('../models/User')
@@ -135,7 +152,7 @@ router.get('/dashboard/overview', async (req, res) => {
   }
 })
 
-// Real-time analytics with auto-refresh support
+// Real-time analytics with auto-refresh support (Dashboard has basic analytics, this is for detailed)
 router.get('/analytics/realtime', async (req, res) => {
   try {
     const { period = '24h' } = req.query
@@ -215,7 +232,7 @@ router.get('/analytics/realtime', async (req, res) => {
 })
 
 // Users management with advanced features
-router.get('/users', async (req, res) => {
+router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
   try {
     
     const { page = 1, limit = 20, search, status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query
@@ -314,7 +331,7 @@ router.get('/users', async (req, res) => {
 })
 
 // Update single user
-router.patch('/users/:id', async (req, res) => {
+router.patch('/users/:id', checkPermission('canManageUsers'), async (req, res) => {
   try {
     const { id } = req.params
     const updates = req.body
@@ -343,7 +360,7 @@ router.patch('/users/:id', async (req, res) => {
 })
 
 // Delete single user
-router.delete('/users/:id', async (req, res) => {
+router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) => {
   try {
     const { id } = req.params
     const User = require('../models/User')
@@ -433,7 +450,7 @@ router.post('/users/bulk-action', async (req, res) => {
 })
 
 // Travel content management
-router.get('/travel-content', async (req, res) => {
+router.get('/travel-content', checkPermission('canManageContent'), async (req, res) => {
   try {
     const { page = 1, limit = 20, search, type, status } = req.query
     const skip = (page - 1) * limit
@@ -567,7 +584,7 @@ router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Reports management
-router.get('/reports', async (req, res) => {
+router.get('/reports', checkPermission('canManageContent'), async (req, res) => {
   try {
     const { page = 1, limit = 20, status, type, priority } = req.query
     const skip = (page - 1) * limit
@@ -654,7 +671,7 @@ router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
   }
 })
 
-// Analytics data with enhanced metrics
+// Analytics data with enhanced metrics (Dashboard has basic analytics)
 router.get('/analytics', async (req, res) => {
   try {
     const { period = '7d' } = req.query
@@ -715,78 +732,340 @@ router.get('/analytics', async (req, res) => {
 // Feature flags management
 router.get('/feature-flags', async (req, res) => {
   try {
-    // Mock feature flags - replace with real feature flags collection
-    const featureFlags = [
-      {
-        id: '1',
-        name: 'dark_mode',
-        description: 'Enable dark mode for the application',
-        enabled: true,
-        rolloutPercentage: 100,
-        targetUsers: 'all',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      },
-      {
-        id: '2',
-        name: 'ai_recommendations',
-        description: 'AI-powered content recommendations',
-        enabled: false,
-        rolloutPercentage: 0,
-        targetUsers: 'beta',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      },
-      {
-        id: '3',
-        name: 'advanced_analytics',
-        description: 'Advanced analytics dashboard',
-        enabled: true,
-        rolloutPercentage: 50,
-        targetUsers: 'premium',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ]
+    const FeatureFlag = require('../models/FeatureFlag')
     
-    res.json({ featureFlags })
+    const { category, enabled, search } = req.query
+    let query = {}
+    
+    if (category && category !== 'all') {
+      query.category = category
+    }
+    
+    if (enabled !== undefined && enabled !== 'all') {
+      query.enabled = enabled === 'true' || enabled === true
+    }
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ]
+    }
+    
+    const featureFlags = await FeatureFlag.find(query)
+      .populate('createdBy', 'email')
+      .populate('updatedBy', 'email')
+      .sort({ updatedAt: -1 })
+    
+    res.json({ 
+      success: true,
+      featureFlags 
+    })
   } catch (error) {
     console.error('Feature flags error:', error)
-    res.status(500).json({ message: 'Failed to fetch feature flags' })
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to fetch feature flags',
+      error: error.message 
+    })
+  }
+})
+
+// Create new feature flag
+router.post('/feature-flags', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const FeatureFlag = require('../models/FeatureFlag')
+    const { name, description, enabled, rolloutPercentage, targetUsers, category, priority, impact } = req.body
+    
+    const featureFlag = new FeatureFlag({
+      name,
+      description,
+      enabled: enabled || false,
+      rolloutPercentage: rolloutPercentage || 0,
+      targetUsers: targetUsers || 'all',
+      category: category || 'other',
+      priority: priority || 'medium',
+      impact: impact || 'medium',
+      createdBy: req.superAdmin._id,
+      updatedBy: req.superAdmin._id
+    })
+    
+    await featureFlag.save()
+    
+    res.json({
+      success: true,
+      message: 'Feature flag created successfully',
+      featureFlag
+    })
+  } catch (error) {
+    console.error('Create feature flag error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create feature flag',
+      error: error.message
+    })
   }
 })
 
 // Update feature flags
-router.patch('/feature-flags/:id', async (req, res) => {
+router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
   try {
+    const FeatureFlag = require('../models/FeatureFlag')
     const { id } = req.params
-    const { enabled, rolloutPercentage, targetUsers } = req.body
+    const { enabled, rolloutPercentage, targetUsers, description, category, priority, impact } = req.body
     
-    // Mock update - replace with real feature flags collection
-    const updatedFlag = {
-      id,
-      enabled,
-      rolloutPercentage,
-      targetUsers,
-      updatedAt: new Date()
+    const featureFlag = await FeatureFlag.findById(id)
+    if (!featureFlag) {
+      return res.status(404).json({
+        success: false,
+        message: 'Feature flag not found'
+      })
     }
     
-    // Log the feature flag change
+    const changes = {}
+    if (enabled !== undefined) changes.enabled = enabled
+    if (rolloutPercentage !== undefined) changes.rolloutPercentage = rolloutPercentage
+    if (targetUsers) changes.targetUsers = targetUsers
+    if (description) changes.description = description
+    if (category) changes.category = category
+    if (priority) changes.priority = priority
+    if (impact) changes.impact = impact
+    
+    Object.assign(featureFlag, changes)
+    featureFlag.updatedBy = req.superAdmin._id
+    featureFlag.updatedAt = new Date()
+    
+    // Log the change
+    featureFlag.changelog.push({
+      action: 'updated',
+      changedBy: req.superAdmin._id,
+      changes: changes,
+      timestamp: new Date()
+    })
+    
+    // Keep only last 50 changes
+    if (featureFlag.changelog.length > 50) {
+      featureFlag.changelog = featureFlag.changelog.slice(-50)
+    }
+    
+    await featureFlag.save()
+    
+    // Log security event
     await req.superAdmin.logSecurityEvent(
       'feature_flag_updated',
-      `Feature flag ${id} updated: enabled=${enabled}, rollout=${rolloutPercentage}%`,
+      `Updated flag ${featureFlag.name}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    const updated = await FeatureFlag.findById(id)
+      .populate('createdBy', 'email')
+      .populate('updatedBy', 'email')
+    
+    res.json({
+      success: true,
+      message: 'Feature flag updated successfully',
+      featureFlag: updated
+    })
+  } catch (error) {
+    console.error('Update feature flag error:', error)
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to update feature flag',
+      error: error.message 
+    })
+  }
+})
+
+// Schedule Standalone Downtime
+router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const ScheduledDowntime = require('../models/ScheduledDowntime')
+    const User = require('../models/User')
+    const { sendDowntimeNotificationEmail } = require('../utils/sendDowntimeEmail')
+    
+    const { reason, scheduledDate, scheduledTime, duration } = req.body
+    
+    if (!reason || !scheduledDate || !scheduledTime || !duration) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required'
+      })
+    }
+    
+    // Create downtime record
+    const downtime = new ScheduledDowntime({
+      reason,
+      scheduledDate: new Date(scheduledDate),
+      scheduledTime,
+      duration,
+      createdBy: req.superAdmin._id
+    })
+    await downtime.save()
+    
+    // Send email to all users
+    const users = await User.find({}, 'email fullName')
+    const emailPromises = users.map(async (user) => {
+      try {
+        await sendDowntimeNotificationEmail(
+          user.email,
+          user.fullName || 'User',
+          new Date(scheduledDate).toLocaleDateString(),
+          scheduledTime,
+          duration,
+          reason
+        )
+      } catch (error) {
+        console.error(`Failed to send email to ${user.email}:`, error)
+      }
+    })
+    
+    await Promise.all(emailPromises)
+    downtime.notificationSent = true
+    await downtime.save()
+    
+    // Log security event
+    await req.superAdmin.logSecurityEvent(
+      'downtime_scheduled',
+      `Scheduled downtime: ${reason}`,
       req.ip,
       req.get('User-Agent'),
       true
     )
     
     res.json({
-      message: 'Feature flag updated successfully',
-      featureFlag: updatedFlag
+      success: true,
+      message: 'Downtime scheduled and notifications sent to all users',
+      downtime
     })
   } catch (error) {
-    console.error('Feature flag update error:', error)
-    res.status(500).json({ message: 'Failed to update feature flag' })
+    console.error('Schedule downtime error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to schedule downtime',
+      error: error.message
+    })
+  }
+})
+
+// Complete Standalone Downtime
+router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const ScheduledDowntime = require('../models/ScheduledDowntime')
+    const User = require('../models/User')
+    const { sendMaintenanceCompletedEmail } = require('../utils/sendDowntimeEmail')
+    
+    const { id } = req.params
+    const downtime = await ScheduledDowntime.findById(id)
+    
+    if (!downtime) {
+      return res.status(404).json({
+        success: false,
+        message: 'Downtime not found'
+      })
+    }
+    
+    // Send completion email to all users
+    const users = await User.find({}, 'email fullName')
+    const emailPromises = users.map(async (user) => {
+      try {
+        await sendMaintenanceCompletedEmail(user.email, user.fullName || 'User')
+      } catch (error) {
+        console.error(`Failed to send email to ${user.email}:`, error)
+      }
+    })
+    
+    await Promise.all(emailPromises)
+    
+    // Mark as completed
+    downtime.completed = true
+    downtime.completedBy = req.superAdmin._id
+    await downtime.save()
+    
+    // Log security event
+    await req.superAdmin.logSecurityEvent(
+      'maintenance_completed',
+      `Maintenance completed: ${downtime.reason}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({
+      success: true,
+      message: 'Maintenance completion notifications sent to all users'
+    })
+  } catch (error) {
+    console.error('Complete downtime error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to complete downtime',
+      error: error.message
+    })
+  }
+})
+
+// Get scheduled downtimes
+router.get('/scheduled-downtimes', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const ScheduledDowntime = require('../models/ScheduledDowntime')
+    
+    const downtimes = await ScheduledDowntime.find()
+      .populate('createdBy', 'email')
+      .populate('completedBy', 'email')
+      .sort({ scheduledDate: -1 })
+    
+    res.json({
+      success: true,
+      downtimes
+    })
+  } catch (error) {
+    console.error('Get scheduled downtimes error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch scheduled downtimes',
+      error: error.message
+    })
+  }
+})
+
+// Delete feature flag
+router.delete('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const FeatureFlag = require('../models/FeatureFlag')
+    const { id } = req.params
+    
+    const featureFlag = await FeatureFlag.findById(id)
+    if (!featureFlag) {
+      return res.status(404).json({
+        success: false,
+        message: 'Feature flag not found'
+      })
+    }
+    
+    await FeatureFlag.findByIdAndDelete(id)
+    
+    // Log security event
+    await req.superAdmin.logSecurityEvent(
+      'feature_flag_deleted',
+      `Deleted flag ${featureFlag.name}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    res.json({
+      success: true,
+      message: 'Feature flag deleted successfully'
+    })
+  } catch (error) {
+    console.error('Delete feature flag error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete feature flag',
+      error: error.message
+    })
   }
 })
 
@@ -1107,6 +1386,168 @@ function generateCSV(logs) {
   return [headers, ...rows].map(row => row.join(',')).join('\n')
 }
 
+// Moderators Management
+
+// GET /moderators - Get all moderators (admin and moderator roles)
+router.get('/moderators', checkPermission('canManageModerators'), async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search } = req.query
+    const skip = (page - 1) * limit
+    
+    // Build query
+    const query = {
+      role: { $in: ['moderator', 'admin'] }
+    }
+    
+    // Add search functionality
+    if (search) {
+      query.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { 'profile.firstName': { $regex: search, $options: 'i' } },
+        { 'profile.lastName': { $regex: search, $options: 'i' } }
+      ]
+    }
+    
+    const [moderators, total] = await Promise.all([
+      SuperAdmin.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .select('email role isActive profile lastLogin permissions createdAt'),
+      SuperAdmin.countDocuments(query)
+    ])
+    
+    res.json({
+      success: true,
+      moderators,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / limit)
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch moderators',
+      error: error.message
+    })
+  }
+})
+
+// POST /moderators - Create a new moderator
+router.post('/moderators', checkPermission('canManageModerators'), async (req, res) => {
+  try {
+    const { email, password, role = 'moderator', permissions } = req.body
+    
+    // Check if email already exists
+    const existing = await SuperAdmin.findOne({ email: email.toLowerCase() })
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists'
+      })
+    }
+    
+    // Create moderator
+    const moderator = new SuperAdmin({
+      email: email.toLowerCase(),
+      password, // Will be hashed by pre-save hook
+      role,
+      permissions: permissions || {
+        canManageUsers: false,
+        canManageContent: true,
+        canManageReports: false,
+        canManageModerators: false,
+        canViewLogs: false,
+        canManageSettings: false
+      }
+    })
+    
+    await moderator.save()
+    
+    res.json({
+      success: true,
+      message: 'Moderator created successfully',
+      moderator: {
+        _id: moderator._id,
+        email: moderator.email,
+        role: moderator.role,
+        isActive: moderator.isActive,
+        permissions: moderator.permissions
+      }
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create moderator',
+      error: error.message
+    })
+  }
+})
+
+// PATCH /moderators/:id - Update moderator
+router.patch('/moderators/:id', checkPermission('canManageModerators'), async (req, res) => {
+  try {
+    const { role, isActive, permissions } = req.body
+    
+    const moderator = await SuperAdmin.findById(req.params.id)
+    if (!moderator) {
+      return res.status(404).json({
+        success: false,
+        message: 'Moderator not found'
+      })
+    }
+    
+    // Update fields
+    if (role) moderator.role = role
+    if (typeof isActive === 'boolean') moderator.isActive = isActive
+    if (permissions) moderator.permissions = { ...moderator.permissions, ...permissions }
+    
+    await moderator.save()
+    
+    res.json({
+      success: true,
+      message: 'Moderator updated successfully',
+      moderator
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update moderator',
+      error: error.message
+    })
+  }
+})
+
+// DELETE /moderators/:id - Remove moderator (deactivate)
+router.delete('/moderators/:id', checkPermission('canManageModerators'), async (req, res) => {
+  try {
+    const moderator = await SuperAdmin.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    )
+    
+    if (!moderator) {
+      return res.status(404).json({
+        success: false,
+        message: 'Moderator not found'
+      })
+    }
+    
+    res.json({
+      success: true,
+      message: 'Moderator removed successfully'
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove moderator',
+      error: error.message
+    })
+  }
+})
+
 // Test endpoint without authentication
 router.get('/test', async (req, res) => {
   try {
@@ -1132,5 +1573,191 @@ router.get('/test', async (req, res) => {
     });
   }
 });
+
+// GET /logs - Get security logs
+router.get('/logs', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search, level, type } = req.query
+    const skip = (page - 1) * limit
+    
+    const SuperAdmin = require('../models/SuperAdmin')
+    const User = require('../models/User')
+    
+    // Get all super admins to aggregate their logs
+    const superAdmins = await SuperAdmin.find({}, 'securityLogs email')
+    
+    // Flatten and format logs
+    let allLogs = []
+    superAdmins.forEach(admin => {
+      if (admin.securityLogs && admin.securityLogs.length > 0) {
+        admin.securityLogs.forEach(log => {
+          allLogs.push({
+            ...log.toObject(),
+            adminEmail: admin.email,
+            _id: `${admin._id}_${log.timestamp || Date.now()}`
+          })
+        })
+      }
+    })
+    
+    // Sort by timestamp descending (newest first)
+    allLogs.sort((a, b) => {
+      const aTime = a.timestamp || a.createdAt || 0
+      const bTime = b.timestamp || b.createdAt || 0
+      return new Date(bTime) - new Date(aTime)
+    })
+    
+    // Apply filters
+    let filtered = allLogs
+    
+    if (search) {
+      filtered = filtered.filter(log => 
+        log.action?.toLowerCase().includes(search.toLowerCase()) ||
+        log.details?.toLowerCase().includes(search.toLowerCase()) ||
+        log.ipAddress?.toLowerCase().includes(search.toLowerCase())
+      )
+    }
+    
+    // Apply level filter (if needed, based on action type)
+    if (level && level !== 'all') {
+      // Map actions to levels for better filtering
+      filtered = filtered.filter(log => {
+        if (level === 'error') {
+          return log.action?.includes('fail') || log.action?.includes('error') || !log.success
+        } else if (level === 'warning') {
+          return log.action?.includes('attempt') || log.action?.includes('lockout')
+        } else if (level === 'success') {
+          return log.success === true
+        }
+        return true
+      })
+    }
+    
+    // Apply type filter
+    if (type && type !== 'all') {
+      filtered = filtered.filter(log => {
+        const actionStr = log.action?.toLowerCase() || ''
+        if (type === 'security') {
+          return actionStr.includes('login') || actionStr.includes('auth') || actionStr.includes('security')
+        } else if (type === 'system') {
+          return actionStr.includes('system') || actionStr.includes('api')
+        } else if (type === 'user_action') {
+          return actionStr.includes('user') || actionStr.includes('action')
+        }
+        return true
+      })
+    }
+    
+    const total = filtered.length
+    const paginatedLogs = filtered.slice(skip, skip + parseInt(limit))
+    
+    // Enrich with user information if available
+    const enrichedLogs = await Promise.all(paginatedLogs.map(async (log) => {
+      let enrichedLog = {
+        ...log,
+        level: !log.success ? 'error' : (log.action?.includes('attempt') ? 'warning' : 'info'),
+        type: log.action?.includes('login') || log.action?.includes('auth') ? 'security' : 
+               log.action?.includes('system') ? 'system' : 'user_action',
+        message: log.details || log.action,
+        userId: log.adminEmail,
+        timestamp: log.timestamp
+      }
+      return enrichedLog
+    }))
+    
+    res.json({
+      success: true,
+      logs: enrichedLogs,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / limit)
+    })
+  } catch (error) {
+    console.error('Logs fetch error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch logs',
+      error: error.message
+    })
+  }
+})
+
+// System Settings Routes (Protected - requires canManageSettings permission)
+router.get('/settings', checkPermission('canManageSettings'), async (req, res) => {
+  try {
+    const settings = await SystemSettings.getInstance()
+    res.json({
+      success: true,
+      settings
+    })
+  } catch (error) {
+    console.error('Fetch settings error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch settings',
+      error: error.message
+    })
+  }
+})
+
+router.put('/settings', checkPermission('canManageSettings'), async (req, res) => {
+  try {
+    const settings = await SystemSettings.getInstance()
+    const updates = req.body
+    
+    // Update settings
+    if (updates.security) Object.assign(settings.security, updates.security)
+    if (updates.features) Object.assign(settings.features, updates.features)
+    if (updates.system) Object.assign(settings.system, updates.system)
+    if (updates.api) Object.assign(settings.api, updates.api)
+    if (updates.email) Object.assign(settings.email, updates.email)
+    if (updates.privacy) Object.assign(settings.privacy, updates.privacy)
+    
+    settings.lastModifiedBy = req.superAdmin._id
+    settings.lastModifiedAt = new Date()
+    
+    await settings.save()
+    
+    res.json({
+      success: true,
+      message: 'Settings updated successfully',
+      settings
+    })
+  } catch (error) {
+    console.error('Update settings error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update settings',
+      error: error.message
+    })
+  }
+})
+
+router.post('/settings/reset', checkPermission('canManageSettings'), async (req, res) => {
+  try {
+    const settings = await SystemSettings.findOne()
+    
+    if (settings) {
+      // Reset to defaults
+      await SystemSettings.deleteOne({ _id: settings._id })
+    }
+    
+    const newSettings = await SystemSettings.getInstance()
+    
+    res.json({
+      success: true,
+      message: 'Settings reset to defaults',
+      settings: newSettings
+    })
+  } catch (error) {
+    console.error('Reset settings error:', error)
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset settings',
+      error: error.message
+    })
+  }
+})
 
 module.exports = router
