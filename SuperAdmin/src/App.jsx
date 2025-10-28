@@ -14,6 +14,7 @@ import Moderators from './pages/Moderators'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import FeatureFlags from './pages/FeatureFlags'
+import Profile from './pages/Profile'
 import TestPage from './pages/TestPage'
 import { Toaster } from 'react-hot-toast'
 
@@ -62,6 +63,7 @@ function App() {
                       <Route path="/moderators" element={<Moderators />} />
                       <Route path="/logs" element={<Logs />} />
                       <Route path="/settings" element={<Settings />} />
+                      <Route path="/profile" element={<Profile />} />
                       <Route path="/feature-flags" element={<FeatureFlags />} />
                       <Route path="/test" element={<TestPage />} />
                     </Routes>

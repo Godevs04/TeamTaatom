@@ -37,7 +37,10 @@ const Dashboard = () => {
       trend: 'up',
       icon: Users,
       color: 'text-blue-600',
-      bgColor: 'bg-blue-100'
+      bgColor: 'bg-gradient-to-br from-blue-400 to-cyan-500',
+      cardBg: 'from-blue-50 to-cyan-50',
+      borderColor: 'border-blue-200',
+      gradientText: 'from-blue-600 to-cyan-600'
     },
     {
       title: 'Active Users',
@@ -46,7 +49,10 @@ const Dashboard = () => {
       trend: 'up',
       icon: Activity,
       color: 'text-green-600',
-      bgColor: 'bg-green-100'
+      bgColor: 'bg-gradient-to-br from-green-400 to-emerald-500',
+      cardBg: 'from-green-50 to-emerald-50',
+      borderColor: 'border-green-200',
+      gradientText: 'from-green-600 to-emerald-600'
     },
     {
       title: 'Total Posts',
@@ -55,7 +61,10 @@ const Dashboard = () => {
       trend: 'up',
       icon: MessageSquare,
       color: 'text-purple-600',
-      bgColor: 'bg-purple-100'
+      bgColor: 'bg-gradient-to-br from-purple-400 to-violet-500',
+      cardBg: 'from-purple-50 to-violet-50',
+      borderColor: 'border-purple-200',
+      gradientText: 'from-purple-600 to-violet-600'
     },
     {
       title: 'Total Shorts',
@@ -64,43 +73,54 @@ const Dashboard = () => {
       trend: 'up',
       icon: MessageSquare,
       color: 'text-orange-600',
-      bgColor: 'bg-orange-100'
+      bgColor: 'bg-gradient-to-br from-orange-400 to-red-500',
+      cardBg: 'from-orange-50 to-red-50',
+      borderColor: 'border-orange-200',
+      gradientText: 'from-orange-600 to-red-600'
     }
   ]
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-2">
-            Welcome back! Here's what's happening with your platform.
-          </p>
-          {lastUpdate && (
-            <p className="text-sm text-gray-500 mt-1">
-              Last updated: {new Date(lastUpdate).toLocaleTimeString()}
+      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl p-8 shadow-lg border border-blue-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center space-x-3 mb-3">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg">
+                <Activity className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Dashboard
+              </h1>
+              <span className="px-3 py-1.5 bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-semibold rounded-full shadow-md animate-pulse">
+                <span className="w-2 h-2 bg-white rounded-full inline-block mr-2 animate-ping"></span>
+                Live Data
+              </span>
+            </div>
+            <p className="text-gray-600 text-lg">
+              Welcome back! Here's what's happening with your platform.
             </p>
-          )}
-        </div>
-        <div className="flex items-center space-x-2">
-          <div className="px-3 py-1 bg-green-100 rounded-full">
-            <span className="text-sm font-semibold text-green-600">Live Data</span>
+            {lastUpdate && (
+              <p className="text-sm text-gray-500 mt-2">
+                Last updated: {new Date(lastUpdate).toLocaleTimeString()}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+        <nav className="-mb-px flex space-x-1 p-2">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`flex items-center py-3 px-6 rounded-lg font-semibold text-sm transition-all duration-200 ${
                 activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg transform scale-105'
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
               }`}
             >
               <tab.icon className="w-4 h-4 mr-2" />
@@ -126,15 +146,17 @@ const Dashboard = () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  className="bg-white rounded-lg border border-gray-200 p-6"
+                  className={`bg-gradient-to-br ${card.cardBg} rounded-2xl p-6 border ${card.borderColor} shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200`}
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-600">{card.title}</p>
-                      <p className="text-2xl font-bold text-gray-900">{card.value.toLocaleString()}</p>
+                      <p className={`text-3xl font-bold bg-gradient-to-r ${card.gradientText} bg-clip-text text-transparent`}>
+                        {card.value.toLocaleString()}
+                      </p>
                     </div>
-                    <div className={`p-3 rounded-full ${card.bgColor}`}>
-                      <card.icon className={`w-6 h-6 ${card.color}`} />
+                    <div className={`p-3 rounded-xl shadow-md ${card.bgColor}`}>
+                      <card.icon className="w-6 h-6 text-white" />
                     </div>
                   </div>
                   <div className="mt-4 flex items-center">

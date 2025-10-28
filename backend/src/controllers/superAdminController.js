@@ -26,6 +26,31 @@ const verifySuperAdminToken = async (req, res, next) => {
   }
 }
 
+// Middleware to check specific permissions
+const checkPermission = (permissionName) => {
+  return (req, res, next) => {
+    try {
+      // Founders have all permissions
+      if (req.superAdmin.role === 'founder') {
+        return next()
+      }
+      
+      // Check specific permission
+      if (!req.superAdmin.permissions || !req.superAdmin.permissions[permissionName]) {
+        return res.status(403).json({ 
+          message: 'Access denied. Insufficient permissions.',
+          required: permissionName 
+        })
+      }
+      
+      next()
+    } catch (error) {
+      console.error('Permission check error:', error)
+      res.status(500).json({ message: 'Permission check failed.' })
+    }
+  }
+}
+
 // Login SuperAdmin
 const loginSuperAdmin = async (req, res) => {
   try {
@@ -445,6 +470,7 @@ const resend2FA = async (req, res) => {
 
 module.exports = {
   verifySuperAdminToken,
+  checkPermission,
   loginSuperAdmin,
   verify2FA,
   resend2FA,
