@@ -177,3 +177,23 @@ export const rejectFollowRequest = async (requestId: string): Promise<{ message:
     throw new Error(error.response?.data?.message || 'Failed to reject follow request');
   }
 };
+
+// Block or unblock a user
+export const toggleBlockUser = async (userId: string): Promise<{ message: string; isBlocked: boolean }> => {
+  try {
+    const response = await api.post(`/profile/${userId}/block`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to update block status');
+  }
+};
+
+// Get block status
+export const getBlockStatus = async (userId: string): Promise<{ isBlocked: boolean }> => {
+  try {
+    const response = await api.get(`/profile/${userId}/block-status`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to get block status');
+  }
+};

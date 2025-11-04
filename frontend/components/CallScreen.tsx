@@ -29,6 +29,9 @@ interface CallScreenProps {
 
 export default function CallScreen({ visible, onClose, otherUser }: CallScreenProps) {
   const { theme } = useTheme();
+  const [RTCViewImpl, setRTCViewImpl] = useState<any | null>(null);
+  const [remoteStreamUrl, setRemoteStreamUrl] = useState<string | null>(null);
+  const [localStreamUrl, setLocalStreamUrl] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>(() => {
     const serviceState = callService.getCallState();
     // If this is a test user and service state has no otherUserId, create a test state
@@ -46,6 +49,54 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
   
   console.log('📞 CallScreen render - visible:', visible, 'callState:', callState, 'otherUser:', otherUser);
   const [pulseAnim] = useState(new Animated.Value(1));
+
+  // Dynamically load WebRTC (if available) and capture streams from callService
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWebRTC = async () => {
+      try {
+        const rnWebRTC: any = await import('react-native-webrtc');
+        if (!cancelled) {
+          const ViewImpl = rnWebRTC.RTCView || rnWebRTC.default?.RTCView || null;
+          setRTCViewImpl(ViewImpl);
+        }
+      } catch (e) {
+        // WebRTC not installed; fallback UI will be used
+        setRTCViewImpl(null);
+      }
+      // Update stream URLs if callService has streams
+      updateStreams();
+    };
+
+    const updateStreams = () => {
+      const anyService = callService as any;
+      const remote = anyService?.remoteStream;
+      const local = anyService?.localStream;
+      try {
+        setRemoteStreamUrl(remote?.toURL ? remote.toURL() : null);
+      } catch {
+        setRemoteStreamUrl(null);
+      }
+      try {
+        setLocalStreamUrl(local?.toURL ? local.toURL() : null);
+      } catch {
+        setLocalStreamUrl(null);
+      }
+    };
+
+    loadWebRTC();
+
+    // Subscribe to call state to refresh streams when they change
+    const unsubscribe = callService.onCallStateChange(() => {
+      updateStreams();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = callService.onCallStateChange((newState) => {
@@ -432,33 +483,14 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
         {/* Remote Video */}
         <View style={styles.remoteVideo}>
           {callState.callType === 'video' ? (
-            // Video Call - Show video placeholder with user info
-            <View style={styles.videoPlaceholderContainer}>
-              {/* Try multiple video sources for better reliability */}
-              <Video
-                source={{ uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' }}
-                style={styles.videoPlayer}
-                shouldPlay={true}
-                isLooping={true}
-                isMuted={true}
-                resizeMode={ResizeMode.COVER}
-                onError={(error) => {
-                  console.log('Primary video error:', error);
-                  // Try fallback video
-                }}
-                onLoad={() => {
-                  console.log('📞 Primary video loaded successfully');
-                }}
-              />
-              <View style={styles.videoOverlay}>
-                <Text style={styles.videoOverlayText}>
-                  {otherUser.fullName}
-                </Text>
-                <Text style={styles.videoStatusText}>
-                  Video Call Active
-                </Text>
+            // Prefer real remote stream if available; otherwise show neutral placeholder (no static video)
+            RTCViewImpl && remoteStreamUrl ? (
+              <RTCViewImpl streamURL={remoteStreamUrl} style={styles.videoPlayer} objectFit="cover" />
+            ) : (
+              <View style={[styles.videoPlayer, { alignItems: 'center', justifyContent: 'center' }]}> 
+                <Text style={{ color: '#aaa' }}>Waiting for remote video…</Text>
               </View>
-            </View>
+            )
           ) : (
             // Voice Call - Show profile picture
             <>
@@ -485,21 +517,13 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
         {/* Local Video */}
         {callState.callType === 'video' && (
           <View style={styles.localVideo}>
-            <Video
-              source={{ uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4' }}
-              style={styles.localVideoPlayer}
-              shouldPlay={true}
-              isLooping={true}
-              isMuted={true}
-              resizeMode={ResizeMode.COVER}
-              onError={(error) => {
-                console.log('Local video error:', error);
-                // Fallback to avatar if video fails
-              }}
-              onLoad={() => {
-                console.log('📞 Local video loaded successfully');
-              }}
-            />
+            {RTCViewImpl && localStreamUrl ? (
+              <RTCViewImpl streamURL={localStreamUrl} style={styles.localVideoPlayer} objectFit="cover" />
+            ) : (
+              <View style={[styles.localVideoPlayer, { alignItems: 'center', justifyContent: 'center' }]}> 
+                <Text style={{ color: '#aaa' }}>Camera preview…</Text>
+              </View>
+            )}
             <View style={styles.localVideoOverlay}>
               <Text style={styles.localVideoText}>You</Text>
             </View>

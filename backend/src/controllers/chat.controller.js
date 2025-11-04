@@ -51,8 +51,17 @@ const getSocketInstance = () => {
 
 // Helper: check if user is following the other
 async function canChat(userId, otherId) {
-  // const user = await User.findById(userId);
-  // return user && user.following.includes(otherId);
+  // Check if either user has blocked the other
+  const user = await User.findById(userId);
+  const other = await User.findById(otherId);
+  
+  if (user && user.blockedUsers && user.blockedUsers.includes(otherId)) {
+    return false; // User has blocked the other
+  }
+  if (other && other.blockedUsers && other.blockedUsers.includes(userId)) {
+    return false; // Other has blocked the user
+  }
+  
   return true;
 }
 
@@ -107,7 +116,14 @@ exports.getChat = async (req, res) => {
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
       return res.status(400).json({ message: 'Invalid user' });
     }
-    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    
+    // Check if users can chat (check for blocked users)
+    const canChatResult = await canChat(userId, otherUserId);
+    if (!canChatResult) {
+      return res.status(403).json({ 
+        message: 'You cannot chat with this user. One of you may have blocked the other.' 
+      });
+    }
     
     let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
       .populate('participants', 'fullName profilePic')
@@ -281,4 +297,106 @@ exports.markAllMessagesSeen = async (req, res) => {
   });
   if (updated) await chat.save();
   res.json({ success: true });
+};
+
+// Clear all messages in a chat
+exports.clearChat = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { otherUserId } = req.params;
+    
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+    
+    // Clear all messages
+    chat.messages = [];
+    await chat.save();
+    
+    // Emit socket event to update chat list
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        nsp.to(`user:${userId}`).emit('chat:cleared', { chatId: chat._id });
+        nsp.to(`user:${otherUserId}`).emit('chat:cleared', { chatId: chat._id });
+      }
+    } catch (socketError) {
+      console.error('Error emitting socket events:', socketError);
+    }
+    
+    res.json({ success: true, message: 'Chat cleared successfully' });
+  } catch (error) {
+    console.error('Error clearing chat:', error);
+    res.status(500).json({ message: 'Failed to clear chat' });
+  }
+};
+
+// Mute or unmute chat notifications
+exports.toggleMuteChat = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { otherUserId } = req.params;
+    
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+    
+    const user = await User.findById(userId);
+    const muteIndex = user.mutedChats.findIndex(
+      m => m.chatId.toString() === chat._id.toString()
+    );
+    
+    if (muteIndex >= 0) {
+      // Unmute
+      user.mutedChats.splice(muteIndex, 1);
+      await user.save();
+      res.json({ success: true, muted: false, message: 'Chat unmuted successfully' });
+    } else {
+      // Mute
+      user.mutedChats.push({ chatId: chat._id, mutedAt: new Date() });
+      await user.save();
+      res.json({ success: true, muted: true, message: 'Chat muted successfully' });
+    }
+  } catch (error) {
+    console.error('Error toggling mute:', error);
+    res.status(500).json({ message: 'Failed to toggle mute' });
+  }
+};
+
+// Get mute status for a chat
+exports.getMuteStatus = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { otherUserId } = req.params;
+    
+    if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+    
+    const user = await User.findById(userId);
+    const isMuted = user.mutedChats.some(
+      m => m.chatId.toString() === chat._id.toString()
+    );
+    
+    res.json({ muted: isMuted });
+  } catch (error) {
+    console.error('Error getting mute status:', error);
+    res.status(500).json({ message: 'Failed to get mute status' });
+  }
 };

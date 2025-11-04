@@ -17,6 +17,8 @@ const {
   getTripScoreCountryDetails,
   getTripScoreLocations,
   getTravelMapData,
+  toggleBlockUser,
+  getBlockStatus,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -132,6 +134,8 @@ router.post('/follow-requests/:requestId/reject', authMiddleware, rejectFollowRe
 router.get('/:id', optionalAuth, getProfile);
 router.put('/:id', authMiddleware, upload.single('profilePic'), updateProfileValidation, updateProfile);
 router.post('/:id/follow', authMiddleware, toggleFollow);
+router.post('/:id/block', authMiddleware, toggleBlockUser);
+router.get('/:id/block-status', authMiddleware, getBlockStatus);
 router.get('/:id/followers', optionalAuth, getFollowersList);
 router.get('/:id/following', optionalAuth, getFollowingList);
 

@@ -8,6 +8,16 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Name cannot be more than 50 characters']
   },
+  username: {
+    type: String,
+    required: [true, 'Username is required'],
+    unique: true,
+    trim: true,
+    lowercase: true,
+    minlength: [3, 'Username must be at least 3 characters'],
+    maxlength: [20, 'Username cannot exceed 20 characters'],
+    match: [/^[a-z0-9_.]+$/, 'Username can only contain lowercase letters, numbers, and underscores']
+  },
   bio: {
     type: String,
     required: false,
@@ -45,6 +55,20 @@ const userSchema = new mongoose.Schema({
   following: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  }],
+  blockedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  mutedChats: [{
+    chatId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Chat'
+    },
+    mutedAt: {
+      type: Date,
+      default: Date.now
+    }
   }],
   followRequests: [{
     user: {

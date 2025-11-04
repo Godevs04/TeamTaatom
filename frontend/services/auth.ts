@@ -6,6 +6,7 @@ import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandle
 
 export interface SignUpData {
   fullName: string;
+  username: string;
   email: string;
   password: string;
 }
@@ -34,6 +35,17 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Sign up failed');
+  }
+};
+
+// Check username availability
+export const checkUsernameAvailability = async (username: string): Promise<{ available: boolean }> => {
+  try {
+    const response = await api.get('/auth/check-username', { params: { username } });
+    return response.data;
+  } catch (error: any) {
+    // On network/server error, treat as not available to be safe
+    return { available: false };
   }
 };
 
