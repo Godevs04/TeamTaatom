@@ -1,8 +1,9 @@
 const express = require('express');
-const { body } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const {
   signup,
+  checkUsernameAvailability,
   verifyOTP,
   resendOTP,
   signin,
@@ -20,6 +21,13 @@ const signupValidation = [
     .trim()
     .isLength({ min: 2, max: 50 })
     .withMessage('Full name must be between 2 and 50 characters'),
+  body('username')
+    .trim()
+    .toLowerCase()
+    .matches(/^[a-z0-9_.]+$/)
+    .withMessage('Username can only contain lowercase letters, numbers, and underscores')
+    .isLength({ min: 3, max: 20 })
+    .withMessage('Username must be 3-20 characters long'),
   body('email')
     .isEmail()
     .normalizeEmail()
@@ -53,6 +61,7 @@ const signinValidation = [
 // Routes
 router.post('/signup', signupValidation, signup);
 router.post('/verify-otp', verifyOTPValidation, verifyOTP);
+router.get('/check-username', [query('username').trim().toLowerCase().notEmpty()], checkUsernameAvailability);
 router.post('/resend-otp', resendOTP);
 router.post('/signin', signinValidation, signin);
 router.post('/google', googleSignIn);

@@ -18,6 +18,8 @@ const errorHandler = (err, req, res, next) => {
     const field = Object.keys(err.keyValue)[0];
     if (field === 'email') {
       message = 'Email already exists';
+    } else if (field === 'username') {
+      message = 'Username already exists';
     }
     
     error = { message, statusCode: 400 };

@@ -33,15 +33,21 @@ const signup = async (req, res) => {
       });
     }
 
-    const { fullName, email, password } = req.body;
+    const { fullName, username, email, password } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    // Check if user already exists (email or username)
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }]
+    });
     if (existingUser) {
+      const isSameEmail = existingUser.email === email;
+      const isSameUsername = existingUser.username === username;
       if (existingUser.isVerified) {
         return res.status(400).json({
           error: 'User already exists',
-          message: 'An account with this email already exists and is verified'
+          message: isSameEmail
+            ? 'An account with this email already exists and is verified'
+            : 'Username already exists',
         });
       } else {
         // User exists but not verified, resend OTP
@@ -60,6 +66,7 @@ const signup = async (req, res) => {
     // Create new user
     const user = new User({
       fullName,
+      username,
       email,
       password
     });
@@ -552,6 +559,20 @@ console.log('User found:', user);
 
 module.exports = {
   signup,
+  // Check if username is available
+  checkUsernameAvailability: async (req, res) => {
+    try {
+      const username = (req.query.username || req.params.username || '').toLowerCase().trim();
+      if (!username) {
+        return res.status(400).json({ error: 'Username required', available: false });
+      }
+      const exists = await User.exists({ username });
+      return res.status(200).json({ available: !exists });
+    } catch (error) {
+      console.error('Check username error:', error);
+      return res.status(500).json({ error: 'Internal server error', available: false });
+    }
+  },
   verifyOTP,
   resendOTP,
   signin,
