@@ -25,9 +25,23 @@ config.server = {
 };
 
 // Enable network access
+const defaultResolver = require('metro-resolver');
+
 config.resolver = {
   ...config.resolver,
   platforms: ['ios', 'android', 'native', 'web'],
+  // Custom resolver to exclude react-native-maps on web
+  resolveRequest: (context, moduleName, platform) => {
+    // Exclude react-native-maps on web platform
+    if (platform === 'web' && moduleName === 'react-native-maps') {
+      return {
+        type: 'empty',
+      };
+    }
+    
+    // Use default resolver for everything else
+    return defaultResolver.resolve(context, moduleName, platform);
+  },
 };
 
 module.exports = config;
