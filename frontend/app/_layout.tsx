@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -12,8 +12,9 @@ import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import ResponsiveContainer from '../components/ResponsiveContainer';
+import { useWebOptimizations } from '../hooks/useWebOptimizations';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -25,6 +26,9 @@ function RootLayoutInner() {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [showSessionBanner, setShowSessionBanner] = useState(true);
   const router = useRouter();
+  
+  // Apply web optimizations
+  useWebOptimizations();
 
   useEffect(() => {
     let unsubFeed: (() => void) | null = null;
@@ -247,7 +251,7 @@ function RootLayoutInner() {
   }
 
   return (
-    <>
+    <ResponsiveContainer maxWidth={Platform.OS === 'web' ? 600 : undefined}>
       {isOffline && (
         <View style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100 }}>
           <Text style={{ color: '#222', fontWeight: 'bold' }}>You are offline. Some features may not work.</Text>
@@ -272,7 +276,7 @@ function RootLayoutInner() {
           : <Stack.Screen name="(tabs)" />
         }
       </Stack>
-    </>
+    </ResponsiveContainer>
   );
 }
 
@@ -282,7 +286,9 @@ export default function RootLayout() {
       <ThemeProvider>
         <SettingsProvider>
           <AlertProvider>
-            <RootLayoutInner />
+            <View style={styles.rootContainer}>
+              <RootLayoutInner />
+            </View>
           </AlertProvider>
         </SettingsProvider>
       </ThemeProvider>
@@ -291,6 +297,14 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+    width: '100%',
+    ...(Platform.OS === 'web' && {
+      alignItems: 'center',
+      backgroundColor: '#000', // Dark background for web
+    }),
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

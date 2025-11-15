@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Linking,
   Animated,
   TextInput,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -39,12 +40,13 @@ interface PhotoCardProps {
   isVisible?: boolean; // For lazy loading
 }
 
-export default function PhotoCard({
+function PhotoCard({
   post,
   onRefresh,
   onPress,
   isVisible = true,
 }: PhotoCardProps) {
+  const isWeb = Platform.OS === 'web';
   const { theme } = useTheme();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
@@ -211,7 +213,10 @@ export default function PhotoCard({
       return;
     }
 
-    console.log('PhotoCard: Loading image for post', post._id, 'URL:', post.imageUrl);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('PhotoCard: Loading image for post', post._id);
+    }
+    
     setImageLoading(true);
     setImageError(false);
     setImageUri(null);
@@ -219,30 +224,33 @@ export default function PhotoCard({
     // Progressive loading strategy
     const loadImage = async () => {
       try {
-        console.log('PhotoCard: Loading image with fallback for post', post._id);
-        
         // Use progressive loading with multiple strategies
+        // Web: Faster timeout, fewer retries for better UX
+        const timeout = isWeb ? 5000 : 8000;
+        const retries = isWeb ? 1 : 2;
+        
         const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
-          timeout: 8000,
-          retries: 2,
+          timeout,
+          retries,
           retryDelay: 1000
         });
         
-        console.log('PhotoCard: Image loaded successfully for post', post._id);
         setImageUri(optimizedUrl);
         setImageLoading(false);
         setImageError(false);
         setRetryCount(0);
         
       } catch (error) {
-        console.error('PhotoCard: All image loading strategies failed for post', post._id, error);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('PhotoCard: Image loading failed for post', post._id, error);
+        }
         setImageError(true);
         setImageLoading(false);
       }
     };
 
     loadImage();
-  }, [post.imageUrl, post._id, retryCount]);
+  }, [post.imageUrl, post._id, retryCount, isWeb]);
 
   const handleLike = async () => {
     if (!currentUser) {
@@ -1140,6 +1148,18 @@ export default function PhotoCard({
     </View>
   );
 }
+
+// Memoize component for better performance, especially on web
+export default memo(PhotoCard, (prevProps, nextProps) => {
+  // Only re-render if post data actually changed
+  return (
+    prevProps.post._id === nextProps.post._id &&
+    prevProps.post.isLiked === nextProps.post.isLiked &&
+    prevProps.post.likesCount === nextProps.post.likesCount &&
+    prevProps.post.commentsCount === nextProps.post.commentsCount &&
+    prevProps.isVisible === nextProps.isVisible
+  );
+});
 
 const styles = StyleSheet.create({
   container: {
