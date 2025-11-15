@@ -45,6 +45,10 @@ export default function LocationDetailScreen() {
   const { theme } = useTheme();
   const router = useRouter();
   const { country, location, userId } = useLocalSearchParams();
+  
+  // Check if coming from locale flow (general) or tripscore flow
+  const countryParam = Array.isArray(country) ? country[0] : country;
+  const isFromLocaleFlow = countryParam === 'general';
 
   useEffect(() => {
     loadLocationData();
@@ -346,21 +350,23 @@ export default function LocationDetailScreen() {
           {displayLocationName}
         </Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.bookmarkButton}
-            onPress={handleBookmark}
-            disabled={bookmarkLoading}
-          >
-            {bookmarkLoading ? (
-              <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
-            ) : (
-              <Ionicons
-                name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                size={24}
-                color={isBookmarked ? '#FFD700' : theme.colors.textSecondary}
-              />
-            )}
-          </TouchableOpacity>
+          {isFromLocaleFlow && (
+            <TouchableOpacity
+              style={styles.bookmarkButton}
+              onPress={handleBookmark}
+              disabled={bookmarkLoading}
+            >
+              {bookmarkLoading ? (
+                <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
+              ) : (
+                <Ionicons
+                  name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                  size={24}
+                  color={isBookmarked ? '#FFD700' : theme.colors.textSecondary}
+                />
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.closeButton}
             onPress={() => router.back()}
