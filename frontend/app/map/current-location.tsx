@@ -8,13 +8,18 @@ import {
   ActivityIndicator,
   Dimensions,
   SafeAreaView,
-  StatusBar
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { WebView } from 'react-native-webview';
+import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { MapView, Marker, PROVIDER_GOOGLE } from '../../utils/mapsWrapper';
+
+const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -135,6 +140,65 @@ export default function CurrentLocationMap() {
     getCurrentLocation();
   };
 
+  // Generate HTML for WebView map (web platform)
+  const getWebMapHTML = () => {
+    if (!location) return '';
+    
+    const lat = location.coords.latitude;
+    const lng = location.coords.longitude;
+    const title = isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location';
+    const description = isPostLocation ? 'Post Location' : 'You are here';
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          html, body, #map { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+          }
+        </style>
+        <script>
+          function initMap() {
+            const map = new google.maps.Map(document.getElementById('map'), {
+              center: { lat: ${lat}, lng: ${lng} },
+              zoom: 15,
+              mapTypeId: 'terrain',
+            });
+            
+            const marker = new google.maps.Marker({
+              position: { lat: ${lat}, lng: ${lng} },
+              map: map,
+              title: '${title}',
+              icon: {
+                url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF0000" stroke-width="2"/><text x="15" y="20" font-size="16" text-anchor="middle" fill="%23FF0000">🏳️</text></svg>',
+                scaledSize: new google.maps.Size(30, 30),
+              },
+            });
+            
+            const infoWindow = new google.maps.InfoWindow({
+              content: '<div style="padding: 8px;"><strong>${title}</strong><br/>${description}</div>',
+            });
+            
+            marker.addListener('click', function() {
+              infoWindow.open(map, marker);
+            });
+            
+            infoWindow.open(map, marker);
+          }
+        </script>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&callback=initMap"></script>
+      </body>
+      </html>
+    `;
+  };
+
   const renderMap = () => {
     if (loading) {
       return (
@@ -166,25 +230,54 @@ export default function CurrentLocationMap() {
       );
     }
 
-    return (
-        <MapView
+    if (Platform.OS === 'web') {
+      // WebView map for web platform
+      return (
+        <WebView
           style={styles.map}
-          provider={PROVIDER_GOOGLE}
-          customMapStyle={satelliteTheme}
-          initialRegion={{
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
+          source={{ html: getWebMapHTML() }}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          scalesPageToFit={true}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            console.error('WebView error: ', nativeEvent);
           }}
-          showsUserLocation={true}
-          showsMyLocationButton={true}
-          showsCompass={true}
-          showsScale={true}
-          mapType="terrain"
-          userLocationPriority="high"
-          followsUserLocation={true}
-        >
+        />
+      );
+    }
+
+    if (!MapView) {
+      return (
+        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+          <Text style={[styles.errorText, { color: theme.colors.text }]}>
+            Map not available on this platform
+          </Text>
+        </View>
+      );
+    }
+
+    // Native MapView for iOS/Android
+    return (
+      <MapView
+        style={styles.map}
+        provider={PROVIDER_GOOGLE}
+        customMapStyle={satelliteTheme}
+        initialRegion={{
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.1,
+          longitudeDelta: 0.1,
+        }}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
+        showsCompass={true}
+        showsScale={true}
+        mapType="terrain"
+        userLocationPriority="high"
+        followsUserLocation={true}
+      >
         <Marker
           coordinate={{
             latitude: location.coords.latitude,
