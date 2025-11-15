@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -10,7 +10,9 @@ import {
   SafeAreaView,
   TouchableOpacity,
   StatusBar,
-  ScrollView
+  ScrollView,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -25,6 +27,10 @@ import AnimatedHeader from '../../components/AnimatedHeader';
 import api from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { isWeb, throttle } from '../../utils/webOptimizations';
+
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
 
 export default function HomeScreen() {
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -40,17 +46,13 @@ export default function HomeScreen() {
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
     try {
-      console.log('Fetching posts for page:', pageNum);
-      const response = await getPosts(pageNum, 10); // Reduced from 20 to 10 for better mobile performance
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Fetching posts for page:', pageNum);
+      }
       
-      console.log('Received posts:', response.posts.length);
-      response.posts.forEach((post, index) => {
-        console.log(`Post ${index}:`, {
-          id: post._id,
-          imageUrl: post.imageUrl,
-          hasImageUrl: !!post.imageUrl
-        });
-      });
+      // Web: Fetch more posts per page for better UX
+      const postsPerPage = isWeb ? 15 : 10;
+      const response = await getPosts(pageNum, postsPerPage);
       
       if (shouldAppend) {
         setPosts(prev => [...prev, ...response.posts]);
@@ -61,19 +63,21 @@ export default function HomeScreen() {
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
       
-      // Preload images for better performance
+      // Preload images for better performance (more aggressive on web)
       if (response.posts.length > 0) {
+        const preloadCount = isWeb ? 8 : 5;
         response.posts.forEach((post, index) => {
-          if (post.imageUrl && index < 5) { // Preload first 5 images
-            console.log('Preloading image:', post.imageUrl);
-            imageCacheManager.prefetchImage(post.imageUrl).catch((err: any) => 
-              console.warn('Failed to preload image:', err)
-            );
+          if (post.imageUrl && index < preloadCount) {
+            imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
+              // Silently fail
+            });
           }
         });
       }
     } catch (error: any) {
-      console.error('Failed to fetch posts:', error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to fetch posts:', error);
+      }
       // Don't show error popup, just log it
       // Posts will show as empty, user can pull to refresh
     }
@@ -171,19 +175,31 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [fetchPosts, fetchUnseenMessageCount]);
 
-  const handleLoadMore = useCallback(async () => {
-    if (!loading && hasMore) {
-      await fetchPosts(page + 1, true);
-    }
-  }, [loading, hasMore, page, fetchPosts]);
+  // Throttle load more for web performance
+  const handleLoadMore = useCallback(
+    throttle(async () => {
+      if (!loading && hasMore) {
+        await fetchPosts(page + 1, true);
+      }
+    }, 1000),
+    [loading, hasMore, page, fetchPosts]
+  );
 
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme.colors.background,
+      ...(isWeb && {
+        maxWidth: 600,
+        alignSelf: 'center',
+        width: '100%',
+      }),
     },
     safeArea: {
       flex: 1,
+      ...(isWeb && {
+        width: '100%',
+      }),
     },
 
     loadingContainer: {
@@ -331,9 +347,19 @@ export default function HomeScreen() {
           <OptimizedPhotoCard 
             post={item} 
             onRefresh={handleRefresh}
-            isVisible={true} // Always render for debugging
+            isVisible={true}
+            key={item._id}
           />
         )}
+        // Web-specific optimizations
+        {...(isWeb && {
+          removeClippedSubviews: true,
+          maxToRenderPerBatch: 5,
+          updateCellsBatchingPeriod: 50,
+          initialNumToRender: 3,
+          windowSize: 5,
+          getItemLayout: undefined, // Let FlatList calculate
+        })}
       />
       </SafeAreaView>
     </View>
