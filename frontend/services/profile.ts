@@ -57,7 +57,7 @@ export interface SearchUsersResponse {
 // Get user profile
 export const getProfile = async (userId: string): Promise<ProfileResponse> => {
   try {
-    const response = await api.get(`/profile/${userId}`);
+    const response = await api.get(`/api/v1/profile/${userId}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch profile');
@@ -93,7 +93,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       hasProfilePic: !!data.profilePic,
     });
 
-    const response = await api.put(`/profile/${userId}`, formData, {
+    const response = await api.put(`/api/v1/profile/${userId}`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -115,7 +115,7 @@ export const toggleFollow = async (userId: string): Promise<{
   followingCount: number;
 }> => {
   try {
-    const response = await api.post(`/profile/${userId}/follow`);
+    const response = await api.post(`/api/v1/profile/${userId}/follow`);
     return response.data;
   } catch (error: any) {
     // Handle 409 (Conflict) as a special case for follow request already pending
@@ -131,7 +131,7 @@ export const toggleFollow = async (userId: string): Promise<{
 // Search users
 export const searchUsers = async (query: string, page: number = 1, limit: number = 20): Promise<SearchUsersResponse> => {
   try {
-    const response = await api.get(`/profile/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/profile/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to search users');
@@ -141,7 +141,7 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
 // Update Expo push token
 export const updateExpoPushToken = async (userId: string, expoPushToken: string): Promise<void> => {
   try {
-    await api.put(`/profile/${userId}/push-token`, { expoPushToken });
+    await api.put(`/api/v1/profile/${userId}/push-token`, { expoPushToken });
   } catch (error: any) {
     console.error('Failed to update Expo push token:', error.response?.data || error.message);
     throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
@@ -151,7 +151,7 @@ export const updateExpoPushToken = async (userId: string, expoPushToken: string)
 // Get follow requests
 export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
   try {
-    const response = await api.get('/profile/follow-requests');
+    const response = await api.get('/api/v1/profile/follow-requests');
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch follow requests');
@@ -161,7 +161,7 @@ export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
 // Approve follow request
 export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number }> => {
   try {
-    const response = await api.post(`/profile/follow-requests/${requestId}/approve`);
+    const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/approve`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to approve follow request');
@@ -171,7 +171,7 @@ export const approveFollowRequest = async (requestId: string): Promise<{ message
 // Reject follow request
 export const rejectFollowRequest = async (requestId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.post(`/profile/follow-requests/${requestId}/reject`);
+    const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/reject`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to reject follow request');
@@ -181,7 +181,7 @@ export const rejectFollowRequest = async (requestId: string): Promise<{ message:
 // Block or unblock a user
 export const toggleBlockUser = async (userId: string): Promise<{ message: string; isBlocked: boolean }> => {
   try {
-    const response = await api.post(`/profile/${userId}/block`);
+    const response = await api.post(`/api/v1/profile/${userId}/block`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to update block status');
@@ -191,7 +191,7 @@ export const toggleBlockUser = async (userId: string): Promise<{ message: string
 // Get block status
 export const getBlockStatus = async (userId: string): Promise<{ isBlocked: boolean }> => {
   try {
-    const response = await api.get(`/profile/${userId}/block-status`);
+    const response = await api.get(`/api/v1/profile/${userId}/block-status`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to get block status');

@@ -150,7 +150,7 @@ export default function LocationDetailScreen() {
         });
       } else {
         // This is a TripScore location, fetch from API
-        const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
+        const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
         const locations = response.data.locations;
         
         // Find the specific location

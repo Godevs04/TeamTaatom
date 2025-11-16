@@ -1,6 +1,6 @@
 const AnalyticsEvent = require('../../models/AnalyticsEvent');
 const ErrorLog = require('../../models/ErrorLog');
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger');
 
 // Process cleanup job
 const processCleanupJob = async (job) => {

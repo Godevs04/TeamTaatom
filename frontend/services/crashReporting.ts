@@ -84,7 +84,7 @@ class CrashReportingService {
 
     // Send to backend for logging/storage
     try {
-      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/analytics/errors`, {
+      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/analytics/errors`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,7 +120,7 @@ class CrashReportingService {
     }
 
     try {
-      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/analytics/errors`, {
+      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/analytics/errors`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

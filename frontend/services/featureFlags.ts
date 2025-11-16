@@ -65,7 +65,7 @@ class FeatureFlagsService {
     }
 
     try {
-      const response = await api.get('/feature-flags', {
+      const response = await api.get('/api/v1/feature-flags', {
         params: {
           userId: this.userId,
           platform: Platform.OS,

@@ -33,7 +33,7 @@ export interface AuthResponse {
 // Sign up user
 export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/signup', data);
+    const response = await api.post('/api/v1/auth/signup', data);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Sign up failed');
@@ -43,7 +43,7 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
 // Check username availability
 export const checkUsernameAvailability = async (username: string): Promise<{ available: boolean }> => {
   try {
-    const response = await api.get('/auth/check-username', { params: { username } });
+    const response = await api.get('/api/v1/auth/check-username', { params: { username } });
     return response.data;
   } catch (error: any) {
     // On network/server error, treat as not available to be safe
@@ -54,7 +54,7 @@ export const checkUsernameAvailability = async (username: string): Promise<{ ava
 // Verify OTP
 export const verifyOTP = async (data: VerifyOTPData): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/verify-otp', data);
+    const response = await api.post('/api/v1/auth/verify-otp', data);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'OTP verification failed');
@@ -64,7 +64,7 @@ export const verifyOTP = async (data: VerifyOTPData): Promise<AuthResponse> => {
 // Resend OTP
 export const resendOTP = async (email: string): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/resend-otp', { email });
+    const response = await api.post('/api/v1/auth/resend-otp', { email });
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to resend OTP');
@@ -77,7 +77,7 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     // Debug: Log the API base URL being used
     // @ts-ignore
     console.log('API_BASE_URL:', require('./api').default.defaults.baseURL);
-    const response = await api.post('/auth/signin', data);
+    const response = await api.post('/api/v1/auth/signin', data);
     const { token, user } = response.data;
     
     // Store token and user data
@@ -120,7 +120,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
       }
     }
     
-    const response = await api.get('/auth/me');
+    const response = await api.get('/api/v1/auth/me');
     const user = response.data.user;
     await AsyncStorage.setItem('userData', JSON.stringify(user));
     lastAuthError = null;
@@ -263,7 +263,7 @@ export const signOut = async (): Promise<void> => {
     // For web, call logout endpoint to clear httpOnly cookie
     if (isWeb) {
       try {
-        await api.post('/auth/logout');
+        await api.post('/api/v1/auth/logout');
       } catch (error) {
         // Continue even if logout endpoint fails
         console.warn('Logout endpoint failed, clearing local storage');
@@ -288,7 +288,7 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
   try {
     // Forgot password request
     api.defaults.headers['User-Agent'] = Platform.OS === 'ios' ? 'iOS-App/1.0' : 'Android-App/1.0';
-    const response = await api.post('/auth/forgot-password', { email });
+    const response = await api.post('/api/v1/auth/forgot-password', { email });
     return response.data;
   } catch (error: any) {
     if (error.response?.status === 404) {

@@ -1,5 +1,5 @@
 const FeatureFlag = require('../models/FeatureFlag');
-const { logger } = require('../utils/logger');
+const logger = require('../utils/logger');
 
 // @desc    Get feature flags for user
 // @route   GET /feature-flags

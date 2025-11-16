@@ -48,7 +48,7 @@ export default function InterestsOnboarding() {
     setIsLoading(true);
     try {
       // Save interests to user profile
-      await api.post('/profile/interests', { interests: selectedInterests });
+      await api.post('/api/v1/profile/interests', { interests: selectedInterests });
       await AsyncStorage.setItem('onboarding_interests', JSON.stringify(selectedInterests));
       
       // Track feature usage

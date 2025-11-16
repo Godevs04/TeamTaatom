@@ -33,6 +33,8 @@ import { geocodeAddress } from '../utils/locationUtils';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
+import HashtagText from './HashtagText';
+import ShareModal from './ShareModal';
 
 interface PhotoCardProps {
   post: PostType;
@@ -61,6 +63,7 @@ function PhotoCard({
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(post.caption || '');
@@ -326,6 +329,10 @@ function PhotoCard({
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status.');
     }
+  };
+
+  const handleShareClick = () => {
+    setShowShareModal(true);
   };
 
   const handleShare = async () => {
@@ -823,7 +830,7 @@ function PhotoCard({
 
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={handleShare}
+            onPress={handleShareClick}
           >
             <Ionicons name="paper-plane-outline" size={24} color={theme.colors.text} />
           </TouchableOpacity>
@@ -853,12 +860,10 @@ function PhotoCard({
       {/* Caption */}
       {post.caption && (
         <View style={styles.captionContainer}>
-          <Text style={[styles.caption, { color: theme.colors.text }]}>
-            <Text style={[styles.username, { color: theme.colors.text }]}>
-              {post.user.fullName}
-            </Text>{' '}
-            {post.caption}
-          </Text>
+          <HashtagText
+            text={`${post.user.fullName} ${post.caption}`}
+            style={styles.caption}
+          />
           
           {/* Multiple images hint */}
           {post.images && post.images.length > 1 && (
@@ -1184,6 +1189,13 @@ function PhotoCard({
         type={alertConfig.type}
         onConfirm={alertConfig.onConfirm}
         onClose={() => setShowCustomAlert(false)}
+      />
+
+      {/* Share Modal */}
+      <ShareModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        post={post}
       />
     </View>
   );

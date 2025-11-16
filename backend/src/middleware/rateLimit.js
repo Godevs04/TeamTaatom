@@ -1,5 +1,5 @@
 const rateLimit = require('express-rate-limit');
-const { logger } = require('../utils/logger');
+const logger = require('../utils/logger');
 
 // Store user-based rate limit tracking
 const userRateLimitStore = new Map();

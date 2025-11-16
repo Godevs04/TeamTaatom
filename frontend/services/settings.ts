@@ -34,7 +34,7 @@ export interface SettingsResponse {
 const checkNetworkConnectivity = async (): Promise<boolean> => {
   try {
     // Try a simple ping to the server
-    const response = await api.get('/auth/me', { timeout: 5000 });
+    const response = await api.get('/api/v1/auth/me', { timeout: 5000 });
     return response.status === 200;
   } catch (error) {
     console.log('Network connectivity check failed:', error);
@@ -45,7 +45,7 @@ const checkNetworkConnectivity = async (): Promise<boolean> => {
 // Get user settings
 export const getSettings = async (): Promise<SettingsResponse> => {
   try {
-    const response = await api.get('/settings');
+    const response = await api.get('/api/v1/settings');
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch settings');
@@ -55,7 +55,7 @@ export const getSettings = async (): Promise<SettingsResponse> => {
 // Update user settings
 export const updateSettings = async (settings: Partial<UserSettings>): Promise<SettingsResponse> => {
   try {
-    const response = await api.put('/settings', { settings });
+    const response = await api.put('/api/v1/settings', { settings });
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to update settings');
@@ -73,7 +73,7 @@ export const updateSettingCategory = async (category: 'privacy' | 'notifications
       throw new Error('No internet connection. Please check your network and try again.');
     }
     
-    const response = await api.put(`/settings/${category}`, settings, {
+    const response = await api.put(`/api/v1/settings/${category}`, settings, {
       timeout: 10000, // 10 second timeout
       headers: {
         'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export const updateSettingCategory = async (category: 'privacy' | 'notifications
 // Reset settings to default
 export const resetSettings = async (): Promise<SettingsResponse> => {
   try {
-    const response = await api.post('/settings/reset');
+    const response = await api.post('/api/v1/settings/reset');
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to reset settings');

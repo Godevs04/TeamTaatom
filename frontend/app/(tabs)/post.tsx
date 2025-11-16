@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, ResizeMode } from "expo-av";
+import HashtagSuggest from "../../components/HashtagSuggest";
 
 
 interface PostFormValues {
@@ -958,24 +959,68 @@ export default function PostScreen() {
                 validationSchema={postSchema}
                 onSubmit={handlePost}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
-                  <View>
-                    <View style={{ marginBottom: theme.spacing.md }}>
-                      <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Comment</Text>
-                      <TextInput
-                        style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.md, fontSize: theme.typography.body.fontSize, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border }}
-                        placeholder="What's happening?"
-                        placeholderTextColor={theme.colors.textSecondary}
-                        value={values.comment}
-                        onChangeText={handleChange("comment")}
-                        onBlur={handleBlur("comment")}
-                        multiline
-                        numberOfLines={4}
-                      />
-                      {errors.comment && touched.comment && (
-                        <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.comment}</Text>
-                      )}
-                    </View>
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => {
+                  const [commentCursorPosition, setCommentCursorPosition] = useState<number | undefined>();
+                  const commentInputRef = useRef<TextInput>(null);
+
+                  const handleHashtagSelect = (hashtag: string) => {
+                    const currentText = values.comment;
+                    const cursorPos = commentCursorPosition || currentText.length;
+                    const textBeforeCursor = currentText.substring(0, cursorPos);
+                    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+                    
+                    if (lastHashIndex !== -1) {
+                      const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
+                      const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
+                      
+                      // Replace the hashtag being typed with the selected one
+                      const beforeHashtag = currentText.substring(0, lastHashIndex + 1);
+                      const afterHashtag = currentText.substring(cursorPos);
+                      const newText = `${beforeHashtag}${hashtag} ${afterHashtag}`;
+                      
+                      setFieldValue('comment', newText);
+                      // Set cursor position after the inserted hashtag
+                      setTimeout(() => {
+                        const newCursorPos = lastHashIndex + 1 + hashtag.length + 1;
+                        commentInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                      }, 0);
+                    }
+                  };
+
+                  return (
+                    <View>
+                      <View style={{ marginBottom: theme.spacing.md }}>
+                        <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Comment</Text>
+                        <View style={{ position: 'relative' }}>
+                          <TextInput
+                            ref={commentInputRef}
+                            style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.md, fontSize: theme.typography.body.fontSize, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border }}
+                            placeholder="What's happening?"
+                            placeholderTextColor={theme.colors.textSecondary}
+                            value={values.comment}
+                            onChangeText={(text) => {
+                              handleChange("comment")(text);
+                            }}
+                            onSelectionChange={(e) => {
+                              setCommentCursorPosition(e.nativeEvent.selection.start);
+                            }}
+                            onBlur={handleBlur("comment")}
+                            multiline
+                            numberOfLines={4}
+                          />
+                          <View style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, marginTop: 4 }}>
+                            <HashtagSuggest
+                              text={values.comment}
+                              cursorPosition={commentCursorPosition}
+                              onSelectHashtag={handleHashtagSelect}
+                              visible={true}
+                            />
+                          </View>
+                        </View>
+                        {errors.comment && touched.comment && (
+                          <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.comment}</Text>
+                        )}
+                      </View>
                     <View style={{ marginBottom: theme.spacing.md }}>
                       <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Place Name (Optional)</Text>
                       <TextInput
@@ -1016,7 +1061,8 @@ export default function PostScreen() {
                       )}
                     </TouchableOpacity>
                   </View>
-                )}
+                  );
+                }}
               </Formik>
             ) : (
               <Formik
@@ -1024,24 +1070,68 @@ export default function PostScreen() {
                 validationSchema={shortSchema}
                 onSubmit={handleShort}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
-                  <View>
-                    <View style={{ marginBottom: theme.spacing.md }}>
-                      <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Caption</Text>
-                      <TextInput
-                        style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.md, fontSize: theme.typography.body.fontSize, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border }}
-                        placeholder="Add a caption for your short..."
-                        placeholderTextColor={theme.colors.textSecondary}
-                        value={values.caption}
-                        onChangeText={handleChange("caption")}
-                        onBlur={handleBlur("caption")}
-                        multiline
-                        numberOfLines={3}
-                      />
-                      {errors.caption && touched.caption && (
-                        <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.caption}</Text>
-                      )}
-                    </View>
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => {
+                  const [captionCursorPosition, setCaptionCursorPosition] = useState<number | undefined>();
+                  const captionInputRef = useRef<TextInput>(null);
+
+                  const handleHashtagSelect = (hashtag: string) => {
+                    const currentText = values.caption;
+                    const cursorPos = captionCursorPosition || currentText.length;
+                    const textBeforeCursor = currentText.substring(0, cursorPos);
+                    const lastHashIndex = textBeforeCursor.lastIndexOf('#');
+                    
+                    if (lastHashIndex !== -1) {
+                      const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
+                      const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
+                      
+                      // Replace the hashtag being typed with the selected one
+                      const beforeHashtag = currentText.substring(0, lastHashIndex + 1);
+                      const afterHashtag = currentText.substring(cursorPos);
+                      const newText = `${beforeHashtag}${hashtag} ${afterHashtag}`;
+                      
+                      setFieldValue('caption', newText);
+                      // Set cursor position after the inserted hashtag
+                      setTimeout(() => {
+                        const newCursorPos = lastHashIndex + 1 + hashtag.length + 1;
+                        captionInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                      }, 0);
+                    }
+                  };
+
+                  return (
+                    <View>
+                      <View style={{ marginBottom: theme.spacing.md }}>
+                        <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Caption</Text>
+                        <View style={{ position: 'relative' }}>
+                          <TextInput
+                            ref={captionInputRef}
+                            style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.md, fontSize: theme.typography.body.fontSize, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border }}
+                            placeholder="Add a caption for your short..."
+                            placeholderTextColor={theme.colors.textSecondary}
+                            value={values.caption}
+                            onChangeText={(text) => {
+                              handleChange("caption")(text);
+                            }}
+                            onSelectionChange={(e) => {
+                              setCaptionCursorPosition(e.nativeEvent.selection.start);
+                            }}
+                            onBlur={handleBlur("caption")}
+                            multiline
+                            numberOfLines={3}
+                          />
+                          <View style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, marginTop: 4 }}>
+                            <HashtagSuggest
+                              text={values.caption}
+                              cursorPosition={captionCursorPosition}
+                              onSelectHashtag={handleHashtagSelect}
+                              visible={true}
+                            />
+                          </View>
+                        </View>
+                        {errors.caption && touched.caption && (
+                          <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.caption}</Text>
+                        )}
+                      </View>
                     <View style={{ marginBottom: theme.spacing.md }}>
                       <Text style={{ fontSize: theme.typography.body.fontSize, fontWeight: "600", color: theme.colors.text, marginBottom: theme.spacing.xs }}>Tags (Optional)</Text>
                       <TextInput
@@ -1102,7 +1192,8 @@ export default function PostScreen() {
                       )}
                     </TouchableOpacity>
                   </View>
-                )}
+                  );
+                }}
               </Formik>
             )}
           </View>
