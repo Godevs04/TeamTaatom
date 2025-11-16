@@ -33,7 +33,7 @@ export default function SuggestedUsersOnboarding() {
   const fetchSuggestedUsers = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get('/profile/suggested-users?limit=6');
+      const response = await api.get('/api/v1/profile/suggested-users?limit=6');
       setSuggestedUsers(response.data.users || []);
     } catch (error) {
       console.error('Error fetching suggested users:', error);
@@ -56,7 +56,7 @@ export default function SuggestedUsersOnboarding() {
     setFollowing(newFollowing);
 
     try {
-      await api.post(`/profile/${userId}/follow`);
+      await api.post(`/api/v1/profile/${userId}/follow`);
       
       // Track engagement
       trackEngagement(isFollowing ? 'unfollow' : 'follow', 'user', userId, {

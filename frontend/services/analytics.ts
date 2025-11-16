@@ -108,7 +108,7 @@ class AnalyticsService {
     this.eventQueue = [];
 
     try {
-      await api.post('/analytics/events', { events: eventsToSend });
+      await api.post('/api/v1/analytics/events', { events: eventsToSend });
       await AsyncStorage.removeItem('analytics_queue');
     } catch (error) {
       // Re-queue events on failure

@@ -2,10 +2,12 @@ const { validationResult } = require('express-validator');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const Hashtag = require('../models/Hashtag');
 const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
+const { extractHashtags } = require('../utils/hashtagExtractor');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -227,6 +229,11 @@ const createPost = async (req, res) => {
       }
     }
 
+    // Extract hashtags from caption
+    const extractedHashtags = extractHashtags(caption || '');
+    // Merge extracted hashtags with provided tags (remove duplicates)
+    const allHashtags = [...new Set([...parsedTags, ...extractedHashtags])];
+
     // Create post with multiple images
     const post = new Post({
       user: req.user._id,
@@ -234,7 +241,7 @@ const createPost = async (req, res) => {
       imageUrl: imageUrls[0], // Keep first image as primary for backward compatibility
       images: imageUrls, // Store all images
       cloudinaryPublicIds: cloudinaryPublicIds,
-      tags: parsedTags,
+      tags: allHashtags,
       type: 'photo',
       location: {
         address: address || 'Unknown Location',
@@ -246,6 +253,23 @@ const createPost = async (req, res) => {
     });
 
     await post.save();
+
+    // Update hashtag counts asynchronously (don't block post creation)
+    if (allHashtags.length > 0) {
+      Promise.all(
+        allHashtags.map(async (hashtagName) => {
+          try {
+            let hashtag = await Hashtag.findOne({ name: hashtagName });
+            if (!hashtag) {
+              hashtag = new Hashtag({ name: hashtagName });
+            }
+            await hashtag.incrementPostCount(post._id);
+          } catch (error) {
+            logger.error(`Error updating hashtag ${hashtagName}:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error updating hashtags:', err));
+    }
 
     // Populate user data for response
     await post.populate('user', 'fullName profilePic');
@@ -1023,11 +1047,55 @@ const updatePost = async (req, res) => {
       });
     }
 
+    // Track old hashtags for decrementing counts
+    const oldHashtags = post.tags || [];
+    
     if (caption) {
       post.caption = caption;
+      // Extract hashtags from new caption
+      const extractedHashtags = extractHashtags(caption || '');
+      post.tags = extractedHashtags;
     }
 
     await post.save();
+
+    // Update hashtag counts (decrement old, increment new)
+    const newHashtags = post.tags || [];
+    const hashtagsToRemove = oldHashtags.filter(tag => !newHashtags.includes(tag));
+    const hashtagsToAdd = newHashtags.filter(tag => !oldHashtags.includes(tag));
+
+    // Decrement counts for removed hashtags
+    if (hashtagsToRemove.length > 0) {
+      Promise.all(
+        hashtagsToRemove.map(async (hashtagName) => {
+          try {
+            const hashtag = await Hashtag.findOne({ name: hashtagName });
+            if (hashtag) {
+              await hashtag.decrementPostCount();
+            }
+          } catch (error) {
+            logger.error(`Error decrementing hashtag ${hashtagName}:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error updating removed hashtags:', err));
+    }
+
+    // Increment counts for new hashtags
+    if (hashtagsToAdd.length > 0) {
+      Promise.all(
+        hashtagsToAdd.map(async (hashtagName) => {
+          try {
+            let hashtag = await Hashtag.findOne({ name: hashtagName });
+            if (!hashtag) {
+              hashtag = new Hashtag({ name: hashtagName });
+            }
+            await hashtag.incrementPostCount(post._id);
+          } catch (error) {
+            logger.error(`Error incrementing hashtag ${hashtagName}:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error updating new hashtags:', err));
+    }
 
     res.status(200).json({
       message: 'Post updated successfully',
@@ -1183,6 +1251,11 @@ const createShort = async (req, res) => {
       }
     }
 
+    // Extract hashtags from caption
+    const extractedHashtags = extractHashtags(caption || '');
+    // Merge extracted hashtags with provided tags (remove duplicates)
+    const allHashtags = [...new Set([...parsedTags, ...extractedHashtags])];
+
     // Create short
     // If user provided a custom image, upload and use its secure_url; else generate thumbnail URL
     let thumbnailUrl = '';
@@ -1203,7 +1276,7 @@ const createShort = async (req, res) => {
       imageUrl: thumbnailUrl || '',
       videoUrl: cloudinaryResult.secure_url, // Video URL goes here
       cloudinaryPublicId: cloudinaryResult.public_id,
-      tags: parsedTags,
+      tags: allHashtags,
       type: 'short',
       location: {
         address: address || 'Unknown Location',
@@ -1215,6 +1288,23 @@ const createShort = async (req, res) => {
     });
 
     await short.save();
+
+    // Update hashtag counts asynchronously (don't block short creation)
+    if (allHashtags.length > 0) {
+      Promise.all(
+        allHashtags.map(async (hashtagName) => {
+          try {
+            let hashtag = await Hashtag.findOne({ name: hashtagName });
+            if (!hashtag) {
+              hashtag = new Hashtag({ name: hashtagName });
+            }
+            await hashtag.incrementPostCount(short._id);
+          } catch (error) {
+            logger.error(`Error updating hashtag ${hashtagName}:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error updating hashtags:', err));
+    }
 
     // Populate user data for response
     await short.populate('user', 'fullName profilePic');

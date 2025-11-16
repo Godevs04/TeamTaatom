@@ -17,6 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import { searchUsers } from '../services/profile';
 import { getPosts } from '../services/posts';
+import { searchHashtags, Hashtag } from '../services/hashtags';
 import { UserType } from '../types/user';
 import { PostType } from '../types/post';
 import { useRouter } from 'expo-router';
@@ -24,13 +25,14 @@ import { useRouter } from 'expo-router';
 interface SearchResult {
   users: UserType[];
   posts: PostType[];
+  hashtags: Hashtag[];
 }
 
 export default function SearchScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult>({ users: [], posts: [] });
+  const [searchResults, setSearchResults] = useState<SearchResult>({ users: [], posts: [], hashtags: [] });
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'posts'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'posts' | 'hashtags'>('users');
   const [searchHistory, setSearchHistory] = useState<{ type: 'users' | 'posts'; query: string }[]>([]);
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
@@ -44,7 +46,7 @@ export default function SearchScreen() {
     if (searchQuery.trim().length >= 2) {
       performSearch();
     } else {
-      setSearchResults({ users: [], posts: [] });
+      setSearchResults({ users: [], posts: [], hashtags: [] });
     }
   }, [searchQuery]);
 
@@ -104,18 +106,21 @@ export default function SearchScreen() {
     try {
       setLoading(true);
       
-      // Search users
-      const usersResponse = await searchUsers(searchQuery, 1, 20);
+      // Search users, posts, and hashtags in parallel
+      const [usersResponse, postsResponse, hashtagsResponse] = await Promise.all([
+        searchUsers(searchQuery, 1, 20).catch(() => ({ users: [] })),
+        getPosts(1, 50).catch(() => ({ posts: [] })),
+        searchHashtags(searchQuery, 20).catch(() => []),
+      ]);
       
-      // Search posts (we'll filter posts by caption for now)
-      const postsResponse = await getPosts(1, 50);
       const filteredPosts = postsResponse.posts.filter(post => 
         post.caption.toLowerCase().includes(searchQuery.toLowerCase())
       );
       
       setSearchResults({
-        users: usersResponse.users,
+        users: usersResponse.users || [],
         posts: filteredPosts,
+        hashtags: hashtagsResponse || [],
       });
 
       // Save to history
@@ -311,6 +316,20 @@ export default function SearchScreen() {
             Posts
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.tab,
+            activeTab === 'hashtags' && { borderBottomColor: theme.colors.primary }
+          ]}
+          onPress={() => setActiveTab('hashtags')}
+        >
+          <Text style={[
+            styles.tabText,
+            { color: activeTab === 'hashtags' ? theme.colors.primary : theme.colors.textSecondary }
+          ]}>
+            Hashtags
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Search History or Results */}
@@ -328,6 +347,28 @@ export default function SearchScreen() {
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.users.length === 0 ? styles.emptyListContainer : undefined}
+        />
+      ) : activeTab === 'hashtags' ? (
+        <FlatList
+          data={searchResults.hashtags}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.hashtagItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
+              onPress={() => router.push(`/hashtag/${item.name}`)}
+            >
+              <Ionicons name="pricetag" size={24} color={theme.colors.primary} style={styles.hashtagIcon} />
+              <View style={styles.hashtagInfo}>
+                <Text style={[styles.hashtagName, { color: theme.colors.text }]}>#{item.name}</Text>
+                <Text style={[styles.hashtagCount, { color: theme.colors.textSecondary }]}>
+                  {item.postCount} {item.postCount === 1 ? 'post' : 'posts'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          keyExtractor={(item) => item.name}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
+          contentContainerStyle={searchResults.hashtags.length === 0 ? styles.emptyListContainer : undefined}
         />
       ) : (
         <FlatList
@@ -520,5 +561,25 @@ const styles = StyleSheet.create({
   historyText: {
     flex: 1,
     fontSize: 16,
+  },
+  hashtagItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  hashtagIcon: {
+    marginRight: 12,
+  },
+  hashtagInfo: {
+    flex: 1,
+  },
+  hashtagName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  hashtagCount: {
+    fontSize: 14,
   },
 });

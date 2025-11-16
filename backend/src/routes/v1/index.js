@@ -9,6 +9,7 @@ const enhancedSuperAdminRoutes = require('../enhancedSuperAdminRoutes');
 const notificationRoutes = require('../notificationRoutes');
 const analyticsRoutes = require('../analyticsRoutes');
 const featureFlagsRoutes = require('../featureFlagsRoutes');
+const hashtagRoutes = require('../hashtagRoutes');
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ router.use('/superadmin', enhancedSuperAdminRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/feature-flags', featureFlagsRoutes);
+router.use('/hashtags', hashtagRoutes);
 
 module.exports = router;
 

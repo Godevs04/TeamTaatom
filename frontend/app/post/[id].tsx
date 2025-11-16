@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, Share, FlatList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getPostById, toggleLike, getUserPosts } from '../../services/posts';
@@ -8,10 +8,9 @@ import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getUserFromStorage } from '../../services/auth';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
 import CustomAlert from '../../components/CustomAlert';
 import CommentModal from '../../components/CommentModal';
+import ShareModal from '../../components/ShareModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
@@ -43,6 +42,9 @@ export default function PostDetail() {
   // Comment modal state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
+  
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
   
   // Custom alert state
   const [showCustomAlert, setShowCustomAlert] = useState(false);
@@ -441,52 +443,9 @@ export default function PostDetail() {
     }
   };
 
-  const handleShare = async () => {
-    try {
-      setActionLoading('share');
-      
-      // Try expo-sharing first
-      if (await Sharing.isAvailableAsync()) {
-        try {
-          const filename = `post_${post!._id}_${Date.now()}.jpg`;
-          const localUri = `${FileSystem.cacheDirectory}${filename}`;
-          
-          const downloadResult = await FileSystem.downloadAsync(post!.imageUrl, localUri);
-          
-          if (downloadResult.status === 200) {
-            await Sharing.shareAsync(downloadResult.uri, {
-              mimeType: 'image/jpeg',
-              dialogTitle: 'Share this post',
-            });
-            
-            // Clean up
-            try {
-              await FileSystem.deleteAsync(downloadResult.uri);
-            } catch (cleanupError) {
-              console.warn('Failed to clean up temporary file:', cleanupError);
-            }
-            return;
-          }
-        } catch (expoError) {
-          console.warn('Expo sharing failed, trying fallback:', expoError);
-        }
-      }
-
-      // Fallback to React Native Share API
-      const shareContent = {
-        title: `Post by ${post!.user.fullName}`,
-        message: post!.caption ? `${post!.caption}\n\n${post!.imageUrl}` : post!.imageUrl,
-        url: post!.imageUrl,
-      };
-
-      await Share.share(shareContent);
-      
-    } catch (error) {
-      console.error('Error sharing post:', error);
-      showCustomAlertMessage('Error', 'Failed to share post. Please try again.', 'error');
-    } finally {
-      setActionLoading(null);
-    }
+  const handleShare = () => {
+    // Open ShareModal instead of native share
+    setShowShareModal(true);
   };
 
   const handleComment = async () => {
@@ -569,13 +528,8 @@ export default function PostDetail() {
         <TouchableOpacity 
           style={styles.shareButton}
           onPress={handleShare}
-          disabled={actionLoading === 'share'}
         >
-          {actionLoading === 'share' ? (
-            <ActivityIndicator size="small" color={theme.colors.text} />
-          ) : (
-            <Ionicons name="share-outline" size={20} color={theme.colors.text} />
-          )}
+          <Ionicons name="share-outline" size={20} color={theme.colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -869,13 +823,8 @@ export default function PostDetail() {
               <TouchableOpacity 
                 style={[styles.engagementButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
                 onPress={handleShare}
-                disabled={actionLoading === 'share'}
               >
-                {actionLoading === 'share' ? (
-                  <ActivityIndicator size="small" color={theme.colors.text} />
-                ) : (
-                  <Ionicons name="share-outline" size={16} color={theme.colors.text} />
-                )}
+                <Ionicons name="share-outline" size={16} color={theme.colors.text} />
                 <Text style={[styles.engagementButtonText, { color: theme.colors.text }]}>Share</Text>
               </TouchableOpacity>
             </View>
@@ -906,6 +855,15 @@ export default function PostDetail() {
           onClose={() => setShowCommentModal(false)}
           onCommentAdded={handleCommentAdded}
           commentsDisabled={post.commentsDisabled || false}
+        />
+      )}
+
+      {/* Share Modal */}
+      {post && (
+        <ShareModal
+          visible={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          post={post}
         />
       )}
 
