@@ -4,6 +4,8 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const ForgotSignIn = require('../models/ForgotSignIn');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
+const logger = require('../utils/logger');
+const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -84,7 +86,7 @@ const signup = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
+    logger.error('Signup error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error creating account'
@@ -139,7 +141,7 @@ const verifyOTP = async (req, res) => {
 
     // Send welcome email (don't await to avoid delays)
     sendWelcomeEmail(email, user.fullName).catch(err => 
-      console.error('Welcome email failed:', err)
+      logger.error('Welcome email failed:', err)
     );
 
     res.status(200).json({
@@ -148,7 +150,7 @@ const verifyOTP = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('OTP verification error:', error);
+    logger.error('OTP verification error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error verifying OTP'
@@ -198,7 +200,7 @@ const resendOTP = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Resend OTP error:', error);
+    logger.error('Resend OTP error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error resending OTP'
@@ -254,9 +256,17 @@ const signin = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    // Set token based on platform (cookie for web, response body for mobile)
+    const tokenResponse = setAuthToken(res, token, req);
+    
+    // Log only important info (not on every request)
+    if (process.env.NODE_ENV === 'development' && Object.keys(tokenResponse).length > 0) {
+      logger.debug('Signin - Token returned in response (cross-origin fallback)');
+    }
+
     res.status(200).json({
       message: 'Sign in successful',
-      token,
+      ...tokenResponse, // Only includes token for mobile
       user: user.getPublicProfile()
     });
 
@@ -274,11 +284,11 @@ const signin = async (req, res) => {
     } catch (e) {
       // Ignore location errors
     }
-    sendLoginNotificationEmail(user.email, user.fullName, device, location).catch(console.error);
+    sendLoginNotificationEmail(user.email, user.fullName, device, location).catch(err => logger.error('Login notification email failed:', err));
     // --- End login notification ---
 
   } catch (error) {
-    console.error('Signin error:', error);
+    logger.error('Signin error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error signing in'
@@ -299,7 +309,7 @@ const getMe = async (req, res) => {
       user: user.getPublicProfile()
     });
   } catch (error) {
-    console.error('Get me error:', error);
+    logger.error('Get me error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error fetching user data'
@@ -366,7 +376,7 @@ const googleSignIn = async (req, res) => {
 
       // Send welcome email (don't await to avoid delays)
       sendWelcomeEmail(email, user.fullName).catch(err => 
-        console.error('Welcome email failed:', err)
+        logger.error('Welcome email failed:', err)
       );
     }
 
@@ -377,14 +387,17 @@ const googleSignIn = async (req, res) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
+    // Set token based on platform (cookie for web, response body for mobile)
+    const tokenResponse = setAuthToken(res, token, req);
+
     res.status(200).json({
       message: 'Google sign-in successful',
-      token,
+      ...tokenResponse, // Only includes token for mobile
       user: user.getPublicProfile()
     });
 
   } catch (error) {
-    console.error('Google sign-in error:', error);
+    logger.error('Google sign-in error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error processing Google sign-in'
@@ -396,15 +409,13 @@ const googleSignIn = async (req, res) => {
 // @route   POST /auth/forgot-password
 // @access  Private
 const forgotPassword = async (req, res) => {
-  console.log('In Forgot Password Controller');
   const isMobile = /iphone|android|ipad/i.test(req.headers['user-agent'] || "");
 
   const prefix = isMobile ? 'myapp://reset?token=' : 'http://localhost:19006/reset?token=';
-  console.log('Prefix for reset link:', prefix);
-
+  logger.debug('Prefix for reset link:', prefix);
 
   try {
-    console.log('Forgot password request:', req.body  );
+    logger.debug('Forgot password request received');
     
     const { email } = req.body;
 
@@ -416,8 +427,6 @@ const forgotPassword = async (req, res) => {
     }
 
     const user = await User.findOne({ email });
-    console.log("user - ");
-    console.log(user);
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
@@ -425,15 +434,9 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-
-
     // Generate reset token
     const resetToken = generateResetToken();
     const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-    console.log("resetToken - ");
-    console.log(resetToken);
-    console.log("user - ");
-    console.log(user);
     
     const saveToken = await User.findOneAndUpdate(
       { email },               // find by email
@@ -441,10 +444,6 @@ const forgotPassword = async (req, res) => {
       resetTokenExpiry: resetTokenExpiry } }, // update only name
       { new: true }            // return updated document
     )
-
-
-    console.log(`Reset token for ${email}: ${resetToken}`); // For debugging, remove in production
-    console.log(`Reset token expiry for ${email}: ${user.resetTokenExpiry}`); // For debugging, remove in production
     
     const existingForgot = new User({ 
       code: resetToken,
@@ -469,7 +468,7 @@ const forgotPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Forgot password error:', error);
+    logger.error('Forgot password error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error processing password reset'
@@ -492,8 +491,7 @@ const generateResetToken = () => {
 // @access  Public
 const resetPassword = async (req, res) => {
   try {
-    console.log('In Reset Password Controller');
-    console.log('Reset password request:', req.body);
+    logger.debug('Reset password request received');
     const { email, token, newPassword } = req.body;
 
     if (!email || !token || !newPassword) {
@@ -503,9 +501,6 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    console.log('Finding user by email:', email);
-
-
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
@@ -514,7 +509,7 @@ const resetPassword = async (req, res) => {
         message: 'No account found with this email'
       });
     }
-console.log('User found:', user);
+    
     // Check if token and expiry exist
     if (!user.resetToken || !user.resetTokenExpiry) {
       return res.status(400).json({
@@ -525,7 +520,7 @@ console.log('User found:', user);
 
     // Validate token and expiry
     if (user.resetToken !== token || user.resetTokenExpiry < new Date()) {
-      console.log('Token mismatch or expired');
+      logger.warn('Token mismatch or expired for password reset');
       return res.status(400).json({
         error: 'Invalid or expired token',
         message: 'The reset token is invalid or has expired'
@@ -547,7 +542,7 @@ console.log('User found:', user);
     });
 
   } catch (error) {
-    console.error('Reset password error:', error);
+    logger.error('Reset password error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error resetting password'
@@ -555,7 +550,25 @@ console.log('User found:', user);
   }
 };
 
-// ...existing code...
+// @desc    Logout user
+// @route   POST /auth/logout
+// @access  Private
+const logout = async (req, res) => {
+  try {
+    // Clear httpOnly cookie
+    clearAuthToken(res);
+    
+    res.status(200).json({
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    logger.error('Logout error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error logging out'
+    });
+  }
+};
 
 module.exports = {
   signup,
@@ -569,7 +582,7 @@ module.exports = {
       const exists = await User.exists({ username });
       return res.status(200).json({ available: !exists });
     } catch (error) {
-      console.error('Check username error:', error);
+      logger.error('Check username error:', error);
       return res.status(500).json({ error: 'Internal server error', available: false });
     }
   },
@@ -579,7 +592,8 @@ module.exports = {
   getMe,
   googleSignIn,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  logout
 };
 
 // balajisankar0202@gmail.com

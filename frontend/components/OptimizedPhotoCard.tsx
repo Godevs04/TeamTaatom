@@ -101,37 +101,78 @@ function PhotoCard({
   }, []);
 
   // Listen for WebSocket real-time updates
+  // Use refs to track current state and prevent unnecessary updates
+  const isUpdatingRef = useRef(false);
+  const lastUpdateTimeRef = useRef(0);
+  const stateRef = useRef({ isLiked, likesCount });
+  
+  // Sync ref with state changes (without causing re-renders)
+  React.useEffect(() => {
+    stateRef.current = { isLiked, likesCount };
+  }, [isLiked, likesCount]);
+  
+  // Wrapper functions that update state (ref is synced via separate useEffect)
+  const setIsLikedWithRef = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setIsLiked(value);
+  }, []);
+  
+  const setLikesCountWithRef = useCallback((value: number | ((prev: number) => number)) => {
+    setLikesCount(value);
+  }, []);
+  
   React.useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
       if (data.postId === post._id) {
-        console.log('Home page - WebSocket like update received:', data);
+        // Prevent processing if we're already updating (avoid loops)
+        if (isUpdatingRef.current) {
+          return;
+        }
+        
+        // Prevent processing duplicate events within 100ms
+        const now = Date.now();
+        if (now - lastUpdateTimeRef.current < 100) {
+          return;
+        }
+        
+        // Check if state already matches BEFORE calling setState
+        const current = stateRef.current;
+        if (current.isLiked === data.isLiked && current.likesCount === data.likesCount) {
+          return; // State already matches, no update needed
+        }
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Home page - WebSocket like update received:', data);
+        }
         
         // Only update if the WebSocket data is more recent than our current state
-        // This prevents stale WebSocket events from overriding correct initial data
         const currentTimestamp = Date.now();
         const eventTimestamp = new Date(data.timestamp).getTime();
         const timeDiff = currentTimestamp - eventTimestamp;
         
         // If the event is older than 5 seconds, it's likely stale data
         if (timeDiff > 5000) {
-          console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          }
           return;
         }
         
-        console.log('Home page - Applying WebSocket update:', { 
-          timeDiff: timeDiff + 'ms',
-          from: { isLiked, likesCount }, 
-          to: { isLiked: data.isLiked, likesCount: data.likesCount }
-        });
+        // Mark as updating and update state
+        isUpdatingRef.current = true;
+        lastUpdateTimeRef.current = now;
+        setIsLikedWithRef(data.isLiked);
+        setLikesCountWithRef(data.likesCount);
         
-        setIsLiked(data.isLiked);
-        setLikesCount(data.likesCount);
+        // Reset flag after a short delay
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 200);
       }
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
       if (data.postId === post._id) {
-        // Update comments count if needed
+        // Update comments count if needed - use functional update
         setComments(prev => [...prev, data.comment]);
       }
     });
@@ -160,8 +201,8 @@ function PhotoCard({
             const eventIsLiked = data.isLiked === true;
             const eventLikesCount = data.likesCount || 0;
             
-            setIsLiked(eventIsLiked);
-            setLikesCount(eventLikesCount);
+            setIsLikedWithRef(eventIsLiked);
+            setLikesCountWithRef(eventLikesCount);
             break;
           case 'save':
           case 'unsave':
@@ -204,7 +245,6 @@ function PhotoCard({
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
 
   React.useEffect(() => {
     if (!post.imageUrl) {
@@ -213,10 +253,6 @@ function PhotoCard({
       return;
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('PhotoCard: Loading image for post', post._id);
-    }
-    
     setImageLoading(true);
     setImageError(false);
     setImageUri(null);
@@ -238,7 +274,6 @@ function PhotoCard({
         setImageUri(optimizedUrl);
         setImageLoading(false);
         setImageError(false);
-        setRetryCount(0);
         
       } catch (error) {
         if (process.env.NODE_ENV === 'development') {
@@ -250,7 +285,7 @@ function PhotoCard({
     };
 
     loadImage();
-  }, [post.imageUrl, post._id, retryCount, isWeb]);
+  }, [post.imageUrl, post._id, isWeb]);
 
   const handleLike = async () => {
     if (!currentUser) {
@@ -259,9 +294,13 @@ function PhotoCard({
     }
 
     try {
+      // Mark as updating to prevent WebSocket listener from processing
+      isUpdatingRef.current = true;
+      lastUpdateTimeRef.current = Date.now();
+      
       const response = await toggleLike(post._id);
-      setIsLiked(response.isLiked);
-      setLikesCount(response.likesCount);
+      setIsLikedWithRef(response.isLiked);
+      setLikesCountWithRef(response.likesCount);
       
       // Emit event to notify other pages
       savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {
@@ -269,8 +308,13 @@ function PhotoCard({
         isLiked: response.isLiked
       });
 
-      // Emit WebSocket event for real-time updates
+      // Emit WebSocket event for real-time updates (but ignore our own event)
       await realtimePostsService.emitLike(post._id, response.isLiked, response.likesCount);
+      
+      // Reset flag after a delay to allow WebSocket event to be ignored
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 500);
       
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -664,27 +708,19 @@ function PhotoCard({
                 style={styles.image}
                 resizeMode="cover"
                 onLoadStart={() => {
-                  console.log('PhotoCard: Image load started for post', post._id);
                   setImageLoading(true);
                 }}
                 onLoad={() => {
-                  console.log('PhotoCard: Image loaded successfully for post', post._id);
                   setImageLoading(false);
                   setImageError(false);
-                  setRetryCount(0); // Reset retry count on success
                 }}
                 onError={(error) => {
-                  console.log('PhotoCard: Image load error for post', post._id, error);
-                  if (retryCount < 2) {
-                    console.log('PhotoCard: Retrying image load for post', post._id);
-                    setTimeout(() => {
-                      setRetryCount(prev => prev + 1);
-                      setImageLoading(true);
-                    }, 1000); // Wait 1 second before retry
-                  } else {
-                    setImageError(true);
-                    setImageLoading(false);
+                  if (process.env.NODE_ENV === 'development') {
+                    console.error('PhotoCard: Image load error for post', post._id, error);
                   }
+                  // Don't retry here - retries are handled in loadImageWithFallback
+                  setImageError(true);
+                  setImageLoading(false);
                 }}
               />
               
@@ -738,10 +774,8 @@ function PhotoCard({
               <TouchableOpacity 
                 style={styles.retryButton}
                 onPress={async () => {
-                  console.log('PhotoCard: Manual retry for post', post._id);
                   setImageError(false);
                   setImageLoading(true);
-                  setRetryCount(0);
                   
                   try {
                     const optimizedUrl = await loadImageWithFallback(post.imageUrl);

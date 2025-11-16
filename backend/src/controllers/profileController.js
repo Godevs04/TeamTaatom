@@ -1741,6 +1741,66 @@ const getBlockStatus = async (req, res) => {
   }
 };
 
+// @desc    Get suggested users for onboarding
+// @route   GET /profile/suggested-users
+// @access  Private
+const getSuggestedUsers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit) || 6;
+
+    // Get users that:
+    // 1. Are not the current user
+    // 2. Are not already being followed
+    // 3. Have at least one post
+    // 4. Are verified (optional, can be removed)
+    const currentUser = await User.findById(userId).select('following');
+    const followingIds = currentUser.following.map(f => f.toString());
+    followingIds.push(userId);
+
+    const suggestedUsers = await User.find({
+      _id: { $nin: followingIds },
+      isActive: true,
+    })
+      .select('username fullName profilePic bio followers')
+      .limit(limit)
+      .sort({ followers: -1, createdAt: -1 })
+      .lean();
+
+    // Get post counts for each user
+    const usersWithPostCounts = await Promise.all(
+      suggestedUsers.map(async (user) => {
+        const postCount = await Post.countDocuments({ 
+          user: user._id, 
+          isActive: true 
+        });
+        return {
+          ...user,
+          postsCount: postCount,
+          followersCount: user.followers?.length || 0,
+        };
+      })
+    );
+
+    // Filter to only users with posts and sort by followers
+    const filteredUsers = usersWithPostCounts
+      .filter(user => user.postsCount > 0)
+      .sort((a, b) => b.followersCount - a.followersCount)
+      .slice(0, limit);
+
+    res.json({
+      success: true,
+      users: filteredUsers,
+    });
+  } catch (error) {
+    console.error('Error getting suggested users:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: 'Failed to fetch suggested users',
+    });
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -1757,5 +1817,6 @@ module.exports = {
   getTripScoreLocations,
   getTravelMapData,
   toggleBlockUser,
-  getBlockStatus
+  getBlockStatus,
+  getSuggestedUsers
 };
