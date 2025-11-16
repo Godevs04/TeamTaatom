@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
+const logger = require('../utils/logger');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -47,7 +48,7 @@ const getPosts = async (req, res) => {
             format: 'auto'
           });
         } catch (error) {
-          console.warn('Failed to optimize image URL:', error);
+          logger.warn('Failed to optimize image URL:', error);
           // Keep original URL as fallback
         }
       }
@@ -85,7 +86,7 @@ const getPosts = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get posts error:', error);
+    logger.error('Get posts error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error fetching posts'
@@ -127,7 +128,7 @@ const getPostById = async (req, res) => {
           format: 'auto'
         });
       } catch (error) {
-        console.warn('Failed to optimize image URL:', error);
+        logger.warn('Failed to optimize image URL:', error);
       }
     }
 
@@ -161,7 +162,7 @@ const getPostById = async (req, res) => {
       post: postWithDetails
     });
   } catch (error) {
-    console.error('Get post by ID error:', error);
+    logger.error('Get post by ID error:', error);
     res.status(500).json({
       error: 'Failed to fetch post',
       message: error.message

@@ -123,20 +123,36 @@ function RootLayoutInner() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      // Only navigate if we're definitely authenticated
-      console.log('[Navigation] User authenticated, navigating to home');
-      setTimeout(() => {
-        router.replace('/home');
-      }, 100);
-    } else if (isAuthenticated === false && !sessionExpired) {
-      // Only navigate to auth if we're definitely not authenticated and not due to session expiry
-      console.log('[Navigation] User not authenticated, navigating to auth');
-      router.replace('/signin');
-    }
+    const checkOnboardingAndNavigate = async () => {
+      if (isAuthenticated) {
+        // Check if onboarding is completed
+        const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+        if (!onboardingCompleted) {
+          // Redirect to onboarding if not completed
+          console.log('[Navigation] Onboarding not completed, redirecting to onboarding');
+          router.replace('/onboarding/welcome');
+          return;
+        }
+        
+        // Only navigate if we're definitely authenticated and onboarding is done
+        console.log('[Navigation] User authenticated, navigating to home');
+        setTimeout(() => {
+          router.replace('/(tabs)/home');
+        }, 100);
+      } else if (isAuthenticated === false && !sessionExpired) {
+        // Only navigate to auth if we're definitely not authenticated and not due to session expiry
+        console.log('[Navigation] User not authenticated, navigating to auth');
+        router.replace('/(auth)/signin');
+      }
+    };
+    
+    checkOnboardingAndNavigate();
   }, [isAuthenticated, sessionExpired, router]);
 
   useEffect(() => {
+    // Skip push notifications on web (requires VAPID keys)
+    if (Platform.OS === 'web') return;
+    
     async function registerForPushNotifications() {
       try {
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -146,7 +162,9 @@ function RootLayoutInner() {
           finalStatus = status;
         }
         if (finalStatus !== 'granted') {
-          console.warn('Push notification permissions not granted');
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Push notification permissions not granted');
+          }
           return;
         }
         // Get projectId from app.json extra
@@ -161,7 +179,9 @@ function RootLayoutInner() {
           const user = await getUserFromStorage();
           if (user && user._id) {
             await updateExpoPushToken(user._id, expoPushToken);
-            console.log('Expo push token registered:', expoPushToken);
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Expo push token registered:', expoPushToken);
+            }
           }
         }
         if (Platform.OS === 'android') {
@@ -173,7 +193,9 @@ function RootLayoutInner() {
           });
         }
       } catch (err) {
-        console.error('Error registering for push notifications:', err);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error registering for push notifications:', err);
+        }
       }
     }
     if (isAuthenticated) {
@@ -181,23 +203,34 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated]);
 
-  // Handle app state changes to maintain authentication
+  // Handle app state changes to maintain authentication (mobile only)
   useEffect(() => {
+    // Skip AppState listener on web - it's not needed and can cause issues
+    if (Platform.OS === 'web') return;
+    
     const handleAppStateChange = async (nextAppState: string) => {
       if (nextAppState === 'active' && isAuthenticated) {
         // App came to foreground, refresh auth state
         try {
-          console.log('[AppState] App became active, refreshing auth state');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[AppState] App became active, refreshing auth state');
+          }
           const user = await refreshAuthState();
           if (!user) {
-            console.log('[AppState] No valid user found, signing out');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[AppState] No valid user found, signing out');
+            }
             setIsAuthenticated(false);
             setSessionExpired(true);
           } else {
-            console.log('[AppState] Auth state refreshed successfully');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[AppState] Auth state refreshed successfully');
+            }
           }
         } catch (error) {
-          console.error('[AppState] Error refreshing auth state:', error);
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[AppState] Error refreshing auth state:', error);
+          }
         }
       }
     };
@@ -206,9 +239,9 @@ function RootLayoutInner() {
     return () => subscription?.remove();
   }, [isAuthenticated]);
 
-  // Periodic auth state check
+  // Periodic auth state check (only for mobile, web uses cookies)
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || Platform.OS === 'web') return;
 
     const interval = setInterval(async () => {
       try {
@@ -216,12 +249,16 @@ function RootLayoutInner() {
         const userData = await AsyncStorage.getItem('userData');
         
         if (!token || !userData) {
-          console.log('[PeriodicCheck] Auth data missing, signing out');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[PeriodicCheck] Auth data missing, signing out');
+          }
           setIsAuthenticated(false);
           setSessionExpired(true);
         }
       } catch (error) {
-        console.error('[PeriodicCheck] Error:', error);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[PeriodicCheck] Error:', error);
+        }
       }
     }, 30000); // Check every 30 seconds
 
@@ -229,17 +266,16 @@ function RootLayoutInner() {
   }, [isAuthenticated]);
 
   const { theme } = useTheme();
+  
+  // Debug: Log authentication state changes (only in development)
   useEffect(() => {
-    console.log('[RootLayoutInner] Render: isAuthenticated:', isAuthenticated, 'isOffline:', isOffline, 'sessionExpired:', sessionExpired);
-  });
-
-  // Debug: Log authentication state changes
-  useEffect(() => {
-    console.log('[AuthState] Authentication state changed:', {
-      isAuthenticated,
-      isOffline,
-      sessionExpired
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[AuthState] Authentication state changed:', {
+        isAuthenticated,
+        isOffline,
+        sessionExpired
+      });
+    }
   }, [isAuthenticated, isOffline, sessionExpired]);
 
   if (isAuthenticated === null) {

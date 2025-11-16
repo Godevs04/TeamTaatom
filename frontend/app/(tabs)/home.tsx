@@ -24,6 +24,8 @@ import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { imageCacheManager } from '../../utils/imageCacheManager';
 import AnimatedHeader from '../../components/AnimatedHeader';
+import EmptyState from '../../components/EmptyState';
+import { PostSkeleton } from '../../components/LoadingSkeleton';
 import api from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -281,19 +283,15 @@ export default function HomeScreen() {
           backgroundColor={theme.colors.background} 
         />
         {renderHeader()}
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyImageContainer}>
-            <Ionicons 
-              name="camera-outline" 
-              size={60} 
-              color={theme.colors.textSecondary} 
-            />
-          </View>
-          <Text style={styles.emptyTitle}>No Posts Yet</Text>
-          <Text style={styles.emptyDescription}>
-            Start following people to see their posts in your feed, or share your first photo!
-          </Text>
-        </View>
+        <EmptyState
+          icon="camera-outline"
+          title="No Posts Yet"
+          description="Start following people to see their posts in your feed, or share your first photo!"
+          actionLabel="Create Your First Post"
+          onAction={() => router.push('/(tabs)/post')}
+          secondaryActionLabel="Explore Feed"
+          onSecondaryAction={() => fetchPosts(1, false)}
+        />
       </SafeAreaView>
     );
   }

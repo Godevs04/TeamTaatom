@@ -19,6 +19,7 @@ const {
   getTravelMapData,
   toggleBlockUser,
   getBlockStatus,
+  getSuggestedUsers,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -50,6 +51,7 @@ const updateProfileValidation = [
 
 // Routes
 router.get('/search', optionalAuth, searchUsers);
+router.get('/suggested-users', authMiddleware, getSuggestedUsers);
 router.get('/follow-requests', authMiddleware, getFollowRequests);
 router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
   try {

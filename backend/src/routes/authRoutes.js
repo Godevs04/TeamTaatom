@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { passwordStrengthValidator } = require('../utils/passwordValidator');
 const {
   signup,
   checkUsernameAvailability,
@@ -10,7 +11,8 @@ const {
   getMe,
   googleSignIn,  
   forgotPassword,
-  resetPassword
+  resetPassword,
+  logout
 } = require('../controllers/authController');
 
 const router = express.Router();
@@ -33,8 +35,17 @@ const signupValidation = [
     .normalizeEmail()
     .withMessage('Please provide a valid email'),
   body('password')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[0-9]/)
+    .withMessage('Password must contain at least one number')
+    .matches(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/)
+    .withMessage('Password must contain at least one special character'),
+  passwordStrengthValidator // Additional strength validation
 ];
 
 const verifyOTPValidation = [
@@ -68,5 +79,6 @@ router.post('/google', googleSignIn);
 router.get('/me', authMiddleware, getMe);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
+router.post('/logout', authMiddleware, logout);
 
 module.exports = router;

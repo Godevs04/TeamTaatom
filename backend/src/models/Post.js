@@ -99,11 +99,15 @@ const postSchema = new mongoose.Schema({
 });
 
 // Index for efficient queries
-postSchema.index({ user: 1, createdAt: -1 });
-postSchema.index({ createdAt: -1 });
-postSchema.index({ isActive: 1 });
-postSchema.index({ type: 1, isActive: 1, createdAt: -1 });
-postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 });
+postSchema.index({ user: 1, createdAt: -1 }); // User posts sorted by date
+postSchema.index({ createdAt: -1 }); // All posts sorted by date
+postSchema.index({ isActive: 1 }); // Filter active posts
+postSchema.index({ type: 1, isActive: 1, createdAt: -1 }); // Type-based feed queries
+postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 }); // User posts by type
+postSchema.index({ tags: 1 }); // For hashtag/tag searches
+postSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial location queries
+postSchema.index({ likes: 1 }); // For like count queries
+postSchema.index({ isHidden: 1, isActive: 1 }); // For filtering visible posts
 
 // Virtual for like count
 postSchema.virtual('likesCount').get(function() {
