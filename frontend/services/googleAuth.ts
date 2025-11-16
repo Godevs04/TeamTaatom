@@ -1,9 +1,12 @@
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import api from './api';
 import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const isWeb = Platform.OS === 'web';
 
 const GOOGLE_CLIENT_ID = Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = Constants.expoConfig?.extra?.GOOGLE_CLIENT_SECRET;
@@ -57,9 +60,24 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
         redirectUri: REDIRECT_URI,
       });
       const { token, user } = response.data;
-      // Store the JWT token
-      await AsyncStorage.setItem('authToken', token);
-      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      // Store token
+      // For web: Store in sessionStorage if token is returned (cross-origin fallback)
+      // For mobile: Store in AsyncStorage
+      if (token) {
+        if (isWeb) {
+          // Web: Store in sessionStorage as fallback if cookie didn't work
+          if (typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.setItem('authToken', token);
+          }
+        } else {
+          // Mobile: Store in AsyncStorage
+          await AsyncStorage.setItem('authToken', token);
+        }
+      }
+      
+      if (user) {
+        await AsyncStorage.setItem('userData', JSON.stringify(user));
+      }
       return response.data;
     } else if (authResponse.type === 'cancel') {
       throw new Error('Google sign-in was cancelled by user');

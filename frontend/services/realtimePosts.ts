@@ -41,7 +41,9 @@ class RealtimePostsService {
     
     // Subscribe to WebSocket events
     await socketService.subscribe('post:like:update', (data: PostLikeUpdate) => {
-      console.log('Real-time like update received:', data);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Real-time like update received:', data);
+      }
       
       // Deduplicate events - ignore if we've already processed this exact event
       const eventKey = `${data.postId}-${data.timestamp}`;
@@ -49,21 +51,30 @@ class RealtimePostsService {
       if (this.lastLikeEvent && 
           this.lastLikeEvent.postId === data.postId && 
           this.lastLikeEvent.timestamp.getTime() === eventTimestamp.getTime()) {
-        console.log('Ignoring duplicate like event:', eventKey);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Ignoring duplicate like event:', eventKey);
+        }
         return;
       }
       
       this.lastLikeEvent = { postId: data.postId, timestamp: eventTimestamp };
-      console.log('Processing like event:', eventKey);
-      console.log('Active like listeners:', this.likeListeners.size);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Processing like event:', eventKey);
+        console.log('Active like listeners:', this.likeListeners.size);
+      }
       
-      this.likeListeners.forEach(listener => {
-        try {
-          listener(data);
-        } catch (error) {
-          console.error('Error in like listener:', error);
-        }
-      });
+      // Use setTimeout to batch updates and prevent synchronous state updates
+      setTimeout(() => {
+        this.likeListeners.forEach(listener => {
+          try {
+            listener(data);
+          } catch (error) {
+            if (process.env.NODE_ENV === 'development') {
+              console.error('Error in like listener:', error);
+            }
+          }
+        });
+      }, 0);
     });
 
     await socketService.subscribe('post:comment:update', (data: PostCommentUpdate) => {

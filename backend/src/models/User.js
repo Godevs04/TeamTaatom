@@ -221,7 +221,14 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Email is already indexed via unique: true property
+// Database indexes for performance optimization
+userSchema.index({ email: 1 }); // Already unique, but explicit index for queries
+userSchema.index({ username: 1 }); // Already unique, but explicit index for queries
+userSchema.index({ googleId: 1 }); // For Google OAuth lookups
+userSchema.index({ isVerified: 1 }); // For filtering verified users
+userSchema.index({ createdAt: -1 }); // For sorting by creation date
+userSchema.index({ lastLogin: -1 }); // For sorting by last login
+userSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial queries (if location is added)
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
