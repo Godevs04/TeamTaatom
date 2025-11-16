@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate, getStatusColor } from '../utils/formatDate'
-import { Search, Filter, MoreHorizontal, Ban, CheckCircle, Eye, Edit, RefreshCw, UserX, Shield, Mail, Trash2 } from 'lucide-react'
+import { Search, Filter, MoreHorizontal, Ban, CheckCircle, Eye, Edit, RefreshCw, UserX, Shield, Mail, Trash2, Users as UsersIcon, TrendingUp } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
@@ -311,34 +311,42 @@ const Users = () => {
     <SafeComponent>
       <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Users Management</h1>
-          <p className="text-gray-600 mt-2">
-            Manage travelers and moderators
-            {isConnected && (
-              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                <span className="w-2 h-2 bg-green-400 rounded-full mr-1 animate-pulse"></span>
-                Live Data
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex space-x-3">
-          <button 
-            onClick={handleRefresh}
-            disabled={loading}
-            className="btn btn-secondary"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-          <button 
-            onClick={handleExportUsers}
-            className="btn btn-primary"
-          >
-            Export Users
-          </button>
+      <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl p-8 shadow-lg border border-blue-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center space-x-3 mb-3">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg">
+                <UsersIcon className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Users Management
+              </h1>
+              {isConnected && (
+                <span className="px-3 py-1.5 bg-gradient-to-r from-green-400 to-emerald-500 text-white text-xs font-semibold rounded-full shadow-md animate-pulse">
+                  <span className="w-2 h-2 bg-white rounded-full inline-block mr-2 animate-ping"></span>
+                  Live Data
+                </span>
+              )}
+            </div>
+            <p className="text-gray-600 text-lg">Manage travelers and moderators</p>
+          </div>
+          <div className="flex space-x-3">
+            <button 
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 rounded-xl font-semibold shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2 border border-gray-200"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button 
+              onClick={handleExportUsers}
+              className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2"
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span>Export Users</span>
+            </button>
+          </div>
         </div>
       </div>
 

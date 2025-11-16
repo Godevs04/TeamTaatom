@@ -1,7 +1,12 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Platform, Dimensions } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+
+const { width: screenWidth } = Dimensions.get('window');
+const isWeb = Platform.OS === 'web';
+const isTablet = screenWidth >= 768;
 
 export default function TabsLayout() {
   const { theme } = useTheme();
@@ -13,15 +18,25 @@ export default function TabsLayout() {
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.border,
           borderTopWidth: 1,
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 88,
+          paddingBottom: isWeb ? 12 : 8,
+          paddingTop: isWeb ? 12 : 8,
+          height: isWeb ? 70 : 88,
+          ...(isWeb && {
+            maxWidth: 600,
+            alignSelf: 'center',
+            width: '100%',
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+          }),
         },
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: isWeb ? 12 : 11,
           fontWeight: '600',
+        },
+        tabBarIconStyle: {
+          marginBottom: isWeb ? 0 : 4,
         },
       }}
     >

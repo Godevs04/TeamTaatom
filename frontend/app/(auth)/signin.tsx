@@ -19,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { signInSchema } from '../../utils/validation';
 import { signIn } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 
 interface SignInFormValues {
@@ -41,6 +42,13 @@ export default function SignInScreen() {
       });
       
       console.log('Sign-in successful:', response.user);
+      
+      // Track login
+      track('user_login', {
+        method: 'email',
+        user_id: response.user?._id,
+      });
+      
       // Navigate to tabs without alert for better UX
       router.replace('/(tabs)/home');
     } catch (error: any) {
@@ -71,6 +79,13 @@ export default function SignInScreen() {
     try {
       const response = await signInWithGoogle();
       console.log('Google sign-in successful:', response.user);
+      
+      // Track login
+      track('user_login', {
+        method: 'google',
+        user_id: response.user?._id,
+      });
+      
       router.replace('/(tabs)');
     } catch (error: any) {
       console.log('Google sign-in error:', error);

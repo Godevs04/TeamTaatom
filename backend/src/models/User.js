@@ -8,6 +8,16 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Name cannot be more than 50 characters']
   },
+  username: {
+    type: String,
+    required: [true, 'Username is required'],
+    unique: true,
+    trim: true,
+    lowercase: true,
+    minlength: [3, 'Username must be at least 3 characters'],
+    maxlength: [20, 'Username cannot exceed 20 characters'],
+    match: [/^[a-z0-9_.]+$/, 'Username can only contain lowercase letters, numbers, and underscores']
+  },
   bio: {
     type: String,
     required: false,
@@ -45,6 +55,20 @@ const userSchema = new mongoose.Schema({
   following: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  }],
+  blockedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  mutedChats: [{
+    chatId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Chat'
+    },
+    mutedAt: {
+      type: Date,
+      default: Date.now
+    }
   }],
   followRequests: [{
     user: {
@@ -197,7 +221,14 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Email is already indexed via unique: true property
+// Database indexes for performance optimization
+// Note: email, username, and googleId indexes are automatically created by unique: true
+// Only add indexes that aren't already created by unique constraints
+userSchema.index({ isVerified: 1 }); // For filtering verified users
+userSchema.index({ createdAt: -1 }); // For sorting by creation date
+userSchema.index({ lastLogin: -1 }); // For sorting by last login
+// Geospatial index skipped - data format incompatible (requires GeoJSON format)
+// userSchema.index({ 'location.coordinates': '2dsphere' });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

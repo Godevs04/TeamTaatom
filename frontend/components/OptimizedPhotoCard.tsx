@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Linking,
   Animated,
   TextInput,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -31,6 +32,9 @@ import { realtimePostsService } from '../services/realtimePosts';
 import { geocodeAddress } from '../utils/locationUtils';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
+import HashtagText from './HashtagText';
+import ShareModal from './ShareModal';
 
 interface PhotoCardProps {
   post: PostType;
@@ -39,12 +43,13 @@ interface PhotoCardProps {
   isVisible?: boolean; // For lazy loading
 }
 
-export default function PhotoCard({
+function PhotoCard({
   post,
   onRefresh,
   onPress,
   isVisible = true,
 }: PhotoCardProps) {
+  const isWeb = Platform.OS === 'web';
   const { theme } = useTheme();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
@@ -58,6 +63,7 @@ export default function PhotoCard({
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(post.caption || '');
@@ -99,37 +105,78 @@ export default function PhotoCard({
   }, []);
 
   // Listen for WebSocket real-time updates
+  // Use refs to track current state and prevent unnecessary updates
+  const isUpdatingRef = useRef(false);
+  const lastUpdateTimeRef = useRef(0);
+  const stateRef = useRef({ isLiked, likesCount });
+  
+  // Sync ref with state changes (without causing re-renders)
+  React.useEffect(() => {
+    stateRef.current = { isLiked, likesCount };
+  }, [isLiked, likesCount]);
+  
+  // Wrapper functions that update state (ref is synced via separate useEffect)
+  const setIsLikedWithRef = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setIsLiked(value);
+  }, []);
+  
+  const setLikesCountWithRef = useCallback((value: number | ((prev: number) => number)) => {
+    setLikesCount(value);
+  }, []);
+  
   React.useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
       if (data.postId === post._id) {
-        console.log('Home page - WebSocket like update received:', data);
+        // Prevent processing if we're already updating (avoid loops)
+        if (isUpdatingRef.current) {
+          return;
+        }
+        
+        // Prevent processing duplicate events within 100ms
+        const now = Date.now();
+        if (now - lastUpdateTimeRef.current < 100) {
+          return;
+        }
+        
+        // Check if state already matches BEFORE calling setState
+        const current = stateRef.current;
+        if (current.isLiked === data.isLiked && current.likesCount === data.likesCount) {
+          return; // State already matches, no update needed
+        }
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Home page - WebSocket like update received:', data);
+        }
         
         // Only update if the WebSocket data is more recent than our current state
-        // This prevents stale WebSocket events from overriding correct initial data
         const currentTimestamp = Date.now();
         const eventTimestamp = new Date(data.timestamp).getTime();
         const timeDiff = currentTimestamp - eventTimestamp;
         
         // If the event is older than 5 seconds, it's likely stale data
         if (timeDiff > 5000) {
-          console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          }
           return;
         }
         
-        console.log('Home page - Applying WebSocket update:', { 
-          timeDiff: timeDiff + 'ms',
-          from: { isLiked, likesCount }, 
-          to: { isLiked: data.isLiked, likesCount: data.likesCount }
-        });
+        // Mark as updating and update state
+        isUpdatingRef.current = true;
+        lastUpdateTimeRef.current = now;
+        setIsLikedWithRef(data.isLiked);
+        setLikesCountWithRef(data.likesCount);
         
-        setIsLiked(data.isLiked);
-        setLikesCount(data.likesCount);
+        // Reset flag after a short delay
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 200);
       }
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
       if (data.postId === post._id) {
-        // Update comments count if needed
+        // Update comments count if needed - use functional update
         setComments(prev => [...prev, data.comment]);
       }
     });
@@ -158,8 +205,8 @@ export default function PhotoCard({
             const eventIsLiked = data.isLiked === true;
             const eventLikesCount = data.likesCount || 0;
             
-            setIsLiked(eventIsLiked);
-            setLikesCount(eventLikesCount);
+            setIsLikedWithRef(eventIsLiked);
+            setLikesCountWithRef(eventLikesCount);
             break;
           case 'save':
           case 'unsave':
@@ -202,7 +249,6 @@ export default function PhotoCard({
   const [imageLoading, setImageLoading] = useState(true);
   const [imageError, setImageError] = useState(false);
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
 
   React.useEffect(() => {
     if (!post.imageUrl) {
@@ -211,7 +257,6 @@ export default function PhotoCard({
       return;
     }
 
-    console.log('PhotoCard: Loading image for post', post._id, 'URL:', post.imageUrl);
     setImageLoading(true);
     setImageError(false);
     setImageUri(null);
@@ -219,30 +264,32 @@ export default function PhotoCard({
     // Progressive loading strategy
     const loadImage = async () => {
       try {
-        console.log('PhotoCard: Loading image with fallback for post', post._id);
-        
         // Use progressive loading with multiple strategies
+        // Web: Faster timeout, fewer retries for better UX
+        const timeout = isWeb ? 5000 : 8000;
+        const retries = isWeb ? 1 : 2;
+        
         const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
-          timeout: 8000,
-          retries: 2,
+          timeout,
+          retries,
           retryDelay: 1000
         });
         
-        console.log('PhotoCard: Image loaded successfully for post', post._id);
         setImageUri(optimizedUrl);
         setImageLoading(false);
         setImageError(false);
-        setRetryCount(0);
         
       } catch (error) {
-        console.error('PhotoCard: All image loading strategies failed for post', post._id, error);
+        if (process.env.NODE_ENV === 'development') {
+          console.error('PhotoCard: Image loading failed for post', post._id, error);
+        }
         setImageError(true);
         setImageLoading(false);
       }
     };
 
     loadImage();
-  }, [post.imageUrl, post._id, retryCount]);
+  }, [post.imageUrl, post._id, isWeb]);
 
   const handleLike = async () => {
     if (!currentUser) {
@@ -251,9 +298,18 @@ export default function PhotoCard({
     }
 
     try {
+      // Mark as updating to prevent WebSocket listener from processing
+      isUpdatingRef.current = true;
+      lastUpdateTimeRef.current = Date.now();
+      
       const response = await toggleLike(post._id);
-      setIsLiked(response.isLiked);
-      setLikesCount(response.likesCount);
+      setIsLikedWithRef(response.isLiked);
+      setLikesCountWithRef(response.likesCount);
+      
+      // Track engagement
+      trackEngagement(response.isLiked ? 'like' : 'unlike', 'post', post._id, {
+        likes_count: response.likesCount,
+      });
       
       // Emit event to notify other pages
       savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {
@@ -261,13 +317,22 @@ export default function PhotoCard({
         isLiked: response.isLiked
       });
 
-      // Emit WebSocket event for real-time updates
+      // Emit WebSocket event for real-time updates (but ignore our own event)
       await realtimePostsService.emitLike(post._id, response.isLiked, response.likesCount);
+      
+      // Reset flag after a delay to allow WebSocket event to be ignored
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 500);
       
     } catch (error) {
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status.');
     }
+  };
+
+  const handleShareClick = () => {
+    setShowShareModal(true);
   };
 
   const handleShare = async () => {
@@ -656,27 +721,19 @@ export default function PhotoCard({
                 style={styles.image}
                 resizeMode="cover"
                 onLoadStart={() => {
-                  console.log('PhotoCard: Image load started for post', post._id);
                   setImageLoading(true);
                 }}
                 onLoad={() => {
-                  console.log('PhotoCard: Image loaded successfully for post', post._id);
                   setImageLoading(false);
                   setImageError(false);
-                  setRetryCount(0); // Reset retry count on success
                 }}
                 onError={(error) => {
-                  console.log('PhotoCard: Image load error for post', post._id, error);
-                  if (retryCount < 2) {
-                    console.log('PhotoCard: Retrying image load for post', post._id);
-                    setTimeout(() => {
-                      setRetryCount(prev => prev + 1);
-                      setImageLoading(true);
-                    }, 1000); // Wait 1 second before retry
-                  } else {
-                    setImageError(true);
-                    setImageLoading(false);
+                  if (process.env.NODE_ENV === 'development') {
+                    console.error('PhotoCard: Image load error for post', post._id, error);
                   }
+                  // Don't retry here - retries are handled in loadImageWithFallback
+                  setImageError(true);
+                  setImageLoading(false);
                 }}
               />
               
@@ -730,10 +787,8 @@ export default function PhotoCard({
               <TouchableOpacity 
                 style={styles.retryButton}
                 onPress={async () => {
-                  console.log('PhotoCard: Manual retry for post', post._id);
                   setImageError(false);
                   setImageLoading(true);
-                  setRetryCount(0);
                   
                   try {
                     const optimizedUrl = await loadImageWithFallback(post.imageUrl);
@@ -775,7 +830,7 @@ export default function PhotoCard({
 
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={handleShare}
+            onPress={handleShareClick}
           >
             <Ionicons name="paper-plane-outline" size={24} color={theme.colors.text} />
           </TouchableOpacity>
@@ -805,12 +860,10 @@ export default function PhotoCard({
       {/* Caption */}
       {post.caption && (
         <View style={styles.captionContainer}>
-          <Text style={[styles.caption, { color: theme.colors.text }]}>
-            <Text style={[styles.username, { color: theme.colors.text }]}>
-              {post.user.fullName}
-            </Text>{' '}
-            {post.caption}
-          </Text>
+          <HashtagText
+            text={`${post.user.fullName} ${post.caption}`}
+            style={styles.caption}
+          />
           
           {/* Multiple images hint */}
           {post.images && post.images.length > 1 && (
@@ -1137,9 +1190,28 @@ export default function PhotoCard({
         onConfirm={alertConfig.onConfirm}
         onClose={() => setShowCustomAlert(false)}
       />
+
+      {/* Share Modal */}
+      <ShareModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        post={post}
+      />
     </View>
   );
 }
+
+// Memoize component for better performance, especially on web
+export default memo(PhotoCard, (prevProps, nextProps) => {
+  // Only re-render if post data actually changed
+  return (
+    prevProps.post._id === nextProps.post._id &&
+    prevProps.post.isLiked === nextProps.post.isLiked &&
+    prevProps.post.likesCount === nextProps.post.likesCount &&
+    prevProps.post.commentsCount === nextProps.post.commentsCount &&
+    prevProps.isVisible === nextProps.isVisible
+  );
+});
 
 const styles = StyleSheet.create({
   container: {

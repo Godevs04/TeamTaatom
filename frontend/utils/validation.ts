@@ -5,6 +5,11 @@ export const signUpSchema = Yup.object().shape({
     .min(2, 'Name must be at least 2 characters')
     .max(50, 'Name must be less than 50 characters')
     .required('Full name is required'),
+  username: Yup.string()
+    .matches(/^[a-z0-9_.]+$/, 'Only lowercase letters, numbers, and underscores allowed')
+    .min(3, 'Username must be at least 3 characters')
+    .max(20, 'Username must be less than 20 characters')
+    .required('Username is required'),
   email: Yup.string()
     .email('Please enter a valid email')
     .required('Email is required'),

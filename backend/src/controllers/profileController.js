@@ -1640,6 +1640,167 @@ const getLocationCategory = (caption, address) => {
   return { fromYou, typeOfSpot };
 };
 
+// @desc    Block or unblock a user
+// @route   POST /profile/:id/block
+// @access  Private
+const toggleBlockUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user._id;
+
+    if (currentUserId.toString() === id) {
+      return res.status(400).json({
+        error: 'Invalid action',
+        message: 'You cannot block yourself'
+      });
+    }
+
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User does not exist'
+      });
+    }
+
+    const currentUser = await User.findById(currentUserId);
+    const isBlocked = currentUser.blockedUsers && currentUser.blockedUsers.includes(id);
+
+    if (isBlocked) {
+      // Unblock user
+      currentUser.blockedUsers.pull(id);
+      await currentUser.save();
+
+      res.status(200).json({
+        message: 'User unblocked successfully',
+        isBlocked: false
+      });
+    } else {
+      // Block user
+      if (!currentUser.blockedUsers) {
+        currentUser.blockedUsers = [];
+      }
+      currentUser.blockedUsers.push(id);
+      
+      // Remove from following/followers if exists
+      currentUser.following.pull(id);
+      currentUser.followers.pull(id);
+      targetUser.following.pull(currentUserId);
+      targetUser.followers.pull(currentUserId);
+      
+      // Remove follow requests
+      currentUser.followRequests = currentUser.followRequests.filter(
+        req => req.user.toString() !== id
+      );
+      currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
+        req => req.user.toString() !== id
+      );
+      targetUser.followRequests = targetUser.followRequests.filter(
+        req => req.user.toString() !== currentUserId.toString()
+      );
+      targetUser.sentFollowRequests = targetUser.sentFollowRequests.filter(
+        req => req.user.toString() !== currentUserId.toString()
+      );
+
+      await Promise.all([currentUser.save(), targetUser.save()]);
+
+      res.status(200).json({
+        message: 'User blocked successfully',
+        isBlocked: true
+      });
+    }
+  } catch (error) {
+    console.error('Toggle block error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error updating block status'
+    });
+  }
+};
+
+// @desc    Check if user is blocked
+// @route   GET /profile/:id/block-status
+// @access  Private
+const getBlockStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user._id;
+
+    const currentUser = await User.findById(currentUserId);
+    const isBlocked = currentUser.blockedUsers && currentUser.blockedUsers.includes(id);
+
+    res.status(200).json({
+      isBlocked
+    });
+  } catch (error) {
+    console.error('Get block status error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error checking block status'
+    });
+  }
+};
+
+// @desc    Get suggested users for onboarding
+// @route   GET /profile/suggested-users
+// @access  Private
+const getSuggestedUsers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit) || 6;
+
+    // Get users that:
+    // 1. Are not the current user
+    // 2. Are not already being followed
+    // 3. Have at least one post
+    // 4. Are verified (optional, can be removed)
+    const currentUser = await User.findById(userId).select('following');
+    const followingIds = currentUser.following.map(f => f.toString());
+    followingIds.push(userId);
+
+    const suggestedUsers = await User.find({
+      _id: { $nin: followingIds },
+      isActive: true,
+    })
+      .select('username fullName profilePic bio followers')
+      .limit(limit)
+      .sort({ followers: -1, createdAt: -1 })
+      .lean();
+
+    // Get post counts for each user
+    const usersWithPostCounts = await Promise.all(
+      suggestedUsers.map(async (user) => {
+        const postCount = await Post.countDocuments({ 
+          user: user._id, 
+          isActive: true 
+        });
+        return {
+          ...user,
+          postsCount: postCount,
+          followersCount: user.followers?.length || 0,
+        };
+      })
+    );
+
+    // Filter to only users with posts and sort by followers
+    const filteredUsers = usersWithPostCounts
+      .filter(user => user.postsCount > 0)
+      .sort((a, b) => b.followersCount - a.followersCount)
+      .slice(0, limit);
+
+    res.json({
+      success: true,
+      users: filteredUsers,
+    });
+  } catch (error) {
+    console.error('Error getting suggested users:', error);
+    res.status(500).json({
+      error: 'Server error',
+      message: 'Failed to fetch suggested users',
+    });
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -1654,5 +1815,8 @@ module.exports = {
   getTripScoreCountries,
   getTripScoreCountryDetails,
   getTripScoreLocations,
-  getTravelMapData
+  getTravelMapData,
+  toggleBlockUser,
+  getBlockStatus,
+  getSuggestedUsers
 };
