@@ -32,6 +32,7 @@ import { realtimePostsService } from '../services/realtimePosts';
 import { geocodeAddress } from '../utils/locationUtils';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
 
 interface PhotoCardProps {
   post: PostType;
@@ -301,6 +302,11 @@ function PhotoCard({
       const response = await toggleLike(post._id);
       setIsLikedWithRef(response.isLiked);
       setLikesCountWithRef(response.likesCount);
+      
+      // Track engagement
+      trackEngagement(response.isLiked ? 'like' : 'unlike', 'post', post._id, {
+        likes_count: response.likesCount,
+      });
       
       // Emit event to notify other pages
       savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {

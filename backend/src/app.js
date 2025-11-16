@@ -16,6 +16,8 @@ const shortsRoutes = require('./routes/shortsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const enhancedSuperAdminRoutes = require('./routes/enhancedSuperAdminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -103,31 +105,11 @@ app.use(cors({
 // Cookie parser (needed for CSRF tokens)
 app.use(cookieParser());
 
-// Rate limiting - General
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
-  message: {
-    error: 'Too many requests',
-    message: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false
-});
-app.use(limiter);
+// Enhanced rate limiting
+const { generalLimiter } = require('./middleware/rateLimit');
 
-// Stricter rate limiting for OTP and password reset endpoints
-const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per 15 minutes
-  message: {
-    error: 'Too many requests',
-    message: 'Too many requests. Please wait 15 minutes before trying again.'
-  },
-  skipSuccessfulRequests: false,
-  standardHeaders: true,
-  legacyHeaders: false
-});
+// Apply general rate limiting
+app.use(generalLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -139,11 +121,8 @@ app.use(sanitizeInput);
 // CSRF protection - Generate token for all requests
 app.use(generateCSRF);
 
-// Apply stricter rate limiting to sensitive auth endpoints
-app.use('/auth/verify-otp', strictLimiter);
-app.use('/auth/resend-otp', strictLimiter);
-app.use('/auth/forgot-password', strictLimiter);
-app.use('/auth/reset-password', strictLimiter);
+// Note: Endpoint-specific rate limiting is applied in individual route files
+// using endpointLimiters from rateLimit middleware
 
 // CSRF verification for state-changing requests (POST, PUT, DELETE, PATCH)
 // Skip CSRF for public auth endpoints (signin, signup, etc.) since user isn't authenticated yet
@@ -180,7 +159,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
+// API Versioning - Mount v1 routes
+const v1Routes = require('./routes/v1');
+app.use('/api/v1', v1Routes);
+
+// Legacy routes (for backward compatibility - can be removed after frontend migration)
 app.use('/auth', authRoutes);
 app.use('/posts', postRoutes);
 app.use('/profile', profileRoutes);
@@ -189,6 +172,8 @@ app.use('/shorts', shortsRoutes);
 app.use('/settings', settingsRoutes);
 app.use('/api/superadmin', enhancedSuperAdminRoutes);
 app.use('/notifications', notificationRoutes);
+app.use('/analytics', analyticsRoutes);
+app.use('/feature-flags', featureFlagsRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

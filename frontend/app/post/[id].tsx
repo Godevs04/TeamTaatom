@@ -15,6 +15,7 @@ import CommentModal from '../../components/CommentModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
+import { trackScreenView, trackPostView, trackEngagement } from '../../services/analytics';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -77,9 +78,22 @@ export default function PostDetail() {
           processedLikesCount: correctLikesCount
         });
         
-        setIsLikedWithRef(correctIsLiked);
-        setLikesCountWithRef(correctLikesCount);
+        setIsLiked(correctIsLiked);
+        setLikesCount(correctLikesCount);
         setIsFollowing(response.post?.user?.isFollowing || false);
+        
+        // Track post view (wrap in try-catch to prevent crashes)
+        if (response.post?._id) {
+          try {
+            trackPostView(response.post._id, {
+              author_id: response.post.user?._id,
+              has_location: !!response.post.location,
+            });
+          } catch (analyticsError) {
+            // Silently fail - don't break the app if analytics fails
+            console.warn('Analytics error:', analyticsError);
+          }
+        }
         
         // Set initial comments
         setComments(response.post?.comments || []);
@@ -102,6 +116,13 @@ export default function PostDetail() {
 
     if (id) {
       loadInitialData();
+      // Track screen view (wrap in try-catch to prevent crashes)
+      try {
+        trackScreenView('post_detail', { post_id: id });
+      } catch (analyticsError) {
+        // Silently fail - don't break the app if analytics fails
+        console.warn('Analytics error:', analyticsError);
+      }
     }
   }, [id]);
 
@@ -310,6 +331,11 @@ export default function PostDetail() {
       
       setIsLikedWithRef(newIsLiked);
       setLikesCountWithRef(newLikesCount);
+      
+      // Track engagement
+      trackEngagement(newIsLiked ? 'like' : 'unlike', 'post', post!._id, {
+        likes_count: newLikesCount,
+      });
       
       // Emit event to notify home page
       savedEvents.emitPostAction(post!._id, newIsLiked ? 'like' : 'unlike', {
