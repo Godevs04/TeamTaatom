@@ -1,8 +1,8 @@
 import api from './api';
 import { PostType } from '../types/post';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
+import { getApiUrl } from '../utils/config';
 
 // Simple in-memory cache and rate-limit friendly helpers
 const postByIdCache = new Map<string, { data: any; expiresAt: number }>();
@@ -163,9 +163,7 @@ export const createPostWithProgress = async (
       throw new Error('No auth token found');
     }
 
-    const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/posts`, {
+    const response = await fetch(getApiUrl('/api/v1/posts'), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -424,9 +422,6 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       throw new Error('No auth token found');
     }
 
-    // Get API base URL
-    const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-    
     const formData = new FormData();
     
     // Add video
@@ -463,7 +458,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     console.log('Sending request to /shorts endpoint');
     
     // Use fetch instead of axios for better FormData handling
-    const response = await fetch(`${API_BASE_URL}/api/v1/shorts`, {
+    const response = await fetch(getApiUrl('/api/v1/shorts'), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
