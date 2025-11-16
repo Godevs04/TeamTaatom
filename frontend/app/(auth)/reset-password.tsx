@@ -10,6 +10,7 @@ import { Formik } from "formik";
 import AuthInput from "../../components/AuthInput";
 import { resetPasswordSchema } from '../../utils/validation';
 import Constants from 'expo-constants';
+import { LOGO_IMAGE } from '../../utils/config';
 
 export default function ResetPassword() {
   const params = useLocalSearchParams();
@@ -74,7 +75,7 @@ export default function ResetPassword() {
 
           <View style={styles.header}>
             <Image
-              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              source={{ uri: LOGO_IMAGE }}
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />

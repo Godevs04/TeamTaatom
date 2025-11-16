@@ -21,6 +21,7 @@ import { forgotPasswordSchema } from '../../utils/validation';
 import { forgotPassword } from '../../services/auth';
 import { ColorValue } from "react-native";
 import Constants from 'expo-constants';
+import { LOGO_IMAGE } from '../../utils/config';
 interface ForgotPasswordFormValues {
   email: string;
 }
@@ -72,7 +73,7 @@ export default function ForgotPasswordScreen() {
 
           <View style={styles.header}>
             <Image
-              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              source={{ uri: LOGO_IMAGE }}
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />

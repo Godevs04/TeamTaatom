@@ -1,9 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-const WS_PATH = '/socket.io';
+import { API_BASE_URL, WS_PATH } from '../utils/config';
 
 let socket: Socket | null = null;
 const listeners: Record<string, Set<(...args: any[]) => void>> = {};
