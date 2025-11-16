@@ -1,8 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { createPerformanceInterceptor } from '../utils/performance';
+import { API_BASE_URL } from '../utils/config';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -10,12 +10,6 @@ const REQUEST_DELAY = 100; // 100ms delay between requests
 
 // Store CSRF token in memory (updated from response headers)
 let csrfToken: string | null = null;
-
-// Create axios instance
-const API_BASE_URL =
-  Constants.expoConfig?.extra?.API_BASE_URL ||
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  'http://localhost:3000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

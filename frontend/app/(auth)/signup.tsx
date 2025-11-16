@@ -21,6 +21,7 @@ import { signUp, checkUsernameAvailability } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
+import { LOGO_IMAGE } from '../../utils/config';
 
 // Lightweight watcher for debounced username availability checks
 function UsernameAvailabilityWatcher({
@@ -122,7 +123,7 @@ export default function SignUpScreen() {
         >
           <View style={styles.header}>
             <Image
-              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              source={{ uri: LOGO_IMAGE }}
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />
