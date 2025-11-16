@@ -1,5 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { 
   LayoutDashboard, 
   Users, 
@@ -15,16 +16,38 @@ import {
 } from 'lucide-react'
 
 const Sidebar = () => {
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Users', href: '/users', icon: Users },
-    { name: 'Travel Content', href: '/travel-content', icon: MapPin },
-    { name: 'Reports', href: '/reports', icon: Flag },
-    { name: 'Moderators', href: '/moderators', icon: Shield },
-    { name: 'Logs', href: '/logs', icon: FileText },
-    { name: 'Feature Flags', href: '/feature-flags', icon: Zap },
-    { name: 'Settings', href: '/settings', icon: Settings },
+  const { user } = useAuth()
+  
+  // Define navigation items with permission requirements
+  const allNavigation = [
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: null }, // Everyone can access
+    { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
+    { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
+    { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
+    { name: 'Moderators', href: '/moderators', icon: Shield, permission: 'canManageModerators' },
+    { name: 'Logs', href: '/logs', icon: FileText, permission: 'canViewLogs' },
+    { name: 'Feature Flags', href: '/feature-flags', icon: Zap, permission: 'canManageSettings' },
+    { name: 'Settings', href: '/settings', icon: Settings, permission: 'canManageSettings' },
   ]
+  
+  // Filter navigation based on permissions
+  const getFilteredNavigation = () => {
+    // Founders see everything
+    if (user?.role === 'founder') {
+      return allNavigation
+    }
+    
+    // For moderators and admins, filter by permissions
+    return allNavigation.filter(item => {
+      // No permission required - everyone can see
+      if (!item.permission) return true
+      
+      // Check if user has the required permission
+      return user?.permissions?.[item.permission] === true
+    })
+  }
+  
+  const navigation = getFilteredNavigation()
 
   return (
     <div className="w-64 bg-slate-800 text-white min-h-screen flex flex-col">
@@ -68,11 +91,17 @@ const Sidebar = () => {
       <div className="p-4 border-t border-gray-700">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-            <span className="text-white font-bold text-xs">F</span>
+            <span className="text-white font-bold text-xs">
+              {(user?.email?.[0] || 'A').toUpperCase()}
+            </span>
           </div>
           <div>
-            <p className="text-sm font-medium text-white">Founder</p>
-            <p className="text-xs text-gray-400">Super Admin</p>
+            <p className="text-sm font-medium text-white">
+              {user?.email || 'User'}
+            </p>
+            <p className="text-xs text-gray-400 capitalize">
+              {user?.role || 'Admin'}
+            </p>
           </div>
         </div>
       </div>

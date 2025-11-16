@@ -21,7 +21,9 @@ export const loadImageWithFallback = async (
     await Image.prefetch(imageUrl);
     return imageUrl;
   } catch (error) {
-    console.warn('Original image failed, trying optimized version');
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Original image failed, trying optimized version');
+    }
   }
 
   // Strategy 2: Try optimized Cloudinary URL
@@ -31,7 +33,9 @@ export const loadImageWithFallback = async (
       await Image.prefetch(optimizedUrl);
       return optimizedUrl;
     } catch (error) {
-      console.warn('Optimized image failed, trying smaller version');
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Optimized image failed, trying smaller version');
+      }
     }
 
     // Strategy 3: Try even smaller version
@@ -40,7 +44,9 @@ export const loadImageWithFallback = async (
       await Image.prefetch(smallUrl);
       return smallUrl;
     } catch (error) {
-      console.warn('Small image failed, using original as fallback');
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Small image failed, using original as fallback');
+      }
     }
   }
 

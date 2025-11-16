@@ -27,10 +27,21 @@ class CallService {
     isVideoEnabled: true,
   };
   private callbacks: { [key: string]: (data: any) => void } = {};
-  private callTimer: NodeJS.Timeout | null = null;
+  private callTimer: ReturnType<typeof setInterval> | null = null;
   private recording: Audio.Recording | null = null;
   private sound: Audio.Sound | null = null;
   private isAudioInitialized: boolean = false;
+  // WebRTC dynamic members (to avoid hard dependency if lib isn't installed)
+  private RTCPeerConnectionImpl: any | null = null;
+  private mediaDevicesImpl: any | null = null;
+  private RTCViewImpl: any | null = null;
+  private peerConnection: any | null = null;
+  private localStream: any | null = null;
+  private remoteStream: any | null = null;
+  private iceServers: any[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+  ];
+  private pendingRemoteIceCandidates: any[] = [];
 
   constructor() {
     console.log('📞 CallService constructor - ready to initialize');
@@ -39,6 +50,7 @@ class CallService {
   // Initialize the call service
   async initialize(): Promise<void> {
     console.log('📞 CallService initializing...');
+    await this.bootstrapWebRTC();
     await this.setupSocketListeners();
     await this.initializeAudio();
     console.log('📞 CallService initialized successfully');
@@ -119,6 +131,20 @@ class CallService {
       this.handleCallEnded(data);
     });
 
+    // WebRTC signaling events
+    await socketService.subscribe('call:offer', async (data: any) => {
+      console.log('📞 Signaling - offer received', !!data?.offer);
+      await this.onOfferReceived(data);
+    });
+    await socketService.subscribe('call:answer', async (data: any) => {
+      console.log('📞 Signaling - answer received', !!data?.answer);
+      await this.onAnswerReceived(data);
+    });
+    await socketService.subscribe('call:ice-candidate', async (data: any) => {
+      console.log('📞 Signaling - candidate received', !!data?.candidate);
+      await this.onIceCandidateReceived(data);
+    });
+
     // Listen for mute state changes
     await socketService.subscribe('call:mute', (data: any) => {
       console.log('📞 Mute state changed:', data);
@@ -190,6 +216,10 @@ class CallService {
       
       console.log('📞 Call invitation sent successfully');
 
+      // Establish WebRTC and send SDP offer if available
+      await this.ensurePeerConnection(callType);
+      await this.createAndSendOffer(otherUserId, callId);
+
       // Simulate call ringing for 10 seconds
       setTimeout(() => {
         if (this.callState.isOutgoingCall) {
@@ -223,6 +253,13 @@ class CallService {
         to: this.callState.otherUserId,
         from: currentUserId,
       });
+
+      // Prepare WebRTC answer
+      await this.ensurePeerConnection(this.callState.callType || 'voice');
+      // If an offer should have arrived already, onOfferReceived will handle. If offer already set, create answer now.
+      if (this.peerConnection && this.peerConnection.remoteDescription) {
+        await this.createAndSendAnswer(this.callState.otherUserId as string, this.callState.callId as string);
+      }
 
       this.updateCallState({
         isIncomingCall: false,
@@ -336,86 +373,17 @@ class CallService {
 
     // Start call duration timer
     this.startCallTimer();
-    
-    // Start audio simulation for active call
-    await this.startCallAudio();
+    // Do not play simulated audio; real audio will flow via WebRTC when available
     
     console.log('📞 Call is now active, timer started');
   }
 
   // Start audio simulation for active call
-  private async startCallAudio(): Promise<void> {
-    try {
-      if (!this.isAudioInitialized) {
-        console.log('📞 Audio not initialized, skipping call audio');
-        return;
-      }
-
-      console.log('📞 Starting call audio simulation...');
-      
-      // Generate a simple test tone to simulate call audio
-      await this.playCallTone();
-      
-      console.log('📞 Call audio simulation started');
-      
-    } catch (error) {
-      console.error('📞 Error starting call audio:', error);
-    }
-  }
+  private async startCallAudio(): Promise<void> { return; }
 
   // Play a simple call tone for testing
   private async playCallTone(): Promise<void> {
-    try {
-      // Use a more reliable audio source
-      const testAudioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav';
-      
-      console.log('📞 Loading call audio...');
-      
-      // Load and play a test sound with better error handling
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: testAudioUrl },
-        { 
-          shouldPlay: true, 
-          isLooping: true, 
-          volume: 0.5,
-          rate: 1.0,
-          shouldCorrectPitch: true,
-          progressUpdateIntervalMillis: 1000
-        }
-      );
-      
-      this.sound = sound;
-      console.log('📞 Call audio loaded and playing...');
-      
-      // Set up audio status listener
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded) {
-          console.log('📞 Audio status - Duration:', status.durationMillis, 'Position:', status.positionMillis);
-        }
-        if ('error' in status && status.error) {
-          console.error('📞 Audio playback error:', status.error);
-        }
-      });
-      
-    } catch (error) {
-      console.log('📞 Could not load test audio, trying alternative...', error instanceof Error ? error.message : 'Unknown error');
-      
-      // Try a different audio source as fallback
-      try {
-        const fallbackAudioUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-01.wav';
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: fallbackAudioUrl },
-          { shouldPlay: true, isLooping: true, volume: 0.5 }
-        );
-        this.sound = sound;
-        console.log('📞 Fallback audio loaded and playing...');
-      } catch (fallbackError) {
-        console.log('📞 All audio sources failed, using silent mode:', fallbackError instanceof Error ? fallbackError.message : 'Unknown error');
-        
-        // Log that we're using silent mode
-        console.log('📞 Using silent mode for call audio');
-      }
-    }
+    return;
   }
 
   private async handleCallRejected(data: any): Promise<void> {
@@ -460,6 +428,24 @@ class CallService {
     
     // Clean up audio resources
     this.cleanupAudio();
+
+    // Clean up WebRTC resources
+    try {
+      if (this.peerConnection) {
+        this.peerConnection.onicecandidate = null;
+        this.peerConnection.ontrack = null;
+        this.peerConnection.onconnectionstatechange = null;
+        this.peerConnection.close();
+      }
+      this.peerConnection = null;
+      if (this.localStream) {
+        this.localStream.getTracks?.().forEach((t: any) => t.stop?.());
+      }
+      this.localStream = null;
+      this.remoteStream = null;
+    } catch (e) {
+      console.log('📞 Error cleaning up WebRTC:', e);
+    }
     
     this.updateCallState({
       isCallActive: false,
@@ -676,6 +662,143 @@ class CallService {
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
+
+  // ========== WebRTC helpers ==========
+  private async bootstrapWebRTC(): Promise<void> {
+    try {
+      let rnWebRTC: any = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        rnWebRTC = (eval('require') as any)?.('react-native-webrtc');
+      } catch {}
+      if (!rnWebRTC) {
+        console.log('📞 WebRTC module not found - running in fallback mode');
+        return;
+      }
+      this.RTCPeerConnectionImpl = rnWebRTC.RTCPeerConnection || rnWebRTC.default?.RTCPeerConnection;
+      this.mediaDevicesImpl = rnWebRTC.mediaDevices || rnWebRTC.default?.mediaDevices;
+      this.RTCViewImpl = rnWebRTC.RTCView || rnWebRTC.default?.RTCView;
+      if (this.RTCPeerConnectionImpl && this.mediaDevicesImpl) {
+        console.log('📞 WebRTC available - signaling enabled');
+      } else {
+        console.log('📞 WebRTC not fully available - will use fallback');
+      }
+    } catch (e) {
+      console.log('📞 WebRTC setup failed - fallback mode');
+    }
+  }
+
+  private async ensurePeerConnection(callType: 'voice' | 'video'): Promise<void> {
+    if (!this.RTCPeerConnectionImpl || !this.mediaDevicesImpl) return;
+    if (this.peerConnection) return;
+
+    this.peerConnection = new this.RTCPeerConnectionImpl({ iceServers: this.iceServers });
+
+    this.peerConnection.onicecandidate = (event: any) => {
+      if (event.candidate && this.callState.otherUserId && this.callState.callId) {
+        socketService.emit('call:ice-candidate', {
+          to: this.callState.otherUserId,
+          callId: this.callState.callId,
+          candidate: event.candidate,
+        });
+      }
+    };
+
+    this.peerConnection.ontrack = (event: any) => {
+      console.log('📞 Remote track received');
+      this.remoteStream = event.streams?.[0] || null;
+      // Notify UI to refresh streams
+      this.updateCallState({ callDuration: this.callState.callDuration });
+    };
+
+    const constraints = callType === 'video' ? { audio: true, video: true } : { audio: true, video: false };
+    try {
+      this.localStream = await this.mediaDevicesImpl.getUserMedia(constraints);
+      this.localStream.getTracks().forEach((track: any) => this.peerConnection.addTrack(track, this.localStream));
+      // Notify UI to refresh local preview
+      this.updateCallState({ callDuration: this.callState.callDuration });
+    } catch (e) {
+      console.error('📞 Failed to get local media:', e);
+    }
+  }
+
+  private async createAndSendOffer(toUserId: string, callId: string): Promise<void> {
+    if (!this.peerConnection) return;
+    try {
+      const offer = await this.peerConnection.createOffer();
+      await this.peerConnection.setLocalDescription(offer);
+      await socketService.emit('call:offer', { to: toUserId, callId, offer });
+    } catch (e) {
+      console.error('📞 Failed to create/send offer:', e);
+    }
+  }
+
+  private async createAndSendAnswer(toUserId: string, callId: string): Promise<void> {
+    if (!this.peerConnection) return;
+    try {
+      const answer = await this.peerConnection.createAnswer();
+      await this.peerConnection.setLocalDescription(answer);
+      await socketService.emit('call:answer', { to: toUserId, callId, answer });
+    } catch (e) {
+      console.error('📞 Failed to create/send answer:', e);
+    }
+  }
+
+  private async onOfferReceived(data: any): Promise<void> {
+    if (!this.callState.otherUserId) {
+      this.updateCallState({ otherUserId: data.from, callId: data.callId });
+    }
+    await this.ensurePeerConnection(this.callState.callType || 'voice');
+    if (!this.peerConnection) return;
+    try {
+      await this.peerConnection.setRemoteDescription(data.offer);
+      // Drain any queued ICE candidates for this remote description
+      await this.flushPendingCandidates();
+      await this.createAndSendAnswer(data.from, data.callId);
+    } catch (e) {
+      console.error('📞 Failed handling offer:', e);
+    }
+  }
+
+  private async onAnswerReceived(data: any): Promise<void> {
+    if (!this.peerConnection) return;
+    try {
+      await this.peerConnection.setRemoteDescription(data.answer);
+      // Drain any queued ICE candidates for this remote description
+      await this.flushPendingCandidates();
+    } catch (e) {
+      console.error('📞 Failed handling answer:', e);
+    }
+  }
+
+  private async onIceCandidateReceived(data: any): Promise<void> {
+    if (!this.peerConnection || !data?.candidate) return;
+    try {
+      // If remote description not set yet, queue the candidate
+      if (!this.peerConnection.remoteDescription) {
+        this.pendingRemoteIceCandidates.push(data.candidate);
+        return;
+      }
+      const Ctor = (global as any)?.RTCIceCandidate;
+      await this.peerConnection.addIceCandidate(Ctor ? new Ctor(data.candidate) : data.candidate);
+    } catch (e) {
+      console.error('📞 Failed adding ice candidate:', e);
+    }
+  }
+
+  private async flushPendingCandidates(): Promise<void> {
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
+    const Ctor = (global as any)?.RTCIceCandidate;
+    while (this.pendingRemoteIceCandidates.length > 0) {
+      const cand = this.pendingRemoteIceCandidates.shift();
+      try {
+        await this.peerConnection.addIceCandidate(Ctor ? new Ctor(cand) : cand);
+      } catch (e) {
+        console.error('📞 Failed adding queued ice candidate:', e);
+      }
+    }
+  }
 }
+
 
 export const callService = new CallService();

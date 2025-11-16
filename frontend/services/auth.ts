@@ -4,8 +4,11 @@ import { UserType } from '../types/user';
 import { Platform } from 'react-native';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 
+const isWeb = Platform.OS === 'web';
+
 export interface SignUpData {
   fullName: string;
+  username: string;
   email: string;
   password: string;
 }
@@ -30,17 +33,28 @@ export interface AuthResponse {
 // Sign up user
 export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/signup', data);
+    const response = await api.post('/api/v1/auth/signup', data);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Sign up failed');
   }
 };
 
+// Check username availability
+export const checkUsernameAvailability = async (username: string): Promise<{ available: boolean }> => {
+  try {
+    const response = await api.get('/api/v1/auth/check-username', { params: { username } });
+    return response.data;
+  } catch (error: any) {
+    // On network/server error, treat as not available to be safe
+    return { available: false };
+  }
+};
+
 // Verify OTP
 export const verifyOTP = async (data: VerifyOTPData): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/verify-otp', data);
+    const response = await api.post('/api/v1/auth/verify-otp', data);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'OTP verification failed');
@@ -50,7 +64,7 @@ export const verifyOTP = async (data: VerifyOTPData): Promise<AuthResponse> => {
 // Resend OTP
 export const resendOTP = async (email: string): Promise<AuthResponse> => {
   try {
-    const response = await api.post('/auth/resend-otp', { email });
+    const response = await api.post('/api/v1/auth/resend-otp', { email });
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to resend OTP');
@@ -63,13 +77,24 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     // Debug: Log the API base URL being used
     // @ts-ignore
     console.log('API_BASE_URL:', require('./api').default.defaults.baseURL);
-    const response = await api.post('/auth/signin', data);
+    const response = await api.post('/api/v1/auth/signin', data);
     const { token, user } = response.data;
     
     // Store token and user data
+    // For web: If token is returned (cross-origin fallback), store in sessionStorage
+    // For mobile: Store in AsyncStorage
     if (token) {
-      await AsyncStorage.setItem('authToken', token);
+      if (isWeb) {
+        // Web: Store in sessionStorage as fallback if cookie didn't work
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.setItem('authToken', token);
+        }
+      } else {
+        // Mobile: Store in AsyncStorage
+        await AsyncStorage.setItem('authToken', token);
+      }
     }
+    
     if (user) {
       await AsyncStorage.setItem('userData', JSON.stringify(user));
     }
@@ -85,30 +110,28 @@ let lastAuthError: string | null = null;
 // Get current user
 export const getCurrentUser = async (): Promise<UserType | null | 'network-error'> => {
   try {
-    const token = await AsyncStorage.getItem('authToken');
-    console.log('[getCurrentUser] Token in storage:', token);
-    if (!token) {
-      console.log('[getCurrentUser] No token found');
-      return null;
+    // For web, check sessionStorage (fallback for cross-origin) or cookies (same origin)
+    // For mobile, check AsyncStorage
+    if (!isWeb) {
+      // Mobile: Check AsyncStorage
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        return null;
+      }
     }
     
-    const response = await api.get('/auth/me');
-    console.log('[getCurrentUser] /auth/me response:', response.data);
+    const response = await api.get('/api/v1/auth/me');
     const user = response.data.user;
     await AsyncStorage.setItem('userData', JSON.stringify(user));
     lastAuthError = null;
     return user;
   } catch (error: any) {
-    if (error?.response) {
-      console.log('[getCurrentUser] /auth/me error:', error.response.status, error.response.data);
-    } else {
-      console.log('[getCurrentUser] /auth/me network or unknown error:', error?.message || error);
-    }
-    
     // Handle rate limiting specifically
     if (isRateLimitError(error)) {
       const rateLimitInfo = handleRateLimitError(error, 'getCurrentUser');
-      console.warn('Rate limited in getCurrentUser:', rateLimitInfo.message);
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Rate limited in getCurrentUser:', rateLimitInfo.message);
+      }
       return 'network-error';
     }
     
@@ -119,7 +142,9 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     }
     // Network or other error - don't sign out, just return network error
     lastAuthError = error?.message || 'Network or unknown error';
-    console.warn('Network or unknown error in getCurrentUser:', error?.message || error);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Network error in getCurrentUser:', error?.message || error);
+    }
     return 'network-error';
   }
 };
@@ -137,16 +162,32 @@ export const getUserFromStorage = async (): Promise<UserType | null> => {
 // Check if user is authenticated
 export const isAuthenticated = async (): Promise<boolean> => {
   try {
+    // For web, check sessionStorage or cookies via API call
+    // For mobile, check AsyncStorage
+    if (isWeb) {
+      // Check sessionStorage first (fallback for cross-origin)
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const token = window.sessionStorage.getItem('authToken');
+        if (token) {
+          // Token exists, verify with API
+          const user = await getCurrentUser();
+          return user !== null && user !== 'network-error';
+        }
+      }
+      // No token in sessionStorage, try API call (cookies should be sent)
+      const user = await getCurrentUser();
+      return user !== null && user !== 'network-error';
+    }
+    
+    // Mobile: Check AsyncStorage
     const token = await AsyncStorage.getItem('authToken');
     if (!token) {
-      console.log('[isAuthenticated] No token found');
       return false;
     }
     
     // First check if we have stored user data
     const storedUser = await getUserFromStorage();
     if (storedUser) {
-      console.log('[isAuthenticated] Found stored user, returning true');
       return true;
     }
     
@@ -154,12 +195,13 @@ export const isAuthenticated = async (): Promise<boolean> => {
     const user = await getCurrentUser();
     if (user === 'network-error') {
       // Network error - still consider authenticated if we have token
-      console.log('[isAuthenticated] Network error but have token, returning true');
       return true;
     }
     return !!user;
   } catch (error) {
-    console.error('[isAuthenticated] Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[isAuthenticated] Error:', error);
+    }
     // Don't automatically sign out on error, just return false
     return false;
   }
@@ -168,6 +210,11 @@ export const isAuthenticated = async (): Promise<boolean> => {
 // Initialize auth state on app launch
 export const initializeAuth = async (): Promise<UserType | null | 'network-error'> => {
   try {
+    // For web, cookies are sent automatically, just check with API
+    if (isWeb) {
+      return await getCurrentUser();
+    }
+    
     const token = await AsyncStorage.getItem('authToken');
     console.log('[initializeAuth] Token in storage:', token);
     if (!token) return null;
@@ -175,10 +222,12 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     // First, try to get user from storage
     const storedUser = await getUserFromStorage();
     if (storedUser) {
-      console.log('[initializeAuth] Found stored user, keeping signed in');
+      // Found stored user, keeping signed in
       // Return stored user immediately, then validate in background
       getCurrentUser().catch(error => {
-        console.log('[initializeAuth] Background validation failed:', error);
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[initializeAuth] Background validation failed:', error);
+        }
         // Don't sign out on background validation failure
       });
       return storedUser;
@@ -201,7 +250,7 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     // Don't sign out on initialization error, try to get from storage
     const storedUser = await getUserFromStorage();
     if (storedUser) {
-      console.log('[initializeAuth] Fallback to stored user after error');
+      // Fallback to stored user after error
       return storedUser;
     }
     return null;
@@ -211,6 +260,22 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
 // Sign out user
 export const signOut = async (): Promise<void> => {
   try {
+    // For web, call logout endpoint to clear httpOnly cookie
+    if (isWeb) {
+      try {
+        await api.post('/api/v1/auth/logout');
+      } catch (error) {
+        // Continue even if logout endpoint fails
+        console.warn('Logout endpoint failed, clearing local storage');
+      }
+      
+      // Clear sessionStorage (fallback for cross-origin)
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem('authToken');
+      }
+    }
+    
+    // Clear local storage (mobile) or as fallback (web)
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
   } catch (error) {
@@ -221,9 +286,9 @@ export const signOut = async (): Promise<void> => {
 // Forgot password
 export const forgotPassword = async (email: string): Promise<AuthResponse> => {
   try {
-    console.log("Forgot password request for email:", email);
+    // Forgot password request
     api.defaults.headers['User-Agent'] = Platform.OS === 'ios' ? 'iOS-App/1.0' : 'Android-App/1.0';
-    const response = await api.post('/auth/forgot-password', { email });
+    const response = await api.post('/api/v1/auth/forgot-password', { email });
     return response.data;
   } catch (error: any) {
     if (error.response?.status === 404) {
@@ -239,28 +304,52 @@ export const getLastAuthError = () => lastAuthError;
 // Force refresh authentication state
 export const refreshAuthState = async (): Promise<UserType | null> => {
   try {
+    // For web, check sessionStorage or cookies (via API call)
+    // For mobile, check AsyncStorage
+    if (isWeb) {
+      // On web, tokens are in httpOnly cookies or sessionStorage
+      // Just call getCurrentUser - it will use cookies automatically
+      const user = await getCurrentUser();
+      if (user && user !== 'network-error') {
+        // Successfully refreshed auth state
+        return user;
+      }
+      
+      // If network error, return stored user
+      if (user === 'network-error') {
+        const storedUser = await getUserFromStorage();
+        // Network error, returning stored user
+        return storedUser;
+      }
+      
+      return null;
+    }
+    
+    // Mobile: Check AsyncStorage
     const token = await AsyncStorage.getItem('authToken');
     if (!token) {
-      console.log('[refreshAuthState] No token found');
+      // No token found
       return null;
     }
     
     const user = await getCurrentUser();
     if (user && user !== 'network-error') {
-      console.log('[refreshAuthState] Successfully refreshed auth state');
+      // Successfully refreshed auth state
       return user;
     }
     
     // If network error, return stored user
     if (user === 'network-error') {
       const storedUser = await getUserFromStorage();
-      console.log('[refreshAuthState] Network error, returning stored user');
+      // Network error, returning stored user
       return storedUser;
     }
     
     return null;
   } catch (error) {
-    console.error('[refreshAuthState] Error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[refreshAuthState] Error:', error);
+    }
     return null;
   }
 };

@@ -12,8 +12,11 @@ import { SafeAreaView as RNSafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
+import ThreeDotMenu from '../../components/ThreeDotMenu';
+import { toggleBlockUser, getBlockStatus } from '../../services/profile';
+import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender }: { 
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat }: { 
   otherUser: any, 
   onClose: () => void, 
   messages: any[], 
@@ -27,7 +30,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   setShowGlobalCallScreen: (show: boolean) => void,
   setGlobalCallState: (state: any) => void,
   forceRender: number,
-  setForceRender: (fn: (prev: number) => number) => void
+  setForceRender: (fn: (prev: number) => number) => void,
+  router: any,
+  onClearChat?: () => void
 }) {
   const { theme } = useTheme();
   const [input, setInput] = useState('');
@@ -35,6 +40,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeenId, setLastSeenId] = useState<string | null>(null);
   const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const flatListRef = React.useRef<FlatList>(null);
 
   // Get user name from user ID
@@ -51,7 +58,24 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Sort messages ascending by timestamp (oldest first)
   const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-
+  // Fetch block status and mute status when component mounts or otherUser changes
+  useEffect(() => {
+    const fetchStatuses = async () => {
+      if (otherUser?._id) {
+        try {
+          const [blockStatus, muteStatus] = await Promise.all([
+            getBlockStatus(otherUser._id),
+            getMuteStatus(otherUser._id),
+          ]);
+          setIsBlocked(blockStatus.isBlocked);
+          setIsMuted(muteStatus.muted);
+        } catch (error) {
+          console.error('Error fetching statuses:', error);
+        }
+      }
+    };
+    fetchStatuses();
+  }, [otherUser?._id]);
 
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
@@ -414,7 +438,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           </View>
           
           <View style={styles.headerActions}>
-            <TouchableOpacity 
+            {/* Call options commented out - will be available in next update */}
+            {/* <TouchableOpacity 
               style={[styles.headerActionButton, isCalling && styles.headerActionButtonDisabled]}
               onPress={() => onVoiceCall(otherUser)}
               disabled={isCalling}
@@ -436,11 +461,103 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                 size={20} 
                 color={isCalling ? theme.colors.textSecondary : theme.colors.primary} 
               />
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             
-            <TouchableOpacity style={styles.headerActionButton}>
-              <Ionicons name="ellipsis-vertical" size={20} color={theme.colors.text} />
-            </TouchableOpacity>
+            <ThreeDotMenu
+              items={[
+                {
+                  label: 'View Profile',
+                  icon: 'person-outline',
+                  onPress: () => {
+                    // Navigate to user profile
+                    if (otherUser?._id && router) {
+                      router.push(`/profile/${otherUser._id}`);
+                    }
+                  },
+                },
+                {
+                  label: 'Clear Chat',
+                  icon: 'trash-outline',
+                  onPress: () => {
+                    Alert.alert(
+                      'Clear Chat',
+                      'Are you sure you want to clear all messages in this chat? This action cannot be undone.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Clear',
+                          style: 'destructive',
+                          onPress: async () => {
+                            try {
+                              if (otherUser?._id) {
+                                await clearChat(otherUser._id);
+                                if (onClearChat) {
+                                  onClearChat();
+                                }
+                                Alert.alert('Success', 'Chat cleared successfully');
+                              }
+                            } catch (error: any) {
+                              Alert.alert('Error', error.message || 'Failed to clear chat');
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  },
+                },
+                {
+                  label: isMuted ? 'Unmute Notifications' : 'Mute Notifications',
+                  icon: isMuted ? 'notifications-outline' : 'notifications-off-outline',
+                  onPress: async () => {
+                    try {
+                      if (otherUser?._id) {
+                        const result = await toggleMuteChat(otherUser._id);
+                        setIsMuted(result.muted);
+                        Alert.alert('Success', result.message);
+                      }
+                    } catch (error: any) {
+                      Alert.alert('Error', error.message || 'Failed to toggle mute');
+                    }
+                  },
+                },
+                {
+                  label: isBlocked ? 'Unblock User' : 'Block User',
+                  icon: 'ban-outline',
+                  onPress: () => {
+                    Alert.alert(
+                      isBlocked ? 'Unblock User' : 'Block User',
+                      isBlocked
+                        ? `Are you sure you want to unblock ${otherUser?.fullName || 'this user'}?`
+                        : `Are you sure you want to block ${otherUser?.fullName || 'this user'}? You won't be able to send or receive messages from them.`,
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: isBlocked ? 'Unblock' : 'Block',
+                          style: isBlocked ? 'default' : 'destructive',
+                          onPress: async () => {
+                            try {
+                              if (otherUser?._id) {
+                                const result = await toggleBlockUser(otherUser._id);
+                                setIsBlocked(result.isBlocked);
+                                Alert.alert('Success', result.message);
+                                if (result.isBlocked) {
+                                  onClose();
+                                }
+                              }
+                            } catch (error: any) {
+                              Alert.alert('Error', error.message || 'Failed to update block status');
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  },
+                  destructive: !isBlocked,
+                },
+              ]}
+              iconColor={theme.colors.text}
+              iconSize={20}
+            />
           </View>
         </View>
 
@@ -617,6 +734,9 @@ export default function ChatModal() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showErrorAlert, setShowErrorAlert] = useState(false);
+  const [blockedUserId, setBlockedUserId] = useState<string | null>(null);
+  const [isBlockedError, setIsBlockedError] = useState(false);
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [activeChat, setActiveChat] = useState<any>(null);
   const [activeMessages, setActiveMessages] = useState<any[]>([]);
@@ -818,6 +938,22 @@ export default function ChatModal() {
     try {
       console.log('Opening chat with user:', user._id);
       
+      // Check block status first
+      try {
+        const blockStatus = await getBlockStatus(user._id);
+        if (blockStatus.isBlocked) {
+          setError('You cannot chat with this user because you have blocked them. Please unblock them first.');
+          setBlockedUserId(user._id);
+          setIsBlockedError(true);
+          setShowErrorAlert(true);
+          setChatLoading(false);
+          return;
+        }
+      } catch (blockError) {
+        console.error('Error checking block status:', blockError);
+        // Continue even if block check fails
+      }
+      
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Request timeout')), 10000)
@@ -872,7 +1008,29 @@ export default function ChatModal() {
       }));
     } catch (e: any) {
       console.error('Error opening chat with user:', e);
-      setError(`Failed to load chat: ${e.message || 'Unknown error'}`);
+      
+      // Handle specific error cases
+      if (e.response?.status === 403) {
+        // Check if this is a block-related error
+        const errorMessage = e.response?.data?.message || e.message || '';
+        if (errorMessage.includes('block')) {
+          setError('You cannot chat with this user. They may have blocked you or you may have blocked them.');
+          setIsBlockedError(true);
+          setBlockedUserId(user._id);
+        } else {
+          setError('You cannot chat with this user. They may have blocked you or you may have blocked them.');
+          setIsBlockedError(false);
+        }
+        setShowErrorAlert(true);
+      } else if (e.response?.status === 404) {
+        setError('Chat not found or you are not allowed to access this chat.');
+        setIsBlockedError(false);
+        setShowErrorAlert(true);
+      } else {
+        setError(`Failed to load chat: ${e.response?.data?.message || e.message || 'Unknown error'}`);
+        setIsBlockedError(false);
+        setShowErrorAlert(true);
+      }
     } finally {
       setChatLoading(false);
     }
@@ -894,6 +1052,7 @@ export default function ChatModal() {
         })
         .catch(e => {
           setError('User not found or you are not allowed to chat.');
+          setShowErrorAlert(true);
           setLoading(false);
         });
     }
@@ -1062,11 +1221,247 @@ export default function ChatModal() {
       setGlobalCallState={setGlobalCallState}
       forceRender={forceRender}
       setForceRender={setForceRender}
+      router={router}
+      onClearChat={() => {
+        // Clear active messages
+        setActiveMessages([]);
+        // Optionally refresh chat list
+        const reloadChats = async () => {
+          const token = await AsyncStorage.getItem('authToken');
+          const userData = await AsyncStorage.getItem('userData');
+          let myUserId = '';
+          if (userData) {
+            try { myUserId = JSON.parse(userData)._id; } catch {}
+          }
+          const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+          fetch(`${API_BASE_URL}/chat`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Accept': 'application/json'
+            }
+          })
+            .then(res => res.json())
+            .then(data => {
+              let chats = data.chats || [];
+              chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
+              const chatMap = new Map<string, any>();
+              chats.forEach((chat: any) => {
+                const participantIds = chat.participants
+                  .map((p: any) => p._id || p)
+                  .sort()
+                  .join('-');
+                if (!chatMap.has(participantIds)) {
+                  chatMap.set(participantIds, chat);
+                }
+              });
+              const uniqueChats = Array.from(chatMap.values());
+              uniqueChats.sort((a: any, b: any) => 
+                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+              );
+              setConversations(uniqueChats);
+            })
+            .catch(err => console.error('Error reloading chats:', err));
+        };
+        reloadChats();
+      }}
     />;
   }
   if (chatLoading || loading) {
     return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.colors.primary} size="large" /></SafeAreaView>;
   }
+  
+  // Show error alert as part of chat interface
+  if (error && showErrorAlert) {
+    const errorStyles = StyleSheet.create({
+      errorContainer: {
+        flex: 1,
+        backgroundColor: theme.colors.background,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+      },
+      errorCard: {
+        backgroundColor: theme.colors.surface,
+        borderRadius: theme.borderRadius.xl,
+        padding: 32,
+        width: '100%',
+        maxWidth: 360,
+        alignItems: 'center',
+        ...theme.shadows.large,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+      },
+      errorIconContainer: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: `${theme.colors.warning}20`,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 20,
+      },
+      errorTitle: {
+        fontSize: theme.typography.h3.fontSize,
+        fontWeight: theme.typography.h3.fontWeight,
+        color: theme.colors.text,
+        marginBottom: 12,
+        textAlign: 'center',
+      },
+      errorMessage: {
+        fontSize: theme.typography.body.fontSize,
+        color: theme.colors.textSecondary,
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 28,
+      },
+      errorButton: {
+        backgroundColor: theme.colors.primary,
+        paddingVertical: 14,
+        paddingHorizontal: 32,
+        borderRadius: theme.borderRadius.md,
+        minWidth: 140,
+      },
+      errorButtonText: {
+        color: '#FFFFFF',
+        fontSize: theme.typography.body.fontSize,
+        fontWeight: '600',
+        textAlign: 'center',
+      },
+      errorButtonSecondary: {
+        backgroundColor: 'transparent',
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        paddingVertical: 14,
+        paddingHorizontal: 32,
+        borderRadius: theme.borderRadius.md,
+        minWidth: 140,
+        marginTop: 12,
+      },
+      errorButtonSecondaryText: {
+        color: theme.colors.text,
+        fontSize: theme.typography.body.fontSize,
+        fontWeight: '600',
+        textAlign: 'center',
+      },
+      buttonContainer: {
+        width: '100%',
+        alignItems: 'center',
+      },
+    });
+
+    const handleUnblock = async () => {
+      if (!blockedUserId) return;
+      
+      try {
+        setChatLoading(true);
+        const result = await toggleBlockUser(blockedUserId);
+        
+        if (!result.isBlocked) {
+          // User is now unblocked, try to open chat again
+          setShowErrorAlert(false);
+          setError(null);
+          setIsBlockedError(false);
+          
+          // Get user info - either from selectedUser or fetch from params
+          let userToOpen: any = null;
+          
+          if (selectedUser && selectedUser._id === blockedUserId) {
+            userToOpen = selectedUser;
+          } else if (params.userId && params.userId === blockedUserId) {
+            // Fetch user profile if we only have ID
+            try {
+              const profileRes = await api.get(`/profile/${params.userId}`);
+              userToOpen = {
+                _id: profileRes.data.profile._id,
+                fullName: profileRes.data.profile.fullName,
+                profilePic: profileRes.data.profile.profilePic,
+              };
+            } catch (e) {
+              console.error('Failed to fetch user profile:', e);
+            }
+          } else if (blockedUserId) {
+            // Fallback: try to fetch user by blockedUserId
+            try {
+              const profileRes = await api.get(`/profile/${blockedUserId}`);
+              userToOpen = {
+                _id: profileRes.data.profile._id,
+                fullName: profileRes.data.profile.fullName,
+                profilePic: profileRes.data.profile.profilePic,
+              };
+            } catch (e) {
+              console.error('Failed to fetch user profile:', e);
+            }
+          }
+          
+          if (userToOpen) {
+            setBlockedUserId(null);
+            await openChatWithUser(userToOpen);
+          } else {
+            // If we can't get user info, just go back
+            setBlockedUserId(null);
+            setChatLoading(false);
+            if (router && typeof router.back === 'function') {
+              router.back();
+            }
+          }
+        }
+      } catch (error: any) {
+        Alert.alert('Error', error.message || 'Failed to unblock user');
+        setChatLoading(false);
+      }
+    };
+
+    return (
+      <SafeAreaView style={errorStyles.errorContainer}>
+        <View style={errorStyles.errorCard}>
+          <View style={errorStyles.errorIconContainer}>
+            <Ionicons name="warning" size={32} color={theme.colors.warning} />
+          </View>
+          <Text style={errorStyles.errorTitle}>Cannot Open Chat</Text>
+          <Text style={errorStyles.errorMessage}>{error}</Text>
+          <View style={errorStyles.buttonContainer}>
+            {isBlockedError && blockedUserId && (
+              <TouchableOpacity
+                style={errorStyles.errorButton}
+                onPress={handleUnblock}
+                activeOpacity={0.8}
+              >
+                <Text style={errorStyles.errorButtonText}>Unblock User</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={isBlockedError && blockedUserId ? errorStyles.errorButtonSecondary : errorStyles.errorButton}
+              onPress={() => {
+                setShowErrorAlert(false);
+                setError(null);
+                setBlockedUserId(null);
+                setIsBlockedError(false);
+                try {
+                  if (router && typeof router.back === 'function') {
+                    router.back();
+                  } else {
+                    setSelectedUser(null);
+                    setActiveChat(null);
+                    setActiveMessages([]);
+                  }
+                } catch (e) {
+                  setSelectedUser(null);
+                  setActiveChat(null);
+                  setActiveMessages([]);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={isBlockedError && blockedUserId ? errorStyles.errorButtonSecondaryText : errorStyles.errorButtonText}>
+                {isBlockedError && blockedUserId ? 'Go Back' : 'Go Back'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+  
   if (error) {
     return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: theme.colors.error, fontSize: 16 }}>{error}</Text></SafeAreaView>;
   }

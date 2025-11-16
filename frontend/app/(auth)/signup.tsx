@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -17,12 +17,44 @@ import { theme } from '../../constants/theme';
 import { useAlert } from '../../context/AlertContext';
 import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
-import { signUp } from '../../services/auth';
+import { signUp, checkUsernameAvailability } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
+
+// Lightweight watcher for debounced username availability checks
+function UsernameAvailabilityWatcher({
+  username,
+  onUnavailable,
+  onAvailable,
+}: {
+  username: string;
+  onUnavailable: () => void;
+  onAvailable: () => void;
+}) {
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!username || username.length < 3) return;
+
+    timerRef.current = setTimeout(async () => {
+      const { available } = await checkUsernameAvailability(username);
+      if (available) onAvailable();
+      else onUnavailable();
+    }, 600); // debounce 600ms
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [username]);
+
+  return null;
+}
 
 interface SignUpFormValues {
   fullName: string;
+  username: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -33,6 +65,7 @@ export default function SignUpScreen() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [usernameAvailable, setUsernameAvailable] = useState<boolean | undefined>(undefined);
   const router = useRouter();
   const { showError, showSuccess } = useAlert();
 
@@ -41,6 +74,7 @@ export default function SignUpScreen() {
     try {
       const response = await signUp({
         fullName: values.fullName,
+        username: values.username,
         email: values.email,
         password: values.password,
       });
@@ -100,6 +134,7 @@ export default function SignUpScreen() {
             <Formik
               initialValues={{
                 fullName: '',
+                username: '',
                 email: '',
                 password: '',
                 confirmPassword: '',
@@ -107,7 +142,7 @@ export default function SignUpScreen() {
               validationSchema={signUpSchema}
               onSubmit={handleSignUp}
             >
-              {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
+              {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldError, setFieldValue, setFieldTouched }) => (
                 <View>
                   <AuthInput
                     label="Full Name"
@@ -119,6 +154,43 @@ export default function SignUpScreen() {
                     touched={touched.fullName}
                     autoCapitalize="words"
                   />
+
+                  <AuthInput
+                    label="Username"
+                    placeholder="Choose a username"
+                    value={values.username}
+                    onChangeText={(text) => {
+                      const sanitized = text.toLowerCase();
+                      setFieldValue('username', sanitized);
+                      // reset availability state while typing
+                      setUsernameAvailable(undefined);
+                    }}
+                    onBlur={handleBlur('username')}
+                    error={errors.username}
+                    touched={touched.username}
+                    autoCapitalize="none"
+                    alwaysShowError
+                    success={usernameAvailable ? 'Username available' : undefined}
+                  />
+
+                  {/* Live username availability check */}
+                  {values.username?.length >= 3 && (
+                    <UsernameAvailabilityWatcher
+                      username={values.username}
+                      onUnavailable={() => {
+                        setFieldError('username', 'Username already exists');
+                        setFieldTouched('username', true, false);
+                        showError('Username already exists. Try another.');
+                        setUsernameAvailable(false);
+                      }}
+                      onAvailable={() => {
+                        if (errors.username === 'Username already exists') {
+                          setFieldError('username', '');
+                        }
+                        setUsernameAvailable(true);
+                      }}
+                    />
+                  )}
 
                   <AuthInput
                     label="Email"
