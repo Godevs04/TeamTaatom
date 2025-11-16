@@ -13,6 +13,10 @@ const ChatSchema = new Schema({
   messages: [MessageSchema],
 }, { timestamps: true });
 
-ChatSchema.index({ participants: 1 });
+// Database indexes for performance optimization
+ChatSchema.index({ participants: 1 }); // For finding chats by participants
+ChatSchema.index({ 'messages.timestamp': -1 }); // For sorting messages by timestamp
+ChatSchema.index({ updatedAt: -1 }); // For sorting chats by last update
+ChatSchema.index({ 'participants': 1, updatedAt: -1 }); // Compound index for user's chats
 
 module.exports = mongoose.model('Chat', ChatSchema);

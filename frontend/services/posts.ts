@@ -98,7 +98,7 @@ export const getPostById = async (postId: string) => {
   let delay = 300;
   while (attempt < maxAttempts) {
     try {
-      const response = await api.get(`/posts/${postId}`);
+      const response = await api.get(`/api/v1/posts/${postId}`);
       const data = response.data;
       postByIdCache.set(postId, { data, expiresAt: Date.now() + POST_CACHE_TTL_MS });
       return data;
@@ -116,7 +116,7 @@ export const getPostById = async (postId: string) => {
 
 export const getPosts = async (page: number = 1, limit: number = 20): Promise<PostsResponse> => {
   try {
-    const response = await api.get(`/posts?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/posts?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     if (isRateLimitError(error)) {
@@ -165,7 +165,7 @@ export const createPostWithProgress = async (
 
     const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
 
-    const response = await fetch(`${API_BASE_URL}/posts`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/posts`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -206,7 +206,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
 
-    const response = await api.post('/posts', formData, {
+    const response = await api.post('/api/v1/posts', formData, {
       headers: {
         'Content-Type': undefined, // Explicitly remove Content-Type for FormData
       },
@@ -237,7 +237,7 @@ export const getTravelMapData = async (userId: string): Promise<{
   };
 }> => {
   try {
-    const response = await api.get(`/profile/${userId}/travel-map`);
+    const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch travel map data');
@@ -247,7 +247,7 @@ export const getTravelMapData = async (userId: string): Promise<{
 // Get user's posts
 export const getUserPosts = async (userId: string, page: number = 1, limit: number = 20): Promise<UserPostsResponse> => {
   try {
-    const response = await api.get(`/posts/user/${userId}?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/posts/user/${userId}?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch user posts');
@@ -257,7 +257,7 @@ export const getUserPosts = async (userId: string, page: number = 1, limit: numb
 // Like/unlike post
 export const toggleLike = async (postId: string): Promise<{ message: string; isLiked: boolean; likesCount: number }> => {
   try {
-    const response = await api.post(`/posts/${postId}/like`);
+    const response = await api.post(`/api/v1/posts/${postId}/like`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to update like status');
@@ -267,7 +267,7 @@ export const toggleLike = async (postId: string): Promise<{ message: string; isL
 // Add comment to post
 export const addComment = async (postId: string, text: string): Promise<{ message: string; comment: any }> => {
   try {
-    const response = await api.post(`/posts/${postId}/comments`, { text });
+    const response = await api.post(`/api/v1/posts/${postId}/comments`, { text });
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to add comment');
@@ -277,7 +277,7 @@ export const addComment = async (postId: string, text: string): Promise<{ messag
 // Delete comment
 export const deleteComment = async (postId: string, commentId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.delete(`/posts/${postId}/comments/${commentId}`);
+    const response = await api.delete(`/api/v1/posts/${postId}/comments/${commentId}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to delete comment');
@@ -287,7 +287,7 @@ export const deleteComment = async (postId: string, commentId: string): Promise<
 // Delete post
 export const deletePost = async (postId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.delete(`/posts/${postId}`);
+    const response = await api.delete(`/api/v1/posts/${postId}`);
     // Clear cache for this post
     postByIdCache.delete(postId);
     return response.data;
@@ -299,7 +299,7 @@ export const deletePost = async (postId: string): Promise<{ message: string }> =
 // Archive post
 export const archivePost = async (postId: string): Promise<{ message: string; post: any }> => {
   try {
-    const response = await api.patch(`/posts/${postId}/archive`);
+    const response = await api.patch(`/api/v1/posts/${postId}/archive`);
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
@@ -310,7 +310,7 @@ export const archivePost = async (postId: string): Promise<{ message: string; po
 // Unarchive post
 export const unarchivePost = async (postId: string): Promise<{ message: string; post: any }> => {
   try {
-    const response = await api.patch(`/posts/${postId}/unarchive`);
+    const response = await api.patch(`/api/v1/posts/${postId}/unarchive`);
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
@@ -321,7 +321,7 @@ export const unarchivePost = async (postId: string): Promise<{ message: string; 
 // Hide post
 export const hidePost = async (postId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.patch(`/posts/${postId}/hide`);
+    const response = await api.patch(`/api/v1/posts/${postId}/hide`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to hide post');
@@ -331,7 +331,7 @@ export const hidePost = async (postId: string): Promise<{ message: string }> => 
 // Unhide post
 export const unhidePost = async (postId: string): Promise<{ message: string; post: any }> => {
   try {
-    const response = await api.patch(`/posts/${postId}/unhide`);
+    const response = await api.patch(`/api/v1/posts/${postId}/unhide`);
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
@@ -342,7 +342,7 @@ export const unhidePost = async (postId: string): Promise<{ message: string; pos
 // Get archived posts
 export const getArchivedPosts = async (page: number = 1, limit: number = 20): Promise<{ success: boolean; posts: PostType[]; page: number; limit: number; total: number }> => {
   try {
-    const response = await api.get(`/posts/archived?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/posts/archived?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch archived posts');
@@ -352,7 +352,7 @@ export const getArchivedPosts = async (page: number = 1, limit: number = 20): Pr
 // Get hidden posts
 export const getHiddenPosts = async (page: number = 1, limit: number = 20): Promise<{ success: boolean; posts: PostType[]; page: number; limit: number; total: number }> => {
   try {
-    const response = await api.get(`/posts/hidden?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/posts/hidden?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch hidden posts');
@@ -362,7 +362,7 @@ export const getHiddenPosts = async (page: number = 1, limit: number = 20): Prom
 // Toggle comments
 export const toggleComments = async (postId: string): Promise<{ message: string; commentsDisabled: boolean }> => {
   try {
-    const response = await api.patch(`/posts/${postId}/toggle-comments`);
+    const response = await api.patch(`/api/v1/posts/${postId}/toggle-comments`);
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
@@ -373,7 +373,7 @@ export const toggleComments = async (postId: string): Promise<{ message: string;
 // Update post
 export const updatePost = async (postId: string, caption: string): Promise<{ message: string; post: any }> => {
   try {
-    const response = await api.patch(`/posts/${postId}`, { caption });
+    const response = await api.patch(`/api/v1/posts/${postId}`, { caption });
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
@@ -384,7 +384,7 @@ export const updatePost = async (postId: string, caption: string): Promise<{ mes
 // Delete short
 export const deleteShort = async (shortId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.delete(`/shorts/${shortId}`);
+    const response = await api.delete(`/api/v1/shorts/${shortId}`);
     // Clear cache for this short
     postByIdCache.delete(shortId);
     return response.data;
@@ -396,7 +396,7 @@ export const deleteShort = async (shortId: string): Promise<{ message: string }>
 // Get shorts
 export const getShorts = async (page: number = 1, limit: number = 20): Promise<ShortsResponse> => {
   try {
-    const response = await api.get(`/shorts?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/shorts?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch shorts');
@@ -406,7 +406,7 @@ export const getShorts = async (page: number = 1, limit: number = 20): Promise<S
 // Get user's shorts
 export const getUserShorts = async (userId: string, page: number = 1, limit: number = 20): Promise<{ shorts: PostType[]; user: any; totalShorts: number }> => {
   try {
-    const response = await api.get(`/shorts/user/${userId}?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/shorts/user/${userId}?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to fetch user shorts');
@@ -463,7 +463,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     console.log('Sending request to /shorts endpoint');
     
     // Use fetch instead of axios for better FormData handling
-    const response = await fetch(`${API_BASE_URL}/shorts`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/shorts`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

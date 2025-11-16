@@ -13,6 +13,8 @@ interface AuthInputProps extends TextInputProps {
   error?: string;
   touched?: boolean;
   rightIcon?: React.ReactNode;
+  alwaysShowError?: boolean;
+  success?: string;
 }
 
 export default function AuthInput({
@@ -20,6 +22,8 @@ export default function AuthInput({
   error,
   touched,
   rightIcon,
+  alwaysShowError,
+  success,
   ...props
 }: AuthInputProps) {
   return (
@@ -29,7 +33,8 @@ export default function AuthInput({
         <TextInput
           style={[
             styles.input,
-            error && touched ? styles.inputError : undefined,
+            error && (touched || alwaysShowError) ? styles.inputError : undefined,
+            !error && success ? styles.inputSuccess : undefined,
             rightIcon ? { paddingRight: 40 } : undefined,
           ].filter(Boolean)}
           placeholderTextColor={theme.colors.textSecondary}
@@ -39,8 +44,11 @@ export default function AuthInput({
           <View style={styles.rightIcon}>{rightIcon}</View>
         )}
       </View>
-      {error && touched && (
+      {error && (touched || alwaysShowError) && (
         <Text style={styles.errorText}>{error}</Text>
+      )}
+      {!error && success && (
+        <Text style={styles.successText}>{success}</Text>
       )}
     </View>
   );
@@ -70,8 +78,16 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: theme.colors.error,
   },
+  inputSuccess: {
+    borderColor: theme.colors.success,
+  },
   errorText: {
     color: theme.colors.error,
+    fontSize: theme.typography.small.fontSize,
+    marginTop: theme.spacing.xs,
+  },
+  successText: {
+    color: theme.colors.success,
     fontSize: theme.typography.small.fontSize,
     marginTop: theme.spacing.xs,
   },

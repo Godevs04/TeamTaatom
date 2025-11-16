@@ -1,11 +1,15 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import { createPerformanceInterceptor } from '../utils/performance';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
 const REQUEST_DELAY = 100; // 100ms delay between requests
+
+// Store CSRF token in memory (updated from response headers)
+let csrfToken: string | null = null;
 
 // Create axios instance
 const API_BASE_URL =
@@ -19,6 +23,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Include cookies for web (httpOnly cookies)
 });
 
 // Add performance monitoring interceptor
@@ -30,7 +35,10 @@ api.interceptors.response.use(performanceInterceptor.response, performanceInterc
 api.interceptors.request.use(
   async (config) => {
     try {
-      console.log('API Request:', config.method?.toUpperCase(), config.url);
+      // Only log in development and for non-GET requests or errors
+      if (process.env.NODE_ENV === 'development' && config.method?.toUpperCase() !== 'GET') {
+        console.log('API Request:', config.method?.toUpperCase(), config.url);
+      }
       
       // Add throttling to prevent rate limiting
       const requestKey = `${config.method}-${config.url}`;
@@ -39,22 +47,82 @@ api.interceptors.request.use(
       
       if (timeSinceLastRequest < REQUEST_DELAY) {
         const delay = REQUEST_DELAY - timeSinceLastRequest;
-        console.log(`Throttling request to ${config.url}, waiting ${delay}ms`);
+        // Only log throttling in development
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Throttling request to ${config.url}, waiting ${delay}ms`);
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
       }
       
       requestQueue.set(requestKey, Date.now());
       
-      const token = await AsyncStorage.getItem('authToken');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+      // For web, try cookies first (sent automatically), fallback to sessionStorage
+      // For mobile, get token from AsyncStorage
+      if (Platform.OS === 'web') {
+        // Check sessionStorage as fallback if cookie didn't work (cross-origin)
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          const token = window.sessionStorage.getItem('authToken');
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+        }
+        // Cookies are sent automatically with withCredentials: true
+      } else {
+        // Mobile: Get from AsyncStorage
+        const token = await AsyncStorage.getItem('authToken');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      }
+      
+      // Add platform header for backend to detect web vs mobile
+      config.headers['X-Platform'] = Platform.OS;
+      
+      // Add CSRF token for web (always read from cookie - it's updated on every response)
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        // Always read from cookie (backend updates it on every response)
+        const token = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('csrf-token='))
+          ?.split('=')[1];
+        
+        // Fallback to memory if cookie not available
+        const finalToken = token || csrfToken;
+        
+        if (finalToken) {
+          config.headers['X-CSRF-Token'] = finalToken;
+        } else if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase() || '')) {
+          // For state-changing requests, we need CSRF token
+          // If not found, log warning (but don't block - backend will handle it)
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('CSRF token not found for', config.method, config.url);
+          }
+        }
       }
     } catch (error) {
       console.error('Error getting auth token:', error);
     }
     return config;
   },
-  (error) => {
+  async (error) => {
+    // Report errors to crash reporting
+    if (error.response) {
+      // Server responded with error
+      const { captureException } = await import('./crashReporting');
+      captureException(new Error(`API Error: ${error.response.status} - ${error.config?.url}`), {
+        status: error.response.status,
+        url: error.config?.url,
+        method: error.config?.method,
+        data: error.response.data,
+      });
+    } else if (error.request) {
+      // Request made but no response
+      const { captureException } = await import('./crashReporting');
+      captureException(new Error(`Network Error: ${error.config?.url}`), {
+        url: error.config?.url,
+        method: error.config?.method,
+      });
+    }
     return Promise.reject(error);
   }
 );
@@ -62,7 +130,22 @@ api.interceptors.request.use(
 // Response interceptor to handle errors and retry logic
 api.interceptors.response.use(
   (response) => {
-    console.log('API Response:', response.status, response.config.url);
+    // Store CSRF token from response header for web
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const tokenFromHeader = response.headers['x-csrf-token'];
+      if (tokenFromHeader) {
+        // Store in memory for immediate use
+        csrfToken = tokenFromHeader;
+        // Also store in cookie as backup
+        document.cookie = `csrf-token=${tokenFromHeader}; path=/; SameSite=Lax; max-age=3600`;
+      }
+    }
+    
+    // Only log errors or non-200 responses in development
+    if (process.env.NODE_ENV === 'development' && response.status !== 200) {
+      console.log('API Response:', response.status, response.config.url);
+    }
+    
     return response;
   },
   async (error) => {
@@ -96,7 +179,7 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       error.config?.url &&
-      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh'))
+      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh') || error.config.url.endsWith('/api/v1/auth/me') || error.config.url.endsWith('/api/v1/auth/refresh'))
     ) {
       // Token expired or invalid, clear storage
       await AsyncStorage.removeItem('authToken');

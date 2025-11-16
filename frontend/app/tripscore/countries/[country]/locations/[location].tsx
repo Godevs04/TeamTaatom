@@ -46,6 +46,10 @@ export default function LocationDetailScreen() {
   const router = useRouter();
   const { country, location, userId } = useLocalSearchParams();
 
+  // Check if coming from locale flow (general) or tripscore flow
+  const countryParam = Array.isArray(country) ? country[0] : country;
+  const isFromLocaleFlow = countryParam === 'general';
+
   useEffect(() => {
     loadLocationData();
     checkBookmarkStatus();
@@ -146,7 +150,7 @@ export default function LocationDetailScreen() {
         });
       } else {
         // This is a TripScore location, fetch from API
-        const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
+        const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
         const locations = response.data.locations;
         
         // Find the specific location
@@ -346,6 +350,7 @@ export default function LocationDetailScreen() {
           {displayLocationName}
         </Text>
         <View style={styles.headerRight}>
+          {isFromLocaleFlow && (
           <TouchableOpacity
             style={styles.bookmarkButton}
             onPress={handleBookmark}
@@ -361,6 +366,7 @@ export default function LocationDetailScreen() {
               />
             )}
           </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.closeButton}
             onPress={() => router.back()}

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, Share, FlatList } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, Dimensions, SafeAreaView, StatusBar, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getPostById, toggleLike, getUserPosts } from '../../services/posts';
@@ -8,13 +8,13 @@ import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getUserFromStorage } from '../../services/auth';
-import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
 import CustomAlert from '../../components/CustomAlert';
 import CommentModal from '../../components/CommentModal';
+import ShareModal from '../../components/ShareModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
+import { trackScreenView, trackPostView, trackEngagement } from '../../services/analytics';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -42,6 +42,9 @@ export default function PostDetail() {
   // Comment modal state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
+  
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
   
   // Custom alert state
   const [showCustomAlert, setShowCustomAlert] = useState(false);
@@ -81,6 +84,19 @@ export default function PostDetail() {
         setLikesCount(correctLikesCount);
         setIsFollowing(response.post?.user?.isFollowing || false);
         
+        // Track post view (wrap in try-catch to prevent crashes)
+        if (response.post?._id) {
+          try {
+            trackPostView(response.post._id, {
+              author_id: response.post.user?._id,
+              has_location: !!response.post.location,
+            });
+          } catch (analyticsError) {
+            // Silently fail - don't break the app if analytics fails
+            console.warn('Analytics error:', analyticsError);
+          }
+        }
+        
         // Set initial comments
         setComments(response.post?.comments || []);
         
@@ -102,6 +118,13 @@ export default function PostDetail() {
 
     if (id) {
       loadInitialData();
+      // Track screen view (wrap in try-catch to prevent crashes)
+      try {
+        trackScreenView('post_detail', { post_id: id });
+      } catch (analyticsError) {
+        // Silently fail - don't break the app if analytics fails
+        console.warn('Analytics error:', analyticsError);
+      }
     }
   }, [id]);
 
@@ -140,41 +163,84 @@ export default function PostDetail() {
   }, []);
 
   // Listen for WebSocket real-time updates
+  // Use refs to track current state and prevent unnecessary updates
+  const isUpdatingRef = useRef(false);
+  const lastUpdateTimeRef = useRef(0);
+  const stateRef = useRef({ isLiked, likesCount });
+  
+  // Sync ref with state changes (without causing re-renders)
+  React.useEffect(() => {
+    stateRef.current = { isLiked, likesCount };
+  }, [isLiked, likesCount]);
+  
+  // Wrapper functions that update state (ref is synced via separate useEffect)
+  const setIsLikedWithRef = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setIsLiked(value);
+  }, []);
+  
+  const setLikesCountWithRef = useCallback((value: number | ((prev: number) => number)) => {
+    setLikesCount(value);
+  }, []);
+  
   React.useEffect(() => {
     if (!post) return;
 
-    console.log('Post detail - Setting up WebSocket listeners for post:', post._id);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Post detail - Setting up WebSocket listeners for post:', post._id);
+    }
 
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
       if (data.postId === post._id) {
-        console.log('Post detail - WebSocket like update received:', data);
-        console.log('Post detail - Current state before update:', { isLiked, likesCount });
+        // Prevent processing if we're already updating (avoid loops)
+        if (isUpdatingRef.current) {
+          return;
+        }
+        
+        // Prevent processing duplicate events within 100ms
+        const now = Date.now();
+        if (now - lastUpdateTimeRef.current < 100) {
+          return;
+        }
+        
+        // Check if state already matches BEFORE calling setState
+        const current = stateRef.current;
+        if (current.isLiked === data.isLiked && current.likesCount === data.likesCount) {
+          return; // State already matches, no update needed
+        }
+        
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Post detail - WebSocket like update received:', data);
+        }
         
         // Only update if the WebSocket data is more recent than our current state
-        // This prevents stale WebSocket events from overriding correct initial data
         const currentTimestamp = Date.now();
         const eventTimestamp = new Date(data.timestamp).getTime();
         const timeDiff = currentTimestamp - eventTimestamp;
         
         // If the event is older than 5 seconds, it's likely stale data
         if (timeDiff > 5000) {
-          console.log('Post detail - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Post detail - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+          }
           return;
         }
         
-        console.log('Post detail - Applying WebSocket update:', { 
-          timeDiff: timeDiff + 'ms',
-          from: { isLiked, likesCount }, 
-          to: { isLiked: data.isLiked, likesCount: data.likesCount }
-        });
+        // Mark as updating and update state
+        isUpdatingRef.current = true;
+        lastUpdateTimeRef.current = now;
+        setIsLikedWithRef(data.isLiked);
+        setLikesCountWithRef(data.likesCount);
         
-        setIsLiked(data.isLiked);
-        setLikesCount(data.likesCount);
+        // Reset flag after a short delay
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 200);
       }
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
       if (data.postId === post._id) {
+        // Use functional update to avoid dependency issues
         setComments(prev => [...prev, data.comment]);
       }
     });
@@ -203,8 +269,8 @@ export default function PostDetail() {
             const eventIsLiked = data.isLiked === true;
             const eventLikesCount = data.likesCount || 0;
             
-            setIsLiked(eventIsLiked);
-            setLikesCount(eventLikesCount);
+            setIsLikedWithRef(eventIsLiked);
+            setLikesCountWithRef(eventLikesCount);
             break;
           case 'save':
           case 'unsave':
@@ -244,6 +310,10 @@ export default function PostDetail() {
     }
 
     try {
+      // Mark as updating to prevent WebSocket listener from processing
+      isUpdatingRef.current = true;
+      lastUpdateTimeRef.current = Date.now();
+      
       setActionLoading('like');
       const response = await toggleLike(post!._id);
       
@@ -251,16 +321,23 @@ export default function PostDetail() {
       const newIsLiked = response.isLiked === true;
       const newLikesCount = response.likesCount || 0;
       
-      console.log('Post detail - Like toggle response:', {
-        postId: post!._id,
-        response: response,
-        processedIsLiked: newIsLiked,
-        processedLikesCount: newLikesCount,
-        currentState: { isLiked, likesCount }
-      });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Post detail - Like toggle response:', {
+          postId: post!._id,
+          response: response,
+          processedIsLiked: newIsLiked,
+          processedLikesCount: newLikesCount,
+          currentState: { isLiked, likesCount }
+        });
+      }
       
-      setIsLiked(newIsLiked);
-      setLikesCount(newLikesCount);
+      setIsLikedWithRef(newIsLiked);
+      setLikesCountWithRef(newLikesCount);
+      
+      // Track engagement
+      trackEngagement(newIsLiked ? 'like' : 'unlike', 'post', post!._id, {
+        likes_count: newLikesCount,
+      });
       
       // Emit event to notify home page
       savedEvents.emitPostAction(post!._id, newIsLiked ? 'like' : 'unlike', {
@@ -268,8 +345,13 @@ export default function PostDetail() {
         isLiked: newIsLiked
       });
 
-      // Emit WebSocket event for real-time updates
+      // Emit WebSocket event for real-time updates (but ignore our own event)
       await realtimePostsService.emitLike(post!._id, newIsLiked, newLikesCount);
+      
+      // Reset flag after a delay to allow WebSocket event to be ignored
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 500);
       
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -361,52 +443,9 @@ export default function PostDetail() {
     }
   };
 
-  const handleShare = async () => {
-    try {
-      setActionLoading('share');
-      
-      // Try expo-sharing first
-      if (await Sharing.isAvailableAsync()) {
-        try {
-          const filename = `post_${post!._id}_${Date.now()}.jpg`;
-          const localUri = `${FileSystem.cacheDirectory}${filename}`;
-          
-          const downloadResult = await FileSystem.downloadAsync(post!.imageUrl, localUri);
-          
-          if (downloadResult.status === 200) {
-            await Sharing.shareAsync(downloadResult.uri, {
-              mimeType: 'image/jpeg',
-              dialogTitle: 'Share this post',
-            });
-            
-            // Clean up
-            try {
-              await FileSystem.deleteAsync(downloadResult.uri);
-            } catch (cleanupError) {
-              console.warn('Failed to clean up temporary file:', cleanupError);
-            }
-            return;
-          }
-        } catch (expoError) {
-          console.warn('Expo sharing failed, trying fallback:', expoError);
-        }
-      }
-
-      // Fallback to React Native Share API
-      const shareContent = {
-        title: `Post by ${post!.user.fullName}`,
-        message: post!.caption ? `${post!.caption}\n\n${post!.imageUrl}` : post!.imageUrl,
-        url: post!.imageUrl,
-      };
-
-      await Share.share(shareContent);
-      
-    } catch (error) {
-      console.error('Error sharing post:', error);
-      showCustomAlertMessage('Error', 'Failed to share post. Please try again.', 'error');
-    } finally {
-      setActionLoading(null);
-    }
+  const handleShare = () => {
+    // Open ShareModal instead of native share
+    setShowShareModal(true);
   };
 
   const handleComment = async () => {
@@ -489,13 +528,8 @@ export default function PostDetail() {
         <TouchableOpacity 
           style={styles.shareButton}
           onPress={handleShare}
-          disabled={actionLoading === 'share'}
         >
-          {actionLoading === 'share' ? (
-            <ActivityIndicator size="small" color={theme.colors.text} />
-          ) : (
-            <Ionicons name="share-outline" size={20} color={theme.colors.text} />
-          )}
+          <Ionicons name="share-outline" size={20} color={theme.colors.text} />
         </TouchableOpacity>
       </View>
 
@@ -789,13 +823,8 @@ export default function PostDetail() {
               <TouchableOpacity 
                 style={[styles.engagementButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
                 onPress={handleShare}
-                disabled={actionLoading === 'share'}
               >
-                {actionLoading === 'share' ? (
-                  <ActivityIndicator size="small" color={theme.colors.text} />
-                ) : (
-                  <Ionicons name="share-outline" size={16} color={theme.colors.text} />
-                )}
+                <Ionicons name="share-outline" size={16} color={theme.colors.text} />
                 <Text style={[styles.engagementButtonText, { color: theme.colors.text }]}>Share</Text>
               </TouchableOpacity>
             </View>
@@ -826,6 +855,15 @@ export default function PostDetail() {
           onClose={() => setShowCommentModal(false)}
           onCommentAdded={handleCommentAdded}
           commentsDisabled={post.commentsDisabled || false}
+        />
+      )}
+
+      {/* Share Modal */}
+      {post && (
+        <ShareModal
+          visible={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          post={post}
         />
       )}
 

@@ -86,7 +86,7 @@ const superAdminSchema = new mongoose.Schema({
       type: Boolean,
       default: true
     },
-    canViewAnalytics: {
+    canManageReports: {
       type: Boolean,
       default: true
     },
@@ -307,7 +307,7 @@ superAdminSchema.statics.createFounder = async function(email, password, organiz
     permissions: {
       canManageUsers: true,
       canManageContent: true,
-      canViewAnalytics: true,
+      canManageReports: true,
       canManageModerators: true,
       canViewLogs: true,
       canManageSettings: true

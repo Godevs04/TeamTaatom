@@ -21,8 +21,42 @@ const verifySuperAdminToken = async (req, res, next) => {
     req.superAdmin = superAdmin
     next()
   } catch (error) {
-    console.error('Token verification error:', error)
-    res.status(401).json({ message: 'Invalid token.' })
+    // Provide specific responses for token errors and avoid noisy logs
+    if (error.name === 'TokenExpiredError') {
+      console.warn('SuperAdmin token expired')
+      return res.status(401).json({ message: 'Token expired' })
+    }
+    if (error.name === 'JsonWebTokenError') {
+      console.warn('SuperAdmin token invalid')
+      return res.status(401).json({ message: 'Invalid token' })
+    }
+    console.error('SuperAdmin token verification error:', error)
+    return res.status(500).json({ message: 'Error verifying token' })
+  }
+}
+
+// Middleware to check specific permissions
+const checkPermission = (permissionName) => {
+  return (req, res, next) => {
+    try {
+      // Founders have all permissions
+      if (req.superAdmin.role === 'founder') {
+        return next()
+      }
+      
+      // Check specific permission
+      if (!req.superAdmin.permissions || !req.superAdmin.permissions[permissionName]) {
+        return res.status(403).json({ 
+          message: 'Access denied. Insufficient permissions.',
+          required: permissionName 
+        })
+      }
+      
+      next()
+    } catch (error) {
+      console.error('Permission check error:', error)
+      res.status(500).json({ message: 'Permission check failed.' })
+    }
   }
 }
 
@@ -445,6 +479,7 @@ const resend2FA = async (req, res) => {
 
 module.exports = {
   verifySuperAdminToken,
+  checkPermission,
   loginSuperAdmin,
   verify2FA,
   resend2FA,

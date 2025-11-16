@@ -8,12 +8,17 @@ import {
   SafeAreaView,
   Dimensions,
   Animated,
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
+import Constants from 'expo-constants';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
+import { MapView, Marker, PROVIDER_GOOGLE } from '../../../../utils/mapsWrapper';
+
+const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 interface Location {
   name: string;
@@ -46,7 +51,7 @@ export default function CountryMapScreen() {
   const { theme } = useTheme();
   const router = useRouter();
   const { country, userId } = useLocalSearchParams();
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<any>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
@@ -188,6 +193,118 @@ export default function CountryMapScreen() {
     return center.longitude + (Math.random() - 0.5) * delta.longitudeDelta;
   };
 
+  // Get locations with coordinates for map rendering
+  const getMapLocations = (countryDisplayName: string): Location[] => {
+    if (!data) return [];
+    const withCoords = data.locations.filter(
+      loc => !!loc.coordinates?.latitude && !!loc.coordinates?.longitude
+    );
+    let markers = withCoords.length > 0
+      ? withCoords
+      : data.locations.map((loc) => ({
+          ...loc,
+          coordinates: {
+            latitude: getRandomLatitude(countryDisplayName || ''),
+            longitude: getRandomLongitude(countryDisplayName || ''),
+          },
+        }));
+    if (markers.length === 0) {
+      markers = [{
+        name: countryDisplayName || 'Center',
+        score: 0,
+        date: new Date().toISOString(),
+        caption: '',
+        category: { fromYou: '', typeOfSpot: '' },
+        coordinates: {
+          latitude: getCountryCenter(countryDisplayName || '').latitude,
+          longitude: getCountryCenter(countryDisplayName || '').longitude,
+        },
+      } as any];
+    }
+    return markers;
+  };
+
+  // Generate HTML for WebView map (web platform)
+  const getWebMapHTML = (countryDisplayName: string) => {
+    const locations = getMapLocations(countryDisplayName);
+    const center = getCountryCenter(countryDisplayName || '');
+    const delta = getCountryDelta(countryDisplayName || '');
+    
+    const markers = locations.map((loc, i) => {
+      const lat = loc.coordinates?.latitude || center.latitude;
+      const lng = loc.coordinates?.longitude || center.longitude;
+      return `
+        new google.maps.Marker({
+          position: { lat: ${lat}, lng: ${lng} },
+          map: map,
+          icon: {
+            url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF5722" stroke-width="2"/><text x="15" y="20" font-size="16" text-anchor="middle" fill="%23FF5722">🏳️</text></svg>',
+            scaledSize: new google.maps.Size(30, 30),
+          },
+          title: '${loc.name}',
+          label: '${loc.name}',
+        }).addListener('click', function() {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+        });
+      `;
+    }).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          html, body, #map { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+          }
+        </style>
+        <script>
+          function initMap() {
+            const map = new google.maps.Map(document.getElementById('map'), {
+              center: { lat: ${center.latitude}, lng: ${center.longitude} },
+              zoom: ${Math.max(4, Math.min(10, Math.log2(360 / delta.latitudeDelta)))},
+              mapTypeId: 'terrain',
+            });
+            ${markers}
+            // Fit bounds if we have multiple locations
+            if (${locations.length} > 1) {
+              const bounds = new google.maps.LatLngBounds();
+              ${locations.map(loc => {
+                const lat = loc.coordinates?.latitude || center.latitude;
+                const lng = loc.coordinates?.longitude || center.longitude;
+                return `bounds.extend(new google.maps.LatLng(${lat}, ${lng}));`;
+              }).join('')}
+              map.fitBounds(bounds);
+            }
+          }
+        </script>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&callback=initMap"></script>
+      </body>
+      </html>
+    `;
+  };
+
+  // Handle WebView messages (marker clicks)
+  const handleWebViewMessage = (event: any, countryDisplayName: string) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'marker' && typeof data.index === 'number') {
+        const locations = getMapLocations(countryDisplayName);
+        if (locations[data.index]) {
+          handleLocationPress(locations[data.index]);
+        }
+      }
+    } catch (error) {
+      console.error('Error handling WebView message:', error);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -219,19 +336,36 @@ export default function CountryMapScreen() {
 
       {/* Map View */}
       <View style={styles.mapContainer}>
-        <MapView
-          ref={(ref) => { mapRef.current = ref; }}
-          provider={PROVIDER_GOOGLE}
-          style={styles.map}
-          customMapStyle={forestStyle}
-          initialRegion={{
-            latitude: getCountryCenter(displayCountryName || '').latitude,
-            longitude: getCountryCenter(displayCountryName || '').longitude,
-            latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
-            longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
-          }}
-          mapType="terrain"
-        >
+        {Platform.OS === 'web' ? (
+          // WebView map for web platform
+          <WebView
+            style={styles.map}
+            source={{ html: getWebMapHTML(displayCountryName || '') }}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            startInLoadingState={true}
+            scalesPageToFit={true}
+            onMessage={(event) => handleWebViewMessage(event, displayCountryName || '')}
+            onError={(syntheticEvent) => {
+              const { nativeEvent } = syntheticEvent;
+              console.error('WebView error: ', nativeEvent);
+            }}
+          />
+        ) : MapView ? (
+          // Native MapView for iOS/Android
+          <MapView
+            ref={(ref: any) => { mapRef.current = ref; }}
+            provider={PROVIDER_GOOGLE}
+            style={styles.map}
+            customMapStyle={forestStyle}
+            initialRegion={{
+              latitude: getCountryCenter(displayCountryName || '').latitude,
+              longitude: getCountryCenter(displayCountryName || '').longitude,
+              latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
+              longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
+            }}
+            mapType="terrain"
+          >
           {/* Always show a center marker to guarantee at least one visible flag */}
           <Marker
             key="country-center-flag"
@@ -351,7 +485,15 @@ export default function CountryMapScreen() {
               </Marker>
             ));
           })()}
-        </MapView>
+          </MapView>
+        ) : (
+          // Fallback if MapView is not available
+          <View style={[styles.map, { justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={{ color: theme.colors.text, fontSize: 16 }}>
+              Map not available on this platform
+            </Text>
+          </View>
+        )}
       </View>
 
     </SafeAreaView>
