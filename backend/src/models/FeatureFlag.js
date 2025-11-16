@@ -5,110 +5,53 @@ const featureFlagSchema = new mongoose.Schema({
     type: String,
     required: true,
     unique: true,
-    trim: true,
-    lowercase: true
-  },
-  description: {
-    type: String,
-    required: true,
-    maxlength: [500, 'Description cannot exceed 500 characters']
+    index: true,
   },
   enabled: {
     type: Boolean,
-    default: false
+    default: false,
+  },
+  variant: {
+    type: String,
+    enum: ['A', 'B', 'C', 'D', null],
+    default: null,
+  },
+  metadata: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
+  targetUsers: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'User',
+    default: [],
+  },
+  targetPlatforms: {
+    type: [String],
+    default: [], // ['ios', 'android', 'web'] - empty means all platforms
   },
   rolloutPercentage: {
     type: Number,
-    default: 0,
     min: 0,
-    max: 100
+    max: 100,
+    default: 100, // 100% rollout by default
   },
-  targetUsers: {
-    type: String,
-    enum: ['all', 'beta', 'premium', 'new'],
-    default: 'all'
+  startDate: {
+    type: Date,
   },
-  category: {
-    type: String,
-    enum: ['ui', 'ai', 'analytics', 'social', 'security', 'other'],
-    default: 'other'
+  endDate: {
+    type: Date,
   },
-  priority: {
-    type: String,
-    enum: ['high', 'medium', 'low'],
-    default: 'medium'
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true,
   },
-  impact: {
-    type: String,
-    enum: ['high', 'medium', 'low'],
-    default: 'medium'
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin'
-  },
-  updatedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SuperAdmin'
-  },
-  changelog: [{
-    action: String,
-    changedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'SuperAdmin'
-    },
-    changes: mongoose.Schema.Types.Mixed,
-    timestamp: {
-      type: Date,
-      default: Date.now
-    }
-  }],
-  environments: {
-    local: {
-      enabled: {
-        type: Boolean,
-        default: false
-      }
-    },
-    staging: {
-      enabled: {
-        type: Boolean,
-        default: false
-      }
-    },
-    production: {
-      enabled: {
-        type: Boolean,
-        default: false
-      }
-    }
-  }
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
-// Indexes
-featureFlagSchema.index({ name: 1 });
-featureFlagSchema.index({ category: 1 });
-featureFlagSchema.index({ enabled: 1 });
-featureFlagSchema.index({ updatedAt: -1 });
-
-// Method to log changes
-featureFlagSchema.methods.logChange = function(action, changedBy, changes) {
-  this.changelog.push({
-    action,
-    changedBy,
-    changes,
-    timestamp: new Date()
-  });
-  
-  // Keep only last 50 changes
-  if (this.changelog.length > 50) {
-    this.changelog = this.changelog.slice(-50);
-  }
-  
-  return this.save();
-};
+// Index for active flags
+featureFlagSchema.index({ isActive: 1, name: 1 });
 
 module.exports = mongoose.model('FeatureFlag', featureFlagSchema);
-

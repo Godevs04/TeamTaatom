@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
+import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 
 const INTERESTS = [
   { id: 'adventure', label: 'Adventure', icon: 'trail-sign' },
@@ -39,6 +40,7 @@ export default function InterestsOnboarding() {
   const handleContinue = async () => {
     if (selectedInterests.length === 0) {
       // Allow skipping interests
+      trackDropOff('onboarding_interests', { step: 'interests', action: 'skip_no_selection' });
       router.replace('/onboarding/suggested-users');
       return;
     }
@@ -48,6 +50,14 @@ export default function InterestsOnboarding() {
       // Save interests to user profile
       await api.post('/profile/interests', { interests: selectedInterests });
       await AsyncStorage.setItem('onboarding_interests', JSON.stringify(selectedInterests));
+      
+      // Track feature usage
+      trackFeatureUsage('onboarding_interests_selected', {
+        count: selectedInterests.length,
+        interests: selectedInterests,
+      });
+      
+      trackScreenView('onboarding_suggested_users');
       router.replace('/onboarding/suggested-users');
     } catch (error) {
       console.error('Error saving interests:', error);
@@ -59,8 +69,13 @@ export default function InterestsOnboarding() {
   };
 
   const handleSkip = () => {
+    trackDropOff('onboarding_interests', { step: 'interests', action: 'skip' });
     router.replace('/onboarding/suggested-users');
   };
+  
+  React.useEffect(() => {
+    trackScreenView('onboarding_interests');
+  }, []);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>

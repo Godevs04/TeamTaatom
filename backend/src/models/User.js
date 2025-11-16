@@ -222,13 +222,13 @@ const userSchema = new mongoose.Schema({
 });
 
 // Database indexes for performance optimization
-userSchema.index({ email: 1 }); // Already unique, but explicit index for queries
-userSchema.index({ username: 1 }); // Already unique, but explicit index for queries
-userSchema.index({ googleId: 1 }); // For Google OAuth lookups
+// Note: email, username, and googleId indexes are automatically created by unique: true
+// Only add indexes that aren't already created by unique constraints
 userSchema.index({ isVerified: 1 }); // For filtering verified users
 userSchema.index({ createdAt: -1 }); // For sorting by creation date
 userSchema.index({ lastLogin: -1 }); // For sorting by last login
-userSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial queries (if location is added)
+// Geospatial index skipped - data format incompatible (requires GeoJSON format)
+// userSchema.index({ 'location.coordinates': '2dsphere' });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

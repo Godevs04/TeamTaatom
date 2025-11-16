@@ -104,7 +104,25 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
+  async (error) => {
+    // Report errors to crash reporting
+    if (error.response) {
+      // Server responded with error
+      const { captureException } = await import('./crashReporting');
+      captureException(new Error(`API Error: ${error.response.status} - ${error.config?.url}`), {
+        status: error.response.status,
+        url: error.config?.url,
+        method: error.config?.method,
+        data: error.response.data,
+      });
+    } else if (error.request) {
+      // Request made but no response
+      const { captureException } = await import('./crashReporting');
+      captureException(new Error(`Network Error: ${error.config?.url}`), {
+        url: error.config?.url,
+        method: error.config?.method,
+      });
+    }
     return Promise.reject(error);
   }
 );

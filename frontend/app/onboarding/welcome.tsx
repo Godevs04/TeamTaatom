@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { trackScreenView, trackDropOff } from '../../services/analytics';
 
 const { width } = Dimensions.get('window');
 
@@ -43,13 +44,19 @@ export default function WelcomeOnboarding() {
   };
 
   const handleSkip = () => {
+    trackDropOff('onboarding_welcome', { step: 'welcome', action: 'skip' });
     handleComplete();
   };
 
   const handleComplete = async () => {
     await AsyncStorage.setItem('onboarding_completed', 'true');
+    trackScreenView('onboarding_interests');
     router.replace('/onboarding/interests');
   };
+  
+  React.useEffect(() => {
+    trackScreenView('onboarding_welcome');
+  }, []);
 
   const currentStepData = steps[currentStep];
 

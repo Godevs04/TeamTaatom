@@ -2,6 +2,8 @@ const express = require('express');
 const { body, param, query } = require('express-validator');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { passwordStrengthValidator } = require('../utils/passwordValidator');
+const { authValidations } = require('../middleware/validation');
+const { endpointLimiters } = require('../middleware/rateLimit');
 const {
   signup,
   checkUsernameAvailability,
@@ -69,16 +71,16 @@ const signinValidation = [
     .withMessage('Password is required')
 ];
 
-// Routes
-router.post('/signup', signupValidation, signup);
-router.post('/verify-otp', verifyOTPValidation, verifyOTP);
+// Routes with validation and rate limiting
+router.post('/signup', authValidations.signup, endpointLimiters.signup, signup);
+router.post('/verify-otp', authValidations.verifyOtp, endpointLimiters.otp, verifyOTP);
 router.get('/check-username', [query('username').trim().toLowerCase().notEmpty()], checkUsernameAvailability);
-router.post('/resend-otp', resendOTP);
-router.post('/signin', signinValidation, signin);
-router.post('/google', googleSignIn);
+router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, resendOTP);
+router.post('/signin', authValidations.signin, endpointLimiters.signin, signin);
+router.post('/google', endpointLimiters.signin, googleSignIn);
 router.get('/me', authMiddleware, getMe);
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', authValidations.forgotPassword, endpointLimiters.passwordReset, forgotPassword);
+router.post('/reset-password', authValidations.resetPassword, endpointLimiters.passwordReset, resetPassword);
 router.post('/logout', authMiddleware, logout);
 
 module.exports = router;

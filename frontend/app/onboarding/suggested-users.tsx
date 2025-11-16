@@ -7,6 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
+import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 
 interface SuggestedUser {
   _id: string;
@@ -56,6 +57,11 @@ export default function SuggestedUsersOnboarding() {
 
     try {
       await api.post(`/profile/${userId}/follow`);
+      
+      // Track engagement
+      trackEngagement(isFollowing ? 'unfollow' : 'follow', 'user', userId, {
+        context: 'onboarding',
+      });
     } catch (error) {
       // Revert on error
       setFollowing(following);
@@ -66,12 +72,24 @@ export default function SuggestedUsersOnboarding() {
   const handleContinue = async () => {
     setIsCompleting(true);
     await AsyncStorage.setItem('onboarding_completed', 'true');
+    
+    // Track onboarding completion
+    trackFeatureUsage('onboarding_completed', {
+      users_followed: following.size,
+      skipped: false,
+    });
+    
     router.replace('/(tabs)/home');
   };
 
   const handleSkip = () => {
+    trackDropOff('onboarding_suggested_users', { step: 'suggested_users', action: 'skip' });
     handleContinue();
   };
+  
+  React.useEffect(() => {
+    trackScreenView('onboarding_suggested_users');
+  }, []);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>

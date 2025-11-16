@@ -26,6 +26,7 @@ import { imageCacheManager } from '../../utils/imageCacheManager';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
+import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -159,6 +160,9 @@ export default function HomeScreen() {
     };
 
     loadInitialData();
+    
+    // Track screen view
+    trackScreenView('home');
   }, [fetchPosts, fetchUnseenMessageCount]);
 
   // Refresh unseen count when screen comes into focus

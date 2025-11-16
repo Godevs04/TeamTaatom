@@ -19,6 +19,7 @@ import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
 import { signUp, checkUsernameAvailability } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 
 // Lightweight watcher for debounced username availability checks

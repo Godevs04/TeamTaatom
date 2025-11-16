@@ -15,6 +15,9 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
+import { analyticsService } from '../services/analytics';
+import { featureFlagsService } from '../services/featureFlags';
+import { crashReportingService } from '../services/crashReporting';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -62,7 +65,25 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
+        // Initialize analytics, feature flags, and crash reporting
+        await Promise.all([
+          analyticsService.initialize(),
+          featureFlagsService.initialize(),
+          crashReportingService.initialize(),
+        ]);
+
         const user = await initializeAuth();
+        
+        // Set user for analytics and crash reporting
+        if (user && user !== 'network-error') {
+          await analyticsService.setUser(user._id);
+          crashReportingService.setUser(user._id);
+          
+          // Track user login/retention
+          await analyticsService.trackRetention('app_open', {
+            is_new_user: false,
+          });
+        }
         console.log('[RootLayoutInner] initializeAuth returned:', user);
         const lastAuthError = getLastAuthError();
         
