@@ -179,7 +179,7 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       error.config?.url &&
-      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh'))
+      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh') || error.config.url.endsWith('/api/v1/auth/me') || error.config.url.endsWith('/api/v1/auth/refresh'))
     ) {
       // Token expired or invalid, clear storage
       await AsyncStorage.removeItem('authToken');

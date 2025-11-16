@@ -1,5 +1,5 @@
 const cloudinary = require('cloudinary').v2;
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger');
 
 // Configure Cloudinary
 cloudinary.config({

@@ -55,7 +55,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
         throw new Error('State parameter mismatch');
       }
       // Exchange authorization code for tokens on our backend
-      const response = await api.post('/auth/google', {
+      const response = await api.post('/api/v1/auth/google', {
         code,
         redirectUri: REDIRECT_URI,
       });

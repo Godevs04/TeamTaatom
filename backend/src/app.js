@@ -18,6 +18,7 @@ const enhancedSuperAdminRoutes = require('./routes/enhancedSuperAdminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
+const hashtagRoutes = require('./routes/hashtagRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -174,6 +175,7 @@ app.use('/api/superadmin', enhancedSuperAdminRoutes);
 app.use('/notifications', notificationRoutes);
 app.use('/analytics', analyticsRoutes);
 app.use('/feature-flags', featureFlagsRoutes);
+app.use('/hashtags', hashtagRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

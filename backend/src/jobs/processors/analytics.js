@@ -1,5 +1,5 @@
 const AnalyticsEvent = require('../../models/AnalyticsEvent');
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger');
 
 // Process analytics aggregation job
 const processAnalyticsJob = async (job) => {
