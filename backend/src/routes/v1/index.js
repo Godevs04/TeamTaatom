@@ -10,6 +10,10 @@ const notificationRoutes = require('../notificationRoutes');
 const analyticsRoutes = require('../analyticsRoutes');
 const featureFlagsRoutes = require('../featureFlagsRoutes');
 const hashtagRoutes = require('../hashtagRoutes');
+const collectionRoutes = require('../collectionRoutes');
+const mentionRoutes = require('../mentionRoutes');
+const searchRoutes = require('../searchRoutes');
+const activityRoutes = require('../activityRoutes');
 
 const router = express.Router();
 
@@ -25,6 +29,10 @@ router.use('/notifications', notificationRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/feature-flags', featureFlagsRoutes);
 router.use('/hashtags', hashtagRoutes);
+router.use('/collections', collectionRoutes);
+router.use('/mentions', mentionRoutes);
+router.use('/search', searchRoutes);
+router.use('/activity', activityRoutes);
 
 module.exports = router;
 

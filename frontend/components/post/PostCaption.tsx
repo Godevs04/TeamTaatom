@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import HashtagText from '../HashtagText';
+import HashtagMentionText from '../HashtagMentionText';
 import { PostType } from '../../types/post';
 
 interface PostCaptionProps {
@@ -16,7 +16,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
 
   return (
     <View style={styles.captionContainer}>
-      <HashtagText
+      <HashtagMentionText
         text={`${post.user.fullName} ${post.caption}`}
         style={styles.caption}
       />

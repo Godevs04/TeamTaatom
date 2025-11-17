@@ -28,6 +28,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
 import ShareModal from './ShareModal';
+import AddToCollectionModal from './AddToCollectionModal';
 import PostHeader from './post/PostHeader';
 import PostImage from './post/PostImage';
 import PostActions from './post/PostActions';
@@ -62,6 +63,7 @@ function PhotoCard({
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showAddToCollectionModal, setShowAddToCollectionModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(post.caption || '');
   const [isMenuLoading, setIsMenuLoading] = useState(false);
@@ -874,6 +876,19 @@ function PhotoCard({
                   </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.menuItem]}
+                  onPress={() => {
+                    setShowMenu(false);
+                    setShowAddToCollectionModal(true);
+                  }}
+                  disabled={isMenuLoading}
+                >
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="albums-outline" size={22} color={theme.colors.text} />
+                  </View>
+                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Add to Collection</Text>
+                </TouchableOpacity>
               </>
             )}
             <View style={styles.menuDivider} />
@@ -982,6 +997,16 @@ function PhotoCard({
         visible={showShareModal}
         onClose={() => setShowShareModal(false)}
         post={post}
+      />
+
+      {/* Add to Collection Modal */}
+      <AddToCollectionModal
+        visible={showAddToCollectionModal}
+        postId={post._id}
+        onClose={() => setShowAddToCollectionModal(false)}
+        onSuccess={() => {
+          if (onRefresh) onRefresh();
+        }}
       />
     </View>
   );

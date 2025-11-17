@@ -251,19 +251,27 @@ const logger = process.env.NODE_ENV === 'development' ? console.log : () => {};
 
 #### 🟡 Medium Priority - Engagement Features
 
-6. **Post Collections/Albums** ⭐⭐⭐⭐
+6. **Post Collections/Albums** ⭐⭐⭐⭐ ✅ **COMPLETED**
    - **Why**: Better content organization
-   - **Implementation**:
-     - Create collections
-     - Add posts to collections
-     - Share collections
+   - **Implementation**: ✅ **COMPLETED**
+     - ✅ Create collections (public/private)
+     - ✅ Add posts to collections (from post menu)
+     - ✅ Share collections
+     - ✅ View collections from profile
+     - ✅ Collection cover images
+     - ✅ Post reordering
+   - **Status**: Fully implemented with backend model, controller, routes, and frontend pages/components
+   - **Files**: `Collection.js`, `collectionController.js`, `collections/index.tsx`, `collections/[id].tsx`, `collections/create.tsx`, `AddToCollectionModal.tsx`
 
-7. **User Mentions** ⭐⭐⭐⭐
+7. **User Mentions** ⭐⭐⭐⭐ ✅ **COMPLETED**
    - **Why**: Increases engagement and notifications
-   - **Implementation**:
-     - @mention in comments and captions
-     - Mention notifications
-     - Mention autocomplete
+   - **Implementation**: ✅ **COMPLETED**
+     - ✅ @mention in comments and captions
+     - ✅ Mention notifications (real-time via Socket.io)
+     - ✅ Mention autocomplete (MentionSuggest component)
+     - ✅ Clickable mentions navigate to profiles
+   - **Status**: Fully implemented with backend extraction, storage, notifications, and frontend components
+   - **Files**: `mentionExtractor.js`, `mentionController.js`, `MentionText.tsx`, `MentionSuggest.tsx`, `HashtagMentionText.tsx`
 
 8. **Post Scheduling** ⭐⭐⭐
    - **Why**: Better content planning for users
@@ -272,20 +280,27 @@ const logger = process.env.NODE_ENV === 'development' ? console.log : () => {};
      - Timezone handling
      - Scheduled post notifications
 
-9. **Advanced Search** ⭐⭐⭐⭐
+9. **Advanced Search** ⭐⭐⭐⭐ ✅ **COMPLETED**
    - **Why**: Better content discovery
-   - **Enhancements**:
-     - Search by location
-     - Search by hashtag
-     - Search by date range
-     - Filter by post type
+   - **Enhancements**: ✅ **COMPLETED**
+     - ✅ Search by location
+     - ✅ Search by hashtag
+     - ✅ Search by date range
+     - ✅ Filter by post type (photo/short)
+     - ✅ Visual filter indicators with badges
+   - **Status**: Fully implemented with backend aggregation pipelines and frontend filter modal
+   - **Files**: `searchController.js`, `searchRoutes.js`, `frontend/services/search.ts`, `frontend/app/search.tsx` (enhanced)
 
-10. **Activity Feed** ⭐⭐⭐
+10. **Activity Feed** ⭐⭐⭐ ✅ **COMPLETED**
     - **Why**: Shows what friends are doing
-    - **Implementation**:
-      - Friend activity timeline
-      - Activity filters
-      - Activity privacy settings
+    - **Implementation**: ✅ **COMPLETED**
+      - ✅ Friend activity timeline
+      - ✅ Activity filters (All, Posts, Likes, Comments, Follows, Collections, Mentions)
+      - ✅ Activity privacy settings
+      - ✅ Real-time activity updates
+      - ✅ Accessible from profile page
+    - **Status**: Fully implemented with backend Activity model, controller, routes, and frontend activity feed page
+    - **Files**: `Activity.js`, `activityController.js`, `activityRoutes.js`, `frontend/services/activity.ts`, `frontend/app/activity/index.tsx`
 
 #### 🟢 Low Priority - Nice to Have
 
@@ -668,11 +683,11 @@ const logger = process.env.NODE_ENV === 'development' ? console.log : () => {};
 - ⏳ Stories feature (pending)
 - ⏳ Enhanced video support (pending)
 
-### Phase 3: Engagement (Weeks 7-10)
-- ⏳ User mentions (pending)
-- ✅ Advanced search (hashtag search implemented)
-- ⏳ Post collections (pending)
-- ⏳ Activity feed (pending)
+### Phase 3: Engagement (Weeks 7-10) ✅ **COMPLETED**
+- ✅ User mentions (fully implemented)
+- ✅ Advanced search (fully implemented with all filters)
+- ✅ Post collections (fully implemented)
+- ✅ Activity feed (fully implemented)
 
 ### Phase 4: Growth (Weeks 11-14)
 - ⏳ Referral program (pending)
@@ -734,6 +749,38 @@ Track these metrics to measure improvements:
 
 **Last Updated**: January 2025
 **Next Review**: Quarterly
+
+---
+
+## 🎉 **Recent Completions (January 2025) - Engagement Features**
+
+### **Post Collections/Albums** ✅ **COMPLETED**
+- **Backend**: Collection model, controller with CRUD operations, activity tracking
+- **Frontend**: Collections list, detail, create/edit pages, AddToCollectionModal component
+- **Integration**: Added to profile page, accessible from post menu
+- **Features**: Public/private collections, cover images, post reordering, activity tracking
+
+### **User Mentions** ✅ **COMPLETED**
+- **Backend**: Mention extraction utility, storage in Post/Comment models, mention notifications
+- **Frontend**: MentionText, MentionSuggest, HashtagMentionText components
+- **Integration**: Integrated into post creation and comment inputs
+- **Features**: Autocomplete, clickable mentions, real-time notifications
+
+### **Advanced Search** ✅ **COMPLETED**
+- **Backend**: Search controller with aggregation pipelines for efficient queries
+- **Frontend**: Enhanced search screen with advanced filter modal
+- **Features**: Location, hashtag, date range, post type filtering with visual indicators
+
+### **Activity Feed** ✅ **COMPLETED**
+- **Backend**: Activity model, controller with feed and user-specific endpoints
+- **Frontend**: Activity feed page with filters and activity item rendering
+- **Integration**: Activity creation integrated in posts, follows, collections
+- **Features**: Friend activity timeline, type filters, privacy settings, real-time updates
+
+### **Profile Page Enhancements** ✅ **COMPLETED**
+- **Fixes**: Fixed profile fetching errors (user.toObject() issue), null safety improvements
+- **Features**: Added Collections and Activity Feed sections with proper styling
+- **Improvements**: Better layout, spacing, responsive design
 
 ---
 

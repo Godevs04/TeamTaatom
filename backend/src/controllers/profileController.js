@@ -9,6 +9,7 @@ const { getFollowers } = require('../utils/socketBus');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache } = require('../utils/cache');
+const Activity = require('../models/Activity');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -119,22 +120,25 @@ const getProfile = async (req, res) => {
     });
 
     // Check if current user is following this profile
-    const isFollowing = req.user ? 
-      user.followers.some(follower => follower._id.toString() === req.user._id.toString()) : 
+    const isFollowing = req.user && user.followers ? 
+      user.followers.some(follower => {
+        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+        return followerId === req.user._id.toString();
+      }) : 
       false;
 
     // Check if current user has sent a follow request
-    const hasSentFollowRequest = req.user ? 
+    const hasSentFollowRequest = req.user && user.followRequests ? 
       user.followRequests.some(req => req.user.toString() === req.user._id.toString() && req.status === 'pending') :
       false;
 
     // Check if current user has received a follow request from this user
-    const hasReceivedFollowRequest = req.user ? 
+    const hasReceivedFollowRequest = req.user && user.sentFollowRequests ? 
       user.sentFollowRequests.some(req => req.user.toString() === id && req.status === 'pending') :
       false;
 
     // Determine profile visibility based on settings
-    const profileVisibility = user.settings.privacy.profileVisibility;
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === id : false;
     
     let canViewProfile = false;
@@ -182,11 +186,25 @@ const getProfile = async (req, res) => {
     // Only return tripScore if there's actually a score (meaning user has posted locations)
     const tripScore = canViewProfile && tripScoreData.totalScore > 0 ? tripScoreData : null;
 
+    // user is already a lean object, so we can spread it directly
+    // Calculate followers/following counts (they are populated objects)
+    const followersCount = user.followers ? 
+      user.followers.filter((follower) => {
+        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+        return followerId !== id.toString();
+      }).length : 0;
+    
+    const followingCount = user.following ? 
+      user.following.filter((following) => {
+        const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+        return followingId !== id.toString();
+      }).length : 0;
+
     const profile = {
-      ...user.toObject(),
+      ...user,
       postsCount: posts.length,
-      followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-      followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
+      followersCount,
+      followingCount,
       locations: canViewLocations ? locations : [],
       tripScore: tripScore,
       isFollowing,
@@ -198,7 +216,7 @@ const getProfile = async (req, res) => {
       profileVisibility,
       hasReceivedFollowRequest,
       // Only include email if user has enabled showEmail setting
-      email: user.settings.privacy.showEmail ? user.email : undefined,
+      email: user.settings?.privacy?.showEmail ? user.email : undefined,
       // Include bio for all users
       bio: user.bio || ''
     };
@@ -424,6 +442,14 @@ const toggleFollow = async (req, res) => {
         targetUser.followers.push(currentUserId);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Create activity
+        Activity.createActivity({
+          user: currentUserId,
+          type: 'user_followed',
+          targetUser: id,
+          isPublic: true
+        }).catch(err => logger.error('Error creating activity:', err));
 
         // Send notification to target user
         const io = getIO();

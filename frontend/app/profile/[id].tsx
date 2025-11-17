@@ -60,12 +60,12 @@ export default function UserProfileScreen() {
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/profile/${id}`);
+      const res = await api.get(`/api/v1/profile/${id}`);
       let userProfile = res.data.profile;
       
       // If posts are not included, fetch them
       if (!Array.isArray(userProfile.posts)) {
-        const postsRes = await api.get(`/posts/user/${id}`);
+        const postsRes = await api.get(`/api/v1/posts/user/${id}`);
         userProfile.posts = postsRes.data.posts || [];
       }
       setProfile(userProfile);
