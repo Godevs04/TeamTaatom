@@ -19,6 +19,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
 const hashtagRoutes = require('./routes/hashtagRoutes');
+const collectionRoutes = require('./routes/collectionRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -175,6 +176,7 @@ app.use('/notifications', notificationRoutes);
 app.use('/analytics', analyticsRoutes);
 app.use('/feature-flags', featureFlagsRoutes);
 app.use('/hashtags', hashtagRoutes);
+app.use('/collections', collectionRoutes);
 
 // Swagger API Documentation (only in development)
 if (process.env.NODE_ENV === 'development') {

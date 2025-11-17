@@ -4118,5 +4118,262 @@ try {
 
 ---
 
+---
+
+## 🎨 **Engagement Features Implementation (January 2025)**
+
+### **1. Post Collections/Albums** ✅ **COMPLETED**
+
+#### **Backend Implementation**
+
+**Collection Model** (`backend/src/models/Collection.js`):
+- Fields: `name`, `description`, `user`, `posts` (array), `coverImage`, `isPublic`
+- Indexes: `user`, `isPublic`, `createdAt`
+- Methods: `incrementPostCount()`, `decrementPostCount()`
+
+**Collection Controller** (`backend/src/controllers/collectionController.js`):
+- `POST /api/v1/collections` - Create collection
+- `GET /api/v1/collections` - Get user's collections
+- `GET /api/v1/collections/:id` - Get collection details
+- `PUT /api/v1/collections/:id` - Update collection
+- `DELETE /api/v1/collections/:id` - Delete collection
+- `POST /api/v1/collections/:id/posts` - Add post to collection
+- `DELETE /api/v1/collections/:id/posts/:postId` - Remove post from collection
+- `PUT /api/v1/collections/:id/reorder` - Reorder posts in collection
+
+**Integration**: Activity tracking integrated for collection creation
+
+#### **Frontend Implementation**
+
+**Collections List Page** (`frontend/app/collections/index.tsx`):
+- Displays all user collections
+- Empty state with "Create Collection" CTA
+- Pull-to-refresh functionality
+- Navigation to create/detail pages
+
+**Collection Detail Page** (`frontend/app/collections/[id].tsx`):
+- Displays collection posts in grid
+- Edit/delete options for owner
+- Remove post from collection
+- Collection metadata display
+
+**Collection Create/Edit Page** (`frontend/app/collections/create.tsx`):
+- Form for name, description, public/private toggle
+- Character limits (50 for name, 200 for description)
+- Handles both creation and editing
+
+**AddToCollectionModal Component** (`frontend/components/AddToCollectionModal.tsx`):
+- Modal to select collection when adding posts
+- Shows collection cover images
+- Displays post counts
+- Loading states
+
+**Profile Integration** (`frontend/app/(tabs)/profile.tsx`):
+- Collections section card with icon and description
+- Tap to navigate to collections page
+- Proper styling and spacing
+
+**Post Menu Integration** (`frontend/components/OptimizedPhotoCard.tsx`):
+- "Add to Collection" option in three-dot menu
+- Opens AddToCollectionModal
+- Success feedback
+
+#### **Key Features**
+- ✅ Create public/private collections
+- ✅ Add posts to collections from post menu
+- ✅ View collections from profile page
+- ✅ Collection cover images (auto-set from first post)
+- ✅ Post reordering within collections
+- ✅ Activity tracking for collection creation
+
+---
+
+### **2. User Mentions** ✅ **COMPLETED**
+
+#### **Backend Implementation**
+
+**Mention Extractor** (`backend/src/utils/mentionExtractor.js`):
+- Regex pattern: `/@(\w+)/g` for extracting @mentions
+- Resolves mentions to user IDs
+- Handles duplicate mentions
+
+**Post Model Updates** (`backend/src/models/Post.js`):
+- Added `mentions` array field to store user IDs
+- Comment sub-document includes `mentions` array
+
+**Post Controller Integration** (`backend/src/controllers/postController.js`):
+- `createPost`: Extracts mentions from caption, resolves to user IDs, stores in Post model
+- `addComment`: Extracts mentions from comment text, resolves to user IDs, creates `post_mention` notifications
+- Real-time mention notifications via Socket.io
+
+**Mention Controller** (`backend/src/controllers/mentionController.js`):
+- `GET /api/v1/mentions/search?q=query&limit=20` - Search users for mention autocomplete
+
+#### **Frontend Implementation**
+
+**MentionText Component** (`frontend/components/MentionText.tsx`):
+- Parses text and identifies @mentions
+- Renders clickable mentions that navigate to user profiles
+- Supports Unicode characters
+
+**MentionSuggest Component** (`frontend/components/MentionSuggest.tsx`):
+- Auto-suggestions while typing @username
+- Debounced search (300ms)
+- Displays user avatars and names
+
+**HashtagMentionText Component** (`frontend/components/HashtagMentionText.tsx`):
+- Combined component for hashtags and mentions
+- Renders both clickable hashtags and mentions
+
+**Post Creation Integration** (`frontend/app/(tabs)/post.tsx`):
+- MentionSuggest integrated into caption and comment inputs
+- Cursor position tracking for proper insertion
+- Real-time suggestions
+
+**Component Updates**:
+- `PostCaption.tsx`: Uses HashtagMentionText for rendering
+- `CommentBox.tsx`: Uses HashtagMentionText for rendering
+
+#### **Key Features**
+- ✅ @mention extraction from captions and comments
+- ✅ Mention autocomplete while typing
+- ✅ Clickable mentions navigate to user profiles
+- ✅ Real-time mention notifications
+- ✅ Combined hashtag and mention rendering
+
+---
+
+### **3. Advanced Search** ✅ **COMPLETED**
+
+#### **Backend Implementation**
+
+**Search Controller** (`backend/src/controllers/searchController.js`):
+- `POST /api/v1/search/posts` - Advanced post search
+- Search by: text, hashtag, location, date range, post type
+- Uses aggregation pipelines for efficient queries
+- Supports pagination
+
+**Search Routes** (`backend/src/routes/searchRoutes.js`):
+- Mounted under `/api/v1/search`
+
+#### **Frontend Implementation**
+
+**Search Service** (`frontend/services/search.ts`):
+- `searchPosts()` - Advanced post search
+- `searchByLocation()` - Location-based search
+
+**Search Screen Enhancement** (`frontend/app/search.tsx`):
+- Advanced filters modal
+- Filter options: hashtag, location, start date, end date, post type
+- Visual filter indicators (badges, highlighted button)
+- Filter button shows active state when filters are applied
+- Clear filters functionality
+
+#### **Key Features**
+- ✅ Search by hashtag
+- ✅ Search by location
+- ✅ Date range filtering
+- ✅ Post type filtering (photo/short)
+- ✅ Visual filter indicators
+- ✅ Filter state persistence
+
+---
+
+### **4. Activity Feed** ✅ **COMPLETED**
+
+#### **Backend Implementation**
+
+**Activity Model** (`backend/src/models/Activity.js`):
+- Fields: `user`, `type`, `post`, `comment`, `collection`, `targetUser`, `metadata`, `isPublic`
+- Types: `post_created`, `post_liked`, `comment_added`, `user_followed`, `collection_created`, `post_mention`
+- Static method: `createActivity()` for easy activity creation
+
+**Activity Controller** (`backend/src/controllers/activityController.js`):
+- `GET /api/v1/activity/feed` - Get activity feed (friend activities)
+- `GET /api/v1/activity/user/:userId` - Get user-specific activity
+- `PUT /api/v1/activity/:id/privacy` - Update activity privacy
+
+**Integration**: Activity creation integrated in:
+- `postController.js`: Post creation, likes, comments
+- `profileController.js`: User follows
+- `collectionController.js`: Collection creation
+
+#### **Frontend Implementation**
+
+**Activity Service** (`frontend/services/activity.ts`):
+- `getActivityFeed()` - Get friend activity feed
+- `getUserActivity()` - Get user-specific activity
+- `updateActivityPrivacy()` - Update activity privacy
+
+**Activity Feed Page** (`frontend/app/activity/index.tsx`):
+- Displays activity feed with filters
+- Activity type filters (All, Posts, Likes, Comments, Follows, Collections, Mentions)
+- Activity item rendering with icons and descriptions
+- Pull-to-refresh functionality
+- Pagination support
+
+**Profile Integration** (`frontend/app/(tabs)/profile.tsx`):
+- Activity Feed section card with icon and description
+- Tap to navigate to activity feed page
+- Proper styling and spacing
+
+#### **Key Features**
+- ✅ Friend activity timeline
+- ✅ Activity type filters
+- ✅ Activity privacy settings
+- ✅ Real-time activity updates
+- ✅ Accessible from profile page
+
+---
+
+### **5. Profile Page Fixes & Enhancements** ✅ **COMPLETED**
+
+#### **Issues Fixed**
+
+**Profile Fetching Error**:
+- **Problem**: `user.toObject()` called on lean object causing TypeError
+- **Fix**: Changed to spread `...user` directly since it's already a lean object
+- **Files**: `backend/src/controllers/profileController.js`
+
+**Null Safety Improvements**:
+- Added null checks for `user.followers`, `user.following`, `user.settings.privacy`
+- Added optional chaining for nested properties
+- Default values for missing properties
+
+**API Endpoint Updates**:
+- Updated frontend to use `/api/v1/profile/${id}` instead of `/profile/${id}`
+- Updated posts endpoint to use `/api/v1/posts/user/${id}`
+- **Files**: `frontend/app/profile/[id].tsx`
+
+**Collections Section Layout**:
+- Fixed margins and padding for proper screen fit
+- Improved font sizes and spacing
+- Added subtle shadows for depth
+- Responsive design
+
+#### **New Features Added**
+
+**Collections Section**:
+- Added Collections card to profile page
+- Icon, title, description, and chevron
+- Navigates to `/collections` page
+- Proper styling matching other sections
+
+**Activity Feed Section**:
+- Added Activity Feed card to profile page
+- Icon, title, description, and chevron
+- Navigates to `/activity` page
+- Proper styling matching other sections
+
+#### **Key Improvements**
+- ✅ Profile fetching works reliably
+- ✅ Proper null safety and error handling
+- ✅ Collections accessible from profile
+- ✅ Activity Feed accessible from profile
+- ✅ Improved layout and spacing
+- ✅ Consistent styling across sections
+
+---
+
 **Last Updated**: January 2025
-**Version**: 1.5.0
+**Version**: 1.6.0
