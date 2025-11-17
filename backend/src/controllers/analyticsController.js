@@ -4,11 +4,12 @@ const logger = require('../utils/logger');
 
 // @desc    Track analytics events
 // @route   POST /analytics/events
-// @access  Private
+// @access  Public (optional auth - works with or without token)
 const trackEvents = async (req, res) => {
   try {
     const { events } = req.body;
-    const userId = req.user?.id || req.user?._id;
+    // User is optional - analytics can work without auth
+    const userId = req.user?.id || req.user?._id || null;
 
     if (!Array.isArray(events) || events.length === 0) {
       return res.status(400).json({

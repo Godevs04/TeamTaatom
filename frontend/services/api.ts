@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { createPerformanceInterceptor } from '../utils/performance';
 import { API_BASE_URL } from '../utils/config';
+import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -29,10 +31,8 @@ api.interceptors.response.use(performanceInterceptor.response, performanceInterc
 api.interceptors.request.use(
   async (config) => {
     try {
-      // Only log in development and for non-GET requests or errors
-      if (process.env.NODE_ENV === 'development' && config.method?.toUpperCase() !== 'GET') {
-        console.log('API Request:', config.method?.toUpperCase(), config.url);
-      }
+      // Log requests in development
+      logger.debug('API Request:', config.method?.toUpperCase(), config.url);
       
       // Add throttling to prevent rate limiting
       const requestKey = `${config.method}-${config.url}`;
@@ -41,10 +41,7 @@ api.interceptors.request.use(
       
       if (timeSinceLastRequest < REQUEST_DELAY) {
         const delay = REQUEST_DELAY - timeSinceLastRequest;
-        // Only log throttling in development
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`Throttling request to ${config.url}, waiting ${delay}ms`);
-        }
+        logger.debug(`Throttling request to ${config.url}, waiting ${delay}ms`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
       
@@ -88,13 +85,11 @@ api.interceptors.request.use(
         } else if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase() || '')) {
           // For state-changing requests, we need CSRF token
           // If not found, log warning (but don't block - backend will handle it)
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('CSRF token not found for', config.method, config.url);
-          }
+          logger.warn('CSRF token not found for', config.method, config.url);
         }
       }
     } catch (error) {
-      console.error('Error getting auth token:', error);
+      logger.error('Error getting auth token:', error);
     }
     return config;
   },
@@ -135,9 +130,9 @@ api.interceptors.response.use(
       }
     }
     
-    // Only log errors or non-200 responses in development
-    if (process.env.NODE_ENV === 'development' && response.status !== 200) {
-      console.log('API Response:', response.status, response.config.url);
+    // Log non-200 responses
+    if (response.status !== 200) {
+      logger.debug('API Response:', response.status, response.config.url);
     }
     
     return response;
@@ -145,9 +140,99 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // Only log non-400 and non-409 errors to reduce noise
+    // Handle 401 Unauthorized - token expired or invalid
+    if (error.response?.status === 401 && !originalRequest._retry && !(originalRequest as any)._skipAuthRefresh) {
+      // Don't try to refresh if this IS the refresh endpoint (prevent infinite loop)
+      if (originalRequest.url?.includes('/auth/refresh')) {
+        // Refresh endpoint failed - clear auth
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.removeItem('authToken');
+        }
+        await AsyncStorage.removeItem('authToken');
+        await AsyncStorage.removeItem('userData');
+        return Promise.reject(error);
+      }
+      
+      // Don't try to refresh if endpoint doesn't exist (404)
+      if (error.response?.status === 404 && originalRequest.url?.includes('/auth/refresh')) {
+        // Refresh endpoint doesn't exist - don't retry
+        return Promise.reject(error);
+      }
+      
+      originalRequest._retry = true;
+      
+      // Try to refresh token (only for non-auth endpoints that need auth)
+      if (!originalRequest.url?.includes('/auth/')) {
+        try {
+          // Try to refresh token (mark config to prevent infinite loop)
+          const refreshConfig: any = { _skipAuthRefresh: true };
+          const refreshResponse = await api.post('/api/v1/auth/refresh', {}, refreshConfig);
+          const { token } = refreshResponse.data;
+          
+          if (token) {
+            // Update token in storage
+            if (Platform.OS === 'web') {
+              if (typeof window !== 'undefined' && window.sessionStorage) {
+                window.sessionStorage.setItem('authToken', token);
+              }
+            }
+            await AsyncStorage.setItem('authToken', token);
+            
+            // Update socket token if connected
+            try {
+              const { socketService } = await import('./socket');
+              // Reconnect socket with new token
+              await socketService.disconnect();
+              await socketService.connect();
+            } catch (socketError) {
+              // Ignore socket errors
+            }
+            
+            // Retry original request with new token
+            originalRequest.headers['Authorization'] = `Bearer ${token}`;
+            originalRequest._retry = false; // Reset retry flag for the retry
+            return api(originalRequest);
+          }
+        } catch (refreshError: any) {
+          // If refresh endpoint doesn't exist (404), don't clear auth - just reject
+          if (refreshError.response?.status === 404) {
+            // Refresh endpoint not implemented - just reject without clearing auth
+            return Promise.reject(error);
+          }
+          
+          // Refresh failed - clear auth
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
+            window.sessionStorage.removeItem('authToken');
+          }
+          await AsyncStorage.removeItem('authToken');
+          await AsyncStorage.removeItem('userData');
+          
+          // Disconnect socket
+          try {
+            const { socketService } = await import('./socket');
+            await socketService.disconnect();
+          } catch (socketError) {
+            // Ignore socket errors
+          }
+          
+          // Don't redirect here - let the app handle it
+          return Promise.reject(error);
+        }
+      }
+      
+      // For auth endpoints or if refresh failed, just reject
+      return Promise.reject(error);
+    }
+    
+    // Parse and log errors (skip 400 and 409 to reduce noise)
     if (error.response?.status !== 400 && error.response?.status !== 409) {
-      console.error('API Error:', error.response?.status, error.config?.url, error.message);
+      const parsedError = parseError(error);
+      logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url);
+      error.parsedError = parsedError;
+    } else {
+      // Still parse errors for 400/409 but don't log
+      const parsedError = parseError(error);
+      error.parsedError = parsedError;
     }
     
     // Handle rate limiting (429) with retry logic
@@ -160,22 +245,26 @@ api.interceptors.response.use(
       if (originalRequest._retryCount <= maxRetries) {
         // Exponential backoff: 1s, 2s, 4s
         const delay = Math.pow(2, originalRequest._retryCount - 1) * 1000;
-        console.log(`Rate limited, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+        logger.debug(`Rate limited, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return api(originalRequest);
       } else {
-        console.error('Max retries reached for rate limiting');
+        logger.error('Max retries reached for rate limiting');
         return Promise.reject(new Error('Too many requests. Please try again later.'));
       }
     }
     
+    // Handle 401 for auth endpoints (after refresh attempt failed)
     if (
       error.response?.status === 401 &&
       error.config?.url &&
-      (error.config.url.endsWith('/auth/me') || error.config.url.endsWith('/auth/refresh') || error.config.url.endsWith('/api/v1/auth/me') || error.config.url.endsWith('/api/v1/auth/refresh'))
+      (error.config.url.includes('/auth/me') || error.config.url.includes('/auth/refresh'))
     ) {
       // Token expired or invalid, clear storage
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.removeItem('authToken');
+      }
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
     }

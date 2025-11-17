@@ -2,6 +2,8 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { getIO } = require('../socket');
+const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const logger = require('../utils/logger');
 
 // @desc    Get user notifications
 // @route   GET /notifications
@@ -14,13 +16,10 @@ const getNotifications = async (req, res) => {
 
     const result = await Notification.getUserNotifications(userId, page, limit);
 
-    res.status(200).json(result);
+    return sendSuccess(res, 200, 'Notifications fetched successfully', result);
   } catch (error) {
-    console.error('Get notifications error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching notifications'
-    });
+    logger.error('Get notifications error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching notifications');
   }
 };
 
@@ -39,10 +38,7 @@ const markAsRead = async (req, res) => {
     );
 
     if (!notification) {
-      return res.status(404).json({
-        error: 'Notification not found',
-        message: 'Notification does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Notification does not exist');
     }
 
     const unreadCount = await Notification.countDocuments({ 
@@ -50,16 +46,10 @@ const markAsRead = async (req, res) => {
       isRead: false 
     });
 
-    res.status(200).json({
-      message: 'Notification marked as read',
-      unreadCount
-    });
+    return sendSuccess(res, 200, 'Notification marked as read', { unreadCount });
   } catch (error) {
-    console.error('Mark as read error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating notification'
-    });
+    logger.error('Mark as read error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating notification');
   }
 };
 
@@ -75,16 +65,10 @@ const markAllAsRead = async (req, res) => {
       { isRead: true }
     );
 
-    res.status(200).json({
-      message: 'All notifications marked as read',
-      unreadCount: 0
-    });
+    return sendSuccess(res, 200, 'All notifications marked as read', { unreadCount: 0 });
   } catch (error) {
-    console.error('Mark all as read error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating notifications'
-    });
+    logger.error('Mark all as read error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating notifications');
   }
 };
 
@@ -100,13 +84,10 @@ const getUnreadCount = async (req, res) => {
       isRead: false 
     });
 
-    res.status(200).json({ unreadCount });
+    return sendSuccess(res, 200, 'Unread count fetched successfully', { unreadCount });
   } catch (error) {
-    console.error('Get unread count error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching unread count'
-    });
+    logger.error('Get unread count error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching unread count');
   }
 };
 
@@ -144,16 +125,10 @@ const createNotification = async (req, res) => {
       });
     }
 
-    res.status(201).json({
-      message: 'Notification created',
-      notification
-    });
+    return sendSuccess(res, 201, 'Notification created', { notification });
   } catch (error) {
-    console.error('Create notification error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error creating notification'
-    });
+    logger.error('Create notification error:', error);
+    return sendError(res, 'SRV_6001', 'Error creating notification');
   }
 };
 

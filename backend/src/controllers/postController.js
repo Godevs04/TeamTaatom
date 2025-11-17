@@ -8,6 +8,7 @@ const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
+const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -75,7 +76,7 @@ const getPosts = async (req, res) => {
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
-    res.status(200).json({
+    return sendSuccess(res, 200, 'Posts fetched successfully', {
       posts: postsWithLikeStatus,
       pagination: {
         currentPage: page,
@@ -89,10 +90,7 @@ const getPosts = async (req, res) => {
 
   } catch (error) {
     logger.error('Get posts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching posts'
-    });
+    return sendError(res, 'SRV_6001', 'Error fetching posts');
   }
 };
 
@@ -109,10 +107,7 @@ const getPostById = async (req, res) => {
       .lean();
 
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'The requested post does not exist or has been deleted'
-      });
+      return sendError(res, 'RES_3001', 'The requested post does not exist or has been deleted');
     }
 
     // Generate optimized image URL
@@ -159,16 +154,10 @@ const getPostById = async (req, res) => {
       }
     };
 
-    res.json({
-      success: true,
-      post: postWithDetails
-    });
+    return sendSuccess(res, 200, 'Post fetched successfully', { post: postWithDetails });
   } catch (error) {
     logger.error('Get post by ID error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch post',
-      message: error.message
-    });
+    return sendError(res, 'SRV_6001', 'Failed to fetch post');
   }
 };
 
@@ -179,27 +168,18 @@ const createPost = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
     // Handle both single file and multiple files
     const files = req.files ? req.files.images : (req.file ? [req.file] : []);
     
     if (!files || files.length === 0) {
-      return res.status(400).json({
-        error: 'Image required',
-        message: 'Please upload at least one image'
-      });
+      return sendError(res, 'FILE_4001', 'Please upload at least one image');
     }
 
     if (files.length > 10) {
-      return res.status(400).json({
-        error: 'Too many images',
-        message: 'Maximum 10 images are allowed'
-      });
+      return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
     const { caption, address, latitude, longitude, tags } = req.body;
@@ -285,8 +265,7 @@ const createPost = async (req, res) => {
       nsp.emitEvent('post:created', audience, { postId: post._id });
     }
 
-    res.status(201).json({
-      message: 'Post created successfully',
+    return sendSuccess(res, 201, 'Post created successfully', {
       post: {
         ...post.toObject(),
         isLiked: false,
@@ -296,35 +275,31 @@ const createPost = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Create post error:', error);
+    logger.error('Create post error:', error);
     
     // Clean up uploaded image if post creation failed
     if (req.cloudinaryResult) {
       deleteImage(req.cloudinaryResult.public_id).catch(err => 
-        console.error('Error deleting image after failed post creation:', err)
+        logger.error('Error deleting image after failed post creation:', err)
       );
     }
 
     // Provide more specific error messages
+    let errorCode = 'SRV_6001';
     let errorMessage = 'Error creating post';
-    let statusCode = 500;
 
     if (error.name === 'ValidationError') {
+      errorCode = 'VAL_2001';
       errorMessage = 'Invalid post data provided';
-      statusCode = 400;
     } else if (error.message && error.message.includes('Cloudinary')) {
+      errorCode = 'FILE_4004';
       errorMessage = 'Failed to upload image. Please try again.';
-      statusCode = 500;
     } else if (error.message && error.message.includes('network')) {
+      errorCode = 'SRV_6002';
       errorMessage = 'Network error. Please check your connection.';
-      statusCode = 503;
     }
 
-    res.status(statusCode).json({
-      error: 'Post creation failed',
-      message: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    return sendError(res, errorCode, errorMessage, process.env.NODE_ENV === 'development' ? { details: error.message } : {});
   }
 };
 
@@ -380,18 +355,15 @@ const getUserShorts = async (req, res) => {
 
     const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
 
-    res.status(200).json({
+    return sendSuccess(res, 200, 'User shorts fetched successfully', {
       shorts: shortsWithLikeStatus,
       user: user,
       totalShorts
     });
 
   } catch (error) {
-    console.error('Get user shorts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching user shorts'
-    });
+    logger.error('Get user shorts error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching user shorts');
   }
 };
 
@@ -431,18 +403,15 @@ const getUserPosts = async (req, res) => {
 
     const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' });
 
-    res.status(200).json({
+    return sendSuccess(res, 200, 'User posts fetched successfully', {
       posts: postsWithLikeStatus,
       user: user,
       totalPosts
     });
 
   } catch (error) {
-    console.error('Get user posts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching user posts'
-    });
+    logger.error('Get user posts error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching user posts');
   }
 };
 
@@ -453,10 +422,7 @@ const toggleLike = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     const isLiked = post.toggleLike(req.user._id);
@@ -469,7 +435,7 @@ const toggleLike = async (req, res) => {
       // Create notification for like (only if it's not the user's own post)
       if (post.user._id.toString() !== req.user._id.toString()) {
         try {
-          console.log('🔔 Creating like notification:', {
+          logger.debug('🔔 Creating like notification:', {
             fromUser: req.user._id,
             toUser: post.user._id,
             post: post._id
@@ -482,7 +448,7 @@ const toggleLike = async (req, res) => {
             post: post._id
           });
           
-          console.log('✅ Like notification created successfully:', notification._id);
+          logger.debug('Like notification created successfully:', notification._id);
 
           // Emit real-time notification
           const io = getIO();
@@ -503,7 +469,7 @@ const toggleLike = async (req, res) => {
             });
           }
         } catch (notificationError) {
-          console.error('❌ Error creating like notification:', notificationError);
+          logger.error('Error creating like notification:', notificationError);
         }
       }
     } else {
@@ -521,21 +487,17 @@ const toggleLike = async (req, res) => {
         nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
       }
     } catch (socketError) {
-      console.error('Socket error:', socketError);
+      logger.error('Socket error:', socketError);
     }
 
-    res.status(200).json({
-      message: isLiked ? 'Post liked' : 'Post unliked',
+    return sendSuccess(res, 200, isLiked ? 'Post liked' : 'Post unliked', {
       isLiked,
       likesCount: post.likes.length
     });
 
   } catch (error) {
-    console.error('Toggle like error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating like status'
-    });
+    logger.error('Toggle like error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating like status');
   }
 };
 
@@ -546,26 +508,17 @@ const addComment = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
     const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     // Check if comments are disabled
     if (post.commentsDisabled) {
-      return res.status(403).json({
-        error: 'Comments disabled',
-        message: 'Comments are disabled for this post'
-      });
+      return sendError(res, 'BIZ_7001', 'Comments are disabled for this post');
     }
 
     const { text } = req.body;
@@ -579,7 +532,7 @@ const addComment = async (req, res) => {
     // Create notification for comment (only if it's not the user's own post)
     if (post.user._id.toString() !== req.user._id.toString()) {
       try {
-        console.log('🔔 Creating comment notification:', {
+        logger.debug('🔔 Creating comment notification:', {
           fromUser: req.user._id,
           toUser: post.user._id,
           post: post._id,
@@ -594,7 +547,7 @@ const addComment = async (req, res) => {
           comment: newComment._id
         });
         
-        console.log('✅ Comment notification created successfully:', notification._id);
+        logger.debug('✅ Comment notification created successfully:', notification._id);
 
         // Emit real-time notification
         const io = getIO();
@@ -619,7 +572,7 @@ const addComment = async (req, res) => {
           });
         }
       } catch (notificationError) {
-        console.error('❌ Error creating comment notification:', notificationError);
+        logger.error('❌ Error creating comment notification:', notificationError);
       }
     }
 
@@ -638,17 +591,14 @@ const addComment = async (req, res) => {
       nsp.emitEvent('comment:created', audience, { postId: post._id });
     }
 
-    res.status(201).json({
-      message: 'Comment added successfully',
-      comment: populatedComment
+    return sendSuccess(res, 201, 'Comment added successfully', {
+      comment: populatedComment,
+      commentsCount: post.comments.length
     });
 
   } catch (error) {
-    console.error('Add comment error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error adding comment'
-    });
+    logger.error('Add comment error:', error);
+    return sendError(res, 'SRV_6001', 'Error adding comment');
   }
 };
 
@@ -661,42 +611,30 @@ const deleteComment = async (req, res) => {
 
     const post = await Post.findById(postId);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     const comment = post.comments.id(commentId);
     if (!comment) {
-      return res.status(404).json({
-        error: 'Comment not found',
-        message: 'Comment does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Comment does not exist');
     }
 
     // Check if user owns the comment or the post
     if (comment.user.toString() !== req.user._id.toString() && 
         post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only delete your own comments or comments on your posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only delete your own comments or comments on your posts');
     }
 
     post.removeComment(commentId);
     await post.save();
 
-    res.status(200).json({
-      message: 'Comment deleted successfully'
+    return sendSuccess(res, 200, 'Comment deleted successfully', {
+      commentsCount: post.comments.length
     });
 
   } catch (error) {
-    console.error('Delete comment error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error deleting comment'
-    });
+    logger.error('Delete comment error:', error);
+    return sendError(res, 'SRV_6001', 'Error deleting comment');
   }
 };
 
@@ -707,25 +645,19 @@ const deletePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     // Check if user owns the post
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only delete your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only delete your own posts');
     }
 
     // Delete image from Cloudinary
     try {
       await deleteImage(post.cloudinaryPublicId);
     } catch (cloudinaryError) {
-      console.error('Error deleting image from Cloudinary:', cloudinaryError);
+      logger.error('Error deleting image from Cloudinary:', cloudinaryError);
       // Continue with post deletion even if image deletion fails
     }
 
@@ -749,16 +681,11 @@ const deletePost = async (req, res) => {
       nsp.emitEvent('post:deleted', audience, { postId: post._id });
     }
 
-    res.status(200).json({
-      message: 'Post deleted successfully'
-    });
+    return sendSuccess(res, 200, 'Post deleted successfully');
 
   } catch (error) {
-    console.error('Delete post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error deleting post'
-    });
+    logger.error('Delete post error:', error);
+    return sendError(res, 'SRV_6001', 'Error deleting post');
   }
 };
 
@@ -769,32 +696,20 @@ const archivePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only archive your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only archive your own posts');
     }
 
     post.isArchived = true;
     await post.save();
 
-    res.status(200).json({
-      message: 'Post archived successfully',
-      post
-    });
+    return sendSuccess(res, 200, 'Post archived successfully', { post });
   } catch (error) {
-    console.error('Archive post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error archiving post'
-    });
+    logger.error('Archive post error:', error);
+    return sendError(res, 'SRV_6001', 'Error archiving post');
   }
 };
 
@@ -805,32 +720,20 @@ const unarchivePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only unarchive your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only unarchive your own posts');
     }
 
     post.isArchived = false;
     await post.save();
 
-    res.status(200).json({
-      message: 'Post unarchived successfully',
-      post
-    });
+    return sendSuccess(res, 200, 'Post unarchived successfully', { post });
   } catch (error) {
-    console.error('Unarchive post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error unarchiving post'
-    });
+    logger.error('Unarchive post error:', error);
+    return sendError(res, 'SRV_6001', 'Error unarchiving post');
   }
 };
 
@@ -863,19 +766,15 @@ const getArchivedPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'Archived posts fetched successfully', {
       posts: postsWithLikeStatus,
       page,
       limit,
       total: posts.length
     });
   } catch (error) {
-    console.error('Get archived posts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching archived posts'
-    });
+    logger.error('Get archived posts error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching archived posts');
   }
 };
 
@@ -886,25 +785,16 @@ const hidePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     post.isHidden = true;
     await post.save();
 
-    res.status(200).json({
-      message: 'Post hidden successfully',
-      post
-    });
+    return sendSuccess(res, 200, 'Post hidden successfully', { post });
   } catch (error) {
-    console.error('Hide post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error hiding post'
-    });
+    logger.error('Hide post error:', error);
+    return sendError(res, 'SRV_6001', 'Error hiding post');
   }
 };
 
@@ -915,32 +805,20 @@ const unhidePost = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only unhide your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only unhide your own posts');
     }
 
     post.isHidden = false;
     await post.save();
 
-    res.status(200).json({
-      message: 'Post unhidden successfully',
-      post
-    });
+    return sendSuccess(res, 200, 'Post unhidden successfully', { post });
   } catch (error) {
-    console.error('Unhide post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error unhiding post'
-    });
+    logger.error('Unhide post error:', error);
+    return sendError(res, 'SRV_6001', 'Error unhiding post');
   }
 };
 
@@ -981,7 +859,7 @@ const getHiddenPosts = async (req, res) => {
       total: posts.length
     });
   } catch (error) {
-    console.error('Get hidden posts error:', error);
+    logger.error('Get hidden posts error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error fetching hidden posts'
@@ -996,32 +874,22 @@ const toggleComments = async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only toggle comments on your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only toggle comments on your own posts');
     }
 
     post.commentsDisabled = !post.commentsDisabled;
     await post.save();
 
-    res.status(200).json({
-      message: post.commentsDisabled ? 'Comments disabled' : 'Comments enabled',
+    return sendSuccess(res, 200, post.commentsDisabled ? 'Comments disabled' : 'Comments enabled', {
       commentsDisabled: post.commentsDisabled
     });
   } catch (error) {
-    console.error('Toggle comments error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error toggling comments'
-    });
+    logger.error('Toggle comments error:', error);
+    return sendError(res, 'SRV_6001', 'Error toggling comments');
   }
 };
 
@@ -1034,17 +902,11 @@ const updatePost = async (req, res) => {
     const post = await Post.findById(req.params.id);
     
     if (!post) {
-      return res.status(404).json({
-        error: 'Post not found',
-        message: 'Post does not exist'
-      });
+      return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
     if (post.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only edit your own posts'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only edit your own posts');
     }
 
     // Track old hashtags for decrementing counts
@@ -1097,16 +959,10 @@ const updatePost = async (req, res) => {
       ).catch(err => logger.error('Error updating new hashtags:', err));
     }
 
-    res.status(200).json({
-      message: 'Post updated successfully',
-      post
-    });
+    return sendSuccess(res, 200, 'Post updated successfully', { post });
   } catch (error) {
-    console.error('Update post error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating post'
-    });
+    logger.error('Update post error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating post');
   }
 };
 
@@ -1169,7 +1025,7 @@ const getShorts = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get shorts error:', error);
+    logger.error('Get shorts error:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Error fetching shorts'
@@ -1182,17 +1038,14 @@ const getShorts = async (req, res) => {
 // @access  Private
 const createShort = async (req, res) => {
   try {
-    console.log('createShort called');
-    console.log('req.file:', req.file);
-    console.log('req.body:', req.body);
+    logger.debug('createShort called');
+    logger.debug('req.file:', req.file);
+    logger.debug('req.body:', req.body);
     
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      logger.debug('Validation errors:', errors.array());
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
     // req.files.video[0] if fields upload; req.file if single
@@ -1200,11 +1053,8 @@ const createShort = async (req, res) => {
     const imageFile = (req.files && Array.isArray(req.files.image) && req.files.image[0]) || null;
 
     if (!videoFile) {
-      console.log('No file uploaded');
-      return res.status(400).json({
-        error: 'Video required',
-        message: 'Please upload a video'
-      });
+      logger.debug('No file uploaded');
+      return sendError(res, 'FILE_4001', 'Please upload a video');
     }
 
     const { caption, address, latitude, longitude, tags } = req.body;
@@ -1221,7 +1071,7 @@ const createShort = async (req, res) => {
         chunk_size: 50 * 1024 * 1024,
       });
     } catch (streamErr) {
-      console.error('Cloudinary upload_stream error:', streamErr);
+      logger.error('Cloudinary upload_stream error:', streamErr);
       try {
         const dataUri = `data:${videoFile.mimetype};base64,${videoFile.buffer.toString('base64')}`;
         cloudinaryResult = await cloudinary.uploader.upload_large(dataUri, {
@@ -1233,11 +1083,8 @@ const createShort = async (req, res) => {
           chunk_size: 50 * 1024 * 1024,
         });
       } catch (largeErr) {
-        console.error('Cloudinary upload_large error:', largeErr);
-        return res.status(400).json({
-          error: 'Upload failed',
-          message: largeErr.message || 'Video is too large to process. Please try a smaller clip.'
-        });
+        logger.error('Cloudinary upload_large error:', largeErr);
+        return sendError(res, 'FILE_4004', largeErr.message || 'Video is too large to process. Please try a smaller clip.');
       }
     }
 
@@ -1264,7 +1111,7 @@ const createShort = async (req, res) => {
         const imgRes = await uploadImage(imageFile.buffer, { folder: 'taatom/shorts', resource_type: 'image' });
         thumbnailUrl = imgRes.secure_url;
       } catch (imgErr) {
-        console.error('Thumbnail image upload failed, falling back to generated thumbnail');
+        logger.error('Thumbnail image upload failed, falling back to generated thumbnail');
       }
     }
     if (!thumbnailUrl) {
@@ -1320,8 +1167,7 @@ const createShort = async (req, res) => {
       nsp.emitEvent('short:created', audience, { shortId: short._id });
     }
 
-    res.status(201).json({
-      message: 'Short created successfully',
+    return sendSuccess(res, 201, 'Short created successfully', {
       short: {
         ...short.toObject(),
         isLiked: false,
@@ -1331,19 +1177,16 @@ const createShort = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Create short error:', error);
+    logger.error('Create short error:', error);
     
     // Clean up uploaded video if short creation failed
     if (cloudinaryResult) {
       deleteImage(cloudinaryResult.public_id).catch(err => 
-        console.error('Error deleting video after failed short creation:', err)
+        logger.error('Error deleting video after failed short creation:', err)
       );
     }
 
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error creating short'
-    });
+    return sendError(res, 'SRV_6001', 'Error creating short');
   }
 };
 

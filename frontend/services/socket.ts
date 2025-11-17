@@ -15,6 +15,17 @@ const getToken = async () => {
         return token;
       }
     }
+    // For web, try to get from AsyncStorage as well (might be stored there)
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (token && typeof window !== 'undefined' && window.sessionStorage) {
+        // Store in sessionStorage for socket.io access
+        window.sessionStorage.setItem('authToken', token);
+        return token;
+      }
+    } catch (e) {
+      // AsyncStorage might not be available on web
+    }
     // For web, token should be in cookies (httpOnly), but socket.io can't access httpOnly cookies
     // So we need to get it from sessionStorage or pass it explicitly
     return null;
