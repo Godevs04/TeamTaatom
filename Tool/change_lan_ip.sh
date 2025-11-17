@@ -38,11 +38,12 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Update frontend/app.json
 FRONTEND_JSON="$ROOT_DIR/../frontend/app.json"
 if [ -f "$FRONTEND_JSON" ]; then
-  echo "Updating frontend/app.json API_BASE_URL..."
+  echo "Updating frontend/app.json API_BASE_URL and WEB_SHARE_URL..."
   if command -v jq > /dev/null; then
-    jq --arg ip "$NEW_IP" '(.expo.extra.API_BASE_URL) |= "http://\($ip):3000"' "$FRONTEND_JSON" > "$FRONTEND_JSON.tmp" && mv "$FRONTEND_JSON.tmp" "$FRONTEND_JSON"
+    jq --arg ip "$NEW_IP" '(.expo.extra.API_BASE_URL) |= "http://\($ip):3000" | (.expo.extra.WEB_SHARE_URL) |= "http://\($ip):3000"' "$FRONTEND_JSON" > "$FRONTEND_JSON.tmp" && mv "$FRONTEND_JSON.tmp" "$FRONTEND_JSON"
   else
     sed -i '' -E "s|(\"API_BASE_URL\"\:\ \"http\://)[0-9.]+(:3000\")|\1$NEW_IP\2|" "$FRONTEND_JSON"
+    sed -i '' -E "s|(\"WEB_SHARE_URL\"\:\ \"http\://)[0-9.]+(:3000\")|\1$NEW_IP\2|" "$FRONTEND_JSON"
   fi
 else
   echo "frontend/app.json not found"
@@ -79,4 +80,19 @@ else
   echo "backend/env.example not found"
 fi
 
-echo "LAN IP updated to $NEW_IP everywhere (frontend/app.json, frontend/.env, backend/environment.env, backend/env.example)."
+# Update backend/src/app.js CORS allowed origins
+BACKEND_APP_JS="$ROOT_DIR/../backend/src/app.js"
+if [ -f "$BACKEND_APP_JS" ]; then
+  echo "Updating backend/src/app.js CORS allowed origins..."
+  # Replace IP addresses in CORS origins array (both :8081 and :3000)
+  # Pattern: 'http://192.168.x.x:8081' or 'http://192.168.x.x:3000'
+  sed -i '' -E "s|('http://)192\.168\.[0-9]+\.[0-9]+(:8081')|\1$NEW_IP\2|g" "$BACKEND_APP_JS"
+  sed -i '' -E "s|('http://)192\.168\.[0-9]+\.[0-9]+(:3000')|\1$NEW_IP\2|g" "$BACKEND_APP_JS"
+  # Also handle double-quoted strings
+  sed -i '' -E "s|(\"http://)192\.168\.[0-9]+\.[0-9]+(:8081\")|\1$NEW_IP\2|g" "$BACKEND_APP_JS"
+  sed -i '' -E "s|(\"http://)192\.168\.[0-9]+\.[0-9]+(:3000\")|\1$NEW_IP\2|g" "$BACKEND_APP_JS"
+else
+  echo "backend/src/app.js not found"
+fi
+
+echo "LAN IP updated to $NEW_IP everywhere (frontend/app.json, frontend/.env, backend/environment.env, backend/env.example, backend/src/app.js)."

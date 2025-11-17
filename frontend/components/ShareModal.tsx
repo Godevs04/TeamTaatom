@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import Constants from 'expo-constants';
+import { getPostShareUrl } from '../utils/config';
 
 interface ShareModalProps {
   visible: boolean;
@@ -41,8 +41,7 @@ export default function ShareModal({
   const getShareUrl = () => {
     if (shareUrl) return shareUrl;
     if (post?._id) {
-      const baseUrl = Constants.expoConfig?.extra?.API_BASE_URL || 'https://taatom.app';
-      return `${baseUrl}/post/${post._id}`;
+      return getPostShareUrl(post._id);
     }
     return '';
   };

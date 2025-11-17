@@ -1,5 +1,5 @@
 const express = require('express');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const rateLimit = require('express-rate-limit');
 const {
   trackEvents,
@@ -24,7 +24,7 @@ const errorLogRateLimit = rateLimit({
 });
 
 // Routes
-router.post('/events', authMiddleware, analyticsRateLimit, trackEvents);
+router.post('/events', optionalAuth, analyticsRateLimit, trackEvents);
 router.get('/data', authMiddleware, getAnalyticsData); // Admin check can be added
 router.post('/errors', errorLogRateLimit, logError);
 router.get('/errors', authMiddleware, getErrorLogs); // Admin check can be added

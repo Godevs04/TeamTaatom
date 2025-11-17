@@ -4,7 +4,13 @@ const SafeComponent = ({ children, fallback = null }) => {
   try {
     return children
   } catch (error) {
-    console.error('SafeComponent caught an error:', error)
+    // Use dynamic import to avoid circular dependencies
+    import('../utils/logger').then(({ default: logger }) => {
+      logger.error('SafeComponent caught an error:', error)
+    }).catch(() => {
+      // Fallback to console if logger fails
+      console.error('SafeComponent caught an error:', error)
+    })
     return fallback || (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

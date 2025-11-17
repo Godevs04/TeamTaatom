@@ -21,6 +21,7 @@ import { signIn } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
+import { LOGO_IMAGE } from '../../utils/config';
 
 interface SignInFormValues {
   email: string;
@@ -110,7 +111,7 @@ export default function SignInScreen() {
         >
           <View style={styles.header}>
             <Image
-              source={{ uri: Constants.expoConfig?.extra?.LOGO_IMAGE }}
+              source={{ uri: LOGO_IMAGE }}
               style={{ width: 80, height: 80, marginBottom: 8, resizeMode: 'contain' }}
               accessibilityLabel="Taatom Logo"
             />

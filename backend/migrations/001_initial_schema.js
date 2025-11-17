@@ -53,9 +53,11 @@ module.exports = {
     };
 
     // Users collection indexes
-    await createIndexIfNotExists('users', { email: 1 }, { unique: true, sparse: true, name: 'email_1' });
-    await createIndexIfNotExists('users', { username: 1 }, { unique: true, sparse: true, name: 'username_1' });
-    await createIndexIfNotExists('users', { googleId: 1 }, { unique: true, sparse: true, name: 'googleId_1' });
+    // Note: email, username, and googleId indexes are automatically created by Mongoose schema's unique: true
+    // Creating them here would cause duplicate index warnings
+    // await createIndexIfNotExists('users', { email: 1 }, { unique: true, sparse: true, name: 'email_1' });
+    // await createIndexIfNotExists('users', { username: 1 }, { unique: true, sparse: true, name: 'username_1' });
+    // await createIndexIfNotExists('users', { googleId: 1 }, { unique: true, sparse: true, name: 'googleId_1' });
     await createIndexIfNotExists('users', { isVerified: 1 }, { name: 'isVerified_1' });
     await createIndexIfNotExists('users', { createdAt: -1 }, { name: 'createdAt_-1' });
     await createIndexIfNotExists('users', { lastLogin: -1 }, { name: 'lastLogin_-1' });
