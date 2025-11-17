@@ -11,7 +11,13 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
+    // Use dynamic import to avoid circular dependencies
+    import('../utils/logger').then(({ default: logger }) => {
+      logger.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
+    }).catch(() => {
+      // Fallback to console if logger fails
+      console.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
+    })
   }
 
   render() {

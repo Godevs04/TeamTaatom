@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { UserType } from '../types/user';
+import logger from '../utils/logger';
 import { Platform } from 'react-native';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 
@@ -76,19 +77,21 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   try {
     // Debug: Log the API base URL being used
     // @ts-ignore
-    console.log('API_BASE_URL:', require('./api').default.defaults.baseURL);
+    logger.debug('API_BASE_URL:', require('./api').default.defaults.baseURL);
     const response = await api.post('/api/v1/auth/signin', data);
     const { token, user } = response.data;
     
     // Store token and user data
-    // For web: If token is returned (cross-origin fallback), store in sessionStorage
+    // For web: Store in both sessionStorage (for socket.io) and AsyncStorage (for consistency)
     // For mobile: Store in AsyncStorage
     if (token) {
       if (isWeb) {
-        // Web: Store in sessionStorage as fallback if cookie didn't work
+        // Web: Store in sessionStorage for socket.io access (can't read httpOnly cookies)
         if (typeof window !== 'undefined' && window.sessionStorage) {
           window.sessionStorage.setItem('authToken', token);
         }
+        // Also store in AsyncStorage for consistency
+        await AsyncStorage.setItem('authToken', token);
       } else {
         // Mobile: Store in AsyncStorage
         await AsyncStorage.setItem('authToken', token);
@@ -130,7 +133,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     if (isRateLimitError(error)) {
       const rateLimitInfo = handleRateLimitError(error, 'getCurrentUser');
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Rate limited in getCurrentUser:', rateLimitInfo.message);
+        logger.warn('Rate limited in getCurrentUser:', rateLimitInfo.message);
       }
       return 'network-error';
     }
@@ -143,7 +146,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     // Network or other error - don't sign out, just return network error
     lastAuthError = error?.message || 'Network or unknown error';
     if (process.env.NODE_ENV === 'development') {
-      console.warn('Network error in getCurrentUser:', error?.message || error);
+      logger.warn('Network error in getCurrentUser:', error?.message || error);
     }
     return 'network-error';
   }
@@ -200,7 +203,7 @@ export const isAuthenticated = async (): Promise<boolean> => {
     return !!user;
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      console.error('[isAuthenticated] Error:', error);
+      logger.error('[isAuthenticated] Error:', error);
     }
     // Don't automatically sign out on error, just return false
     return false;
@@ -210,13 +213,23 @@ export const isAuthenticated = async (): Promise<boolean> => {
 // Initialize auth state on app launch
 export const initializeAuth = async (): Promise<UserType | null | 'network-error'> => {
   try {
-    // For web, cookies are sent automatically, just check with API
+    // For web, sync token from AsyncStorage to sessionStorage for socket.io access
     if (isWeb) {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        if (token && typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.setItem('authToken', token);
+        }
+      } catch (e) {
+        // Ignore errors
+      }
       return await getCurrentUser();
     }
     
     const token = await AsyncStorage.getItem('authToken');
-    console.log('[initializeAuth] Token in storage:', token);
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('[initializeAuth] Token in storage:', token ? 'exists' : 'missing');
+    }
     if (!token) return null;
     
     // First, try to get user from storage
@@ -226,7 +239,7 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
       // Return stored user immediately, then validate in background
       getCurrentUser().catch(error => {
         if (process.env.NODE_ENV === 'development') {
-          console.warn('[initializeAuth] Background validation failed:', error);
+          logger.warn('[initializeAuth] Background validation failed:', error);
         }
         // Don't sign out on background validation failure
       });
@@ -246,7 +259,9 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     }
     return user;
   } catch (error) {
-    console.error('Auth initialization error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      logger.error('Auth initialization error:', error);
+    }
     // Don't sign out on initialization error, try to get from storage
     const storedUser = await getUserFromStorage();
     if (storedUser) {
@@ -266,7 +281,7 @@ export const signOut = async (): Promise<void> => {
         await api.post('/api/v1/auth/logout');
       } catch (error) {
         // Continue even if logout endpoint fails
-        console.warn('Logout endpoint failed, clearing local storage');
+        logger.warn('Logout endpoint failed, clearing local storage');
       }
       
       // Clear sessionStorage (fallback for cross-origin)

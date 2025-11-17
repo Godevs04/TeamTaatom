@@ -1,11 +1,15 @@
 const { validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
-const mongoose = require('mongoose');
+const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const logger = require('../utils/logger');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache } = require('../utils/cache');
+const Activity = require('../models/Activity');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -14,25 +18,30 @@ const getProfile = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user id', message: 'User id must be a valid ObjectId' });
+      return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    const user = await User.findById(id)
-      .populate('followers', 'fullName profilePic')
-      .populate('following', 'fullName profilePic')
-      .select('-password -otp -otpExpires');
+    // Cache key
+    const cacheKey = CacheKeys.user(id);
+
+    // Use cache wrapper with optimized query
+    const user = await cacheWrapper(cacheKey, async () => {
+      return await User.findById(id)
+        .populate('followers', 'fullName profilePic')
+        .populate('following', 'fullName profilePic')
+        .select('-password -otp -otpExpires')
+        .lean();
+    }, CACHE_TTL.USER_PROFILE);
 
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    // Get user's posts count and locations
+    // Get user's posts count and locations (optimized query)
     const posts = await Post.find({ user: id, isActive: true })
       .select('location createdAt likes')
-      .lean();
+      .lean()
+      .limit(1000); // Limit for performance
 
     // Extract unique locations for the map (only posts with valid coordinates)
     const locations = posts
@@ -45,15 +54,25 @@ const getProfile = async (req, res) => {
         date: post.createdAt
       }));
 
-    // Calculate TripScore based on unique locations (count all posts with locations, not just liked posts)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
-      isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
-    })
-    .select('location likes createdAt')
-    .lean();
+    // Calculate TripScore based on unique locations (optimized aggregation)
+    const postsWithLocations = await Post.aggregate([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(id),
+          isActive: true,
+          'location.coordinates.latitude': { $ne: 0 },
+          'location.coordinates.longitude': { $ne: 0 }
+        }
+      },
+      {
+        $project: {
+          location: 1,
+          likes: 1,
+          createdAt: 1
+        }
+      },
+      { $limit: 1000 } // Limit for performance
+    ]);
 
     // Group posts by continent/country for TripScore
     const tripScoreData = {
@@ -101,22 +120,25 @@ const getProfile = async (req, res) => {
     });
 
     // Check if current user is following this profile
-    const isFollowing = req.user ? 
-      user.followers.some(follower => follower._id.toString() === req.user._id.toString()) : 
+    const isFollowing = req.user && user.followers ? 
+      user.followers.some(follower => {
+        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+        return followerId === req.user._id.toString();
+      }) : 
       false;
 
     // Check if current user has sent a follow request
-    const hasSentFollowRequest = req.user ? 
+    const hasSentFollowRequest = req.user && user.followRequests ? 
       user.followRequests.some(req => req.user.toString() === req.user._id.toString() && req.status === 'pending') :
       false;
 
     // Check if current user has received a follow request from this user
-    const hasReceivedFollowRequest = req.user ? 
+    const hasReceivedFollowRequest = req.user && user.sentFollowRequests ? 
       user.sentFollowRequests.some(req => req.user.toString() === id && req.status === 'pending') :
       false;
 
     // Determine profile visibility based on settings
-    const profileVisibility = user.settings.privacy.profileVisibility;
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === id : false;
     
     let canViewProfile = false;
@@ -164,11 +186,25 @@ const getProfile = async (req, res) => {
     // Only return tripScore if there's actually a score (meaning user has posted locations)
     const tripScore = canViewProfile && tripScoreData.totalScore > 0 ? tripScoreData : null;
 
+    // user is already a lean object, so we can spread it directly
+    // Calculate followers/following counts (they are populated objects)
+    const followersCount = user.followers ? 
+      user.followers.filter((follower) => {
+        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+        return followerId !== id.toString();
+      }).length : 0;
+    
+    const followingCount = user.following ? 
+      user.following.filter((following) => {
+        const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+        return followingId !== id.toString();
+      }).length : 0;
+
     const profile = {
-      ...user.toObject(),
+      ...user,
       postsCount: posts.length,
-      followersCount: user.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-      followingCount: user.following.filter(followingId => followingId.toString() !== id.toString()).length,
+      followersCount,
+      followingCount,
       locations: canViewLocations ? locations : [],
       tripScore: tripScore,
       isFollowing,
@@ -180,19 +216,16 @@ const getProfile = async (req, res) => {
       profileVisibility,
       hasReceivedFollowRequest,
       // Only include email if user has enabled showEmail setting
-      email: user.settings.privacy.showEmail ? user.email : undefined,
+      email: user.settings?.privacy?.showEmail ? user.email : undefined,
       // Include bio for all users
       bio: user.bio || ''
     };
 
-    res.status(200).json({ profile });
+    return sendSuccess(res, 200, 'Profile fetched successfully', { profile });
 
   } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching profile'
-    });
+    logger.error('Get profile error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching profile');
   }
 };
 
@@ -205,26 +238,17 @@ const updateProfile = async (req, res) => {
 
     // Check if user is updating their own profile
     if (req.user._id.toString() !== id) {
-      return res.status(403).json({
-        error: 'Access denied',
-        message: 'You can only update your own profile'
-      });
+      return sendError(res, 'AUTH_1006', 'You can only update your own profile');
     }
 
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).lean();
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
     const { fullName, bio } = req.body;
@@ -237,7 +261,7 @@ const updateProfile = async (req, res) => {
         if (user.profilePic) {
           const publicId = user.profilePic.split('/').pop().split('.')[0];
           await deleteImage(`taatom/profiles/${publicId}`).catch(err => 
-            console.error('Error deleting old profile picture:', err)
+            logger.error('Error deleting old profile picture:', err)
           );
         }
 
@@ -252,11 +276,8 @@ const updateProfile = async (req, res) => {
 
         profilePicUrl = cloudinaryResult.secure_url;
       } catch (uploadError) {
-        console.error('Profile picture upload error:', uploadError);
-        return res.status(500).json({
-          error: 'Upload failed',
-          message: 'Error uploading profile picture'
-        });
+        logger.error('Profile picture upload error:', uploadError);
+        return sendError(res, 'FILE_4004', 'Error uploading profile picture');
       }
     }
 
@@ -269,12 +290,12 @@ const updateProfile = async (req, res) => {
         ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
       },
       { new: true, runValidators: true }
-    ).select('-password -otp -otpExpires');
+    ).select('-password -otp -otpExpires').lean();
 
-    res.status(200).json({
-      message: 'Profile updated successfully',
-      user: updatedUser.getPublicProfile()
-    });
+    // Invalidate cache
+    await deleteCache(CacheKeys.user(id));
+    await deleteCacheByPattern('search:*');
+
     // Emit socket events
     const io = getIO();
     if (io) {
@@ -285,12 +306,13 @@ const updateProfile = async (req, res) => {
       nsp.emitInvalidateFeed(audience);
       nsp.emitEvent('profile:updated', audience, { userId: id });
     }
-  } catch (error) {
-    console.error('Update profile error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating profile'
+
+    return sendSuccess(res, 200, 'Profile updated successfully', {
+      user: updatedUser
     });
+  } catch (error) {
+    logger.error('Update profile error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating profile');
   }
 };
 
@@ -303,18 +325,12 @@ const toggleFollow = async (req, res) => {
     const currentUserId = req.user._id;
 
     if (currentUserId.toString() === id) {
-      return res.status(400).json({
-        error: 'Invalid action',
-        message: 'You cannot follow yourself'
-      });
+      return sendError(res, 'BIZ_7001', 'You cannot follow yourself');
     }
 
     const targetUser = await User.findById(id);
     if (!targetUser) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
     const currentUser = await User.findById(currentUserId);
@@ -335,8 +351,7 @@ const toggleFollow = async (req, res) => {
 
       await Promise.all([currentUser.save(), targetUser.save()]);
 
-      res.status(200).json({
-        message: 'User unfollowed',
+      return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
         followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
         followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
@@ -357,10 +372,7 @@ const toggleFollow = async (req, res) => {
         );
         
         if (existingSentRequest || existingReceivedRequest) {
-          return res.status(409).json({
-            error: 'Request already sent',
-            message: 'Follow request already pending'
-          });
+          return sendError(res, 'BIZ_7002', 'Follow request already pending');
         }
 
         // Send follow request
@@ -418,8 +430,7 @@ const toggleFollow = async (req, res) => {
           }
         });
 
-        res.status(200).json({
-          message: 'Follow request sent',
+        return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
           followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
@@ -431,6 +442,14 @@ const toggleFollow = async (req, res) => {
         targetUser.followers.push(currentUserId);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Create activity
+        Activity.createActivity({
+          user: currentUserId,
+          type: 'user_followed',
+          targetUser: id,
+          isPublic: true
+        }).catch(err => logger.error('Error creating activity:', err));
 
         // Send notification to target user
         const io = getIO();
@@ -460,8 +479,7 @@ const toggleFollow = async (req, res) => {
           }
         });
 
-        res.status(200).json({
-          message: 'User followed',
+        return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
           followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
@@ -481,11 +499,8 @@ const toggleFollow = async (req, res) => {
       nsp.emitEvent('follow:updated', audience, { userId: id });
     }
   } catch (error) {
-    console.error('Toggle follow error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating follow status'
-    });
+    logger.error('Toggle follow error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating follow status');
   }
 };
 
@@ -497,51 +512,59 @@ const searchUsers = async (req, res) => {
     const { q, page = 1, limit = 20 } = req.query;
 
     if (!q || q.trim().length < 2) {
-      return res.status(400).json({
-        error: 'Invalid search',
-        message: 'Search query must be at least 2 characters long'
-      });
+      return sendError(res, 'VAL_2001', 'Search query must be at least 2 characters long');
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const users = await User.find({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { fullName: { $regex: q, $options: 'i' } },
-            { email: { $regex: q, $options: 'i' } }
-          ]
-        }
-      ]
-    })
-    .select('fullName email profilePic followers following totalLikes')
-    .skip(skip)
-    .limit(parseInt(limit))
-    .lean();
+    // Cache search results
+    const cacheKey = CacheKeys.search(q, 'users');
+    
+    const result = await cacheWrapper(cacheKey, async () => {
+      const users = await User.find({
+        $and: [
+          { isVerified: true },
+          {
+            $or: [
+              { fullName: { $regex: q, $options: 'i' } },
+              { email: { $regex: q, $options: 'i' } }
+            ]
+          }
+        ]
+      })
+      .select('fullName email profilePic followers following totalLikes')
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
 
+      const totalUsers = await User.countDocuments({
+        $and: [
+          { isVerified: true },
+          {
+            $or: [
+              { fullName: { $regex: q, $options: 'i' } },
+              { email: { $regex: q, $options: 'i' } }
+            ]
+          }
+        ]
+      }).lean();
+
+      return { users, totalUsers };
+    }, CACHE_TTL.SEARCH_RESULTS);
+
+    const { users, totalUsers } = result;
+
+    const currentUserId = req.user?._id?.toString();
     const usersWithFollowStatus = users.map(user => ({
       ...user,
-      followersCount: user.followers.length,
-      followingCount: user.following.length,
-      isFollowing: req.user ? user.followers.some(follower => 
-        follower.toString() === req.user._id.toString()) : false
+      followersCount: user.followers ? user.followers.length : 0,
+      followingCount: user.following ? user.following.length : 0,
+      isFollowing: currentUserId && user.followers 
+        ? user.followers.some(follower => follower.toString() === currentUserId)
+        : false
     }));
 
-    const totalUsers = await User.countDocuments({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { fullName: { $regex: q, $options: 'i' } },
-            { email: { $regex: q, $options: 'i' } }
-          ]
-        }
-      ]
-    });
-
-    res.status(200).json({
+    return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
       pagination: {
         currentPage: parseInt(page),
@@ -553,11 +576,8 @@ const searchUsers = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Search users error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error searching users'
-    });
+    logger.error('Search users error:', error);
+    return sendError(res, 'SRV_6001', 'Error searching users');
   }
 };
 
@@ -573,7 +593,7 @@ const getFollowersList = async (req, res) => {
     
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('followers');
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return sendError(res, 'RES_3001', 'User does not exist');
     
     const totalFollowers = user.followers.filter(followerId => followerId.toString() !== id.toString()).length;
     
@@ -602,7 +622,7 @@ const getFollowersList = async (req, res) => {
       };
     });
     
-    res.status(200).json({
+    return sendSuccess(res, 200, 'Followers fetched successfully', {
       users: followersWithStatus,
       pagination: {
         currentPage: page,
@@ -613,8 +633,8 @@ const getFollowersList = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get followers list error:', error);
-    res.status(500).json({ error: 'Internal server error', message: 'Error fetching followers list' });
+    logger.error('Get followers list error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching followers list');
   }
 };
 
@@ -630,7 +650,7 @@ const getFollowingList = async (req, res) => {
     
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('following');
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return sendError(res, 'RES_3001', 'User does not exist');
     
     const totalFollowing = user.following.filter(followingId => followingId.toString() !== id.toString()).length;
     
@@ -659,7 +679,7 @@ const getFollowingList = async (req, res) => {
       };
     });
     
-    res.status(200).json({
+    return sendSuccess(res, 200, 'Following fetched successfully', {
       users: followingWithStatus,
       pagination: {
         currentPage: page,
@@ -670,8 +690,8 @@ const getFollowingList = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get following list error:', error);
-    res.status(500).json({ error: 'Internal server error', message: 'Error fetching following list' });
+    logger.error('Get following list error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching following list');
   }
 };
 
@@ -693,7 +713,7 @@ const getFollowRequests = async (req, res) => {
     for (const request of user.followRequests) {
       // Skip requests where the user ID matches the current user ID (incorrect data)
       if (request.user._id.toString() === currentUserId.toString()) {
-        console.log('🧹 Removing incorrect follow request with self ID in getFollowRequests');
+        logger.debug('🧹 Removing incorrect follow request with self ID in getFollowRequests');
         needsUpdate = true;
         continue;
       }
@@ -710,10 +730,10 @@ const getFollowRequests = async (req, res) => {
     if (needsUpdate || uniqueRequests.length !== user.followRequests.length) {
       user.followRequests = uniqueRequests;
       await user.save();
-      console.log(`🧹 Cleaned up follow requests in getFollowRequests: ${user.followRequests.length} -> ${uniqueRequests.length}`);
+      logger.debug(`🧹 Cleaned up follow requests in getFollowRequests: ${user.followRequests.length} -> ${uniqueRequests.length}`);
     }
 
-    res.status(200).json({
+    return sendSuccess(res, 200, 'Follow requests fetched successfully', {
       followRequests: uniqueRequests.map(req => ({
         _id: req._id,
         user: req.user,
@@ -721,11 +741,8 @@ const getFollowRequests = async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('Get follow requests error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching follow requests'
-    });
+    logger.error('Get follow requests error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching follow requests');
   }
 };
 
@@ -737,26 +754,23 @@ const approveFollowRequest = async (req, res) => {
     const { requestId } = req.params;
     const currentUserId = req.user._id;
 
-    console.log('=== APPROVE FOLLOW REQUEST DEBUG ===');
-    console.log('Request ID from params:', requestId);
-    console.log('Current User ID:', currentUserId);
-    console.log('Request ID type:', typeof requestId);
-    console.log('Current User ID type:', typeof currentUserId);
+    logger.debug('=== APPROVE FOLLOW REQUEST DEBUG ===');
+    logger.debug('Request ID from params:', requestId);
+    logger.debug('Current User ID:', currentUserId);
+    logger.debug('Request ID type:', typeof requestId);
+    logger.debug('Current User ID type:', typeof currentUserId);
 
     let user = await User.findById(currentUserId);
     if (!user) {
-      console.log('❌ User not found');
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'Current user not found'
-      });
+      logger.debug('❌ User not found');
+      return sendError(res, 'RES_3001', 'Current user not found');
     }
 
-    console.log('✅ User found:', user.fullName);
-    console.log('Total follow requests:', user.followRequests.length);
-    console.log('Follow requests details:');
+    logger.debug('✅ User found:', user.fullName);
+    logger.debug('Total follow requests:', user.followRequests.length);
+    logger.debug('Follow requests details:');
     user.followRequests.forEach((req, index) => {
-      console.log(`  [${index}] User ID: ${req.user}, Status: ${req.status}, RequestedAt: ${req.requestedAt}`);
+      logger.debug(`  [${index}] User ID: ${req.user}, Status: ${req.status}, RequestedAt: ${req.requestedAt}`);
     });
 
     // Find the follow request by requester ID (since requestId is actually the requester's user ID)
@@ -764,21 +778,21 @@ const approveFollowRequest = async (req, res) => {
       req.user.toString() === requestId && req.status === 'pending'
     );
     
-    console.log('Searching for request with:');
-    console.log('  - requestId:', requestId);
-    console.log('  - requestId type:', typeof requestId);
-    console.log('Found request:', request ? 'Yes' : 'No');
+    logger.debug('Searching for request with:');
+    logger.debug('  - requestId:', requestId);
+    logger.debug('  - requestId type:', typeof requestId);
+    logger.debug('Found request:', request ? 'Yes' : 'No');
     
     if (request) {
-      console.log('Request details:', {
+      logger.debug('Request details:', {
         user: request.user.toString(),
         userType: typeof request.user,
         status: request.status,
         requestedAt: request.requestedAt
       });
     } else {
-      console.log('❌ No pending request found for user:', requestId);
-      console.log('Available request user IDs:', user.followRequests.map(req => ({
+      logger.debug('❌ No pending request found for user:', requestId);
+      logger.debug('Available request user IDs:', user.followRequests.map(req => ({
         id: req.user.toString(),
         type: typeof req.user,
         status: req.status
@@ -786,32 +800,23 @@ const approveFollowRequest = async (req, res) => {
     }
 
     if (!request) {
-      return res.status(404).json({
-        error: 'Request not found',
-        message: 'Follow request not found or already processed'
-      });
+      return sendError(res, 'RES_3001', 'Follow request not found or already processed');
     }
 
     const requesterId = request.user;
-    console.log('Requester ID:', requesterId);
+    logger.debug('Requester ID:', requesterId);
     let requester = await User.findById(requesterId);
-    console.log('Found requester:', requester ? `Yes (${requester.fullName})` : 'No');
+    logger.debug('Found requester:', requester ? `Yes (${requester.fullName})` : 'No');
 
     if (!requester) {
-      console.log('❌ Requester not found');
-      return res.status(404).json({
-        error: 'Requester not found',
-        message: 'The user who sent the follow request no longer exists'
-      });
+      logger.debug('❌ Requester not found');
+      return sendError(res, 'RES_3001', 'The user who sent the follow request no longer exists');
     }
 
     // Check if user is trying to approve their own request
     if (requesterId.toString() === currentUserId.toString()) {
-      console.log('❌ Self-approval attempt');
-      return res.status(400).json({
-        error: 'Invalid action',
-        message: 'You cannot approve your own follow request'
-      });
+      logger.debug('❌ Self-approval attempt');
+      return sendError(res, 'BIZ_7001', 'You cannot approve your own follow request');
     }
 
     // Add to followers/following
@@ -836,11 +841,11 @@ const approveFollowRequest = async (req, res) => {
     while (retryCount < maxRetries) {
       try {
         await Promise.all([user.save(), requester.save()]);
-        console.log('Successfully saved user and requester');
+        logger.debug('Successfully saved user and requester');
         break;
       } catch (error) {
         if (error.name === 'VersionError' && retryCount < maxRetries - 1) {
-          console.log(`Version conflict, retrying... (${retryCount + 1}/${maxRetries})`);
+          logger.debug(`Version conflict, retrying... (${retryCount + 1}/${maxRetries})`);
           // Reload the documents to get the latest version
           const freshUser = await User.findById(currentUserId);
           const freshRequester = await User.findById(requesterId);
@@ -899,21 +904,17 @@ const approveFollowRequest = async (req, res) => {
             }
           });
         } catch (notificationError) {
-          console.error('Error creating follow approval notification:', notificationError);
+          logger.error('Error creating follow approval notification:', notificationError);
           // Don't fail the entire request if notification creation fails
         }
 
-    res.status(200).json({
-      message: 'Follow request approved',
+    return sendSuccess(res, 200, 'Follow request approved', {
       followersCount: user.followers.length
     });
   } catch (error) {
-    console.error('Approve follow request error:', error);
-    console.error('Error stack:', error.stack);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error approving follow request'
-    });
+    logger.error('Approve follow request error:', error);
+    logger.error('Error stack:', error.stack);
+    return sendError(res, 'SRV_6001', 'Error approving follow request');
   }
 };
 
@@ -933,20 +934,14 @@ const rejectFollowRequest = async (req, res) => {
     );
 
     if (!request) {
-      return res.status(404).json({
-        error: 'Request not found',
-        message: 'Follow request not found or already processed'
-      });
+      return sendError(res, 'RES_3001', 'Follow request not found or already processed');
     }
 
     const requesterId = request.user;
     const requester = await User.findById(requesterId);
 
     if (!requester) {
-      return res.status(404).json({
-        error: 'Requester not found',
-        message: 'The user who sent the follow request no longer exists'
-      });
+      return sendError(res, 'RES_3001', 'The user who sent the follow request no longer exists');
     }
 
     // Update request status
@@ -962,15 +957,10 @@ const rejectFollowRequest = async (req, res) => {
 
     await Promise.all([user.save(), requester.save()]);
 
-    res.status(200).json({
-      message: 'Follow request rejected'
-    });
+    return sendSuccess(res, 200, 'Follow request rejected');
   } catch (error) {
-    console.error('Reject follow request error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error rejecting follow request'
-    });
+    logger.error('Reject follow request error:', error);
+    return sendError(res, 'SRV_6001', 'Error rejecting follow request');
   }
 };
 
@@ -1008,7 +998,7 @@ const getTripScoreContinents = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user id' });
+      return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
     // Get all posts with location data (all posts with locations count towards trip score)
@@ -1092,18 +1082,14 @@ const getTripScoreContinents = async (req, res) => {
       { name: 'ANTARCTICA', score: continentScores['ANTARCTICA'] || 0, distance: Math.round(continentDistances['ANTARCTICA'] || 0) }
     ];
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'TripScore continents fetched successfully', {
       totalScore,
       continents
     });
 
   } catch (error) {
-    console.error('Get TripScore continents error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching TripScore continents'
-    });
+    logger.error('Get TripScore continents error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching TripScore continents');
   }
 };
 
@@ -1114,7 +1100,7 @@ const getTripScoreCountries = async (req, res) => {
   try {
     const { id, continent } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user id' });
+      return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
     const continentName = continent.toUpperCase();
@@ -1172,19 +1158,15 @@ const getTripScoreCountries = async (req, res) => {
       visited: countryScores[country] > 0
     }));
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'TripScore countries fetched successfully', {
       continent: continentName,
       continentScore,
       countries: countryList
     });
 
   } catch (error) {
-    console.error('Get TripScore countries error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching TripScore countries'
-    });
+    logger.error('Get TripScore countries error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching TripScore countries');
   }
 };
 
@@ -1259,8 +1241,7 @@ const getTripScoreCountryDetails = async (req, res) => {
       }
     });
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'TripScore country details fetched successfully', {
       country,
       countryScore,
       countryDistance: Math.round(totalDistance),
@@ -1268,11 +1249,8 @@ const getTripScoreCountryDetails = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get TripScore country details error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching TripScore country details'
-    });
+    logger.error('Get TripScore country details error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching TripScore country details');
   }
 };
 
@@ -1283,7 +1261,7 @@ const getTripScoreLocations = async (req, res) => {
   try {
     const { id, country } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user id' });
+      return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
     // Get posts for this country (all posts with locations count)
@@ -1326,19 +1304,15 @@ const getTripScoreLocations = async (req, res) => {
       }
     });
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'TripScore locations fetched successfully', {
       country,
       countryScore,
       locations: locations.sort((a, b) => b.score - a.score)
     });
 
   } catch (error) {
-    console.error('Get TripScore locations error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching TripScore locations'
-    });
+    logger.error('Get TripScore locations error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching TripScore locations');
   }
 };
 
@@ -1349,7 +1323,7 @@ const getTravelMapData = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid user id', message: 'User id must be a valid ObjectId' });
+      return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
     // Get all posts with valid locations
@@ -1410,24 +1384,18 @@ const getTravelMapData = async (req, res) => {
       totalDistance += distance;
     }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        locations,
-        statistics: {
-          totalLocations,
-          totalDistance: Math.round(totalDistance),
-          totalDays
-        }
+    return sendSuccess(res, 200, 'Travel map data fetched successfully', {
+      locations,
+      statistics: {
+        totalLocations,
+        totalDistance: Math.round(totalDistance),
+        totalDays
       }
     });
 
   } catch (error) {
-    console.error('Get travel map data error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching travel map data'
-    });
+    logger.error('Get travel map data error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching travel map data');
   }
 };
 
@@ -1649,18 +1617,12 @@ const toggleBlockUser = async (req, res) => {
     const currentUserId = req.user._id;
 
     if (currentUserId.toString() === id) {
-      return res.status(400).json({
-        error: 'Invalid action',
-        message: 'You cannot block yourself'
-      });
+      return sendError(res, 'BIZ_7001', 'You cannot block yourself');
     }
 
     const targetUser = await User.findById(id);
     if (!targetUser) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
     const currentUser = await User.findById(currentUserId);
@@ -1671,10 +1633,7 @@ const toggleBlockUser = async (req, res) => {
       currentUser.blockedUsers.pull(id);
       await currentUser.save();
 
-      res.status(200).json({
-        message: 'User unblocked successfully',
-        isBlocked: false
-      });
+      return sendSuccess(res, 200, 'User unblocked successfully', { isBlocked: false });
     } else {
       // Block user
       if (!currentUser.blockedUsers) {
@@ -1704,17 +1663,11 @@ const toggleBlockUser = async (req, res) => {
 
       await Promise.all([currentUser.save(), targetUser.save()]);
 
-      res.status(200).json({
-        message: 'User blocked successfully',
-        isBlocked: true
-      });
+      return sendSuccess(res, 200, 'User blocked successfully', { isBlocked: true });
     }
   } catch (error) {
-    console.error('Toggle block error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating block status'
-    });
+    logger.error('Toggle block error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating block status');
   }
 };
 
@@ -1729,15 +1682,10 @@ const getBlockStatus = async (req, res) => {
     const currentUser = await User.findById(currentUserId);
     const isBlocked = currentUser.blockedUsers && currentUser.blockedUsers.includes(id);
 
-    res.status(200).json({
-      isBlocked
-    });
+    return sendSuccess(res, 200, 'Block status fetched successfully', { isBlocked });
   } catch (error) {
-    console.error('Get block status error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error checking block status'
-    });
+    logger.error('Get block status error:', error);
+    return sendError(res, 'SRV_6001', 'Error checking block status');
   }
 };
 
@@ -1788,16 +1736,12 @@ const getSuggestedUsers = async (req, res) => {
       .sort((a, b) => b.followersCount - a.followersCount)
       .slice(0, limit);
 
-    res.json({
-      success: true,
+    return sendSuccess(res, 200, 'Suggested users fetched successfully', {
       users: filteredUsers,
     });
   } catch (error) {
-    console.error('Error getting suggested users:', error);
-    res.status(500).json({
-      error: 'Server error',
-      message: 'Failed to fetch suggested users',
-    });
+    logger.error('Error getting suggested users:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch suggested users');
   }
 };
 

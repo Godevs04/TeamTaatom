@@ -1,0 +1,282 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
+import { getActivityFeed, Activity as ActivityType } from '../../services/activity';
+import EmptyState from '../../components/EmptyState';
+import LoadingSkeleton from '../../components/LoadingSkeleton';
+import { PostType } from '../../types/post';
+
+export default function ActivityFeedScreen() {
+  const [activities, setActivities] = useState<ActivityType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [filterType, setFilterType] = useState<ActivityType['type'] | 'all'>('all');
+  const { theme } = useTheme();
+  const { showError } = useAlert();
+  const router = useRouter();
+
+  const loadActivities = async (pageNum: number = 1, shouldAppend: boolean = false) => {
+    try {
+      if (pageNum === 1) {
+        setLoading(true);
+      }
+
+      const response = await getActivityFeed({
+        page: pageNum,
+        limit: 20,
+        type: filterType === 'all' ? undefined : filterType,
+      });
+
+      if (shouldAppend) {
+        setActivities(prev => [...prev, ...response.activities]);
+      } else {
+        setActivities(response.activities);
+      }
+
+      setHasMore(response.pagination.hasNextPage);
+      setPage(pageNum);
+    } catch (error: any) {
+      showError('Failed to load activity feed');
+      console.error('Error loading activities:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadActivities(1, false);
+  }, [filterType]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadActivities(1, false);
+  };
+
+  const handleLoadMore = () => {
+    if (!loading && hasMore) {
+      loadActivities(page + 1, true);
+    }
+  };
+
+  const getActivityIcon = (type: ActivityType['type']) => {
+    switch (type) {
+      case 'post_created':
+        return 'image-outline';
+      case 'post_liked':
+        return 'heart';
+      case 'comment_added':
+        return 'chatbubble-outline';
+      case 'user_followed':
+        return 'person-add-outline';
+      case 'collection_created':
+        return 'albums-outline';
+      case 'post_mention':
+        return 'at-outline';
+      default:
+        return 'ellipse-outline';
+    }
+  };
+
+  const getActivityText = (activity: ActivityType) => {
+    const userName = activity.user?.fullName || 'Someone';
+    switch (activity.type) {
+      case 'post_created':
+        return `${userName} created a new post`;
+      case 'post_liked':
+        return `${userName} liked a post`;
+      case 'comment_added':
+        return `${userName} commented on a post`;
+      case 'user_followed':
+        return `${userName} followed ${activity.targetUser?.fullName || 'someone'}`;
+      case 'collection_created':
+        return `${userName} created a collection`;
+      case 'post_mention':
+        return `${userName} mentioned you in a post`;
+      default:
+        return `${userName} did something`;
+    }
+  };
+
+  const renderActivity = ({ item }: { item: ActivityType }) => (
+    <TouchableOpacity
+      style={[styles.activityItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
+      onPress={() => {
+        if (item.post) {
+          router.push(`/post/${item.post._id}`);
+        } else if (item.collection) {
+          router.push(`/collections/${item.collection._id}`);
+        } else if (item.targetUser) {
+          router.push(`/profile/${item.targetUser._id}`);
+        }
+      }}
+    >
+      <View style={styles.activityContent}>
+        <View style={[styles.iconContainer, { backgroundColor: theme.colors.surfaceSecondary }]}>
+          <Ionicons name={getActivityIcon(item.type)} size={20} color={theme.colors.primary} />
+        </View>
+        <View style={styles.activityText}>
+          <Text style={[styles.activityMainText, { color: theme.colors.text }]}>
+            {getActivityText(item)}
+          </Text>
+          <Text style={[styles.activityTime, { color: theme.colors.textSecondary }]}>
+            {new Date(item.createdAt).toLocaleString()}
+          </Text>
+        </View>
+      </View>
+      {item.post && (
+        <Image
+          source={{ uri: (item.post as PostType).imageUrl }}
+          style={styles.postThumbnail}
+        />
+      )}
+    </TouchableOpacity>
+  );
+
+  if (loading && activities.length === 0) {
+    return <LoadingSkeleton />;
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Activity Feed</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* Filter Tabs */}
+      <View style={[styles.filterContainer, { borderBottomColor: theme.colors.border }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {(['all', 'post_created', 'post_liked', 'comment_added', 'user_followed'] as const).map((type) => (
+            <TouchableOpacity
+              key={type}
+              style={[
+                styles.filterTab,
+                filterType === type && { borderBottomColor: theme.colors.primary },
+              ]}
+              onPress={() => setFilterType(type)}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  { color: filterType === type ? theme.colors.primary : theme.colors.textSecondary },
+                ]}
+              >
+                {type === 'all' ? 'All' : type.replace('_', ' ')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {activities.length === 0 ? (
+        <EmptyState
+          icon="notifications-outline"
+          title="No Activity"
+          description="Activity from your friends will appear here"
+        />
+      ) : (
+        <FlatList
+          data={activities}
+          renderItem={renderActivity}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loading && activities.length > 0 ? <ActivityIndicator /> : null}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  filterContainer: {
+    borderBottomWidth: 1,
+  },
+  filterTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  list: {
+    padding: 16,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  activityContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  activityText: {
+    flex: 1,
+  },
+  activityMainText: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  activityTime: {
+    fontSize: 12,
+  },
+  postThumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+  },
+});
+

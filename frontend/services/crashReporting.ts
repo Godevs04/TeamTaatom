@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getUserFromStorage } from './auth';
+import { getApiUrl } from '../utils/config';
 
 interface ErrorContext {
   userId?: string;
@@ -33,18 +34,21 @@ class CrashReportingService {
   private setupErrorHandlers() {
     // Handle unhandled promise rejections
     if (typeof global !== 'undefined') {
-      const originalHandler = global.ErrorUtils?.getGlobalHandler?.();
-      
-      global.ErrorUtils?.setGlobalHandler?.((error: Error, isFatal?: boolean) => {
-        this.captureException(error, {
-          isFatal,
-          type: 'unhandled_error',
-        });
+      const ErrorUtils = (global as any).ErrorUtils;
+      if (ErrorUtils) {
+        const originalHandler = ErrorUtils.getGlobalHandler?.();
         
-        if (originalHandler) {
-          originalHandler(error, isFatal);
-        }
-      });
+        ErrorUtils.setGlobalHandler?.((error: Error, isFatal?: boolean) => {
+          this.captureException(error, {
+            isFatal,
+            type: 'unhandled_error',
+          });
+          
+          if (originalHandler) {
+            originalHandler(error, isFatal);
+          }
+        });
+      }
     }
 
     // Handle console errors
@@ -84,7 +88,7 @@ class CrashReportingService {
 
     // Send to backend for logging/storage
     try {
-      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/analytics/errors`, {
+      await fetch(getApiUrl('/api/v1/analytics/errors'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,7 +124,7 @@ class CrashReportingService {
     }
 
     try {
-      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000'}/api/v1/analytics/errors`, {
+      await fetch(getApiUrl('/api/v1/analytics/errors'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

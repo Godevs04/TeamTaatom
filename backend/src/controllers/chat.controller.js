@@ -1,6 +1,8 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const logger = require('../utils/logger');
 
 // Import socket and fetch with proper error handling
 let getIO;
@@ -13,38 +15,38 @@ try {
   // Fallback to global fetch if available (Node.js 18+)
   fetch = globalThis.fetch || global.fetch;
   if (!fetch) {
-    console.error('Fetch not available');
+    logger.error('Fetch not available');
   }
 }
 
 // Function to get socket instance - will be called when needed
 const getSocketInstance = () => {
   try {
-    console.log('Getting socket instance...');
-    console.log('global.socketIO available:', !!global.socketIO);
+    logger.debug('Getting socket instance...');
+    logger.debug('global.socketIO available:', !!global.socketIO);
     
     // Try to get from global first
     if (global.socketIO) {
-      console.log('Using global.socketIO');
+      logger.debug('Using global.socketIO');
       return global.socketIO;
     }
     
-    console.log('Trying to require socket module...');
+    logger.debug('Trying to require socket module...');
     // Try to require socket module
     const socketModule = require('../socket');
-    console.log('Socket module required:', !!socketModule);
-    console.log('Socket module getIO:', !!socketModule.getIO);
+    logger.debug('Socket module required:', !!socketModule);
+    logger.debug('Socket module getIO:', !!socketModule.getIO);
     
     if (socketModule.getIO) {
       const io = socketModule.getIO();
-      console.log('getIO returned:', !!io);
+      logger.debug('getIO returned:', !!io);
       return io;
     }
     
-    console.log('No socket instance available');
+    logger.debug('No socket instance available');
     return null;
   } catch (error) {
-    console.error('Failed to get socket instance:', error);
+    logger.error('Failed to get socket instance:', error);
     return null;
   }
 };
@@ -66,10 +68,10 @@ async function canChat(userId, otherId) {
 }
 
 exports.listChats = async (req, res) => {
-  console.log('Request headers:', req.headers);
-  console.log('req.user in /chat:', req.user);
+  logger.debug('Request headers:', req.headers);
+  logger.debug('req.user in /chat:', req.user);
   const userId = req.user._id;
-  console.log('Fetching chats for user:', userId, 'at', new Date().toISOString());
+  logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
   const chats = await Chat.find({ participants: userId })
     .populate('participants', 'fullName profilePic')
     .sort('-updatedAt')
@@ -103,26 +105,24 @@ exports.listChats = async (req, res) => {
   // Sort by updatedAt descending
   uniqueChats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   
-  console.log('Chats found:', chats.length, 'Unique chats:', uniqueChats.length);
-  res.json({ chats: uniqueChats });
+  logger.debug('Chats found:', chats.length, 'Unique chats:', uniqueChats.length);
+  return sendSuccess(res, 200, 'Chats fetched successfully', { chats: uniqueChats });
 };
 
 exports.getChat = async (req, res) => {
   try {
     const userId = req.user._id;
     const { otherUserId } = req.params;
-    console.log('Getting chat between:', userId, 'and', otherUserId);
+    logger.debug('Getting chat between:', userId, 'and', otherUserId);
     
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
     // Check if users can chat (check for blocked users)
     const canChatResult = await canChat(userId, otherUserId);
     if (!canChatResult) {
-      return res.status(403).json({ 
-        message: 'You cannot chat with this user. One of you may have blocked the other.' 
-      });
+      return sendError(res, 'AUTH_1006', 'You cannot chat with this user. One of you may have blocked the other.');
     }
     
     let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
@@ -130,26 +130,26 @@ exports.getChat = async (req, res) => {
       .lean();
     
     if (!chat) {
-      console.log('Chat not found, creating new one');
+      logger.debug('Chat not found, creating new one');
       try {
         chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
         // Populate the newly created chat
         chat = await Chat.findById(chat._id)
           .populate('participants', 'fullName profilePic')
           .lean();
-        console.log('Created new chat:', chat._id);
+        logger.debug('Created new chat:', chat._id);
       } catch (error) {
-        console.error('Error creating chat:', error);
-        return res.status(500).json({ message: 'Failed to create chat' });
+        logger.error('Error creating chat:', error);
+        return sendError(res, 'SRV_6001', 'Failed to create chat');
       }
     } else {
-      console.log('Found existing chat:', chat._id);
+      logger.debug('Found existing chat:', chat._id);
     }
     
-    res.json({ chat });
+    return sendSuccess(res, 200, 'Chat fetched successfully', { chat });
   } catch (error) {
-    console.error('Error in getChat:', error);
-    res.status(500).json({ message: 'Failed to get chat' });
+    logger.error('Error in getChat:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get chat');
   }
 };
 
@@ -158,15 +158,15 @@ exports.getMessages = async (req, res) => {
     const userId = req.user._id;
     const { otherUserId } = req.params;
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
-    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    if (!(await canChat(userId, otherUserId))) return sendError(res, 'AUTH_1006', 'Not allowed');
     const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-    if (!chat) return res.json({ messages: [] });
-    res.json({ messages: chat.messages });
+    if (!chat) return sendSuccess(res, 200, 'Messages fetched successfully', { messages: [] });
+    return sendSuccess(res, 200, 'Messages fetched successfully', { messages: chat.messages });
   } catch (error) {
-    console.error('Error getting messages:', error);
-    res.status(500).json({ message: 'Failed to get messages' });
+    logger.error('Error getting messages:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get messages');
   }
 };
 
@@ -177,10 +177,10 @@ exports.sendMessage = async (req, res) => {
   
   try {
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
-    if (!text) return res.status(400).json({ message: 'Text required' });
-    if (!(await canChat(userId, otherUserId))) return res.status(403).json({ message: 'Not allowed' });
+    if (!text) return sendError(res, 'VAL_2001', 'Text required');
+    if (!(await canChat(userId, otherUserId))) return sendError(res, 'AUTH_1006', 'Not allowed');
     
     let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
     if (!chat) {
@@ -192,15 +192,15 @@ exports.sendMessage = async (req, res) => {
 
     // Emit real-time socket events for immediate updates
     try {
-      console.log('Attempting to emit socket events...');
+      logger.debug('Attempting to emit socket events...');
       
       const io = getSocketInstance();
-      console.log('Socket instance available:', !!io);
-      console.log('Socket type:', typeof io);
+      logger.debug('Socket instance available:', !!io);
+      logger.debug('Socket type:', typeof io);
       
       if (io && io.of('/app')) {
         const nsp = io.of('/app');
-        console.log('Namespace available:', !!nsp);
+        logger.debug('Namespace available:', !!nsp);
         
         // Emit to recipient (all devices)
         nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chat._id, message });
@@ -209,14 +209,14 @@ exports.sendMessage = async (req, res) => {
         // Emit chat list update to both users
         nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
         nsp.to(`user:${userId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
-        console.log('Socket events emitted successfully for message:', message._id);
-        console.log('Emitted to users:', { sender: userId, recipient: otherUserId });
-        console.log('Chat ID:', chat._id);
+        logger.debug('Socket events emitted successfully for message:', message._id);
+        logger.debug('Emitted to users:', { sender: userId, recipient: otherUserId });
+        logger.debug('Chat ID:', chat._id);
       } else {
-        console.log('Socket not available, skipping real-time events');
+        logger.debug('Socket not available, skipping real-time events');
       }
     } catch (socketError) {
-      console.error('Error emitting socket events:', socketError);
+      logger.error('Error emitting socket events:', socketError);
       // Don't fail the request if socket fails
     }
 
@@ -224,7 +224,7 @@ exports.sendMessage = async (req, res) => {
     try {
       const recipient = await User.findById(otherUserId);
       if (recipient && recipient.expoPushToken && fetch && typeof fetch === 'function') {
-        console.log('Sending push notification...');
+        logger.debug('Sending push notification...');
         await fetch('https://exp.host/--/api/v2/push/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -236,9 +236,9 @@ exports.sendMessage = async (req, res) => {
             data: { chatWith: userId }
           })
         });
-        console.log('Push notification sent successfully');
+        logger.debug('Push notification sent successfully');
       } else {
-        console.log('Push notification skipped:', { 
+        logger.debug('Push notification skipped:', { 
           hasRecipient: !!recipient, 
           hasToken: !!recipient?.expoPushToken, 
           hasFetch: !!fetch,
@@ -246,39 +246,39 @@ exports.sendMessage = async (req, res) => {
         });
       }
     } catch (err) {
-      console.error('Failed to send push notification:', err);
+      logger.error('Failed to send push notification:', err);
     }
 
-    res.json({ message });
+    return sendSuccess(res, 200, 'Message sent successfully', { message });
   } catch (error) {
-    console.error('Error in sendMessage:', error);
-    res.status(500).json({ message: 'Failed to send message' });
+    logger.error('Error in sendMessage:', error);
+    return sendError(res, 'SRV_6001', 'Failed to send message');
   }
 };
 
 // Mark a message as seen
 exports.markMessageSeen = async (chatId, messageId, userId) => {
-  console.log('[markMessageSeen] called with:', { chatId, messageId, userId });
+  logger.debug('[markMessageSeen] called with:', { chatId, messageId, userId });
   if (!chatId || !messageId || !userId) return;
   const chat = await Chat.findById(chatId);
   if (!chat) {
-    console.log('[markMessageSeen] chat not found');
+    logger.debug('[markMessageSeen] chat not found');
     return;
   }
   // Only allow if user is a participant
   if (!chat.participants.map(id => id.toString()).includes(userId.toString())) {
-    console.log('[markMessageSeen] user not a participant');
+    logger.debug('[markMessageSeen] user not a participant');
     return;
   }
   const msg = chat.messages.id(messageId);
   if (msg && !msg.seen) {
     msg.seen = true;
     await chat.save();
-    console.log('[markMessageSeen] message marked as seen:', { messageId });
+    logger.debug('[markMessageSeen] message marked as seen:', { messageId });
   } else if (!msg) {
-    console.log('[markMessageSeen] message not found');
+    logger.debug('[markMessageSeen] message not found');
   } else {
-    console.log('[markMessageSeen] message already seen');
+    logger.debug('[markMessageSeen] message already seen');
   }
 };
 
@@ -287,7 +287,7 @@ exports.markAllMessagesSeen = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
   const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-  if (!chat) return res.status(404).json({ message: 'Chat not found' });
+  if (!chat) return sendError(res, 'RES_3001', 'Chat not found');
   let updated = false;
   chat.messages.forEach(msg => {
     if (msg.sender.toString() === otherUserId && !msg.seen) {
@@ -296,7 +296,7 @@ exports.markAllMessagesSeen = async (req, res) => {
     }
   });
   if (updated) await chat.save();
-  res.json({ success: true });
+  return sendSuccess(res, 200, 'Messages marked as seen');
 };
 
 // Clear all messages in a chat
@@ -306,12 +306,12 @@ exports.clearChat = async (req, res) => {
     const { otherUserId } = req.params;
     
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
     const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
     if (!chat) {
-      return res.status(404).json({ message: 'Chat not found' });
+      return sendError(res, 'RES_3001', 'Chat not found');
     }
     
     // Clear all messages
@@ -327,13 +327,13 @@ exports.clearChat = async (req, res) => {
         nsp.to(`user:${otherUserId}`).emit('chat:cleared', { chatId: chat._id });
       }
     } catch (socketError) {
-      console.error('Error emitting socket events:', socketError);
+      logger.error('Error emitting socket events:', socketError);
     }
     
-    res.json({ success: true, message: 'Chat cleared successfully' });
+    return sendSuccess(res, 200, 'Chat cleared successfully');
   } catch (error) {
-    console.error('Error clearing chat:', error);
-    res.status(500).json({ message: 'Failed to clear chat' });
+    logger.error('Error clearing chat:', error);
+    return sendError(res, 'SRV_6001', 'Failed to clear chat');
   }
 };
 
@@ -344,12 +344,12 @@ exports.toggleMuteChat = async (req, res) => {
     const { otherUserId } = req.params;
     
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
     const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
     if (!chat) {
-      return res.status(404).json({ message: 'Chat not found' });
+      return sendError(res, 'RES_3001', 'Chat not found');
     }
     
     const user = await User.findById(userId);
@@ -361,16 +361,16 @@ exports.toggleMuteChat = async (req, res) => {
       // Unmute
       user.mutedChats.splice(muteIndex, 1);
       await user.save();
-      res.json({ success: true, muted: false, message: 'Chat unmuted successfully' });
+      return sendSuccess(res, 200, 'Chat unmuted successfully', { muted: false });
     } else {
       // Mute
       user.mutedChats.push({ chatId: chat._id, mutedAt: new Date() });
       await user.save();
-      res.json({ success: true, muted: true, message: 'Chat muted successfully' });
+      return sendSuccess(res, 200, 'Chat muted successfully', { muted: true });
     }
   } catch (error) {
-    console.error('Error toggling mute:', error);
-    res.status(500).json({ message: 'Failed to toggle mute' });
+    logger.error('Error toggling mute:', error);
+    return sendError(res, 'SRV_6001', 'Failed to toggle mute');
   }
 };
 
@@ -381,12 +381,12 @@ exports.getMuteStatus = async (req, res) => {
     const { otherUserId } = req.params;
     
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
-      return res.status(400).json({ message: 'Invalid user' });
+      return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
     const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
     if (!chat) {
-      return res.status(404).json({ message: 'Chat not found' });
+      return sendError(res, 'RES_3001', 'Chat not found');
     }
     
     const user = await User.findById(userId);
@@ -394,9 +394,9 @@ exports.getMuteStatus = async (req, res) => {
       m => m.chatId.toString() === chat._id.toString()
     );
     
-    res.json({ muted: isMuted });
+    return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: isMuted });
   } catch (error) {
-    console.error('Error getting mute status:', error);
-    res.status(500).json({ message: 'Failed to get mute status' });
+    logger.error('Error getting mute status:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get mute status');
   }
 };

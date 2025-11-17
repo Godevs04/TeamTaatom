@@ -6,6 +6,7 @@ const ForgotSignIn = require('../models/ForgotSignIn');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
+const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -29,10 +30,7 @@ const signup = async (req, res) => {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
     const { fullName, username, email, password } = req.body;
@@ -45,12 +43,11 @@ const signup = async (req, res) => {
       const isSameEmail = existingUser.email === email;
       const isSameUsername = existingUser.username === username;
       if (existingUser.isVerified) {
-        return res.status(400).json({
-          error: 'User already exists',
-          message: isSameEmail
-            ? 'An account with this email already exists and is verified'
-            : 'Username already exists',
-        });
+        const errorCode = isSameEmail ? 'RES_3003' : 'RES_3004';
+        const message = isSameEmail
+          ? 'An account with this email already exists and is verified'
+          : 'Username already exists';
+        return sendError(res, errorCode, message);
       } else {
         // User exists but not verified, resend OTP
         const otp = existingUser.generateOTP();
@@ -80,17 +77,11 @@ const signup = async (req, res) => {
     // Send OTP email
     await sendOTPEmail(email, otp, fullName);
 
-    res.status(201).json({
-      message: 'Signup successful, please verify OTP sent to your email',
-      email: email
-    });
+    return sendSuccess(res, 201, 'Signup successful, please verify OTP sent to your email', { email });
 
   } catch (error) {
     logger.error('Signup error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error creating account'
-    });
+    return sendError(res, 'SRV_6001', 'Error creating account');
   }
 };
 
@@ -226,27 +217,18 @@ const signin = async (req, res) => {
     // Find user
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({
-        error: 'Invalid credentials',
-        message: 'Invalid email or password'
-      });
+      return sendError(res, 'AUTH_1004', 'Invalid email or password');
     }
 
     // Check if verified
     if (!user.isVerified) {
-      return res.status(401).json({
-        error: 'Account not verified',
-        message: 'Please verify your account with the OTP sent to your email'
-      });
+      return sendError(res, 'AUTH_1005', 'Please verify your account with the OTP sent to your email');
     }
 
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({
-        error: 'Invalid credentials',
-        message: 'Invalid email or password'
-      });
+      return sendError(res, 'AUTH_1004', 'Invalid email or password');
     }
 
     // Update last login
@@ -264,8 +246,7 @@ const signin = async (req, res) => {
       logger.debug('Signin - Token returned in response (cross-origin fallback)');
     }
 
-    res.status(200).json({
-      message: 'Sign in successful',
+    return sendSuccess(res, 200, 'Sign in successful', {
       ...tokenResponse, // Only includes token for mobile
       user: user.getPublicProfile()
     });
@@ -550,6 +531,41 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Refresh JWT token
+// @route   POST /auth/refresh
+// @access  Private (requires valid token)
+const refreshToken = async (req, res) => {
+  try {
+    // User is already authenticated via authMiddleware
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'User not authenticated'
+      });
+    }
+
+    // Generate new token
+    const token = generateToken(user._id);
+
+    // Set token based on platform (cookie for web, response body for mobile)
+    const tokenResponse = setAuthToken(res, token, req);
+
+    res.status(200).json({
+      message: 'Token refreshed successfully',
+      ...tokenResponse, // Only includes token for mobile
+      user: user.getPublicProfile()
+    });
+  } catch (error) {
+    logger.error('Refresh token error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Error refreshing token'
+    });
+  }
+};
+
 // @desc    Logout user
 // @route   POST /auth/logout
 // @access  Private
@@ -593,6 +609,7 @@ module.exports = {
   googleSignIn,
   forgotPassword,
   resetPassword,
+  refreshToken,
   logout
 };
 

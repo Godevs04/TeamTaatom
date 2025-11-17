@@ -1,4 +1,6 @@
 import axios from 'axios'
+import logger from '../utils/logger'
+import { parseError } from '../utils/errorCodes'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
@@ -22,9 +24,12 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`
       }
     }
+    
+    logger.debug('API Request:', config.method?.toUpperCase(), config.url)
     return config
   },
   (error) => {
+    logger.error('Request interceptor error:', error)
     return Promise.reject(error)
   }
 )
@@ -32,9 +37,13 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
+    logger.debug('API Response:', response.status, response.config.url)
     return response
   },
   (error) => {
+    const parsedError = parseError(error)
+    logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
+    
     if (error.response?.status === 401) {
       localStorage.removeItem('founder_token')
       // Only redirect if not already on login page to prevent infinite loops
@@ -42,6 +51,9 @@ api.interceptors.response.use(
         window.location.href = '/login'
       }
     }
+    
+    // Attach parsed error to the error object for easier handling
+    error.parsedError = parsedError
     return Promise.reject(error)
   }
 )

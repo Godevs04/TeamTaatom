@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { CommentType } from '../types/post';
 import { getUserFromStorage } from '../services/auth';
+import HashtagMentionText from './HashtagMentionText';
 
 interface CommentBoxProps {
   comments: CommentType[];
@@ -41,7 +42,7 @@ export default function CommentBox({
           {new Date(item.createdAt).toLocaleDateString()}
         </Text>
       </View>
-      <Text style={styles.commentText}>{item.text}</Text>
+      <HashtagMentionText text={item.text} style={styles.commentText} />
     </View>
   );
 

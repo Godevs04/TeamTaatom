@@ -84,8 +84,11 @@ const Profile = () => {
         }
       }
     } catch (error) {
-      console.error('Failed to update profile:', error)
-      toast.error(error.response?.data?.message || 'Failed to update profile')
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Failed to update profile:', parsedError.code, parsedError.message)
+      toast.error(parsedError.adminMessage || 'Failed to update profile')
     } finally {
       setIsSaving(false)
     }
@@ -119,8 +122,11 @@ const Profile = () => {
         toast.error(result.error || 'Failed to change password')
       }
     } catch (error) {
-      console.error('Password change failed:', error)
-      toast.error(error.response?.data?.message || 'Failed to change password')
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Password change failed:', parsedError.code, parsedError.message)
+      toast.error(parsedError.adminMessage || 'Failed to change password')
     } finally {
       setIsSaving(false)
     }

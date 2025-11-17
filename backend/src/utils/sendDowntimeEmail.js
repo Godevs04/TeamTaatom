@@ -1,13 +1,32 @@
 const nodemailer = require('nodemailer');
+const logger = require('./logger');
 
-// Create transporter
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+// Get email credentials (support both EMAIL_* and SMTP_* for backward compatibility)
+const emailUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+const emailPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+
+// Create transporter only if credentials are available
+let transporter = null;
+
+if (emailUser && emailPass) {
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    }
+  });
+} else {
+  logger.warn('⚠️  Email credentials not found. Email functionality disabled.');
+  logger.warn('   Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
+  
+  // Create a dummy transporter that will fail gracefully
+  transporter = {
+    sendMail: async () => {
+      throw new Error('Email credentials not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
+    }
+  };
+}
 
 // Send downtime notification email to all users
 const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate, scheduledTime, duration, reason) => {
@@ -15,7 +34,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
     const mailOptions = {
       from: {
         name: 'Taatom Team',
-        address: process.env.EMAIL_USER
+        address: emailUser
       },
       to: userEmail,
       subject: '🔧 Scheduled Maintenance - Taatom',
@@ -156,10 +175,10 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Downtime notification email sent to', userEmail);
+    logger.info('✅ Downtime notification email sent to', userEmail);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending downtime notification email:', error);
+    logger.error('❌ Error sending downtime notification email:', error);
     return { success: false, error: error.message };
   }
 };
@@ -170,7 +189,7 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
     const mailOptions = {
       from: {
         name: 'Taatom Team',
-        address: process.env.EMAIL_USER
+        address: emailUser
       },
       to: userEmail,
       subject: '✅ Maintenance Complete - Taatom is Back Online!',
@@ -308,10 +327,10 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Maintenance completion email sent to', userEmail);
+    logger.info('✅ Maintenance completion email sent to', userEmail);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('❌ Error sending maintenance completion email:', error);
+    logger.error('❌ Error sending maintenance completion email:', error);
     return { success: false, error: error.message };
   }
 };

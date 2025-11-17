@@ -1,88 +1,98 @@
 const logger = require('../utils/logger');
+const { sendError, ERROR_CODES } = require('../utils/errorCodes');
 
 const errorHandler = (err, req, res, next) => {
   logger.error('Error:', err);
 
-  let error = { ...err };
-  error.message = err.message;
+  let errorCode = 'SRV_6001'; // Default server error
+  let customMessage = null;
+  let details = {};
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {
-    const message = 'The requested resource was not found. Please check the ID and try again.';
-    error = { message, statusCode: 404 };
+    errorCode = 'RES_3001';
+    customMessage = 'The requested resource was not found. Please check the ID and try again.';
   }
 
   // Mongoose duplicate key
-  if (err.code === 11000) {
-    let message = 'This value already exists. Please use a different one.';
-    
-    // Extract field name from error
+  else if (err.code === 11000) {
     const field = Object.keys(err.keyValue)[0];
     if (field === 'email') {
-      message = 'An account with this email already exists. Please sign in or use a different email.';
+      errorCode = 'RES_3003';
+      customMessage = 'An account with this email already exists. Please sign in or use a different email.';
     } else if (field === 'username') {
-      message = 'This username is already taken. Please choose a different username.';
+      errorCode = 'RES_3004';
+      customMessage = 'This username is already taken. Please choose a different username.';
     } else if (field === 'googleId') {
-      message = 'This Google account is already linked to another user.';
+      errorCode = 'RES_3002';
+      customMessage = 'This Google account is already linked to another user.';
+    } else {
+      errorCode = 'RES_3002';
+      customMessage = 'This value already exists. Please use a different one.';
     }
-    
-    error = { message, statusCode: 400 };
+    details.field = field;
   }
 
   // Mongoose validation error
-  if (err.name === 'ValidationError') {
+  else if (err.name === 'ValidationError') {
+    errorCode = 'VAL_2001';
     const messages = Object.values(err.errors).map(val => val.message);
-    const message = messages.length === 1 
+    customMessage = messages.length === 1 
       ? messages[0] 
       : `Validation failed: ${messages.join('; ')}`;
-    error = { message, statusCode: 400 };
+    details.validationErrors = messages;
   }
 
   // JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    const message = 'Your session is invalid. Please sign in again.';
-    error = { message, statusCode: 401 };
+  else if (err.name === 'JsonWebTokenError') {
+    errorCode = 'AUTH_1002';
+    customMessage = 'Your session is invalid. Please sign in again.';
   }
 
-  if (err.name === 'TokenExpiredError') {
-    const message = 'Your session has expired. Please sign in again.';
-    error = { message, statusCode: 401 };
+  else if (err.name === 'TokenExpiredError') {
+    errorCode = 'AUTH_1003';
+    customMessage = 'Your session has expired. Please sign in again.';
   }
 
   // Multer errors (file upload)
-  if (err.code === 'LIMIT_FILE_SIZE') {
-    const message = 'The file is too large. Please upload a file smaller than 10MB.';
-    error = { message, statusCode: 400 };
+  else if (err.code === 'LIMIT_FILE_SIZE') {
+    errorCode = 'FILE_4002';
+    customMessage = 'The file is too large. Please upload a file smaller than 10MB.';
   }
 
-  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-    const message = 'Unexpected file field. Please check your upload and try again.';
-    error = { message, statusCode: 400 };
+  else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    errorCode = 'FILE_4003';
+    customMessage = 'Unexpected file field. Please check your upload and try again.';
   }
 
   // Rate limiting errors
-  if (err.statusCode === 429) {
-    const message = 'Too many requests. Please wait a moment and try again.';
-    error = { message, statusCode: 429 };
+  else if (err.statusCode === 429) {
+    errorCode = 'RATE_5001';
+    customMessage = 'Too many requests. Please wait a moment and try again.';
   }
 
   // Network/Database errors
-  if (err.name === 'MongoNetworkError' || err.name === 'MongoServerError') {
-    const message = 'Unable to connect to the server. Please try again later.';
-    error = { message, statusCode: 503 };
+  else if (err.name === 'MongoNetworkError' || err.name === 'MongoServerError') {
+    errorCode = 'SRV_6002';
+    customMessage = 'Unable to connect to the server. Please try again later.';
+  }
+
+  // If error already has a code, use it
+  else if (err.errorCode) {
+    errorCode = err.errorCode;
+    customMessage = err.message;
+    details = err.details || {};
   }
 
   // Default error response
-  const statusCode = error.statusCode || 500;
-  const message = error.message || 'An unexpected error occurred. Please try again later.';
+  else {
+    customMessage = err.message || 'An unexpected error occurred. Please try again later.';
+    if (process.env.NODE_ENV === 'development') {
+      details.stack = err.stack;
+    }
+  }
 
-  res.status(statusCode).json({
-    error: message,
-    ...(process.env.NODE_ENV === 'development' && { 
-      stack: err.stack,
-      details: err.message 
-    })
-  });
+  return sendError(res, errorCode, customMessage, details);
 };
 
 module.exports = errorHandler;

@@ -11,6 +11,10 @@ const commentSchema = new mongoose.Schema({
     required: [true, 'Comment text is required'],
     maxlength: [500, 'Comment cannot be more than 500 characters']
   },
+  mentions: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   createdAt: {
     type: Date,
     default: Date.now
@@ -28,6 +32,10 @@ const postSchema = new mongoose.Schema({
     required: [true, 'Caption is required'],
     maxlength: [1000, 'Caption cannot be more than 1000 characters']
   },
+  mentions: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   imageUrl: {
     type: String,
     required: function() {

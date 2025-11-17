@@ -136,9 +136,11 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true }
     } catch (error) {
-      console.error('Login failed:', error)
-      const errorMessage = error.response?.data?.message || 'Login failed'
-      return { success: false, error: errorMessage }
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Login failed:', parsedError.code, parsedError.message)
+      return { success: false, error: parsedError.adminMessage }
     }
   }
 
@@ -167,9 +169,11 @@ export const AuthProvider = ({ children }) => {
       toast.success('Login successful!')
       return { success: true }
     } catch (error) {
-      console.error('2FA verification failed:', error)
-      const errorMessage = error.response?.data?.message || 'Invalid 2FA code'
-      return { success: false, error: errorMessage }
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('2FA verification failed:', parsedError.code, parsedError.message)
+      return { success: false, error: parsedError.adminMessage }
     }
   }
 

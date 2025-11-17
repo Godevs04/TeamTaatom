@@ -10,6 +10,9 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  Modal,
+  ScrollView,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,6 +21,7 @@ import { useAlert } from '../context/AlertContext';
 import { searchUsers } from '../services/profile';
 import { getPosts } from '../services/posts';
 import { searchHashtags, Hashtag } from '../services/hashtags';
+import { searchPosts as advancedSearchPosts } from '../services/search';
 import { UserType } from '../types/user';
 import { PostType } from '../types/post';
 import { useRouter } from 'expo-router';
@@ -34,6 +38,14 @@ export default function SearchScreen() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'posts' | 'hashtags'>('users');
   const [searchHistory, setSearchHistory] = useState<{ type: 'users' | 'posts'; query: string }[]>([]);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState({
+    hashtag: '',
+    location: '',
+    startDate: '',
+    endDate: '',
+    type: '' as 'photo' | 'short' | '',
+  });
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
@@ -101,33 +113,53 @@ export default function SearchScreen() {
   };
 
   const performSearch = async () => {
-    if (searchQuery.trim().length < 2) return;
+    if (searchQuery.trim().length < 2 && activeTab !== 'posts') return;
     
     try {
       setLoading(true);
       
-      // Search users, posts, and hashtags in parallel
-      const [usersResponse, postsResponse, hashtagsResponse] = await Promise.all([
-        searchUsers(searchQuery, 1, 20).catch(() => ({ users: [] })),
-        getPosts(1, 50).catch(() => ({ posts: [] })),
-        searchHashtags(searchQuery, 20).catch(() => []),
-      ]);
-      
-      const filteredPosts = postsResponse.posts.filter(post => 
-        post.caption.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      
-      setSearchResults({
-        users: usersResponse.users || [],
-        posts: filteredPosts,
-        hashtags: hashtagsResponse || [],
-      });
+      if (activeTab === 'posts' && (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)) {
+        // Use advanced search for posts with filters
+        const response = await advancedSearchPosts({
+          q: searchQuery || undefined,
+          hashtag: advancedFilters.hashtag || undefined,
+          location: advancedFilters.location || undefined,
+          startDate: advancedFilters.startDate || undefined,
+          endDate: advancedFilters.endDate || undefined,
+          type: advancedFilters.type || undefined,
+          page: 1,
+          limit: 50,
+        }).catch(() => ({ posts: [], pagination: { hasNextPage: false } }));
+        
+        setSearchResults({
+          users: [],
+          posts: response.posts || [],
+          hashtags: [],
+        });
+      } else {
+        // Regular search
+        const [usersResponse, postsResponse, hashtagsResponse] = await Promise.all([
+          searchUsers(searchQuery, 1, 20).catch(() => ({ users: [] })),
+          getPosts(1, 50).catch(() => ({ posts: [] })),
+          searchHashtags(searchQuery, 20).catch(() => []),
+        ]);
+        
+        const filteredPosts = postsResponse.posts.filter(post => 
+          post.caption.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        
+        setSearchResults({
+          users: usersResponse.users || [],
+          posts: filteredPosts,
+          hashtags: hashtagsResponse || [],
+        });
 
-      // Save to history
-      if (activeTab === 'users' && usersResponse.users.length > 0) {
-        await saveSearchHistory('users', searchQuery);
-      } else if (activeTab === 'posts' && filteredPosts.length > 0) {
-        await saveSearchHistory('posts', searchQuery);
+        // Save to history
+        if (activeTab === 'users' && usersResponse.users.length > 0) {
+          await saveSearchHistory('users', searchQuery);
+        } else if (activeTab === 'posts' && filteredPosts.length > 0) {
+          await saveSearchHistory('posts', searchQuery);
+        }
       }
     } catch (error: any) {
       showError('Failed to search');
@@ -330,6 +362,30 @@ export default function SearchScreen() {
             Hashtags
           </Text>
         </TouchableOpacity>
+        {activeTab === 'posts' && (
+          <TouchableOpacity
+            style={[
+              styles.filterButton,
+              (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type) && {
+                backgroundColor: theme.colors.primary + '20',
+              }
+            ]}
+            onPress={() => setShowAdvancedFilters(true)}
+          >
+            <Ionicons 
+              name="options-outline" 
+              size={20} 
+              color={
+                (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)
+                  ? theme.colors.primary
+                  : theme.colors.textSecondary
+              } 
+            />
+            {(advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type) && (
+              <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]} />
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search History or Results */}
@@ -380,6 +436,129 @@ export default function SearchScreen() {
           contentContainerStyle={searchResults.posts.length === 0 ? styles.emptyListContainer : undefined}
         />
       )}
+
+      {/* Advanced Filters Modal */}
+      <Modal
+        visible={showAdvancedFilters}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAdvancedFilters(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Advanced Filters</Text>
+              <TouchableOpacity onPress={() => setShowAdvancedFilters(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Hashtag</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
+                  placeholder="e.g., travel"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={advancedFilters.hashtag}
+                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, hashtag: text })}
+                />
+              </View>
+
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Location</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
+                  placeholder="e.g., New York"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={advancedFilters.location}
+                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, location: text })}
+                />
+              </View>
+
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Post Type</Text>
+                <View style={styles.typeSelector}>
+                  <TouchableOpacity
+                    style={[
+                      styles.typeButton,
+                      advancedFilters.type === 'photo' && { backgroundColor: theme.colors.primary },
+                      { borderColor: theme.colors.border }
+                    ]}
+                    onPress={() => setAdvancedFilters({ ...advancedFilters, type: advancedFilters.type === 'photo' ? '' : 'photo' })}
+                  >
+                    <Text style={[
+                      styles.typeButtonText,
+                      { color: advancedFilters.type === 'photo' ? 'white' : theme.colors.text }
+                    ]}>
+                      Photo
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.typeButton,
+                      advancedFilters.type === 'short' && { backgroundColor: theme.colors.primary },
+                      { borderColor: theme.colors.border }
+                    ]}
+                    onPress={() => setAdvancedFilters({ ...advancedFilters, type: advancedFilters.type === 'short' ? '' : 'short' })}
+                  >
+                    <Text style={[
+                      styles.typeButtonText,
+                      { color: advancedFilters.type === 'short' ? 'white' : theme.colors.text }
+                    ]}>
+                      Short
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Start Date</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={advancedFilters.startDate}
+                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, startDate: text })}
+                />
+              </View>
+
+              <View style={styles.filterSection}>
+                <Text style={[styles.filterLabel, { color: theme.colors.text }]}>End Date</Text>
+                <TextInput
+                  style={[styles.filterInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={advancedFilters.endDate}
+                  onChangeText={(text) => setAdvancedFilters({ ...advancedFilters, endDate: text })}
+                />
+              </View>
+            </ScrollView>
+
+            <View style={[styles.modalFooter, { borderTopColor: theme.colors.border }]}>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.colors.surfaceSecondary }]}
+                onPress={() => {
+                  setAdvancedFilters({ hashtag: '', location: '', startDate: '', endDate: '', type: '' });
+                  setShowAdvancedFilters(false);
+                  performSearch();
+                }}
+              >
+                <Text style={[styles.modalButtonText, { color: theme.colors.text }]}>Clear</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, { backgroundColor: theme.colors.primary }]}
+                onPress={() => {
+                  setShowAdvancedFilters(false);
+                  performSearch();
+                }}
+              >
+                <Text style={[styles.modalButtonText, { color: 'white' }]}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -581,5 +760,92 @@ const styles = StyleSheet.create({
   },
   hashtagCount: {
     fontSize: 14,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    borderRadius: 8,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalBody: {
+    padding: 16,
+    maxHeight: 400,
+  },
+  filterSection: {
+    marginBottom: 20,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  filterInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  typeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  typeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    borderTopWidth: 1,
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -29,6 +29,7 @@ import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, ResizeMode } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
+import MentionSuggest from "../../components/MentionSuggest";
 
 
 interface PostFormValues {
@@ -987,6 +988,30 @@ export default function PostScreen() {
                     }
                   };
 
+                  const handleMentionSelect = (username: string) => {
+                    const currentText = values.comment;
+                    const cursorPos = commentCursorPosition || currentText.length;
+                    const textBeforeCursor = currentText.substring(0, cursorPos);
+                    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+                    
+                    if (lastAtIndex !== -1) {
+                      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                      const match = textAfterAt.match(/^([\w]*)/);
+                      
+                      // Replace the mention being typed with the selected one
+                      const beforeMention = currentText.substring(0, lastAtIndex + 1);
+                      const afterMention = currentText.substring(cursorPos);
+                      const newText = `${beforeMention}${username} ${afterMention}`;
+                      
+                      setFieldValue('comment', newText);
+                      // Set cursor position after the inserted mention
+                      setTimeout(() => {
+                        const newCursorPos = lastAtIndex + 1 + username.length + 1;
+                        commentInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                      }, 0);
+                    }
+                  };
+
                   return (
                     <View>
                       <View style={{ marginBottom: theme.spacing.md }}>
@@ -1013,6 +1038,12 @@ export default function PostScreen() {
                               text={values.comment}
                               cursorPosition={commentCursorPosition}
                               onSelectHashtag={handleHashtagSelect}
+                              visible={true}
+                            />
+                            <MentionSuggest
+                              text={values.comment}
+                              cursorPosition={commentCursorPosition}
+                              onSelectMention={handleMentionSelect}
                               visible={true}
                             />
                           </View>
@@ -1098,6 +1129,30 @@ export default function PostScreen() {
                     }
                   };
 
+                  const handleMentionSelect = (username: string) => {
+                    const currentText = values.caption;
+                    const cursorPos = captionCursorPosition || currentText.length;
+                    const textBeforeCursor = currentText.substring(0, cursorPos);
+                    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+                    
+                    if (lastAtIndex !== -1) {
+                      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+                      const match = textAfterAt.match(/^([\w]*)/);
+                      
+                      // Replace the mention being typed with the selected one
+                      const beforeMention = currentText.substring(0, lastAtIndex + 1);
+                      const afterMention = currentText.substring(cursorPos);
+                      const newText = `${beforeMention}${username} ${afterMention}`;
+                      
+                      setFieldValue('caption', newText);
+                      // Set cursor position after the inserted mention
+                      setTimeout(() => {
+                        const newCursorPos = lastAtIndex + 1 + username.length + 1;
+                        captionInputRef.current?.setNativeProps({ selection: { start: newCursorPos, end: newCursorPos } });
+                      }, 0);
+                    }
+                  };
+
                   return (
                     <View>
                       <View style={{ marginBottom: theme.spacing.md }}>
@@ -1124,6 +1179,12 @@ export default function PostScreen() {
                               text={values.caption}
                               cursorPosition={captionCursorPosition}
                               onSelectHashtag={handleHashtagSelect}
+                              visible={true}
+                            />
+                            <MentionSuggest
+                              text={values.caption}
+                              cursorPosition={captionCursorPosition}
+                              onSelectMention={handleMentionSelect}
                               visible={true}
                             />
                           </View>

@@ -59,7 +59,8 @@ const Logs = () => {
         setTotalPages(response.data.totalPages)
       }
     } catch (error) {
-      console.error('Failed to fetch logs:', error)
+      const logger = (await import('../utils/logger')).default
+      logger.error('Failed to fetch logs:', error)
       toast.error('Failed to fetch logs')
     } finally {
       setIsLoading(false)
@@ -140,7 +141,8 @@ const Logs = () => {
         toast.success('Logs exported as JSON')
       }
     } catch (error) {
-      console.error('Failed to export logs:', error)
+      const logger = (await import('../utils/logger')).default
+      logger.error('Failed to export logs:', error)
       toast.error('Failed to export logs')
     }
   }

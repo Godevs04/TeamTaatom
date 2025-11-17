@@ -1,19 +1,15 @@
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import api from './api';
 import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from '../utils/config';
 
 const isWeb = Platform.OS === 'web';
 
-const GOOGLE_CLIENT_ID = Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = Constants.expoConfig?.extra?.GOOGLE_CLIENT_SECRET;
-const PROD_REDIRECT_URI = Constants.expoConfig?.extra?.GOOGLE_REDIRECT_URI;
-
-// Use proxy for local testing
-const REDIRECT_URI = AuthSession.makeRedirectUri({ useProxy: true }) || PROD_REDIRECT_URI;
+// Use proxy for local testing, fallback to configured redirect URI
+const REDIRECT_URI = AuthSession.makeRedirectUri({ useProxy: true }) || GOOGLE_REDIRECT_URI;
 
 interface GoogleAuthResponse {
   message: string;
