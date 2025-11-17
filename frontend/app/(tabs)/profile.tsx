@@ -406,6 +406,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+
         {/* TripScore Section - Only show if user has posted locations */}
         {profileData?.tripScore && profileData.locations && profileData.locations.length > 0 && (
           <TouchableOpacity 
@@ -438,6 +439,43 @@ export default function ProfileScreen() {
             />
           </View>
         </View>
+
+        {/* Collections Section */}
+        <TouchableOpacity 
+          style={[styles.collectionsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+          onPress={() => router.push('/collections')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.collectionsHeader}>
+            <View style={styles.collectionsHeaderLeft}>
+              <Ionicons name="albums-outline" size={22} color={theme.colors.primary} />
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, fontSize: 16 }]}>Collections</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+          </View>
+          <Text style={[styles.collectionsDescription, { color: theme.colors.textSecondary }]}>
+            Organize your posts into collections
+          </Text>
+        </TouchableOpacity>
+
+        {/* Activity Feed Section */}
+        <TouchableOpacity 
+          style={[styles.collectionsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+          onPress={() => router.push('/activity')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.collectionsHeader}>
+            <View style={styles.collectionsHeaderLeft}>
+              <Ionicons name="pulse-outline" size={22} color={theme.colors.primary} />
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, fontSize: 16 }]}>Activity Feed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+          </View>
+          <Text style={[styles.collectionsDescription, { color: theme.colors.textSecondary }]}>
+            See what your friends are up to
+          </Text>
+        </TouchableOpacity>
+
 
         {/* Posts/Shorts/Saved Tabs */}
         <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
@@ -732,6 +770,36 @@ const styles = StyleSheet.create({
   },
   
   // Locations Section Styles
+  collectionsSection: {
+    marginHorizontal: 16,
+    marginTop: 0,
+    marginBottom: 8,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  collectionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  collectionsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  collectionsDescription: {
+    fontSize: 13,
+    marginLeft: 36,
+    lineHeight: 18,
+  },
   locationsSection: {
     marginTop: 0,
     marginHorizontal: 16,

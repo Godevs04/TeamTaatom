@@ -9,6 +9,7 @@ const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
+const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 
@@ -367,10 +368,20 @@ const createPost = async (req, res) => {
       }
     }
 
-    // Extract hashtags from caption
+    // Extract hashtags and mentions from caption
     const extractedHashtags = extractHashtags(caption || '');
+    const extractedMentions = extractMentions(caption || '');
     // Merge extracted hashtags with provided tags (remove duplicates)
     const allHashtags = [...new Set([...parsedTags, ...extractedHashtags])];
+    
+    // Resolve mentions to user IDs
+    const mentionUserIds = [];
+    if (extractedMentions.length > 0) {
+      const mentionedUsers = await User.find({ 
+        username: { $in: extractedMentions } 
+      }).select('_id').lean();
+      mentionUserIds.push(...mentionedUsers.map(u => u._id));
+    }
 
     // Create post with multiple images
     const post = new Post({
@@ -380,6 +391,7 @@ const createPost = async (req, res) => {
       images: imageUrls, // Store all images
       cloudinaryPublicIds: cloudinaryPublicIds,
       tags: allHashtags,
+      mentions: mentionUserIds,
       type: 'photo',
       location: {
         address: address || 'Unknown Location',
@@ -391,6 +403,14 @@ const createPost = async (req, res) => {
     });
 
     await post.save();
+
+    // Create activity
+    Activity.createActivity({
+      user: req.user._id,
+      type: 'post_created',
+      post: post._id,
+      isPublic: true
+    }).catch(err => logger.error('Error creating activity:', err));
 
     // Invalidate cache for post lists
     await deleteCacheByPattern('posts:*');
@@ -424,15 +444,45 @@ const createPost = async (req, res) => {
       .populate('user', 'fullName profilePic')
       .lean();
 
+    // Create mention notifications
+    if (mentionUserIds.length > 0) {
+      Promise.all(
+        mentionUserIds.map(async (mentionedUserId) => {
+          try {
+            if (mentionedUserId.toString() !== req.user._id.toString()) {
+              await Notification.createNotification({
+                type: 'post_mention',
+                fromUser: req.user._id,
+                toUser: mentionedUserId,
+                post: post._id,
+                metadata: { caption: caption ? caption.substring(0, 100) : '' }
+              });
+            }
+          } catch (error) {
+            logger.error(`Error creating mention notification:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error creating mention notifications:', err));
+    }
+
     // Emit socket events
     const io = getIO();
     if (io) {
       const nsp = io.of('/app');
       const followers = await getFollowers(req.user._id);
-      const audience = [req.user._id.toString(), ...followers];
+      const audience = [req.user._id.toString(), ...followers, ...mentionUserIds.map(id => id.toString())];
       nsp.emitInvalidateFeed(audience);
       nsp.emitInvalidateProfile(req.user._id.toString());
       nsp.emitEvent('post:created', audience, { postId: post._id });
+      // Emit mention notifications
+      mentionUserIds.forEach(mentionedUserId => {
+        if (mentionedUserId.toString() !== req.user._id.toString()) {
+          nsp.emitEvent('mention:new', [mentionedUserId.toString()], { 
+            postId: post._id, 
+            fromUser: req.user._id.toString() 
+          });
+        }
+      });
     }
 
     return sendSuccess(res, 201, 'Post created successfully', {
@@ -739,6 +789,17 @@ const toggleLike = async (req, res) => {
     
     await Post.findByIdAndUpdate(req.params.id, update, { new: true });
 
+    // Create activity for like
+    if (isLiked) {
+      Activity.createActivity({
+        user: req.user._id,
+        type: 'post_liked',
+        post: req.params.id,
+        targetUser: post.user,
+        isPublic: true
+      }).catch(err => logger.error('Error creating activity:', err));
+    }
+
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
@@ -838,12 +899,62 @@ const addComment = async (req, res) => {
     }
 
     const { text } = req.body;
+    
+    // Extract mentions from comment
+    const extractedMentions = extractMentions(text || '');
+    const mentionUserIds = [];
+    if (extractedMentions.length > 0) {
+      const mentionedUsers = await User.find({ 
+        username: { $in: extractedMentions } 
+      }).select('_id').lean();
+      mentionUserIds.push(...mentionedUsers.map(u => u._id));
+    }
+    
     const newComment = post.addComment(req.user._id, text);
+    // Add mentions to comment
+    if (mentionUserIds.length > 0) {
+      const commentIndex = post.comments.length - 1;
+      post.comments[commentIndex].mentions = mentionUserIds;
+    }
     await post.save();
+
+    // Create activity
+    Activity.createActivity({
+      user: req.user._id,
+      type: 'comment_added',
+      post: post._id,
+      targetUser: post.user,
+      metadata: { commentId: newComment._id },
+      isPublic: true
+    }).catch(err => logger.error('Error creating activity:', err));
 
     // Populate the new comment with user data
     await post.populate('comments.user', 'fullName profilePic');
     const populatedComment = post.comments.id(newComment._id);
+
+    // Create mention notifications for comment
+    if (mentionUserIds.length > 0) {
+      Promise.all(
+        mentionUserIds.map(async (mentionedUserId) => {
+          try {
+            // Don't notify if user mentioned themselves
+            if (mentionedUserId.toString() === req.user._id.toString()) {
+              return;
+            }
+            await Notification.createNotification({
+              type: 'post_mention',
+              fromUser: req.user._id,
+              toUser: mentionedUserId,
+              post: post._id,
+              comment: newComment._id,
+              metadata: { text: text ? text.substring(0, 100) : '' }
+            });
+          } catch (error) {
+            logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
+          }
+        })
+      ).catch(err => logger.error('Error creating mention notifications:', err));
+    }
 
     // Create notification for comment (only if it's not the user's own post)
     if (post.user._id.toString() !== req.user._id.toString()) {
