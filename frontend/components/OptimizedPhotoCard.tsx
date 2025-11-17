@@ -2,14 +2,12 @@ import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Alert,
   Modal,
   ActivityIndicator,
   Share,
-  Linking,
   Animated,
   TextInput,
   Platform,
@@ -19,9 +17,6 @@ import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import { toggleLike, addComment, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
-import CommentBox from './CommentBox';
-import RotatingGlobe from './RotatingGlobe';
-import WorldMap from './WorldMap';
 import { loadImageWithFallback } from '../utils/imageLoader';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
@@ -29,12 +24,15 @@ import CommentModal from './CommentModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { savedEvents } from '../utils/savedEvents';
 import { realtimePostsService } from '../services/realtimePosts';
-import { geocodeAddress } from '../utils/locationUtils';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
-import HashtagText from './HashtagText';
 import ShareModal from './ShareModal';
+import PostHeader from './post/PostHeader';
+import PostImage from './post/PostImage';
+import PostActions from './post/PostActions';
+import PostLikesCount from './post/PostLikesCount';
+import PostCaption from './post/PostCaption';
 
 interface PhotoCardProps {
   post: PostType;
@@ -64,7 +62,6 @@ function PhotoCard({
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [isGeocoding, setIsGeocoding] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editCaption, setEditCaption] = useState(post.caption || '');
   const [isMenuLoading, setIsMenuLoading] = useState(false);
@@ -99,10 +96,8 @@ function PhotoCard({
     loadSavedState();
   }, [post._id]);
 
-  // Initialize real-time posts service
-  React.useEffect(() => {
-    realtimePostsService.initialize();
-  }, []);
+  // Note: realtimePostsService.initialize() is now called automatically when subscribing
+  // No need to call it explicitly here
 
   // Listen for WebSocket real-time updates
   // Use refs to track current state and prevent unnecessary updates
@@ -605,6 +600,25 @@ function PhotoCard({
     }
   };
 
+  const handleImageError = () => {
+    setImageError(true);
+    setImageLoading(false);
+  };
+
+  const handleImageRetry = async () => {
+    setImageError(false);
+    setImageLoading(true);
+    
+    try {
+      const optimizedUrl = await loadImageWithFallback(post.imageUrl);
+      setImageUri(optimizedUrl);
+      setImageLoading(false);
+    } catch (error) {
+      setImageError(true);
+      setImageLoading(false);
+    }
+  };
+
   // Don't render if not visible (for lazy loading)
   if (!isVisible) {
     return (
@@ -619,263 +633,35 @@ function PhotoCard({
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.userInfo}
-          onPress={() => router.push(`/profile/${post.user._id}`)}
-        >
-          <Image
-            source={{
-              uri: post.user.profilePic || 'https://via.placeholder.com/40',
-            }}
-            style={styles.profilePic}
-          />
-          <View style={styles.userDetails}>
-            <Text style={[styles.username, { color: theme.colors.text }]}>
-              {post.user.fullName}
-            </Text>
-            {post.location && post.location.address && (
-              <TouchableOpacity
-                style={styles.locationContainer}
-                onPress={async () => {
-                  if (isGeocoding) return; // Prevent multiple clicks during geocoding
-                  
-                  setIsGeocoding(true);
-                  
-                  try {
-                    // Debug: Log post location data
-                    console.log('Post location data:', {
-                      hasLocation: !!post.location,
-                      hasAddress: !!post.location?.address,
-                      hasCoordinates: !!post.location?.coordinates,
-                      address: post.location?.address,
-                      coordinates: post.location?.coordinates,
-                    });
-
-                    // Navigate to map with post location coordinates
-                    if (post.location?.address) {
-                      console.log('Processing location:', post.location.address);
-                      
-                      let finalCoordinates = null;
-                      
-                      // Always use API for geocoding - no cached coordinates
-                      console.log('🌍 Always using API for geocoding:', post.location.address);
-                      finalCoordinates = await geocodeAddress(post.location.address);
-                      
-                      if (finalCoordinates) {
-                        console.log('Navigating to location with coordinates:', finalCoordinates);
-                        router.push({
-                          pathname: '/map/current-location',
-                          params: {
-                            latitude: finalCoordinates.latitude.toString(),
-                            longitude: finalCoordinates.longitude.toString(),
-                            address: post.location.address,
-                          }
-                        });
-                      } else {
-                        console.log('Failed to get coordinates, falling back to current location');
-                        router.push('/map/current-location');
-                      }
-                    } else {
-                      console.log('No address found, falling back to current location');
-                      router.push('/map/current-location');
-                    }
-                  } finally {
-                    setIsGeocoding(false);
-                  }
-                }}
-              >
-                <Ionicons name="location-outline" size={12} color={theme.colors.textSecondary} />
-                <Text style={[styles.locationText, { color: theme.colors.textSecondary }]}>
-                  {post.location.address}
-                </Text>
-                {isGeocoding && (
-                  <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginLeft: 4 }} />
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setShowMenu(true)}
-        >
-          <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
-        </TouchableOpacity>
-      </View>
+      <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
 
       {/* Image */}
-      <TouchableOpacity onPress={handlePress} activeOpacity={0.9}>
-        <View style={styles.imageContainer}>
-          {imageLoading && (
-            <View style={styles.imageLoader}>
-              <ActivityIndicator color={theme.colors.primary} size="large" />
-            </View>
-          )}
-          
-          {imageUri && !imageError ? (
-            <View style={styles.imageWrapper}>
-              <Image
-                source={{ uri: imageUri }}
-                style={styles.image}
-                resizeMode="cover"
-                onLoadStart={() => {
-                  setImageLoading(true);
-                }}
-                onLoad={() => {
-                  setImageLoading(false);
-                  setImageError(false);
-                }}
-                onError={(error) => {
-                  if (process.env.NODE_ENV === 'development') {
-                    console.error('PhotoCard: Image load error for post', post._id, error);
-                  }
-                  // Don't retry here - retries are handled in loadImageWithFallback
-                  setImageError(true);
-                  setImageLoading(false);
-                }}
-              />
-              
-              {/* Multiple Images Indicator */}
-              {post.images && post.images.length > 1 && (
-                <View style={styles.multipleImagesIndicator}>
-                  <Animated.View 
-                    style={[
-                      styles.imageCountBadge, 
-                      { 
-                        backgroundColor: theme.colors.background,
-                        transform: [{ scale: pulseAnim }]
-                      }
-                    ]}
-                  >
-                    <Ionicons name="images" size={16} color={theme.colors.primary} />
-                    <Text style={[styles.imageCountText, { color: theme.colors.primary }]}>
-                      {post.images.length}
-                    </Text>
-                  </Animated.View>
-                  
-                  {/* Subtle animation dots */}
-                  <View style={styles.imageDots}>
-                    {post.images.slice(0, 3).map((_, index) => (
-                      <View 
-                        key={index}
-                        style={[
-                          styles.dot, 
-                          { 
-                            backgroundColor: theme.colors.primary,
-                            opacity: index === 0 ? 1 : 0.4
-                          }
-                        ]} 
-                      />
-                    ))}
-                    {post.images.length > 3 && (
-                      <Text style={[styles.moreDots, { color: theme.colors.primary }]}>
-                        +{post.images.length - 3}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              )}
-            </View>
-          ) : imageError ? (
-            <View style={[styles.image, styles.imageError]}>
-              <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
-              <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
-                Failed to load image
-              </Text>
-              <TouchableOpacity 
-                style={styles.retryButton}
-                onPress={async () => {
-                  setImageError(false);
-                  setImageLoading(true);
-                  
-                  try {
-                    const optimizedUrl = await loadImageWithFallback(post.imageUrl);
-                    setImageUri(optimizedUrl);
-                    setImageLoading(false);
-                  } catch (error) {
-                    setImageError(true);
-                    setImageLoading(false);
-                  }
-                }}
-              >
-                <Ionicons name="refresh" size={20} color={theme.colors.primary} />
-                <Text style={[styles.retryText, { color: theme.colors.primary }]}>
-                  Retry
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
-        </View>
-      </TouchableOpacity>
+      <PostImage
+        post={post}
+        onPress={handlePress}
+        imageUri={imageUri}
+        imageLoading={imageLoading}
+        imageError={imageError}
+        onImageError={handleImageError}
+        onRetry={handleImageRetry}
+        pulseAnim={pulseAnim}
+      />
 
       {/* Actions */}
-      <View style={styles.actions}>
-        <View style={styles.leftActions}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
-            <Ionicons
-              name={isLiked ? 'heart' : 'heart-outline'}
-              size={24}
-              color={isLiked ? '#ff3040' : theme.colors.text}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleOpenComments}
-          >
-            <Ionicons name="chatbubble-outline" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleShareClick}
-          >
-            <Ionicons name="paper-plane-outline" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleSave}
-        >
-          <Ionicons 
-            name={isSaved ? 'bookmark' : 'bookmark-outline'} 
-            size={24} 
-            color={theme.colors.text} 
-          />
-        </TouchableOpacity>
-      </View>
+      <PostActions
+        isLiked={isLiked}
+        isSaved={isSaved}
+        onLike={handleLike}
+        onComment={handleOpenComments}
+        onShare={handleShareClick}
+        onSave={handleSave}
+      />
 
       {/* Likes Count */}
-      {likesCount > 0 && (
-        <View style={styles.likesContainer}>
-          <Text style={[styles.likesText, { color: theme.colors.text }]}>
-            {likesCount} {likesCount === 1 ? 'like' : 'likes'}
-          </Text>
-        </View>
-      )}
+      <PostLikesCount likesCount={likesCount} />
 
       {/* Caption */}
-      {post.caption && (
-        <View style={styles.captionContainer}>
-          <HashtagText
-            text={`${post.user.fullName} ${post.caption}`}
-            style={styles.caption}
-          />
-          
-          {/* Multiple images hint */}
-          {post.images && post.images.length > 1 && (
-            <View style={styles.multipleImagesHint}>
-              <Ionicons name="swap-horizontal" size={14} color={theme.colors.textSecondary} />
-              <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
-                Swipe to see {post.images.length} photos
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
+      <PostCaption post={post} />
 
 
       {/* Comments Modal */}
@@ -1224,181 +1010,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
     borderRadius: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  userDetails: {
-    flex: 1,
-  },
-  profilePic: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#e1e5e9',
-  },
-  username: {
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  locationText: {
-    fontSize: 11,
-    marginLeft: 4,
-    opacity: 0.7,
-  },
-  menuButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
-  imageContainer: {
-    position: 'relative',
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 0,
-    overflow: 'hidden',
-  },
-  imageLoader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  imageWrapper: {
-    position: 'relative',
-    width: '100%',
-    height: '100%',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
-  },
-  multipleImagesIndicator: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  imageCountBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    gap: 4,
-  },
-  imageCountText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  imageDots: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  moreDots: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginLeft: 2,
-  },
-  imageError: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-  errorText: {
-    marginTop: 8,
-    fontSize: 13,
-    opacity: 0.6,
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    gap: 6,
-  },
-  retryText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  leftActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  actionButton: {
-    padding: 4,
-  },
-  likesContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-  },
-  likesText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  captionContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  caption: {
-    fontSize: 13,
-    lineHeight: 18,
-    letterSpacing: 0.1,
-  },
-  multipleImagesHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 4,
-  },
-  hintText: {
-    fontSize: 11,
-    fontStyle: 'italic',
-    opacity: 0.7,
   },
   menuOverlay: {
     flex: 1,

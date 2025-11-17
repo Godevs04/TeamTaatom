@@ -111,7 +111,10 @@ const Settings = () => {
           })
         }
       } catch (error) {
-        console.error('Failed to fetch settings:', error)
+        const logger = (await import('../utils/logger')).default
+        const { parseError } = await import('../utils/errorCodes')
+        const parsedError = parseError(error)
+        logger.error('Failed to fetch settings:', parsedError.code, parsedError.message)
         toast.error('Failed to fetch settings')
       }
     }
@@ -175,8 +178,11 @@ const Settings = () => {
       setHasChanges(false)
       toast.success('Settings saved successfully')
     } catch (error) {
-      console.error('Error saving settings:', error)
-      toast.error(error.response?.data?.message || 'Failed to save settings')
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Error saving settings:', parsedError.code, parsedError.message)
+      toast.error(parsedError.adminMessage || 'Failed to save settings')
     } finally {
       setIsLoading(false)
     }
@@ -197,8 +203,11 @@ const Settings = () => {
       // Reload settings
       window.location.reload()
     } catch (error) {
-      console.error('Error resetting settings:', error)
-      toast.error(error.response?.data?.message || 'Failed to reset settings')
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Error resetting settings:', parsedError.code, parsedError.message)
+      toast.error(parsedError.adminMessage || 'Failed to reset settings')
     } finally {
       setIsLoading(false)
     }
@@ -216,7 +225,10 @@ const Settings = () => {
       linkElement.click()
       toast.success('Settings exported successfully')
     } catch (error) {
-      console.error('Error exporting settings:', error)
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Error exporting settings:', parsedError.code, parsedError.message)
       toast.error('Failed to export settings')
     }
   }
@@ -238,7 +250,8 @@ const Settings = () => {
           setShowModal(false)
           toast.success('Settings imported successfully')
         } catch (error) {
-          console.error('Error parsing settings file:', error)
+          const logger = (await import('../utils/logger')).default
+          logger.error('Error parsing settings file:', error)
           toast.error('Error parsing settings file')
         }
       }

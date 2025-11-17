@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 
 // @desc    Get user settings
 // @route   GET /settings
@@ -10,19 +12,13 @@ const getSettings = async (req, res) => {
     
     const user = await User.findById(userId).select('settings');
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    res.status(200).json({ settings: user.settings });
+    return sendSuccess(res, 200, 'Settings fetched successfully', { settings: user.settings });
   } catch (error) {
-    console.error('Get settings error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching settings'
-    });
+    logger.error('Get settings error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching settings');
   }
 };
 
@@ -35,10 +31,7 @@ const updateSettings = async (req, res) => {
     const { settings } = req.body;
 
     if (!settings) {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'Settings data is required'
-      });
+      return sendError(res, 'VAL_2001', 'Settings data is required');
     }
 
     // Validate settings structure
@@ -111,22 +104,13 @@ const updateSettings = async (req, res) => {
     ).select('settings');
 
     if (!updatedUser) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    res.status(200).json({
-      message: 'Settings updated successfully',
-      settings: updatedUser.settings
-    });
+    return sendSuccess(res, 200, 'Settings updated successfully', { settings: updatedUser.settings });
   } catch (error) {
-    console.error('Update settings error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating settings'
-    });
+    logger.error('Update settings error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating settings');
   }
 };
 
@@ -168,22 +152,13 @@ const resetSettings = async (req, res) => {
     ).select('settings');
 
     if (!updatedUser) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    res.status(200).json({
-      message: 'Settings reset to default successfully',
-      settings: updatedUser.settings
-    });
+    return sendSuccess(res, 200, 'Settings reset to default successfully', { settings: updatedUser.settings });
   } catch (error) {
-    console.error('Reset settings error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error resetting settings'
-    });
+    logger.error('Reset settings error:', error);
+    return sendError(res, 'SRV_6001', 'Error resetting settings');
   }
 };
 
@@ -196,13 +171,10 @@ const updateSettingCategory = async (req, res) => {
     const { category } = req.params;
     const settingsData = req.body;
 
-    console.log('UpdateSettingCategory called:', { userId, category, settingsData });
+    logger.debug('UpdateSettingCategory called:', { userId, category, settingsData });
 
     if (!['privacy', 'notifications', 'account'].includes(category)) {
-      return res.status(400).json({
-        error: 'Invalid category',
-        message: 'Category must be privacy, notifications, or account'
-      });
+      return sendError(res, 'VAL_2001', 'Category must be privacy, notifications, or account');
     }
 
     const updateQuery = {};
@@ -210,7 +182,7 @@ const updateSettingCategory = async (req, res) => {
       updateQuery[`settings.${category}.${key}`] = settingsData[key];
     });
 
-    console.log('Update query:', updateQuery);
+    logger.debug('Update query:', updateQuery);
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
@@ -218,25 +190,16 @@ const updateSettingCategory = async (req, res) => {
       { new: true, runValidators: true }
     ).select('settings');
 
-    console.log('Updated user settings:', updatedUser.settings);
+    logger.debug('Updated user settings:', updatedUser.settings);
 
     if (!updatedUser) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    res.status(200).json({
-      message: `${category} settings updated successfully`,
-      settings: updatedUser.settings
-    });
+    return sendSuccess(res, 200, `${category} settings updated successfully`, { settings: updatedUser.settings });
   } catch (error) {
-    console.error('Update setting category error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error updating settings'
-    });
+    logger.error('Update setting category error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating settings');
   }
 };
 

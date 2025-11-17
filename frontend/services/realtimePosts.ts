@@ -1,4 +1,5 @@
 import { socketService } from './socket';
+import logger from '../utils/logger';
 
 export interface PostLikeUpdate {
   postId: string;
@@ -32,17 +33,34 @@ class RealtimePostsService {
   private commentListeners: Set<PostCommentListener> = new Set();
   private saveListeners: Set<PostSaveListener> = new Set();
   private isInitialized = false;
+  private initializationPromise: Promise<void> | null = null;
   private lastLikeEvent: { postId: string; timestamp: Date } | null = null;
 
   async initialize() {
+    // If already initialized, return immediately
     if (this.isInitialized) return;
     
-    console.log('Initializing real-time posts service...');
+    // If initialization is in progress, wait for it
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+    
+    // Start initialization
+    this.initializationPromise = this._doInitialize();
+    await this.initializationPromise;
+  }
+
+  private async _doInitialize() {
+    if (this.isInitialized) return;
+    
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('Initializing real-time posts service...');
+    }
     
     // Subscribe to WebSocket events
     await socketService.subscribe('post:like:update', (data: PostLikeUpdate) => {
       if (process.env.NODE_ENV === 'development') {
-        console.log('Real-time like update received:', data);
+        logger.debug('Real-time like update received:', data);
       }
       
       // Deduplicate events - ignore if we've already processed this exact event
@@ -52,15 +70,15 @@ class RealtimePostsService {
           this.lastLikeEvent.postId === data.postId && 
           this.lastLikeEvent.timestamp.getTime() === eventTimestamp.getTime()) {
         if (process.env.NODE_ENV === 'development') {
-          console.log('Ignoring duplicate like event:', eventKey);
+          logger.debug('Ignoring duplicate like event:', eventKey);
         }
         return;
       }
       
       this.lastLikeEvent = { postId: data.postId, timestamp: eventTimestamp };
       if (process.env.NODE_ENV === 'development') {
-        console.log('Processing like event:', eventKey);
-        console.log('Active like listeners:', this.likeListeners.size);
+        logger.debug('Processing like event:', eventKey);
+        logger.debug('Active like listeners:', this.likeListeners.size);
       }
       
       // Use setTimeout to batch updates and prevent synchronous state updates
@@ -70,7 +88,7 @@ class RealtimePostsService {
             listener(data);
           } catch (error) {
             if (process.env.NODE_ENV === 'development') {
-              console.error('Error in like listener:', error);
+              logger.error('Error in like listener:', error);
             }
           }
         });
@@ -78,43 +96,59 @@ class RealtimePostsService {
     });
 
     await socketService.subscribe('post:comment:update', (data: PostCommentUpdate) => {
-      console.log('Real-time comment update received:', data);
+      logger.debug('Real-time comment update received:', data);
       this.commentListeners.forEach(listener => {
         try {
           listener(data);
         } catch (error) {
-          console.error('Error in comment listener:', error);
+          logger.error('Error in comment listener:', error);
         }
       });
     });
 
     await socketService.subscribe('post:save:update', (data: PostSaveUpdate) => {
-      console.log('Real-time save update received:', data);
+      logger.debug('Real-time save update received:', data);
       this.saveListeners.forEach(listener => {
         try {
           listener(data);
         } catch (error) {
-          console.error('Error in save listener:', error);
+          logger.error('Error in save listener:', error);
         }
       });
     });
 
     this.isInitialized = true;
-    console.log('Real-time posts service initialized successfully');
+    if (process.env.NODE_ENV === 'development') {
+      logger.info('Real-time posts service initialized successfully');
+    }
   }
 
   // Subscribe to post like updates
   subscribeToLikes(listener: PostLikeListener): () => void {
-    console.log('Adding like listener. Total listeners:', this.likeListeners.size + 1);
+    // Ensure service is initialized before subscribing
+    this.initialize().catch(() => {
+      // Silently fail if initialization fails
+    });
+    
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug('Adding like listener. Total listeners:', this.likeListeners.size + 1);
+    }
     this.likeListeners.add(listener);
     return () => {
-      console.log('Removing like listener. Remaining listeners:', this.likeListeners.size - 1);
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug('Removing like listener. Remaining listeners:', this.likeListeners.size - 1);
+      }
       this.likeListeners.delete(listener);
     };
   }
 
   // Subscribe to post comment updates
   subscribeToComments(listener: PostCommentListener): () => void {
+    // Ensure service is initialized before subscribing
+    this.initialize().catch(() => {
+      // Silently fail if initialization fails
+    });
+    
     this.commentListeners.add(listener);
     return () => {
       this.commentListeners.delete(listener);
@@ -123,6 +157,11 @@ class RealtimePostsService {
 
   // Subscribe to post save updates
   subscribeToSaves(listener: PostSaveListener): () => void {
+    // Ensure service is initialized before subscribing
+    this.initialize().catch(() => {
+      // Silently fail if initialization fails
+    });
+    
     this.saveListeners.add(listener);
     return () => {
       this.saveListeners.delete(listener);
@@ -133,9 +172,9 @@ class RealtimePostsService {
   async emitLike(postId: string, isLiked: boolean, likesCount: number) {
     try {
       await socketService.emit('post:like', { postId, isLiked, likesCount });
-      console.log('Emitted like event:', { postId, isLiked, likesCount });
+      logger.debug('Emitted like event:', { postId, isLiked, likesCount });
     } catch (error) {
-      console.error('Error emitting like event:', error);
+      logger.error('Error emitting like event:', error);
     }
   }
 
@@ -143,9 +182,9 @@ class RealtimePostsService {
   async emitComment(postId: string, comment: any, commentsCount: number) {
     try {
       await socketService.emit('post:comment', { postId, comment, commentsCount });
-      console.log('Emitted comment event:', { postId, comment, commentsCount });
+      logger.debug('Emitted comment event:', { postId, comment, commentsCount });
     } catch (error) {
-      console.error('Error emitting comment event:', error);
+      logger.error('Error emitting comment event:', error);
     }
   }
 
@@ -153,9 +192,9 @@ class RealtimePostsService {
   async emitSave(postId: string, isSaved: boolean) {
     try {
       await socketService.emit('post:save', { postId, isSaved });
-      console.log('Emitted save event:', { postId, isSaved });
+      logger.debug('Emitted save event:', { postId, isSaved });
     } catch (error) {
-      console.error('Error emitting save event:', error);
+      logger.error('Error emitting save event:', error);
     }
   }
 }
