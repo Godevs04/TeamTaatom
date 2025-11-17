@@ -14,6 +14,7 @@ const {
   googleSignIn,  
   forgotPassword,
   resetPassword,
+  refreshToken,
   logout
 } = require('../controllers/authController');
 
@@ -79,6 +80,7 @@ router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, rese
 router.post('/signin', authValidations.signin, endpointLimiters.signin, signin);
 router.post('/google', endpointLimiters.signin, googleSignIn);
 router.get('/me', authMiddleware, getMe);
+router.post('/refresh', authMiddleware, refreshToken);
 router.post('/forgot-password', authValidations.forgotPassword, endpointLimiters.passwordReset, forgotPassword);
 router.post('/reset-password', authValidations.resetPassword, endpointLimiters.passwordReset, resetPassword);
 router.post('/logout', authMiddleware, logout);

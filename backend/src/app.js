@@ -19,6 +19,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
 const hashtagRoutes = require('./routes/hashtagRoutes');
+const collectionRoutes = require('./routes/collectionRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -71,10 +72,9 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.9:8081',
-      'http://192.168.1.8:8081',
-      'http://192.168.1.9:3000',
-      'http://192.168.1.8:3000',
+      'http://192.168.1.12:8081',
+      'http://192.168.1.12:3000',
+
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
       'file://',
@@ -176,6 +176,55 @@ app.use('/notifications', notificationRoutes);
 app.use('/analytics', analyticsRoutes);
 app.use('/feature-flags', featureFlagsRoutes);
 app.use('/hashtags', hashtagRoutes);
+app.use('/collections', collectionRoutes);
+
+// Swagger API Documentation (only in development)
+if (process.env.NODE_ENV === 'development') {
+  try {
+    const swaggerUi = require('swagger-ui-express');
+    const swaggerSpec = require('./config/swagger');
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+      customCss: `
+        .swagger-ui .topbar { display: none }
+        .swagger-ui .info { margin: 50px 0; }
+        .swagger-ui .scheme-container { background: #fafafa; padding: 20px; margin: 20px 0; border-radius: 4px; }
+        .swagger-ui .btn.authorize { background-color: #4CAF50; border-color: #4CAF50; }
+        .swagger-ui .btn.authorize:hover { background-color: #45a049; }
+        .swagger-ui .opblock.opblock-post { border-color: #49cc90; background: rgba(73, 204, 144, .1); }
+        .swagger-ui .opblock.opblock-get { border-color: #61affe; background: rgba(97, 175, 254, .1); }
+        .swagger-ui .opblock.opblock-put { border-color: #fca130; background: rgba(252, 161, 48, .1); }
+        .swagger-ui .opblock.opblock-delete { border-color: #f93e3e; background: rgba(249, 62, 62, .1); }
+      `,
+      customSiteTitle: 'Taatom API Documentation',
+      customfavIcon: '/favicon.ico',
+      swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        filter: true,
+        showExtensions: true,
+        showCommonExtensions: true,
+        tryItOutEnabled: true,
+        requestInterceptor: (request) => {
+          // Add CSRF token if available
+          const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrf-token='))
+            ?.split('=')[1];
+          if (csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+            request.headers['X-CSRF-Token'] = csrfToken;
+          }
+          return request;
+        },
+        onComplete: () => {
+          console.log('Swagger UI loaded successfully');
+        }
+      }
+    }));
+    console.log('📚 Swagger docs available at http://localhost:3000/api-docs');
+  } catch (error) {
+    console.warn('⚠️  Swagger not available. Install dependencies: npm install swagger-jsdoc swagger-ui-express');
+  }
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {

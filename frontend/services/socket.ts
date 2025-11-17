@@ -1,9 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-const WS_PATH = '/socket.io';
+import { API_BASE_URL, WS_PATH } from '../utils/config';
 
 let socket: Socket | null = null;
 const listeners: Record<string, Set<(...args: any[]) => void>> = {};
@@ -16,6 +14,17 @@ const getToken = async () => {
       if (token) {
         return token;
       }
+    }
+    // For web, try to get from AsyncStorage as well (might be stored there)
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (token && typeof window !== 'undefined' && window.sessionStorage) {
+        // Store in sessionStorage for socket.io access
+        window.sessionStorage.setItem('authToken', token);
+        return token;
+      }
+    } catch (e) {
+      // AsyncStorage might not be available on web
     }
     // For web, token should be in cookies (httpOnly), but socket.io can't access httpOnly cookies
     // So we need to get it from sessionStorage or pass it explicitly
