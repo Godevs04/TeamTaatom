@@ -29,7 +29,8 @@ const ScheduledDowntime = () => {
         setDowntimes(response.data.downtimes)
       }
     } catch (error) {
-      console.error('Failed to fetch downtimes:', error)
+      const logger = (await import('../utils/logger')).default
+      logger.error('Failed to fetch downtimes:', error)
       toast.error('Failed to fetch scheduled downtimes')
     } finally {
       setIsLoading(false)
@@ -54,7 +55,10 @@ const ScheduledDowntime = () => {
       setSchedule({ reason: '', scheduledDate: '', scheduledTime: '', duration: 30 })
       await fetchDowntimes()
     } catch (error) {
-      console.error('Failed to schedule downtime:', error)
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Failed to schedule downtime:', parsedError.code, parsedError.message)
       toast.error(error.response?.data?.message || 'Failed to schedule downtime')
     } finally {
       setIsLoading(false)
@@ -72,7 +76,10 @@ const ScheduledDowntime = () => {
       toast.success('Maintenance completion emails sent to all users')
       await fetchDowntimes()
     } catch (error) {
-      console.error('Failed to complete downtime:', error)
+      const logger = (await import('../utils/logger')).default
+      const { parseError } = await import('../utils/errorCodes')
+      const parsedError = parseError(error)
+      logger.error('Failed to complete downtime:', parsedError.code, parsedError.message)
       toast.error('Failed to complete downtime')
     } finally {
       setIsLoading(false)
