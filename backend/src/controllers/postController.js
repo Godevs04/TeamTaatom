@@ -1,4 +1,5 @@
 const { validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
@@ -9,6 +10,7 @@ const { getIO } = require('../socket');
 const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -19,22 +21,100 @@ const getPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ 
-      isActive: true, 
-      isArchived: { $ne: true },
-      isHidden: { $ne: true },
-      type: 'photo' 
-    })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    // Cache key with filters
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo' });
+
+    // Use cache wrapper for performance
+    const result = await cacheWrapper(cacheKey, async () => {
+      // Use aggregation pipeline for better performance (single query instead of populate)
+      const posts = await Post.aggregate([
+        {
+          $match: {
+            isActive: true,
+            isArchived: { $ne: true },
+            isHidden: { $ne: true },
+            type: 'photo'
+          }
+        },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'comments.user',
+            foreignField: '_id',
+            as: 'commentUsers',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        {
+          $addFields: {
+            comments: {
+              $map: {
+                input: '$comments',
+                as: 'comment',
+                in: {
+                  $mergeObjects: [
+                    '$$comment',
+                    {
+                      user: {
+                        $arrayElemAt: [
+                          {
+                            $filter: {
+                              input: '$commentUsers',
+                              cond: { $eq: ['$$this._id', '$$comment.user'] }
+                            }
+                          },
+                          0
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            commentsCount: { $size: { $ifNull: ['$comments', []] } }
+          }
+        },
+        {
+          $project: {
+            commentUsers: 0 // Remove temporary field
+          }
+        }
+      ]);
+
+      const totalPosts = await Post.countDocuments({ 
+        isActive: true, 
+        isArchived: { $ne: true },
+        isHidden: { $ne: true },
+        type: 'photo' 
+      }).lean();
+
+      return { posts, totalPosts };
+    }, CACHE_TTL.POST_LIST);
+
+    const { posts, totalPosts } = result;
 
     // Add isLiked field if user is authenticated and optimize image URLs
+    const userId = req.user?._id?.toString();
     const postsWithLikeStatus = posts.map(post => {
-      // Generate optimized image URL for faster loading
+      // Generate optimized image URL with WebP format for better performance
       let optimizedImageUrl = post.imageUrl;
       if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
         try {
@@ -43,12 +123,13 @@ const getPosts = async (req, res) => {
           const publicIdWithExtension = urlParts[urlParts.length - 1];
           const publicId = publicIdWithExtension.split('.')[0];
           
-          // Generate optimized URL
+          // Generate optimized URL with WebP format and progressive loading
           optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
             width: 800,
             height: 800,
             quality: 'auto:good',
-            format: 'auto'
+            format: 'auto', // Cloudinary auto-detects WebP support
+            flags: 'progressive' // Progressive JPEG loading
           });
         } catch (error) {
           logger.warn('Failed to optimize image URL:', error);
@@ -56,22 +137,19 @@ const getPosts = async (req, res) => {
         }
       }
 
-      // Debug likes for this specific post
-      let isLiked = false;
-      
-      isLiked = req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false;
-      
+      // Check if user liked this post (optimized)
+      const isLiked = userId && post.likes 
+        ? post.likes.some(like => like.toString() === userId)
+        : false;
 
       return {
         ...post,
         imageUrl: optimizedImageUrl,
         isLiked,
-        likesCount: post.likes.length,
-        commentsCount: post.comments.length
+        // likesCount and commentsCount already added by aggregation
       };
     });
 
-    const totalPosts = await Post.countDocuments({ isActive: true, type: 'photo' });
     const totalPages = Math.ceil(totalPosts / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
@@ -100,17 +178,95 @@ const getPosts = async (req, res) => {
 const getPostById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user?._id?.toString();
 
-    const post = await Post.findOne({ _id: id, isActive: true })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
-      .lean();
+    // Cache key
+    const cacheKey = CacheKeys.post(id);
+
+    // Use cache wrapper with aggregation pipeline to avoid N+1 queries
+    const post = await cacheWrapper(cacheKey, async () => {
+      // Use aggregation pipeline to fetch post with user and follow status in single query
+      const posts = await Post.aggregate([
+        {
+          $match: {
+            _id: new mongoose.Types.ObjectId(id),
+            isActive: true
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user',
+            pipeline: [
+              { 
+                $project: { 
+                  fullName: 1, 
+                  profilePic: 1,
+                  followers: 1 // Include followers for follow status check
+                } 
+              }
+            ]
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'comments.user',
+            foreignField: '_id',
+            as: 'commentUsers',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        {
+          $addFields: {
+            comments: {
+              $map: {
+                input: '$comments',
+                as: 'comment',
+                in: {
+                  $mergeObjects: [
+                    '$$comment',
+                    {
+                      user: {
+                        $arrayElemAt: [
+                          {
+                            $filter: {
+                              input: '$commentUsers',
+                              cond: { $eq: ['$$this._id', '$$comment.user'] }
+                            }
+                          },
+                          0
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            commentsCount: { $size: { $ifNull: ['$comments', []] } }
+          }
+        },
+        {
+          $project: {
+            commentUsers: 0 // Remove temporary field
+          }
+        }
+      ]);
+
+      return posts[0] || null;
+    }, CACHE_TTL.POST);
 
     if (!post) {
       return sendError(res, 'RES_3001', 'The requested post does not exist or has been deleted');
     }
 
-    // Generate optimized image URL
+    // Generate optimized image URL with WebP and progressive loading
     let optimizedImageUrl = post.imageUrl;
     if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
       try {
@@ -122,23 +278,25 @@ const getPostById = async (req, res) => {
           width: 1200,
           height: 1200,
           quality: 'auto:good',
-          format: 'auto'
+          format: 'auto', // Auto WebP when supported
+          flags: 'progressive' // Progressive loading
         });
       } catch (error) {
         logger.warn('Failed to optimize image URL:', error);
       }
     }
 
-    // Add isLiked field if user is authenticated
+    // Add isLiked and isFollowing fields if user is authenticated
     let isLiked = false;
     let isFollowing = false;
-    if (req.user) {
-      isLiked = post.likes.some(like => like.toString() === req.user._id.toString());
+    if (userId) {
+      isLiked = post.likes && post.likes.some(like => like.toString() === userId);
       
-      // Check if current user is following the post author
-      const postAuthor = await User.findById(post.user);
-      if (postAuthor && postAuthor.followers) {
-        isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+      // Check follow status (user data already populated in aggregation)
+      if (post.user && post.user.followers) {
+        isFollowing = post.user.followers.some(follower => 
+          follower.toString() === userId
+        );
       }
     }
 
@@ -146,11 +304,11 @@ const getPostById = async (req, res) => {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
-      likesCount: post.likes.length,
-      commentsCount: post.comments.length,
+      // likesCount and commentsCount already added by aggregation
       user: {
         ...post.user,
-        isFollowing
+        isFollowing,
+        followers: undefined // Remove followers array from response (not needed)
       }
     };
 
@@ -234,16 +392,26 @@ const createPost = async (req, res) => {
 
     await post.save();
 
+    // Invalidate cache for post lists
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+
     // Update hashtag counts asynchronously (don't block post creation)
     if (allHashtags.length > 0) {
       Promise.all(
         allHashtags.map(async (hashtagName) => {
           try {
-            let hashtag = await Hashtag.findOne({ name: hashtagName });
+            let hashtag = await Hashtag.findOne({ name: hashtagName }).lean();
             if (!hashtag) {
               hashtag = new Hashtag({ name: hashtagName });
+              await hashtag.save();
+            } else {
+              hashtag = await Hashtag.findById(hashtag._id);
             }
             await hashtag.incrementPostCount(post._id);
+            // Invalidate hashtag cache
+            await deleteCache(CacheKeys.hashtag(hashtagName));
+            await deleteCacheByPattern(`hashtag:${hashtagName}:*`);
           } catch (error) {
             logger.error(`Error updating hashtag ${hashtagName}:`, error);
           }
@@ -251,8 +419,10 @@ const createPost = async (req, res) => {
       ).catch(err => logger.error('Error updating hashtags:', err));
     }
 
-    // Populate user data for response
-    await post.populate('user', 'fullName profilePic');
+    // Populate user data for response (use lean for read-only)
+    const populatedPost = await Post.findById(post._id)
+      .populate('user', 'fullName profilePic')
+      .lean();
 
     // Emit socket events
     const io = getIO();
@@ -322,35 +492,96 @@ const getUserShorts = async (req, res) => {
       });
     }
 
-    const shorts = await Post.find({ user: userId, isActive: true, type: 'short' })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
-      let isFollowing = false;
-      
-      // Check if current user is following the post author
-      if (req.user && short.user) {
-        const postAuthor = await User.findById(short.user);
-        if (postAuthor && postAuthor.followers) {
-          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+    // Use aggregation pipeline to avoid N+1 queries
+    const userIdObj = new mongoose.Types.ObjectId(userId);
+    const currentUserId = req.user ? new mongoose.Types.ObjectId(req.user._id) : null;
+    
+    const shorts = await Post.aggregate([
+      {
+        $match: {
+          user: userIdObj,
+          isActive: true,
+          type: 'short'
+        }
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'user',
+          pipeline: [
+            { 
+              $project: { 
+                fullName: 1, 
+                profilePic: 1,
+                followers: currentUserId ? { $cond: [{ $eq: ['$_id', currentUserId] }, '$followers', []] } : []
+              } 
+            }
+          ]
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'comments.user',
+          foreignField: '_id',
+          as: 'commentUsers',
+          pipeline: [
+            { $project: { fullName: 1, profilePic: 1 } }
+          ]
+        }
+      },
+      {
+        $addFields: {
+          comments: {
+            $map: {
+              input: '$comments',
+              as: 'comment',
+              in: {
+                $mergeObjects: [
+                  '$$comment',
+                  {
+                    user: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$commentUsers',
+                            cond: { $eq: ['$$this._id', '$$comment.user'] }
+                          }
+                        },
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          likesCount: { $size: { $ifNull: ['$likes', []] } },
+          commentsCount: { $size: { $ifNull: ['$comments', []] } },
+          isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false,
+          isFollowing: currentUserId && { $in: [currentUserId, { $ifNull: ['$user.followers', []] }] } || false
+        }
+      },
+      {
+        $project: {
+          commentUsers: 0,
+          'user.followers': 0 // Remove followers array from response
         }
       }
-      
-      return {
-        ...short,
-        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-        likesCount: short.likes.length,
-        commentsCount: short.comments.length,
-        user: {
-          ...short.user,
-          isFollowing
-        }
-      };
+    ]);
+
+    const shortsWithLikeStatus = shorts.map(short => ({
+      ...short,
+      user: {
+        ...short.user,
+        isFollowing: short.isFollowing || false
+      }
     }));
 
     const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
@@ -386,22 +617,96 @@ const getUserPosts = async (req, res) => {
       });
     }
 
-    const posts = await Post.find({ user: userId, isActive: true, type: 'photo' })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    // Cache key
+    const cacheKey = CacheKeys.userPosts(userId, page, limit);
 
+    // Use cache wrapper with aggregation pipeline
+    const result = await cacheWrapper(cacheKey, async () => {
+      const userIdObj = new mongoose.Types.ObjectId(userId);
+      const currentUserId = req.user ? new mongoose.Types.ObjectId(req.user._id) : null;
+
+      const posts = await Post.aggregate([
+        {
+          $match: {
+            user: userIdObj,
+            isActive: true,
+            type: 'photo'
+          }
+        },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'comments.user',
+            foreignField: '_id',
+            as: 'commentUsers',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        {
+          $addFields: {
+            comments: {
+              $map: {
+                input: '$comments',
+                as: 'comment',
+                in: {
+                  $mergeObjects: [
+                    '$$comment',
+                    {
+                      user: {
+                        $arrayElemAt: [
+                          {
+                            $filter: {
+                              input: '$commentUsers',
+                              cond: { $eq: ['$$this._id', '$$comment.user'] }
+                            }
+                          },
+                          0
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            commentsCount: { $size: { $ifNull: ['$comments', []] } },
+            isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false
+          }
+        },
+        {
+          $project: {
+            commentUsers: 0
+          }
+        }
+      ]);
+
+      const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' }).lean();
+
+      return { posts, totalPosts };
+    }, CACHE_TTL.POST_LIST);
+
+    const { posts, totalPosts } = result;
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
-      isLiked: req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false,
-      likesCount: post.likes.length,
-      commentsCount: post.comments.length
+      isLiked: post.isLiked || false
     }));
-
-    const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' });
 
     return sendSuccess(res, 200, 'User posts fetched successfully', {
       posts: postsWithLikeStatus,
@@ -420,13 +725,24 @@ const getUserPosts = async (req, res) => {
 // @access  Private
 const toggleLike = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
+    const post = await Post.findById(req.params.id).lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    const isLiked = post.toggleLike(req.user._id);
-    await post.save();
+    // Use findByIdAndUpdate for better performance (single query)
+    const update = post.likes.some(like => like.toString() === req.user._id.toString())
+      ? { $pull: { likes: req.user._id } }
+      : { $addToSet: { likes: req.user._id } };
+
+    const isLiked = !post.likes.some(like => like.toString() === req.user._id.toString());
+    
+    await Post.findByIdAndUpdate(req.params.id, update, { new: true });
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
     // Update user's total likes if this is their post
     if (isLiked) {
@@ -643,10 +959,15 @@ const deleteComment = async (req, res) => {
 // @access  Private
 const deletePost = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findById(req.params.id).lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
+
+    // Invalidate cache before deletion
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
     // Check if user owns the post
     if (post.user.toString() !== req.user._id.toString()) {
@@ -899,7 +1220,7 @@ const toggleComments = async (req, res) => {
 const updatePost = async (req, res) => {
   try {
     const { caption } = req.body;
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findById(req.params.id).lean();
     
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
@@ -912,17 +1233,24 @@ const updatePost = async (req, res) => {
     // Track old hashtags for decrementing counts
     const oldHashtags = post.tags || [];
     
+    // Extract new hashtags if caption provided
+    const extractedHashtags = caption ? extractHashtags(caption) : [];
+    const updateData = {};
     if (caption) {
-      post.caption = caption;
-      // Extract hashtags from new caption
-      const extractedHashtags = extractHashtags(caption || '');
-      post.tags = extractedHashtags;
+      updateData.caption = caption;
+      updateData.tags = extractedHashtags;
     }
 
-    await post.save();
+    // Use findByIdAndUpdate for better performance
+    await Post.findByIdAndUpdate(req.params.id, updateData);
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
     // Update hashtag counts (decrement old, increment new)
-    const newHashtags = post.tags || [];
+    const newHashtags = extractedHashtags.length > 0 ? extractedHashtags : (post.tags || []);
     const hashtagsToRemove = oldHashtags.filter(tag => !newHashtags.includes(tag));
     const hashtagsToAdd = newHashtags.filter(tag => !oldHashtags.includes(tag));
 

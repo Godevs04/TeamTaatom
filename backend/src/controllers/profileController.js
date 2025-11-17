@@ -1,13 +1,14 @@
 const { validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
-const mongoose = require('mongoose');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache } = require('../utils/cache');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -19,19 +20,27 @@ const getProfile = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    const user = await User.findById(id)
-      .populate('followers', 'fullName profilePic')
-      .populate('following', 'fullName profilePic')
-      .select('-password -otp -otpExpires');
+    // Cache key
+    const cacheKey = CacheKeys.user(id);
+
+    // Use cache wrapper with optimized query
+    const user = await cacheWrapper(cacheKey, async () => {
+      return await User.findById(id)
+        .populate('followers', 'fullName profilePic')
+        .populate('following', 'fullName profilePic')
+        .select('-password -otp -otpExpires')
+        .lean();
+    }, CACHE_TTL.USER_PROFILE);
 
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    // Get user's posts count and locations
+    // Get user's posts count and locations (optimized query)
     const posts = await Post.find({ user: id, isActive: true })
       .select('location createdAt likes')
-      .lean();
+      .lean()
+      .limit(1000); // Limit for performance
 
     // Extract unique locations for the map (only posts with valid coordinates)
     const locations = posts
@@ -44,15 +53,25 @@ const getProfile = async (req, res) => {
         date: post.createdAt
       }));
 
-    // Calculate TripScore based on unique locations (count all posts with locations, not just liked posts)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
-      isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
-    })
-    .select('location likes createdAt')
-    .lean();
+    // Calculate TripScore based on unique locations (optimized aggregation)
+    const postsWithLocations = await Post.aggregate([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(id),
+          isActive: true,
+          'location.coordinates.latitude': { $ne: 0 },
+          'location.coordinates.longitude': { $ne: 0 }
+        }
+      },
+      {
+        $project: {
+          location: 1,
+          likes: 1,
+          createdAt: 1
+        }
+      },
+      { $limit: 1000 } // Limit for performance
+    ]);
 
     // Group posts by continent/country for TripScore
     const tripScoreData = {
@@ -209,7 +228,7 @@ const updateProfile = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const user = await User.findById(id);
+    const user = await User.findById(id).lean();
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
@@ -253,11 +272,12 @@ const updateProfile = async (req, res) => {
         ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
       },
       { new: true, runValidators: true }
-    ).select('-password -otp -otpExpires');
+    ).select('-password -otp -otpExpires').lean();
 
-    return sendSuccess(res, 200, 'Profile updated successfully', {
-      user: updatedUser.getPublicProfile()
-    });
+    // Invalidate cache
+    await deleteCache(CacheKeys.user(id));
+    await deleteCacheByPattern('search:*');
+
     // Emit socket events
     const io = getIO();
     if (io) {
@@ -268,6 +288,10 @@ const updateProfile = async (req, res) => {
       nsp.emitInvalidateFeed(audience);
       nsp.emitEvent('profile:updated', audience, { userId: id });
     }
+
+    return sendSuccess(res, 200, 'Profile updated successfully', {
+      user: updatedUser
+    });
   } catch (error) {
     logger.error('Update profile error:', error);
     return sendError(res, 'SRV_6001', 'Error updating profile');
@@ -467,41 +491,52 @@ const searchUsers = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const users = await User.find({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { fullName: { $regex: q, $options: 'i' } },
-            { email: { $regex: q, $options: 'i' } }
-          ]
-        }
-      ]
-    })
-    .select('fullName email profilePic followers following totalLikes')
-    .skip(skip)
-    .limit(parseInt(limit))
-    .lean();
+    // Cache search results
+    const cacheKey = CacheKeys.search(q, 'users');
+    
+    const result = await cacheWrapper(cacheKey, async () => {
+      const users = await User.find({
+        $and: [
+          { isVerified: true },
+          {
+            $or: [
+              { fullName: { $regex: q, $options: 'i' } },
+              { email: { $regex: q, $options: 'i' } }
+            ]
+          }
+        ]
+      })
+      .select('fullName email profilePic followers following totalLikes')
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean();
 
+      const totalUsers = await User.countDocuments({
+        $and: [
+          { isVerified: true },
+          {
+            $or: [
+              { fullName: { $regex: q, $options: 'i' } },
+              { email: { $regex: q, $options: 'i' } }
+            ]
+          }
+        ]
+      }).lean();
+
+      return { users, totalUsers };
+    }, CACHE_TTL.SEARCH_RESULTS);
+
+    const { users, totalUsers } = result;
+
+    const currentUserId = req.user?._id?.toString();
     const usersWithFollowStatus = users.map(user => ({
       ...user,
-      followersCount: user.followers.length,
-      followingCount: user.following.length,
-      isFollowing: req.user ? user.followers.some(follower => 
-        follower.toString() === req.user._id.toString()) : false
+      followersCount: user.followers ? user.followers.length : 0,
+      followingCount: user.following ? user.following.length : 0,
+      isFollowing: currentUserId && user.followers 
+        ? user.followers.some(follower => follower.toString() === currentUserId)
+        : false
     }));
-
-    const totalUsers = await User.countDocuments({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { fullName: { $regex: q, $options: 'i' } },
-            { email: { $regex: q, $options: 'i' } }
-          ]
-        }
-      ]
-    });
 
     return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
