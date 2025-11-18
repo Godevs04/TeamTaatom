@@ -5,11 +5,12 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   Alert,
   RefreshControl,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -117,18 +118,18 @@ export default function CollectionDetailScreen() {
 
   if (!collection) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
         <EmptyState
           icon="albums-outline"
           title="Collection Not Found"
           description="This collection doesn't exist or you don't have access to it"
         />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
@@ -138,7 +139,7 @@ export default function CollectionDetailScreen() {
         </Text>
         {isOwner && (
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => router.push(`/collections/${id}/edit`)}>
+            <TouchableOpacity onPress={() => router.push(`/collections/create?id=${id}`)}>
               <Ionicons name="create-outline" size={24} color={theme.colors.primary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleDelete}>
@@ -146,36 +147,6 @@ export default function CollectionDetailScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
-
-      {/* Collection Info */}
-      <View style={[styles.collectionInfo, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        {collection.coverImage && (
-          <Image source={{ uri: collection.coverImage }} style={styles.coverImage} />
-        )}
-        <View style={styles.collectionDetails}>
-          <Text style={[styles.collectionName, { color: theme.colors.text }]}>
-            {collection.name}
-          </Text>
-          {collection.description && (
-            <Text style={[styles.collectionDescription, { color: theme.colors.textSecondary }]}>
-              {collection.description}
-            </Text>
-          )}
-          <View style={styles.collectionMeta}>
-            <Ionicons name="image-outline" size={14} color={theme.colors.textSecondary} />
-            <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}>
-              {collection.posts?.length || 0} {collection.posts?.length === 1 ? 'post' : 'posts'}
-            </Text>
-            {!collection.isPublic && (
-              <>
-                <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}> • </Text>
-                <Ionicons name="lock-closed-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={[styles.metaText, { color: theme.colors.textSecondary }]}> Private</Text>
-              </>
-            )}
-          </View>
-        </View>
       </View>
 
       {/* Posts List */}
@@ -212,7 +183,7 @@ export default function CollectionDetailScreen() {
           description="This collection is empty"
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -225,8 +196,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 20,
     borderBottomWidth: 1,
+    minHeight: 56,
   },
   headerTitle: {
     flex: 1,
@@ -237,35 +210,6 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     gap: 16,
-  },
-  collectionInfo: {
-    padding: 16,
-    borderBottomWidth: 1,
-  },
-  coverImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  collectionDetails: {
-    gap: 8,
-  },
-  collectionName: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  collectionDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  collectionMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  metaText: {
-    fontSize: 12,
   },
   list: {
     paddingBottom: 16,
