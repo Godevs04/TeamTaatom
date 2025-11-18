@@ -21,6 +21,7 @@ const Sidebar = () => {
   // Define navigation items with permission requirements
   const allNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: null }, // Everyone can access
+    { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: null }, // Everyone can access
     { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
     { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
     { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
