@@ -72,8 +72,8 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.12:8081',
-      'http://192.168.1.12:3000',
+      'http://192.168.1.7:8081',
+      'http://192.168.1.7:3000',
 
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
@@ -138,7 +138,11 @@ app.use((req, res, next) => {
       '/auth/forgot-password',
       '/auth/reset-password',
       '/auth/google',
-      '/auth/check-username'
+      '/auth/check-username',
+      '/api/superadmin/login',
+      '/api/superadmin/verify-2fa',
+      '/api/superadmin/resend-2fa',
+      '/api/superadmin/create'
     ];
     
     const isPublicAuthEndpoint = publicAuthPaths.some(path => req.path === path || req.path.startsWith(path + '/'));

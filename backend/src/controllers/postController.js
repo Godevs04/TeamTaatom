@@ -404,12 +404,14 @@ const createPost = async (req, res) => {
 
     await post.save();
 
-    // Create activity
+    // Create activity (respect user's privacy settings)
+    const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+    const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
     Activity.createActivity({
       user: req.user._id,
       type: 'post_created',
       post: post._id,
-      isPublic: true
+      isPublic: shareActivity
     }).catch(err => logger.error('Error creating activity:', err));
 
     // Invalidate cache for post lists
@@ -789,14 +791,16 @@ const toggleLike = async (req, res) => {
     
     await Post.findByIdAndUpdate(req.params.id, update, { new: true });
 
-    // Create activity for like
+    // Create activity for like (respect user's privacy settings)
     if (isLiked) {
+      const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+      const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
       Activity.createActivity({
         user: req.user._id,
         type: 'post_liked',
         post: req.params.id,
         targetUser: post.user,
-        isPublic: true
+        isPublic: shareActivity
       }).catch(err => logger.error('Error creating activity:', err));
     }
 
@@ -918,14 +922,16 @@ const addComment = async (req, res) => {
     }
     await post.save();
 
-    // Create activity
+    // Create activity (respect user's privacy settings)
+    const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+    const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
     Activity.createActivity({
       user: req.user._id,
       type: 'comment_added',
       post: post._id,
       targetUser: post.user,
       metadata: { commentId: newComment._id },
-      isPublic: true
+      isPublic: shareActivity
     }).catch(err => logger.error('Error creating activity:', err));
 
     // Populate the new comment with user data

@@ -1,5 +1,6 @@
 import api from './api';
 import { UserType, FollowRequestsResponse } from '../types/user';
+import logger from '../utils/logger';
 
 export interface ProfileResponse {
   profile: UserType & {
@@ -86,7 +87,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       } as any);
     }
 
-    console.log('Updating profile with data:', {
+    logger.debug('Updating profile with data:', {
       userId,
       hasFullName: !!data.fullName,
       hasBio: data.bio !== undefined,
@@ -99,10 +100,10 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
       },
     });
 
-    console.log('Profile update response:', response.data);
+    logger.debug('Profile update response:', response.data);
     return response.data;
   } catch (error: any) {
-    console.error('Profile update error:', error.response?.data || error.message);
+    logger.error('Profile update error:', error.response?.data || error.message);
     throw new Error(error.response?.data?.message || 'Failed to update profile');
   }
 };
@@ -143,7 +144,7 @@ export const updateExpoPushToken = async (userId: string, expoPushToken: string)
   try {
     await api.put(`/api/v1/profile/${userId}/push-token`, { expoPushToken });
   } catch (error: any) {
-    console.error('Failed to update Expo push token:', error.response?.data || error.message);
+    logger.error('Failed to update Expo push token:', error.response?.data || error.message);
     throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
   }
 };
@@ -195,5 +196,95 @@ export const getBlockStatus = async (userId: string): Promise<{ isBlocked: boole
     return response.data;
   } catch (error: any) {
     throw new Error(error.response?.data?.message || 'Failed to get block status');
+  }
+};
+
+// Get suggested users to follow
+export const getSuggestedUsers = async (limit: number = 10): Promise<SearchUsersResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/suggested-users?limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch suggested users');
+  }
+};
+
+// TripScore functions
+export interface TripScoreContinentsResponse {
+  continents: { [key: string]: number };
+}
+
+export interface TripScoreCountriesResponse {
+  countries: Array<{
+    name: string;
+    count: number;
+    score: number;
+  }>;
+}
+
+export interface TripScoreCountryDetailsResponse {
+  country: {
+    name: string;
+    totalScore: number;
+    locations: Array<{
+      address: string;
+      count: number;
+      score: number;
+    }>;
+  };
+}
+
+export interface TripScoreLocationsResponse {
+  locations: Array<{
+    address: string;
+    latitude: number;
+    longitude: number;
+    count: number;
+    score: number;
+  }>;
+}
+
+export const getTripScoreContinents = async (userId: string): Promise<TripScoreContinentsResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore continents');
+  }
+};
+
+export const getTripScoreCountries = async (
+  userId: string,
+  continent: string
+): Promise<TripScoreCountriesResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents/${continent}/countries`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore countries');
+  }
+};
+
+export const getTripScoreCountryDetails = async (
+  userId: string,
+  country: string
+): Promise<TripScoreCountryDetailsResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${country}`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore country details');
+  }
+};
+
+export const getTripScoreLocations = async (
+  userId: string,
+  country: string
+): Promise<TripScoreLocationsResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${country}/locations`);
+    return response.data;
+  } catch (error: any) {
+    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore locations');
   }
 };

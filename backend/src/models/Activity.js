@@ -67,17 +67,28 @@ activitySchema.statics.getActivityFeed = async function(userId, options = {}) {
   const followingIds = user?.following || [];
   
   // Build query
-  const query = {
-    isPublic: true
-  };
+  const query = {};
   
   if (includeOwn) {
-    query.$or = [
-      { user: userId },
-      { user: { $in: followingIds } }
-    ];
+    // Include own activities (regardless of isPublic) and following's public activities
+    if (followingIds.length > 0) {
+      query.$or = [
+        { user: userId }, // Own activities (show all, even if private)
+        { user: { $in: followingIds }, isPublic: true } // Following's public activities
+      ];
+    } else {
+      // No following, just show own activities
+      query.user = userId;
+    }
   } else {
-    query.user = { $in: followingIds };
+    // Only show following's public activities
+    if (followingIds.length > 0) {
+      query.user = { $in: followingIds };
+      query.isPublic = true;
+    } else {
+      // No following, return empty
+      query.user = { $in: [] }; // Empty array, will return no results
+    }
   }
   
   if (type) {

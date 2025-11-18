@@ -443,12 +443,14 @@ const toggleFollow = async (req, res) => {
 
         await Promise.all([currentUser.save(), targetUser.save()]);
 
-        // Create activity
+        // Create activity (respect user's privacy settings)
+        const user = await User.findById(currentUserId).select('settings.privacy.shareActivity').lean();
+        const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
         Activity.createActivity({
           user: currentUserId,
           type: 'user_followed',
           targetUser: id,
-          isPublic: true
+          isPublic: shareActivity
         }).catch(err => logger.error('Error creating activity:', err));
 
         // Send notification to target user

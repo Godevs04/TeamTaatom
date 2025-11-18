@@ -164,6 +164,10 @@ const userSchema = new mongoose.Schema({
       allowFollowRequests: {
         type: Boolean,
         default: true
+      },
+      shareActivity: {
+        type: Boolean,
+        default: true
       }
     },
     notifications: {

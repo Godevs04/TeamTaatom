@@ -457,10 +457,16 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
 
 const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') => {
   try {
+    // Check if transporter is properly configured
+    if (!transporter || !emailUser) {
+      logger.error('❌ Email transporter not configured. Cannot send 2FA email.');
+      throw new Error('Email service not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
+    }
+
     const mailOptions = {
       from: {
         name: 'TeamTaatom SuperAdmin',
-        address: process.env.EMAIL_USER
+        address: emailUser
       },
       to: email,
       subject: '🔐 SuperAdmin 2FA Verification Code',
@@ -576,10 +582,16 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
 // SuperAdmin Login Alert Email
 const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, ipAddress) => {
   try {
+    // Check if transporter is properly configured
+    if (!transporter || !emailUser) {
+      logger.error('❌ Email transporter not configured. Cannot send login alert email.');
+      throw new Error('Email service not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
+    }
+
     const mailOptions = {
       from: {
         name: 'TeamTaatom SuperAdmin',
-        address: process.env.EMAIL_USER
+        address: emailUser
       },
       to: email,
       subject: '🔐 SuperAdmin Login Alert - TeamTaatom Dashboard',
