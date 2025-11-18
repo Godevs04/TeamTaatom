@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { API_BASE_URL, WS_PATH } from '../utils/config';
+import logger from '../utils/logger';
 
 let socket: Socket | null = null;
 const listeners: Record<string, Set<(...args: any[]) => void>> = {};
@@ -36,11 +37,11 @@ const getToken = async () => {
   
 const connectSocket = async () => {
   if (process.env.NODE_ENV === 'development') {
-    console.log('Socket service - Attempting to connect...');
+    logger.debug('Socket service - Attempting to connect...');
   }
   if (socket && socket.connected) {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Already connected');
+      logger.debug('Socket service - Already connected');
     }
     return socket;
   }
@@ -48,19 +49,19 @@ const connectSocket = async () => {
   
   if (!token) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('Socket service - No token available, skipping connection');
+      logger.warn('Socket service - No token available, skipping connection');
     }
     return null;
   }
   
   if (process.env.NODE_ENV === 'development') {
-    console.log('Socket service - Token retrieved:', !!token);
+    logger.debug('Socket service - Token retrieved:', !!token);
   }
   
   // Clean up existing socket if any
   if (socket) {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Disconnecting existing socket');
+      logger.debug('Socket service - Disconnecting existing socket');
     }
     socket.disconnect();
     socket = null;
@@ -85,25 +86,25 @@ const connectSocket = async () => {
 
   socket.on('connect', () => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Connected successfully to /app namespace');
+      logger.debug('Socket service - Connected successfully to /app namespace');
     }
   });
   socket.on('disconnect', (reason) => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Disconnected:', reason);
+      logger.debug('Socket service - Disconnected:', reason);
     }
   });
   socket.on('connect_error', (err) => {
     // Only log if it's not an auth error (which is expected if no token)
     if (process.env.NODE_ENV === 'development' && err.message !== 'Invalid token') {
-      console.error('Socket service - Connect error:', err);
+      logger.error('Socket service - Connect error:', err);
     }
   });
 
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket event received:', event, args);
+      logger.debug('Socket event received:', event, args);
     }
     if (listeners[event]) {
       listeners[event].forEach((cb) => cb(...args));
@@ -112,7 +113,7 @@ const connectSocket = async () => {
 
   socket.connect();
   if (process.env.NODE_ENV === 'development') {
-    console.log('Socket service - Connection initiated');
+    logger.debug('Socket service - Connection initiated');
   }
   return socket;
 };
@@ -133,12 +134,12 @@ export const socketService = {
   },
   async subscribe(event: string, cb: (...args: any[]) => void) {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Subscribing to event:', event);
+      logger.debug('Socket service - Subscribing to event:', event);
     }
     if (!listeners[event]) listeners[event] = new Set();
     listeners[event].add(cb);
     if (process.env.NODE_ENV === 'development') {
-      console.log('Socket service - Total listeners for', event, ':', listeners[event].size);
+      logger.debug('Socket service - Total listeners for', event, ':', listeners[event].size);
     }
     if (!socket) await connectSocket();
   },

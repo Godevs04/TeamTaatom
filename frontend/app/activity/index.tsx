@@ -9,6 +9,8 @@ import {
   RefreshControl,
   ScrollView,
   Image,
+  SafeAreaView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -153,18 +155,27 @@ export default function ActivityFeedScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity 
+          onPress={() => router.back()}
+          style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Activity Feed</Text>
-        <View style={{ width: 24 }} />
+        <View style={styles.placeholder} />
       </View>
 
       {/* Filter Tabs */}
       <View style={[styles.filterContainer, { borderBottomColor: theme.colors.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScrollContent}
+        >
           {(['all', 'post_created', 'post_liked', 'comment_added', 'user_followed'] as const).map((type) => (
             <TouchableOpacity
               key={type}
@@ -173,11 +184,13 @@ export default function ActivityFeedScreen() {
                 filterType === type && { borderBottomColor: theme.colors.primary },
               ]}
               onPress={() => setFilterType(type)}
+              activeOpacity={0.7}
             >
               <Text
                 style={[
                   styles.filterText,
                   { color: filterType === type ? theme.colors.primary : theme.colors.textSecondary },
+                  filterType === type && styles.filterTextActive,
                 ]}
               >
                 {type === 'all' ? 'All' : type.replace('_', ' ')}
@@ -188,11 +201,13 @@ export default function ActivityFeedScreen() {
       </View>
 
       {activities.length === 0 ? (
-        <EmptyState
-          icon="notifications-outline"
-          title="No Activity"
-          description="Activity from your friends will appear here"
-        />
+        <View style={styles.emptyContainer}>
+          <EmptyState
+            icon="notifications-outline"
+            title="No Activity"
+            description="Activity from your friends will appear here"
+          />
+        </View>
       ) : (
         <FlatList
           data={activities}
@@ -206,7 +221,7 @@ export default function ActivityFeedScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -219,25 +234,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 20,
     borderBottomWidth: 1,
+    minHeight: 56,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  placeholder: {
+    width: 40,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
   },
   filterContainer: {
     borderBottomWidth: 1,
+  },
+  filterScrollContent: {
+    paddingHorizontal: 8,
   },
   filterTab: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
+    minWidth: 80,
   },
   filterText: {
     fontSize: 14,
+    fontWeight: '500',
+  },
+  filterTextActive: {
     fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
   list: {
     padding: 16,

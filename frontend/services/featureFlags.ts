@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { getUserFromStorage } from './auth';
+import logger from '../utils/logger';
 
 interface FeatureFlag {
   name: string;
@@ -41,7 +42,7 @@ class FeatureFlagsService {
         this.lastFetchTime = data.timestamp || 0;
       }
     } catch (error) {
-      console.error('Error loading cached feature flags:', error);
+      logger.error('Error loading cached feature flags:', error);
     }
   }
 
@@ -52,7 +53,7 @@ class FeatureFlagsService {
         timestamp: this.lastFetchTime,
       }));
     } catch (error) {
-      console.error('Error saving cached feature flags:', error);
+      logger.error('Error saving cached feature flags:', error);
     }
   }
 
@@ -80,7 +81,7 @@ class FeatureFlagsService {
         await this.saveCachedFlags();
       }
     } catch (error) {
-      console.error('Error fetching feature flags:', error);
+      logger.error('Error fetching feature flags:', error);
       // Use cached flags on error
     }
   }

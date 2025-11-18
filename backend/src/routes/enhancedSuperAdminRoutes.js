@@ -2,6 +2,8 @@ const express = require('express')
 const router = express.Router()
 const SuperAdmin = require('../models/SuperAdmin')
 const SystemSettings = require('../models/SystemSettings')
+const logger = require('../utils/logger')
+const { sendError, sendSuccess } = require('../utils/errorCodes')
 const {
   verifySuperAdminToken,
   checkPermission,
@@ -32,8 +34,7 @@ router.use(verifySuperAdminToken)
 // Authentication routes
 router.get('/verify', (req, res) => {
   try {
-    res.json({
-      message: 'Token is valid',
+    return sendSuccess(res, 200, 'Token is valid', {
       user: {
         id: req.superAdmin._id,
         email: req.superAdmin.email,
@@ -43,12 +44,121 @@ router.get('/verify', (req, res) => {
       }
     })
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' })
+    logger.error('Token verification error:', error)
+    return sendError(res, 'AUTH_1001', 'Invalid token')
   }
 })
 router.post('/logout', logout)
 router.patch('/change-password', changePassword)
 router.patch('/profile', updateProfile)
+
+// Notifications endpoint
+router.get('/notifications', async (req, res) => {
+  try {
+    const User = require('../models/User')
+    const Post = require('../models/Post')
+    const Report = require('../models/Report')
+    
+    // Get recent notifications for SuperAdmin
+    // This includes: new user registrations, pending reports, system alerts, etc.
+    const notifications = []
+    
+    // Get recent user registrations (last 24 hours)
+    const recentUsers = await User.find({
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    })
+      .select('fullName email createdAt')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean()
+    
+    recentUsers.forEach(user => {
+      const timeAgo = getTimeAgo(new Date(user.createdAt))
+      notifications.push({
+        id: `user_${user._id}`,
+        title: 'New user registered',
+        message: `${user.fullName || user.email} joined the platform`,
+        time: timeAgo,
+        unread: true,
+        type: 'user',
+        link: `/users?search=${user.email}`
+      })
+    })
+    
+    // Get pending reports
+    const pendingReports = await Report.find({ status: 'pending' })
+      .populate('reportedBy', 'fullName email')
+      .populate('reportedUser', 'fullName email')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean()
+    
+    pendingReports.forEach(report => {
+      const timeAgo = getTimeAgo(new Date(report.createdAt))
+      notifications.push({
+        id: `report_${report._id}`,
+        title: 'Content report pending',
+        message: `Report from ${report.reportedBy?.fullName || report.reportedBy?.email || 'Unknown'} needs attention`,
+        time: timeAgo,
+        unread: true,
+        type: 'report',
+        link: `/reports?id=${report._id}`
+      })
+    })
+    
+    // Get recent posts that might need moderation
+    const recentPosts = await Post.find({
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      flagged: { $ne: true }
+    })
+      .populate('user', 'fullName email')
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .lean()
+    
+    // Sort all notifications by time (newest first)
+    notifications.sort((a, b) => {
+      // Convert time strings back to dates for sorting
+      const timeA = parseTimeAgo(a.time)
+      const timeB = parseTimeAgo(b.time)
+      return timeB - timeA
+    })
+    
+    // Limit to 20 most recent
+    const limitedNotifications = notifications.slice(0, 20)
+    
+    // Return in format expected by frontend
+    return sendSuccess(res, 200, 'Notifications fetched successfully', {
+      notifications: limitedNotifications,
+      unreadCount: limitedNotifications.filter(n => n.unread).length
+    })
+  } catch (error) {
+    logger.error('Get notifications error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch notifications')
+  }
+})
+
+// Helper function to format time ago
+function getTimeAgo(date) {
+  const seconds = Math.floor((new Date() - date) / 1000)
+  if (seconds < 60) return `${seconds} sec ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days > 1 ? 's' : ''} ago`
+}
+
+// Helper function to parse time ago back to date for sorting
+function parseTimeAgo(timeStr) {
+  const match = timeStr.match(/(\d+)\s*(sec|min|hour|day)/)
+  if (!match) return 0
+  const value = parseInt(match[1])
+  const unit = match[2]
+  const multipliers = { sec: 1, min: 60, hour: 3600, day: 86400 }
+  return value * multipliers[unit] * 1000
+}
 
 // Dashboard overview with real-time data (all roles can view)
 router.get('/dashboard/overview', async (req, res) => {
@@ -145,10 +255,10 @@ router.get('/dashboard/overview', async (req, res) => {
       }
     }
 
-    res.json(overview)
+    return sendSuccess(res, 200, 'Dashboard overview fetched successfully', overview)
   } catch (error) {
-    console.error('Dashboard overview error:', error)
-    res.status(500).json({ message: 'Failed to fetch overview data' })
+    logger.error('Dashboard overview error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch overview data')
   }
 })
 
@@ -224,10 +334,10 @@ router.get('/analytics/realtime', async (req, res) => {
       }
     }
 
-    res.json(analytics)
+    return sendSuccess(res, 200, 'Real-time analytics fetched successfully', analytics)
   } catch (error) {
-    console.error('Real-time analytics error:', error)
-    res.status(500).json({ message: 'Failed to fetch real-time analytics' })
+    logger.error('Real-time analytics error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch real-time analytics')
   }
 })
 
@@ -302,7 +412,7 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
           }
         }
       } catch (error) {
-        console.error('Error processing user metrics for user:', user._id, error)
+        logger.error('Error processing user metrics for user:', user._id, error)
         return {
           ...user.toObject(),
           metrics: {
@@ -315,7 +425,7 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
       }
     }))
     
-    res.json({
+    return sendSuccess(res, 200, 'Users fetched successfully', {
       users: usersWithMetrics,
       pagination: {
         page: parseInt(page),
@@ -325,8 +435,8 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Users data error:', error)
-    res.status(500).json({ message: 'Failed to fetch users data' })
+    logger.error('Users data error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch users data')
   }
 })
 
@@ -340,7 +450,7 @@ router.patch('/users/:id', checkPermission('canManageUsers'), async (req, res) =
     const user = await User.findByIdAndUpdate(id, updates, { new: true, runValidators: true }).select('-password')
     
     if (!user) {
-      return res.status(404).json({ message: 'User not found' })
+      return sendError(res, 'RES_3001', 'User not found')
     }
     
     // Log the action
@@ -352,10 +462,10 @@ router.patch('/users/:id', checkPermission('canManageUsers'), async (req, res) =
       true
     )
     
-    res.json({ message: 'User updated successfully', user })
+    return sendSuccess(res, 200, 'User updated successfully', { user })
   } catch (error) {
-    console.error('User update error:', error)
-    res.status(500).json({ message: 'Failed to update user' })
+    logger.error('User update error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update user')
   }
 })
 
@@ -368,7 +478,7 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
     const user = await User.findById(id)
     
     if (!user) {
-      return res.status(404).json({ message: 'User not found' })
+      return sendError(res, 'RES_3001', 'User not found')
     }
     
     // Log before deletion
@@ -383,10 +493,10 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
     // Soft delete by marking as inactive
     await User.findByIdAndUpdate(id, { isActive: false, deletedAt: new Date() })
     
-    res.json({ message: 'User deleted successfully' })
+    return sendSuccess(res, 200, 'User deleted successfully')
   } catch (error) {
-    console.error('User deletion error:', error)
-    res.status(500).json({ message: 'Failed to delete user' })
+    logger.error('User deletion error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to delete user')
   }
 })
 
@@ -397,7 +507,7 @@ router.post('/users/bulk-action', async (req, res) => {
     const User = require('../models/User')
     
     if (!action || !userIds || !Array.isArray(userIds)) {
-      return res.status(400).json({ message: 'Invalid bulk action parameters' })
+      return sendError(res, 'VAL_2001', 'Invalid bulk action parameters')
     }
 
     let updateQuery = {}
@@ -422,7 +532,7 @@ router.post('/users/bulk-action', async (req, res) => {
         logAction = 'bulk_delete_users'
         break
       default:
-        return res.status(400).json({ message: 'Invalid action' })
+        return sendError(res, 'VAL_2001', 'Invalid action')
     }
 
     const result = await User.updateMany(
@@ -439,13 +549,12 @@ router.post('/users/bulk-action', async (req, res) => {
       true
     )
 
-    res.json({
-      message: `Successfully ${action}d ${result.modifiedCount} users`,
+    return sendSuccess(res, 200, `Successfully ${action}d ${result.modifiedCount} users`, {
       modifiedCount: result.modifiedCount
     })
   } catch (error) {
-    console.error('Bulk action error:', error)
-    res.status(500).json({ message: 'Failed to perform bulk action' })
+    logger.error('Bulk action error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to perform bulk action')
   }
 })
 
@@ -493,7 +602,7 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
     
     const total = await Post.countDocuments(query)
     
-    res.json({
+    return sendSuccess(res, 200, 'Travel content fetched successfully', {
       posts,
       pagination: {
         page: parseInt(page),
@@ -503,8 +612,8 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
       }
     })
   } catch (error) {
-    console.error('Travel content fetch error:', error)
-    res.status(500).json({ message: 'Failed to fetch travel content' })
+    logger.error('Travel content fetch error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch travel content')
   }
 })
 
@@ -515,7 +624,7 @@ router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
     const post = await Post.findById(req.params.id)
     
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' })
+      return sendError(res, 'RES_3001', 'Post not found')
     }
     
     await Post.findByIdAndDelete(req.params.id)
@@ -528,10 +637,10 @@ router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
       true
     )
     
-    res.json({ message: 'Post deleted successfully' })
+    return sendSuccess(res, 200, 'Post deleted successfully')
   } catch (error) {
-    console.error('Delete post error:', error)
-    res.status(500).json({ message: 'Failed to delete post' })
+    logger.error('Delete post error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to delete post')
   }
 })
 
@@ -548,13 +657,13 @@ router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
     const post = await Post.findByIdAndUpdate(req.params.id, updateData, { new: true })
     
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' })
+      return sendError(res, 'RES_3001', 'Post not found')
     }
     
-    res.json({ message: 'Post updated successfully', post })
+    return sendSuccess(res, 200, 'Post updated successfully', { post })
   } catch (error) {
-    console.error('Update post error:', error)
-    res.status(500).json({ message: 'Failed to update post' })
+    logger.error('Update post error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update post')
   }
 })
 
@@ -565,7 +674,7 @@ router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
     const post = await Post.findByIdAndUpdate(req.params.id, { flagged: true }, { new: true })
     
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' })
+      return sendError(res, 'RES_3001', 'Post not found')
     }
     
     await req.superAdmin.logSecurityEvent(
@@ -576,10 +685,10 @@ router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
       true
     )
     
-    res.json({ message: 'Post flagged successfully', post })
+    return sendSuccess(res, 200, 'Post flagged successfully', { post })
   } catch (error) {
-    console.error('Flag post error:', error)
-    res.status(500).json({ message: 'Failed to flag post' })
+    logger.error('Flag post error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to flag post')
   }
 })
 
@@ -616,7 +725,7 @@ router.get('/reports', checkPermission('canManageContent'), async (req, res) => 
     
     const total = await Report.countDocuments(query)
     
-    res.json({
+    return sendSuccess(res, 200, 'Reports fetched successfully', {
       reports,
       pagination: {
         page: parseInt(page),
@@ -626,8 +735,8 @@ router.get('/reports', checkPermission('canManageContent'), async (req, res) => 
       }
     })
   } catch (error) {
-    console.error('Reports error:', error)
-    res.status(500).json({ message: 'Failed to fetch reports' })
+    logger.error('Reports error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch reports')
   }
 })
 
@@ -653,7 +762,7 @@ router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
       .populate('reportedContent', 'caption type')
     
     if (!report) {
-      return res.status(404).json({ message: 'Report not found' })
+      return sendError(res, 'RES_3001', 'Report not found')
     }
     
     await req.superAdmin.logSecurityEvent(
@@ -664,10 +773,10 @@ router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
       true
     )
     
-    res.json({ message: 'Report updated successfully', report })
+    return sendSuccess(res, 200, 'Report updated successfully', { report })
   } catch (error) {
-    console.error('Update report error:', error)
-    res.status(500).json({ message: 'Failed to update report' })
+    logger.error('Update report error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update report')
   }
 })
 
@@ -722,10 +831,10 @@ router.get('/analytics', async (req, res) => {
       generatedAt: new Date().toISOString()
     }
     
-    res.json({ analytics })
+    return sendSuccess(res, 200, 'Analytics fetched successfully', { analytics })
   } catch (error) {
-    console.error('Analytics error:', error)
-    res.status(500).json({ message: 'Failed to fetch analytics' })
+    logger.error('Analytics error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch analytics')
   }
 })
 
@@ -757,17 +866,12 @@ router.get('/feature-flags', async (req, res) => {
       .populate('updatedBy', 'email')
       .sort({ updatedAt: -1 })
     
-    res.json({ 
-      success: true,
-      featureFlags 
+    return sendSuccess(res, 200, 'Feature flags fetched successfully', {
+      featureFlags: featureFlags.map(flag => flag.toObject())
     })
   } catch (error) {
-    console.error('Feature flags error:', error)
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to fetch feature flags',
-      error: error.message 
-    })
+    logger.error('Feature flags error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch feature flags')
   }
 })
 
@@ -792,18 +896,12 @@ router.post('/feature-flags', authenticateSuperAdmin, async (req, res) => {
     
     await featureFlag.save()
     
-    res.json({
-      success: true,
-      message: 'Feature flag created successfully',
+    return sendSuccess(res, 201, 'Feature flag created successfully', {
       featureFlag
     })
   } catch (error) {
-    console.error('Create feature flag error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create feature flag',
-      error: error.message
-    })
+    logger.error('Create feature flag error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to create feature flag')
   }
 })
 
@@ -816,10 +914,7 @@ router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
     
     const featureFlag = await FeatureFlag.findById(id)
     if (!featureFlag) {
-      return res.status(404).json({
-        success: false,
-        message: 'Feature flag not found'
-      })
+      return sendError(res, 'RES_3001', 'Feature flag not found')
     }
     
     const changes = {}
@@ -833,7 +928,11 @@ router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
     
     Object.assign(featureFlag, changes)
     featureFlag.updatedBy = req.superAdmin._id
-    featureFlag.updatedAt = new Date()
+    
+    // Initialize changelog if it doesn't exist
+    if (!featureFlag.changelog) {
+      featureFlag.changelog = []
+    }
     
     // Log the change
     featureFlag.changelog.push({
@@ -863,18 +962,12 @@ router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
       .populate('createdBy', 'email')
       .populate('updatedBy', 'email')
     
-    res.json({
-      success: true,
-      message: 'Feature flag updated successfully',
-      featureFlag: updated
+    return sendSuccess(res, 200, 'Feature flag updated successfully', {
+      featureFlag: updated ? updated.toObject() : null
     })
   } catch (error) {
-    console.error('Update feature flag error:', error)
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to update feature flag',
-      error: error.message 
-    })
+    logger.error('Update feature flag error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update feature flag')
   }
 })
 
@@ -888,10 +981,7 @@ router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
     const { reason, scheduledDate, scheduledTime, duration } = req.body
     
     if (!reason || !scheduledDate || !scheduledTime || !duration) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required'
-      })
+      return sendError(res, 'VAL_2001', 'All fields are required')
     }
     
     // Create downtime record
@@ -917,7 +1007,7 @@ router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
           reason
         )
       } catch (error) {
-        console.error(`Failed to send email to ${user.email}:`, error)
+        logger.error(`Failed to send email to ${user.email}:`, error)
       }
     })
     
@@ -934,18 +1024,12 @@ router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
       true
     )
     
-    res.json({
-      success: true,
-      message: 'Downtime scheduled and notifications sent to all users',
+    return sendSuccess(res, 201, 'Downtime scheduled and notifications sent to all users', {
       downtime
     })
   } catch (error) {
-    console.error('Schedule downtime error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to schedule downtime',
-      error: error.message
-    })
+    logger.error('Schedule downtime error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to schedule downtime')
   }
 })
 
@@ -960,10 +1044,7 @@ router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) =
     const downtime = await ScheduledDowntime.findById(id)
     
     if (!downtime) {
-      return res.status(404).json({
-        success: false,
-        message: 'Downtime not found'
-      })
+      return sendError(res, 'RES_3001', 'Downtime not found')
     }
     
     // Send completion email to all users
@@ -972,7 +1053,7 @@ router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) =
       try {
         await sendMaintenanceCompletedEmail(user.email, user.fullName || 'User')
       } catch (error) {
-        console.error(`Failed to send email to ${user.email}:`, error)
+        logger.error(`Failed to send email to ${user.email}:`, error)
       }
     })
     
@@ -992,17 +1073,10 @@ router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) =
       true
     )
     
-    res.json({
-      success: true,
-      message: 'Maintenance completion notifications sent to all users'
-    })
+    return sendSuccess(res, 200, 'Maintenance completion notifications sent to all users')
   } catch (error) {
-    console.error('Complete downtime error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to complete downtime',
-      error: error.message
-    })
+    logger.error('Complete downtime error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to complete downtime')
   }
 })
 
@@ -1016,17 +1090,12 @@ router.get('/scheduled-downtimes', authenticateSuperAdmin, async (req, res) => {
       .populate('completedBy', 'email')
       .sort({ scheduledDate: -1 })
     
-    res.json({
-      success: true,
+    return sendSuccess(res, 200, 'Scheduled downtimes fetched successfully', {
       downtimes
     })
   } catch (error) {
-    console.error('Get scheduled downtimes error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch scheduled downtimes',
-      error: error.message
-    })
+    logger.error('Get scheduled downtimes error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch scheduled downtimes')
   }
 })
 
@@ -1038,10 +1107,7 @@ router.delete('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => 
     
     const featureFlag = await FeatureFlag.findById(id)
     if (!featureFlag) {
-      return res.status(404).json({
-        success: false,
-        message: 'Feature flag not found'
-      })
+      return sendError(res, 'RES_3001', 'Feature flag not found')
     }
     
     await FeatureFlag.findByIdAndDelete(id)
@@ -1055,17 +1121,10 @@ router.delete('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => 
       true
     )
     
-    res.json({
-      success: true,
-      message: 'Feature flag deleted successfully'
-    })
+    return sendSuccess(res, 200, 'Feature flag deleted successfully')
   } catch (error) {
-    console.error('Delete feature flag error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete feature flag',
-      error: error.message
-    })
+    logger.error('Delete feature flag error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to delete feature flag')
   }
 })
 
@@ -1075,7 +1134,7 @@ router.get('/search', async (req, res) => {
     const { q, type = 'all', limit = 10 } = req.query
     
     if (!q || q.length < 2) {
-      return res.status(400).json({ message: 'Search query must be at least 2 characters' })
+      return sendError(res, 'VAL_2001', 'Search query must be at least 2 characters')
     }
     
     const User = require('../models/User')
@@ -1117,10 +1176,10 @@ router.get('/search', async (req, res) => {
     
     searchResults.total = searchResults.users.length + searchResults.posts.length
     
-    res.json(searchResults)
+    return sendSuccess(res, 200, 'Search completed successfully', searchResults)
   } catch (error) {
-    console.error('Search error:', error)
-    res.status(500).json({ message: 'Failed to perform search' })
+    logger.error('Search error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to perform search')
   }
 })
 
@@ -1137,14 +1196,14 @@ router.get('/audit-logs', async (req, res) => {
       .lean()
     
     if (!superAdmin) {
-      return res.status(404).json({ message: 'SuperAdmin not found' })
+      return sendError(res, 'RES_3001', 'SuperAdmin not found')
     }
     
-    let logs = superAdmin.securityLogs
+    let logs = superAdmin.securityLogs || []
     
     // Apply filters
     if (action) {
-      logs = logs.filter(log => log.action.includes(action))
+      logs = logs.filter(log => log.action?.includes(action))
     }
     
     if (startDate) {
@@ -1176,7 +1235,7 @@ router.get('/audit-logs', async (req, res) => {
     const total = logs.length
     const paginatedLogs = logs.slice(skip, skip + parseInt(limit))
     
-    res.json({
+    return sendSuccess(res, 200, 'Audit logs fetched successfully', {
       logs: paginatedLogs,
       pagination: {
         page: parseInt(page),
@@ -1187,8 +1246,8 @@ router.get('/audit-logs', async (req, res) => {
     })
     
   } catch (error) {
-    console.error('Audit logs error:', error)
-    res.status(500).json({ message: 'Failed to fetch audit logs' })
+    logger.error('Audit logs error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch audit logs')
   }
 })
 
@@ -1417,8 +1476,7 @@ router.get('/moderators', checkPermission('canManageModerators'), async (req, re
       SuperAdmin.countDocuments(query)
     ])
     
-    res.json({
-      success: true,
+    return sendSuccess(res, 200, 'Moderators fetched successfully', {
       moderators,
       total,
       page: parseInt(page),
@@ -1426,11 +1484,8 @@ router.get('/moderators', checkPermission('canManageModerators'), async (req, re
       totalPages: Math.ceil(total / limit)
     })
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch moderators',
-      error: error.message
-    })
+    logger.error('Get moderators error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch moderators')
   }
 })
 
@@ -1442,10 +1497,7 @@ router.post('/moderators', checkPermission('canManageModerators'), async (req, r
     // Check if email already exists
     const existing = await SuperAdmin.findOne({ email: email.toLowerCase() })
     if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email already exists'
-      })
+      return sendError(res, 'VAL_2001', 'Email already exists')
     }
     
     // Create moderator
@@ -1465,9 +1517,7 @@ router.post('/moderators', checkPermission('canManageModerators'), async (req, r
     
     await moderator.save()
     
-    res.json({
-      success: true,
-      message: 'Moderator created successfully',
+    return sendSuccess(res, 201, 'Moderator created successfully', {
       moderator: {
         _id: moderator._id,
         email: moderator.email,
@@ -1477,11 +1527,8 @@ router.post('/moderators', checkPermission('canManageModerators'), async (req, r
       }
     })
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create moderator',
-      error: error.message
-    })
+    logger.error('Create moderator error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to create moderator')
   }
 })
 
@@ -1492,10 +1539,7 @@ router.patch('/moderators/:id', checkPermission('canManageModerators'), async (r
     
     const moderator = await SuperAdmin.findById(req.params.id)
     if (!moderator) {
-      return res.status(404).json({
-        success: false,
-        message: 'Moderator not found'
-      })
+      return sendError(res, 'RES_3001', 'Moderator not found')
     }
     
     // Update fields
@@ -1505,17 +1549,10 @@ router.patch('/moderators/:id', checkPermission('canManageModerators'), async (r
     
     await moderator.save()
     
-    res.json({
-      success: true,
-      message: 'Moderator updated successfully',
-      moderator
-    })
+    return sendSuccess(res, 200, 'Moderator updated successfully', { moderator })
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update moderator',
-      error: error.message
-    })
+    logger.error('Update moderator error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update moderator')
   }
 })
 
@@ -1529,52 +1566,108 @@ router.delete('/moderators/:id', checkPermission('canManageModerators'), async (
     )
     
     if (!moderator) {
-      return res.status(404).json({
-        success: false,
-        message: 'Moderator not found'
-      })
+      return sendError(res, 'RES_3001', 'Moderator not found')
     }
     
-    res.json({
-      success: true,
-      message: 'Moderator removed successfully'
-    })
+    return sendSuccess(res, 200, 'Moderator removed successfully')
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to remove moderator',
-      error: error.message
-    })
+    logger.error('Delete moderator error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to remove moderator')
   }
 })
 
 // Test endpoint without authentication
 router.get('/test', async (req, res) => {
   try {
-    const userCount = await User.countDocuments();
-    const postCount = await Post.countDocuments();
-    const reportCount = await Report.countDocuments();
+    const User = require('../models/User')
+    const Post = require('../models/Post')
+    const Report = require('../models/Report')
     
-    res.json({
-      status: 'OK',
-      message: 'Backend is working correctly',
-      data: {
-        users: userCount,
-        posts: postCount,
-        reports: reportCount,
-        timestamp: new Date().toISOString()
-      }
-    });
+    const [userCount, postCount, reportCount] = await Promise.all([
+      User.countDocuments(),
+      Post.countDocuments(),
+      Report.countDocuments()
+    ])
+    
+    return sendSuccess(res, 200, 'Backend is working correctly', {
+      users: userCount,
+      posts: postCount,
+      reports: reportCount,
+      timestamp: new Date().toISOString()
+    })
   } catch (error) {
-    res.status(500).json({
-      status: 'ERROR',
-      message: 'Backend error',
-      error: error.message
-    });
+    logger.error('Test endpoint error:', error)
+    return sendError(res, 'SRV_6001', 'Backend error')
   }
-});
+})
 
-// GET /logs - Get security logs
+// GET /security-logs - Get security logs (alias for /audit-logs)
+router.get('/security-logs', async (req, res) => {
+  // Use the same handler as audit-logs
+  try {
+    const { page = 1, limit = 50, action, startDate, endDate, export: exportFormat } = req.query
+    const skip = (page - 1) * limit
+    
+    const superAdmin = await SuperAdmin.findById(req.superAdmin._id)
+      .select('securityLogs')
+      .lean()
+    
+    if (!superAdmin) {
+      return sendError(res, 'RES_3001', 'SuperAdmin not found')
+    }
+    
+    let logs = superAdmin.securityLogs || []
+    
+    // Apply filters
+    if (action) {
+      logs = logs.filter(log => log.action?.includes(action))
+    }
+    
+    if (startDate) {
+      logs = logs.filter(log => new Date(log.timestamp) >= new Date(startDate))
+    }
+    
+    if (endDate) {
+      logs = logs.filter(log => new Date(log.timestamp) <= new Date(endDate))
+    }
+    
+    // Sort by timestamp (newest first)
+    logs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    
+    // Export functionality
+    if (exportFormat === 'csv') {
+      const csv = generateCSV(logs)
+      res.setHeader('Content-Type', 'text/csv')
+      res.setHeader('Content-Disposition', 'attachment; filename=security-logs.csv')
+      return res.send(csv)
+    }
+    
+    if (exportFormat === 'json') {
+      res.setHeader('Content-Type', 'application/json')
+      res.setHeader('Content-Disposition', 'attachment; filename=security-logs.json')
+      return res.json(logs)
+    }
+    
+    // Paginate
+    const total = logs.length
+    const paginatedLogs = logs.slice(skip, skip + parseInt(limit))
+    
+    return sendSuccess(res, 200, 'Security logs fetched successfully', {
+      logs: paginatedLogs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    logger.error('Get security logs error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch security logs')
+  }
+})
+
+// GET /logs - Get security logs (alias for /audit-logs)
 router.get('/logs', async (req, res) => {
   try {
     const { page = 1, limit = 20, search, level, type } = req.query
@@ -1588,13 +1681,18 @@ router.get('/logs', async (req, res) => {
     
     // Flatten and format logs
     let allLogs = []
-    superAdmins.forEach(admin => {
+    const crypto = require('crypto')
+    superAdmins.forEach((admin, adminIndex) => {
       if (admin.securityLogs && admin.securityLogs.length > 0) {
-        admin.securityLogs.forEach(log => {
+        admin.securityLogs.forEach((log, logIndex) => {
+          // Generate a unique ID using hash to avoid duplicates
+          const logObj = log.toObject ? log.toObject() : log
+          const hashInput = `${admin._id}_${logObj.timestamp || Date.now()}_${logObj.action || ''}_${logObj.details || ''}_${logIndex}_${adminIndex}`
+          const hash = crypto.createHash('md5').update(hashInput).digest('hex')
           allLogs.push({
-            ...log.toObject(),
+            ...logObj,
             adminEmail: admin.email,
-            _id: `${admin._id}_${log.timestamp || Date.now()}`
+            _id: `log_${hash}_${adminIndex}_${logIndex}`
           })
         })
       }
@@ -1652,9 +1750,20 @@ router.get('/logs', async (req, res) => {
     const paginatedLogs = filtered.slice(skip, skip + parseInt(limit))
     
     // Enrich with user information if available
-    const enrichedLogs = await Promise.all(paginatedLogs.map(async (log) => {
+    const enrichedLogs = await Promise.all(paginatedLogs.map(async (log, index) => {
+      // Use the already generated unique _id from the flattening step
+      // If for some reason it's missing, generate a new one using crypto
+      let uniqueId = log._id
+      if (!uniqueId) {
+        const crypto = require('crypto')
+        const hashInput = `${log.timestamp}_${log.action || 'unknown'}_${log.adminEmail || 'unknown'}_${index}_${skip}`
+        const hash = crypto.createHash('md5').update(hashInput).digest('hex')
+        uniqueId = `log_${hash}_${index}_${skip}`
+      }
+      
       let enrichedLog = {
         ...log,
+        _id: uniqueId, // Always use unique ID for React keys
         level: !log.success ? 'error' : (log.action?.includes('attempt') ? 'warning' : 'info'),
         type: log.action?.includes('login') || log.action?.includes('auth') ? 'security' : 
                log.action?.includes('system') ? 'system' : 'user_action',
@@ -1665,8 +1774,7 @@ router.get('/logs', async (req, res) => {
       return enrichedLog
     }))
     
-    res.json({
-      success: true,
+    return sendSuccess(res, 200, 'Logs fetched successfully', {
       logs: enrichedLogs,
       total,
       page: parseInt(page),
@@ -1674,12 +1782,8 @@ router.get('/logs', async (req, res) => {
       totalPages: Math.ceil(total / limit)
     })
   } catch (error) {
-    console.error('Logs fetch error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch logs',
-      error: error.message
-    })
+    logger.error('Logs fetch error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch logs')
   }
 })
 
@@ -1687,17 +1791,12 @@ router.get('/logs', async (req, res) => {
 router.get('/settings', checkPermission('canManageSettings'), async (req, res) => {
   try {
     const settings = await SystemSettings.getInstance()
-    res.json({
-      success: true,
+    return sendSuccess(res, 200, 'Settings fetched successfully', {
       settings
     })
   } catch (error) {
-    console.error('Fetch settings error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch settings',
-      error: error.message
-    })
+    logger.error('Fetch settings error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch settings')
   }
 })
 
@@ -1719,18 +1818,12 @@ router.put('/settings', checkPermission('canManageSettings'), async (req, res) =
     
     await settings.save()
     
-    res.json({
-      success: true,
-      message: 'Settings updated successfully',
+    return sendSuccess(res, 200, 'Settings updated successfully', {
       settings
     })
   } catch (error) {
-    console.error('Update settings error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update settings',
-      error: error.message
-    })
+    logger.error('Update settings error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update settings')
   }
 })
 
@@ -1745,18 +1838,12 @@ router.post('/settings/reset', checkPermission('canManageSettings'), async (req,
     
     const newSettings = await SystemSettings.getInstance()
     
-    res.json({
-      success: true,
-      message: 'Settings reset to defaults',
+    return sendSuccess(res, 200, 'Settings reset to defaults', {
       settings: newSettings
     })
   } catch (error) {
-    console.error('Reset settings error:', error)
-    res.status(500).json({
-      success: false,
-      message: 'Failed to reset settings',
-      error: error.message
-    })
+    logger.error('Reset settings error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to reset settings')
   }
 })
 

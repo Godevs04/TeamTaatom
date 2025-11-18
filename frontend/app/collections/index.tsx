@@ -8,7 +8,9 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -98,25 +100,37 @@ export default function CollectionsScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity 
+          onPress={() => router.back()}
+          style={styles.backButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Collections</Text>
-        <TouchableOpacity onPress={() => router.push('/collections/create')}>
+        <TouchableOpacity 
+          onPress={() => router.push('/collections/create')}
+          style={styles.addButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.7}
+        >
           <Ionicons name="add" size={24} color={theme.colors.primary} />
         </TouchableOpacity>
       </View>
 
       {collections.length === 0 ? (
-        <EmptyState
-          icon="albums-outline"
-          title="No Collections"
-          description="Create your first collection to organize your posts"
-          actionLabel="Create Collection"
-          onAction={() => router.push('/collections/create')}
-        />
+        <View style={styles.emptyContainer}>
+          <EmptyState
+            icon="albums-outline"
+            title="No Collections"
+            description="Create your first collection to organize your posts"
+            actionLabel="Create Collection"
+            onAction={() => router.push('/collections/create')}
+          />
+        </View>
       ) : (
         <FlatList
           data={collections}
@@ -128,7 +142,7 @@ export default function CollectionsScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -141,12 +155,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 20,
     borderBottomWidth: 1,
+    minHeight: 56,
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  addButton: {
+    padding: 8,
+    marginRight: -8,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
   },
   list: {
     padding: 16,

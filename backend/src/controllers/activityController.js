@@ -111,6 +111,11 @@ const updateActivityPrivacy = async (req, res) => {
       { isPublic: isPublic !== undefined ? isPublic : true }
     );
 
+    // Also update user's privacy setting
+    await User.findByIdAndUpdate(userId, {
+      'settings.privacy.shareActivity': isPublic !== undefined ? isPublic : true
+    });
+
     return sendSuccess(res, 200, 'Activity privacy updated successfully');
   } catch (error) {
     logger.error('Update activity privacy error:', error);

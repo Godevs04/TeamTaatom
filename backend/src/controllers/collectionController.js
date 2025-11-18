@@ -31,12 +31,14 @@ const createCollection = async (req, res) => {
 
     await collection.save();
 
-    // Create activity
+    // Create activity (respect user's privacy settings)
+    const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+    const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
     Activity.createActivity({
       user: req.user._id,
       type: 'collection_created',
       collection: collection._id,
-      isPublic: collection.isPublic
+      isPublic: shareActivity && collection.isPublic // Only public if user allows sharing AND collection is public
     }).catch(err => logger.error('Error creating activity:', err));
 
     // Invalidate cache
@@ -238,14 +240,20 @@ const addPostToCollection = async (req, res) => {
       return sendError(res, 'AUTH_1006', 'You can only add posts to your own collections');
     }
 
-    // Verify post exists and belongs to user
+    // Verify post exists and is active
     const post = await Post.findById(postId).lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post not found');
     }
 
-    if (post.user.toString() !== req.user._id.toString()) {
-      return sendError(res, 'AUTH_1006', 'You can only add your own posts to collections');
+    // Check if post is active (users can add any active post to their collections)
+    if (!post.isActive) {
+      return sendError(res, 'RES_3001', 'Post is not available');
+    }
+
+    // Check if post is already in the collection
+    if (collection.posts.some(p => p.toString() === postId)) {
+      return sendError(res, 'VAL_2001', 'Post is already in this collection');
     }
 
     // Add post to collection
