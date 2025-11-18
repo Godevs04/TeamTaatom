@@ -17,6 +17,15 @@ const {
   updateProfile,
   logout
 } = require('../controllers/superAdminController')
+const {
+  getAnalyticsSummary,
+  getTimeSeriesData,
+  getEventBreakdown,
+  getTopFeatures,
+  getDropOffPoints,
+  getRecentEvents,
+  getUserRetention
+} = require('../controllers/analyticsAdminController')
 
 // Alias for clarity
 const authenticateSuperAdmin = verifySuperAdminToken
@@ -837,6 +846,15 @@ router.get('/analytics', async (req, res) => {
     return sendError(res, 'SRV_6001', 'Failed to fetch analytics')
   }
 })
+
+// Analytics Dashboard Endpoints
+router.get('/analytics/summary', getAnalyticsSummary)
+router.get('/analytics/timeseries', getTimeSeriesData)
+router.get('/analytics/breakdown', getEventBreakdown)
+router.get('/analytics/features', getTopFeatures)
+router.get('/analytics/dropoffs', getDropOffPoints)
+router.get('/analytics/events', getRecentEvents)
+router.get('/analytics/retention', getUserRetention)
 
 // Feature flags management
 router.get('/feature-flags', async (req, res) => {
