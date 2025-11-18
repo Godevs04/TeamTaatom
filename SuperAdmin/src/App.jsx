@@ -7,6 +7,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Analytics from './pages/Analytics'
 import Users from './pages/Users'
 import TravelContent from './pages/TravelContent'
 import Reports from './pages/Reports'
@@ -57,6 +58,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Navigate to="/dashboard" replace />} />
                       <Route path="/dashboard" element={<Dashboard />} />
+                      <Route path="/analytics" element={<Analytics />} />
                       <Route path="/users" element={<Users />} />
                       <Route path="/travel-content" element={<TravelContent />} />
                       <Route path="/reports" element={<Reports />} />
