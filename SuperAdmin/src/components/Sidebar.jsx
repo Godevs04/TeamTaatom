@@ -12,7 +12,8 @@ import {
   Settings,
   Zap,
   Bell,
-  Search
+  Search,
+  Database
 } from 'lucide-react'
 
 const Sidebar = () => {
@@ -22,6 +23,7 @@ const Sidebar = () => {
   const allNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: null }, // Everyone can access
     { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: null }, // Everyone can access
+    { name: 'Query Monitor', href: '/query-monitor', icon: Database, permission: null }, // Everyone can access
     { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
     { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
     { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
