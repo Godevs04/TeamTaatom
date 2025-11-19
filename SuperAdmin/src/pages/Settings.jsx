@@ -213,7 +213,7 @@ const Settings = () => {
     }
   }
 
-  const handleExportSettings = () => {
+  const handleExportSettings = async () => {
     try {
       const dataStr = JSON.stringify(settings, null, 2)
       const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
@@ -242,7 +242,7 @@ const Settings = () => {
     const file = e.target.files[0]
     if (file) {
       const reader = new FileReader()
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const importedSettings = JSON.parse(event.target.result)
           setSettings(importedSettings)

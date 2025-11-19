@@ -1,6 +1,8 @@
 const SuperAdmin = require('../models/SuperAdmin')
 const jwt = require('jsonwebtoken')
 const { sendSuperAdmin2FAEmail, sendSuperAdminLoginAlertEmail } = require('../utils/sendOtp')
+const logger = require('../utils/logger')
+const { sendError, sendSuccess } = require('../utils/errorCodes')
 
 // Middleware to verify SuperAdmin token
 const verifySuperAdminToken = async (req, res, next) => {
@@ -23,14 +25,14 @@ const verifySuperAdminToken = async (req, res, next) => {
   } catch (error) {
     // Provide specific responses for token errors and avoid noisy logs
     if (error.name === 'TokenExpiredError') {
-      console.warn('SuperAdmin token expired')
+      logger.warn('SuperAdmin token expired')
       return res.status(401).json({ message: 'Token expired' })
     }
     if (error.name === 'JsonWebTokenError') {
-      console.warn('SuperAdmin token invalid')
+      logger.warn('SuperAdmin token invalid')
       return res.status(401).json({ message: 'Invalid token' })
     }
-    console.error('SuperAdmin token verification error:', error)
+    logger.error('SuperAdmin token verification error:', error)
     return res.status(500).json({ message: 'Error verifying token' })
   }
 }
@@ -54,7 +56,7 @@ const checkPermission = (permissionName) => {
       
       next()
     } catch (error) {
-      console.error('Permission check error:', error)
+      logger.error('Permission check error:', error)
       res.status(500).json({ message: 'Permission check failed.' })
     }
   }
@@ -69,7 +71,7 @@ const loginSuperAdmin = async (req, res) => {
     
     // Validate input
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' })
+      return sendError(res, 'VAL_2001', 'Email and password are required')
     }
     
     // Find SuperAdmin
@@ -77,13 +79,13 @@ const loginSuperAdmin = async (req, res) => {
     
     if (!superAdmin) {
       await logFailedAttempt(email, ipAddress, userAgent, 'Login attempt with non-existent email')
-      return res.status(401).json({ message: 'Invalid email or password' })
+      return sendError(res, 'AUTH_1001', 'Invalid email or password')
     }
     
     // Check if account is locked
     if (superAdmin.isLocked) {
       await superAdmin.logSecurityEvent('login_attempt', 'Account locked due to too many failed attempts', ipAddress, userAgent, false)
-      return res.status(423).json({ message: 'Account is temporarily locked due to too many failed login attempts' })
+      return sendError(res, 'AUTH_1008', 'Account is temporarily locked due to too many failed login attempts')
     }
     
     // Verify password
@@ -92,7 +94,7 @@ const loginSuperAdmin = async (req, res) => {
     if (!isPasswordValid) {
       await superAdmin.incLoginAttempts()
       await superAdmin.logSecurityEvent('login_attempt', 'Invalid password', ipAddress, userAgent, false)
-      return res.status(401).json({ message: 'Invalid email or password' })
+      return sendError(res, 'AUTH_1001', 'Invalid email or password')
     }
     
     // ALWAYS require 2FA for SuperAdmin login (mandatory security)
@@ -114,22 +116,22 @@ const loginSuperAdmin = async (req, res) => {
       
       await superAdmin.logSecurityEvent('2fa_sent', '2FA code sent via email', ipAddress, userAgent, true)
       
-      res.json({
+      // Return response in format expected by frontend
+      return res.json({
         message: '2FA code sent to your email',
         requires2FA: true,
         token: tempToken,
         expiresAt: expiresAt
       })
-      return
     } catch (emailError) {
-      console.error('Failed to send 2FA email:', emailError)
+      logger.error('Failed to send 2FA email:', emailError)
       await superAdmin.logSecurityEvent('2fa_email_failed', 'Failed to send 2FA email', ipAddress, userAgent, false)
-      return res.status(500).json({ message: 'Failed to send 2FA code. Please try again.' })
+      return sendError(res, 'SRV_6001', 'Failed to send 2FA code. Please try again.')
     }
     
   } catch (error) {
-    console.error('SuperAdmin login error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('SuperAdmin login error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -149,8 +151,8 @@ const verifyToken = async (req, res) => {
       }
     })
   } catch (error) {
-    console.error('Token verification error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Token verification error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -187,8 +189,8 @@ const createSuperAdmin = async (req, res) => {
     })
     
   } catch (error) {
-    console.error('Create SuperAdmin error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Create SuperAdmin error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -233,8 +235,8 @@ const getSecurityLogs = async (req, res) => {
     })
     
   } catch (error) {
-    console.error('Get security logs error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Get security logs error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -270,8 +272,8 @@ const changePassword = async (req, res) => {
     res.json({ message: 'Password changed successfully' })
     
   } catch (error) {
-    console.error('Change password error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Change password error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -304,8 +306,8 @@ const updateProfile = async (req, res) => {
     })
     
   } catch (error) {
-    console.error('Update profile error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Update profile error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -316,8 +318,8 @@ const logout = async (req, res) => {
     
     res.json({ message: 'Logged out successfully' })
   } catch (error) {
-    console.error('Logout error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Logout error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -326,7 +328,7 @@ const logFailedAttempt = async (email, ipAddress, userAgent, details) => {
   try {
     // Log to a general security collection or file
   } catch (error) {
-    console.error('Failed to log security event:', error)
+    logger.error('Failed to log security event:', error)
   }
 }
 
@@ -391,7 +393,7 @@ const verify2FA = async (req, res) => {
       
       await superAdmin.logSecurityEvent('login_alert_sent', 'Login alert email sent', ipAddress, userAgent, true)
     } catch (emailError) {
-      console.error('Failed to send SuperAdmin login alert email:', emailError)
+      logger.error('Failed to send SuperAdmin login alert email:', emailError)
       await superAdmin.logSecurityEvent('login_alert_failed', 'Failed to send login alert email', ipAddress, userAgent, false)
       // Don't fail the login if email fails
     }
@@ -411,8 +413,8 @@ const verify2FA = async (req, res) => {
     })
     
   } catch (error) {
-    console.error('2FA verification error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('2FA verification error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 
@@ -466,14 +468,14 @@ const resend2FA = async (req, res) => {
         expiresAt: expiresAt
       })
     } catch (emailError) {
-      console.error('Failed to resend 2FA email:', emailError)
+      logger.error('Failed to resend 2FA email:', emailError)
       await superAdmin.logSecurityEvent('2fa_resend_failed', 'Failed to resend 2FA email', ipAddress, userAgent, false)
-      return res.status(500).json({ message: 'Failed to resend 2FA code. Please try again.' })
+      return sendError(res, 'SRV_6001', 'Failed to resend 2FA code. Please try again.')
     }
     
   } catch (error) {
-    console.error('Resend 2FA error:', error)
-    res.status(500).json({ message: 'Internal server error' })
+    logger.error('Resend 2FA error:', error)
+    return sendError(res, 'SRV_6001', 'Internal server error')
   }
 }
 

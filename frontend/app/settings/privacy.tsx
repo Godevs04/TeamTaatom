@@ -361,6 +361,27 @@ export default function PrivacySettingsScreen() {
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             </View>
           </TouchableOpacity>
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingContent}>
+              <Ionicons name="share-social-outline" size={20} color={theme.colors.text} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                  Share Activity
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  Allow your activities to appear in friends' feeds
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={settings?.privacy?.shareActivity !== false}
+              onValueChange={(value) => updateSetting('shareActivity', value)}
+              disabled={updating}
+              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
+              thumbColor={settings?.privacy?.shareActivity !== false ? theme.colors.primary : theme.colors.textSecondary}
+            />
+          </View>
         </View>
 
         {/* Data & Security */}

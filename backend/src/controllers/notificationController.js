@@ -35,7 +35,7 @@ const markAsRead = async (req, res) => {
       { _id: id, toUser: userId },
       { isRead: true },
       { new: true }
-    );
+    ).lean();
 
     if (!notification) {
       return sendError(res, 'RES_3001', 'Notification does not exist');

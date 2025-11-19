@@ -5,6 +5,7 @@ import api from './api';
 import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from '../utils/config';
+import logger from '../utils/logger';
 
 const isWeb = Platform.OS === 'web';
 
@@ -81,7 +82,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       throw new Error('Google sign-in failed');
     }
   } catch (error: any) {
-    console.error('Google sign-in error:', error);
+    logger.error('Google sign-in error:', error);
     throw new Error(error.message || 'Google sign-in failed');
   }
 };
@@ -91,6 +92,6 @@ export const signOutGoogle = async (): Promise<void> => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
   } catch (error) {
-    console.error('Error signing out:', error);
+    logger.error('Error signing out:', error);
   }
 };

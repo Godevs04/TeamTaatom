@@ -15,6 +15,9 @@ const CACHE_TTL = {
   SEARCH_RESULTS: 300, // 5 minutes
   TRENDING_CONTENT: 600, // 10 minutes
   HASHTAG: 1800, // 30 minutes
+  SHORT: 60, // 1 minute - for frequently changing data
+  MEDIUM: 300, // 5 minutes - for moderately changing data
+  LONG: 1800, // 30 minutes - for slowly changing data
 };
 
 /**

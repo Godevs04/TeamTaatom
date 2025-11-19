@@ -3,6 +3,7 @@ import { PostType } from '../types/post';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 import { getApiUrl } from '../utils/config';
+import logger from '../utils/logger';
 
 // Simple in-memory cache and rate-limit friendly helpers
 const postByIdCache = new Map<string, { data: any; expiresAt: number }>();
@@ -414,7 +415,7 @@ export const getUserShorts = async (userId: string, page: number = 1, limit: num
 // Create new short
 export const createShort = async (data: CreateShortData): Promise<{ message: string; short: PostType }> => {
   try {
-    console.log('createShort service called with data:', data);
+    logger.debug('createShort service called with data:', data);
     
     // Get auth token
     const token = await AsyncStorage.getItem('authToken');
@@ -440,7 +441,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       } as any);
     }
     
-    console.log('FormData video field:', {
+    logger.debug('FormData video field:', {
       uri: data.video.uri,
       type: data.video.type,
       name: data.video.name,
@@ -455,7 +456,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
 
-    console.log('Sending request to /shorts endpoint');
+    logger.debug('Sending request to /shorts endpoint');
     
     // Use fetch instead of axios for better FormData handling
     const response = await fetch(getApiUrl('/api/v1/shorts'), {
@@ -473,10 +474,10 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     }
 
     const responseData = await response.json();
-    console.log('Response received:', responseData);
+    logger.debug('Response received:', responseData);
     return responseData;
   } catch (error: any) {
-    console.error('createShort error:', error);
+    logger.error('createShort error:', error);
     throw new Error(error.message || 'Failed to create short');
   }
 };

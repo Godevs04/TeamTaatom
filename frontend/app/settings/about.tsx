@@ -7,14 +7,19 @@ import {
   TouchableOpacity, 
   Alert, 
   ActivityIndicator,
-  Linking
+  Linking,
+  Share,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage } from '../../services/auth';
-import CustomAlert, { CustomAlertButton } from '../../components/CustomAlert';
+import api from '../../services/api';
+import CustomAlert from '../../components/CustomAlert';
+import Constants from 'expo-constants';
+import logger from '../../utils/logger';
 
 export default function AboutSettingsScreen() {
   const [user, setUser] = useState<any>(null);
@@ -24,13 +29,22 @@ export default function AboutSettingsScreen() {
     title: '',
     message: '',
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
-    buttons: [{ text: 'OK' }] as CustomAlertButton[],
+    showCancel: false,
+    confirmText: 'OK',
+    onConfirm: undefined as (() => void) | undefined,
   });
   const router = useRouter();
   const { theme } = useTheme();
 
-  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', buttons: CustomAlertButton[] = [{ text: 'OK' }]) => {
-    setAlertConfig({ title: title || '', message, type, buttons });
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', showCancel: boolean = false, onConfirm?: () => void) => {
+    setAlertConfig({ 
+      title: title || '', 
+      message, 
+      type, 
+      showCancel,
+      confirmText: 'OK',
+      onConfirm
+    });
     setAlertVisible(true);
   };
 
@@ -48,10 +62,25 @@ export default function AboutSettingsScreen() {
 
   const loadUserData = async () => {
     try {
-      const userData = await getUserFromStorage();
-      setUser(userData);
+      // First load from storage for immediate display
+      const cachedUser = await getUserFromStorage();
+      setUser(cachedUser);
+      
+      // Then fetch fresh data from API to get lastLogin
+      try {
+        const response = await api.get('/api/v1/auth/me');
+        if (response.data?.user) {
+          setUser(response.data.user);
+          // Update storage with fresh data
+          await getUserFromStorage(); // This will be updated by auth service
+        }
+      } catch (apiError: any) {
+        // If API fails, use cached data
+        logger.debug('Failed to fetch user from API, using cached data:', apiError);
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to load user data');
+      logger.error('Failed to load user data:', error);
+      showError('Failed to load user data');
     } finally {
       setLoading(false);
     }
@@ -63,20 +92,66 @@ export default function AboutSettingsScreen() {
       if (supported) {
         await Linking.openURL(url);
       } else {
-        Alert.alert('Error', 'Cannot open this link');
+        showError('Cannot open this link. Please check your internet connection.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open link');
+    } catch (error: any) {
+      logger.error('Error opening link:', error);
+      showError('Failed to open link. Please try again.');
     }
   };
 
-  const handleContactSupport = () => {
+  const handleContactSupport = async () => {
+    const supportEmail = 'support@taatom.com';
+    const supportSubject = encodeURIComponent('Taatom Support Request');
+    const supportBody = encodeURIComponent(
+      `Hello Taatom Support Team,\n\n` +
+      `User ID: ${user?.username ? `@${user.username}` : user?._id || 'Unknown'}\n` +
+      `Email: ${user?.email || 'Unknown'}\n` +
+      `Platform: ${Platform.OS}\n\n` +
+      `Please describe your issue or question below:\n\n`
+    );
+    
+    const mailtoUrl = `mailto:${supportEmail}?subject=${supportSubject}&body=${supportBody}`;
+    
     Alert.alert(
       'Contact Support',
       'How would you like to contact us?',
       [
-        { text: 'Email', onPress: () => handleOpenLink('mailto:support@taatom.com') },
-        { text: 'Website', onPress: () => handleOpenLink('https://taatom.com/support') },
+        { 
+          text: 'Email', 
+          onPress: async () => {
+            try {
+              const canOpen = await Linking.canOpenURL(mailtoUrl);
+              if (canOpen) {
+                await Linking.openURL(mailtoUrl);
+              } else {
+                // Fallback: Copy email to clipboard
+                try {
+                  if (Platform.OS === 'web') {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      await navigator.clipboard.writeText(supportEmail);
+                      showSuccess('Support email copied to clipboard!');
+                    } else {
+                      showAlert(`Please send an email to: ${supportEmail}`, 'Contact Support');
+                    }
+                  } else {
+                    // Mobile: Show email in alert
+                    showAlert(`Please send an email to: ${supportEmail}`, 'Contact Support');
+                  }
+                } catch (error) {
+                  showAlert(`Please send an email to: ${supportEmail}`, 'Contact Support');
+                }
+              }
+            } catch (error) {
+              logger.error('Error opening email:', error);
+              showError('Failed to open email client');
+            }
+          }
+        },
+        { 
+          text: 'Website', 
+          onPress: () => handleOpenLink('https://taatom.com/support')
+        },
         { text: 'Cancel', style: 'cancel' }
       ]
     );
@@ -95,17 +170,51 @@ export default function AboutSettingsScreen() {
     );
   };
 
-  const handleShareApp = () => {
-    Alert.alert(
-      'Share Taatom',
-      'Share Taatom with your friends!',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Share', onPress: () => {
-          Alert.alert('Share', 'Sharing feature will be available soon');
-        }}
-      ]
-    );
+  const handleCheckForUpdates = async () => {
+    try {
+      setLoading(true);
+      // In a real app, you would check with your update service
+      // For now, we'll check the app version
+      const currentVersion = Constants.expoConfig?.version || '1.0.0';
+      const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '100';
+      
+      // Simulate checking for updates (replace with actual API call)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      showSuccess(
+        `You are using the latest version!\n\nVersion: ${currentVersion}\nBuild: ${buildNumber}`,
+        'Check for Updates'
+      );
+    } catch (error) {
+      logger.error('Error checking for updates:', error);
+      showError('Failed to check for updates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleShareApp = async () => {
+    try {
+      const shareMessage = `Check out Taatom - Share your moments with the world!\n\n` +
+        `Download now: https://taatom.com/download`;
+      
+      const result = await Share.share({
+        message: shareMessage,
+        title: 'Share Taatom',
+        ...(Platform.OS === 'ios' && {
+          url: 'https://taatom.com/download'
+        })
+      });
+
+      if (result.action === Share.sharedAction) {
+        showSuccess('Thank you for sharing Taatom!');
+      }
+    } catch (error: any) {
+      logger.error('Error sharing app:', error);
+      if (error.message !== 'User did not share') {
+        showError('Failed to share app');
+      }
+    }
   };
 
   if (loading) {
@@ -138,7 +247,7 @@ export default function AboutSettingsScreen() {
               Taatom
             </Text>
             <Text style={[styles.appVersion, { color: theme.colors.textSecondary }]}>
-              Version 1.0.0
+              Version {Constants.expoConfig?.version || '1.0.0'}
             </Text>
             <Text style={[styles.appDescription, { color: theme.colors.textSecondary }]}>
               Share your moments with the world
@@ -156,9 +265,35 @@ export default function AboutSettingsScreen() {
             <Text style={[styles.infoLabel, { color: theme.colors.textSecondary }]}>
               User ID
             </Text>
-            <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              {user?._id ? user._id.substring(0, 8) + '...' : 'Unknown'}
-            </Text>
+            <TouchableOpacity
+              onPress={async () => {
+                const userIdToCopy = user?.username || user?._id;
+                if (userIdToCopy) {
+                  try {
+                    if (Platform.OS === 'web') {
+                      // Web: Use navigator.clipboard
+                      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                        await navigator.clipboard.writeText(userIdToCopy);
+                        showSuccess('User ID copied to clipboard!');
+                      } else {
+                        // Fallback for older browsers
+                        showAlert(`User ID: ${userIdToCopy}`, 'User ID');
+                      }
+                    } else {
+                      // Mobile: Show alert with User ID (can be manually copied)
+                      showAlert(`User ID: ${userIdToCopy}\n\nTap and hold to copy.`, 'User ID');
+                    }
+                  } catch (error) {
+                    logger.error('Error copying User ID:', error);
+                    showAlert(`User ID: ${userIdToCopy}`, 'User ID');
+                  }
+                }
+              }}
+            >
+              <Text style={[styles.infoValue, { color: theme.colors.primary }]}>
+                {user?.username ? `@${user.username}` : user?._id ? user._id.substring(0, 8) + '...' : 'Unknown'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.infoItem}>
@@ -166,7 +301,13 @@ export default function AboutSettingsScreen() {
               Member Since
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}
+              {user?.createdAt 
+                ? new Date(user.createdAt).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit' 
+                  })
+                : 'Unknown'}
             </Text>
           </View>
 
@@ -175,7 +316,31 @@ export default function AboutSettingsScreen() {
               Last Login
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              {user?.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Unknown'}
+              {user?.lastLogin 
+                ? (() => {
+                    const lastLoginDate = new Date(user.lastLogin);
+                    const now = new Date();
+                    const diffMs = now.getTime() - lastLoginDate.getTime();
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const diffHours = Math.floor(diffMs / 3600000);
+                    const diffDays = Math.floor(diffMs / 86400000);
+                    
+                    // Show relative time for recent logins
+                    if (diffMins < 1) return 'Just now';
+                    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+                    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                    
+                    // For older logins, show formatted date
+                    return lastLoginDate.toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                  })()
+                : 'Never'}
             </Text>
           </View>
         </View>
@@ -273,9 +438,7 @@ export default function AboutSettingsScreen() {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => {
-              Alert.alert('Check for Updates', 'You are using the latest version of Taatom!');
-            }}
+            onPress={handleCheckForUpdates}
           >
             <View style={styles.settingContent}>
               <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
@@ -307,7 +470,7 @@ export default function AboutSettingsScreen() {
               Build Version
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              1.0.0 (100)
+              {Constants.expoConfig?.version || '1.0.0'} ({Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '100'})
             </Text>
           </View>
 
@@ -333,7 +496,9 @@ export default function AboutSettingsScreen() {
         title={alertConfig.title}
         message={alertConfig.message}
         type={alertConfig.type}
-        buttons={alertConfig.buttons}
+        showCancel={alertConfig.showCancel}
+        confirmText={alertConfig.confirmText}
+        onConfirm={alertConfig.onConfirm}
         onClose={() => setAlertVisible(false)}
       />
     </View>

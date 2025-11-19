@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger';
 
 // Configuration: Set to false if backend API endpoints are not implemented yet
 // When your backend implements the location endpoints, change this to true
@@ -34,13 +35,13 @@ export const getCountries = async (): Promise<Country[]> => {
         countriesCache = countriesData;
         return countriesData;
       } catch (apiError: any) {
-        console.log('Using static countries data (API endpoint not available)');
+        logger.debug('Using static countries data (API endpoint not available)');
       }
     } else {
-      console.log('Using static countries data (API disabled)');
+      logger.debug('Using static countries data (API disabled)');
     }
   } catch (error: any) {
-    console.log('Using static countries data (API unavailable)');
+    logger.debug('Using static countries data (API unavailable)');
   }
   
   // Fallback to static data if API fails or doesn't exist
@@ -152,13 +153,13 @@ export const getStatesByCountry = async (countryCode: string): Promise<State[]> 
         statesCache[countryCode] = states;
         return states;
       } catch (apiError: any) {
-        console.log(`Using static states data for ${countryCode} (API endpoint not available)`);
+        logger.debug(`Using static states data for ${countryCode} (API endpoint not available)`);
       }
     } else {
-      console.log(`Using static states data for ${countryCode} (API disabled)`);
+      logger.debug(`Using static states data for ${countryCode} (API disabled)`);
     }
   } catch (error: any) {
-    console.log(`Using static states data for ${countryCode} (API unavailable)`);
+    logger.debug(`Using static states data for ${countryCode} (API unavailable)`);
   }
   
   // Fallback to static data if API fails or doesn't exist

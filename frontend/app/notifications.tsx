@@ -19,6 +19,7 @@ import FollowRequestPopup from '../components/FollowRequestPopup';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
+import { triggerRefreshHaptic } from '../utils/hapticFeedback';
 
 const { width } = Dimensions.get('window');
 
@@ -70,6 +71,8 @@ export default function NotificationsScreen() {
   }, []);
 
   const onRefresh = useCallback(async () => {
+    // Trigger haptic feedback for better UX
+    triggerRefreshHaptic();
     setRefreshing(true);
     await loadNotifications(1, true);
     setRefreshing(false);

@@ -1,113 +1,159 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { LineChartComponent, AreaChartComponent, BarChartComponent, PieChartComponent } from '../components/Charts/index.jsx'
-import { Calendar, Download, Filter, RefreshCw } from 'lucide-react'
-import { useRealTime } from '../context/RealTimeContext'
+import { Calendar, Download, Filter, RefreshCw, TrendingUp, Users, Eye, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import {
+  getAnalyticsSummary,
+  getTimeSeriesData,
+  getEventBreakdown,
+  getTopFeatures,
+  getDropOffPoints,
+  getRecentEvents,
+  getUserRetention
+} from '../services/analytics'
+import logger from '../utils/logger'
 
 const Analytics = () => {
-  const { analyticsData, fetchAnalyticsData, isConnected } = useRealTime()
+  const [summary, setSummary] = useState(null)
+  const [timeSeries, setTimeSeries] = useState([])
+  const [eventBreakdown, setEventBreakdown] = useState([])
+  const [topFeatures, setTopFeatures] = useState([])
+  const [dropOffs, setDropOffs] = useState([])
+  const [recentEvents, setRecentEvents] = useState([])
+  const [retention, setRetention] = useState([])
+  
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
-  const [selectedChart, setSelectedChart] = useState('users')
+  const [selectedChart, setSelectedChart] = useState('timeseries')
+  const [selectedEventType, setSelectedEventType] = useState('')
+  const [selectedPlatform, setSelectedPlatform] = useState('')
   const [loading, setLoading] = useState(false)
+  const [eventsPage, setEventsPage] = useState(1)
+  const [eventsSearch, setEventsSearch] = useState('')
 
-  // Fetch analytics data on component mount and when period changes
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      try {
-        await fetchAnalyticsData(selectedPeriod)
-      } catch (error) {
-        toast.error('Failed to fetch analytics data')
-      } finally {
-        setLoading(false)
-      }
+  // Calculate date range from period
+  const getDateRange = (period) => {
+    const end = new Date()
+    let start
+    
+    switch (period) {
+      case '7d':
+        start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        break
+      case '30d':
+        start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        break
+      case '90d':
+        start = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+        break
+      case '1y':
+        start = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
+        break
+      default:
+        start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     }
+    
+    return { start: start.toISOString(), end: end.toISOString() }
+  }
 
-    fetchData()
-  }, [fetchAnalyticsData, selectedPeriod])
-
-  const handleRefresh = async () => {
+  // Fetch all analytics data
+  const fetchAllData = async () => {
     setLoading(true)
     try {
-      await fetchAnalyticsData(selectedPeriod)
-      toast.success('Analytics data refreshed successfully')
+      const { start, end } = getDateRange(selectedPeriod)
+      
+      const [
+        summaryData,
+        timeSeriesData,
+        breakdownData,
+        featuresData,
+        dropOffsData,
+        eventsData,
+        retentionData
+      ] = await Promise.all([
+        getAnalyticsSummary(start, end),
+        getTimeSeriesData({ startDate: start, endDate: end, eventType: selectedEventType || undefined, platform: selectedPlatform || undefined }),
+        getEventBreakdown({ startDate: start, endDate: end }),
+        getTopFeatures({ startDate: start, endDate: end }),
+        getDropOffPoints({ startDate: start, endDate: end }),
+        getRecentEvents({ page: eventsPage, limit: 50, eventType: selectedEventType || undefined, platform: selectedPlatform || undefined, startDate: start, endDate: end, search: eventsSearch || undefined }),
+        getUserRetention(start, end)
+      ])
+      
+      setSummary(summaryData.summary)
+      setTimeSeries(timeSeriesData.timeSeries || [])
+      setEventBreakdown(breakdownData.breakdown || [])
+      setTopFeatures(featuresData.features || [])
+      setDropOffs(dropOffsData.dropOffs || [])
+      setRecentEvents(eventsData.events || [])
+      setRetention(retentionData.retention || [])
     } catch (error) {
-      toast.error('Failed to refresh analytics data')
+      logger.error('Failed to fetch analytics data:', error)
+      toast.error('Failed to fetch analytics data')
     } finally {
       setLoading(false)
     }
   }
 
-  // Transform API data to chart format
-  const userGrowthData = analyticsData?.userGrowth?.map(item => ({
+  useEffect(() => {
+    fetchAllData()
+  }, [selectedPeriod, selectedEventType, selectedPlatform, eventsPage, eventsSearch])
+
+  const handleRefresh = async () => {
+    await fetchAllData()
+    toast.success('Analytics data refreshed successfully')
+  }
+
+  const handleExport = () => {
+    // Export functionality can be added later
+    toast.info('Export functionality coming soon')
+  }
+
+  // Transform time series data for charts
+  const timeSeriesChartData = timeSeries.map(item => ({
     name: item.date,
-    users: item.count,
-    posts: analyticsData.contentStats?.totalPosts || 0,
-    engagement: 0
-  })) || []
+    events: item.totalEvents,
+    users: item.uniqueUsers
+  }))
 
-  // Create a single engagement data point from real data
-  const engagementTotal = analyticsData?.engagement || analyticsData?.contentStats
-  const engagementData = engagementTotal ? [
-    { name: 'Mon', views: engagementTotal.totalLikes || 0, likes: engagementTotal.totalLikes || 0, comments: engagementTotal.totalComments || 0, shares: engagementTotal.totalShares || 0 }
-  ] : []
-
-  const locationData = analyticsData?.topLocations?.map(item => ({
+  // Transform event breakdown for pie chart
+  const breakdownChartData = eventBreakdown.slice(0, 10).map(item => ({
     name: item.name,
-    users: item.users || 0,
-    posts: item.posts || 0
-  })) || []
+    value: item.count,
+    users: item.uniqueUsers
+  }))
 
-  // Calculate content type distribution from real data
-  const totalPosts = analyticsData?.contentStats?.totalPosts || 1
-  const contentTypeData = [
-    { 
-      name: 'Photos', 
-      value: analyticsData?.contentStats ? Math.round((analyticsData.contentStats.totalPosts / totalPosts) * 100) : 45, 
-      count: analyticsData?.contentStats?.totalPosts || 0 
-    },
-    { 
-      name: 'Shorts', 
-      value: analyticsData?.contentStats ? Math.round((analyticsData.contentStats.totalShorts / totalPosts) * 100) : 20, 
-      count: analyticsData?.contentStats?.totalShorts || 0 
-    },
-    { 
-      name: 'Total', 
-      value: 100, 
-      count: totalPosts 
-    }
-  ]
+  // Transform top features for bar chart
+  const featuresChartData = topFeatures.map(item => ({
+    name: item.featureName,
+    usage: item.usageCount,
+    users: item.uniqueUsers
+  }))
 
-  const deviceData = analyticsData?.deviceStats ? [
-    { name: 'Mobile', value: analyticsData.deviceStats.mobile || 0, users: Math.round((analyticsData.deviceStats.mobile || 0) * 100) },
-    { name: 'Desktop', value: analyticsData.deviceStats.desktop || 0, users: Math.round((analyticsData.deviceStats.desktop || 0) * 100) },
-    { name: 'Tablet', value: analyticsData.deviceStats.tablet || 0, users: Math.round((analyticsData.deviceStats.tablet || 0) * 100) }
-  ] : []
+  // Transform drop-offs for bar chart
+  const dropOffsChartData = dropOffs.map(item => ({
+    name: item.step,
+    count: item.dropOffCount,
+    users: item.affectedUsers
+  }))
 
-  const retentionData = [
-    { day: 'Day 1', retention: 100 },
-    { day: 'Day 7', retention: 65 },
-    { day: 'Day 14', retention: 45 },
-    { day: 'Day 30', retention: 30 },
-    { day: 'Day 60', retention: 20 },
-    { day: 'Day 90', retention: 15 },
-  ]
+  // Transform retention data
+  const retentionChartData = retention.map(item => ({
+    day: item.cohortDate,
+    day1: parseFloat(item.day1Retention),
+    day7: parseFloat(item.day7Retention),
+    day14: parseFloat(item.day14Retention),
+    day30: parseFloat(item.day30Retention)
+  }))
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Analytics</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
           <p className="text-gray-600 mt-2">
-            Charts for usage, trends, and growth
-            {isConnected && (
-              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                <span className="w-2 h-2 bg-green-400 rounded-full mr-1 animate-pulse"></span>
-                Live Data
-              </span>
-            )}
+            Comprehensive analytics and insights
           </p>
         </div>
         <div className="flex space-x-3">
@@ -129,85 +175,88 @@ const Analytics = () => {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          <button className="btn btn-primary">
+          <button 
+            onClick={handleExport}
+            className="btn btn-primary"
+          >
             <Download className="w-4 h-4 mr-2" />
             Export Data
           </button>
         </div>
       </div>
 
-      {/* Key Metrics */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
               <div className="p-2 bg-blue-100 rounded-lg">
-                <Calendar className="w-6 h-6 text-blue-600" />
+                <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Users</p>
+                <p className="text-sm font-medium text-gray-600">Daily Active Users</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.userGrowth?.length || 0}
+                  {summary?.dau || 0}
                 </p>
-                <p className="text-xs text-green-600">
-                  {analyticsData?.userGrowth?.length > 0 ? '+12.5% from last month' : 'No data available'}
+                <p className="text-xs text-gray-500">
+                  Monthly: {summary?.mau || 0}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+        
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
               <div className="p-2 bg-green-100 rounded-lg">
-                <Calendar className="w-6 h-6 text-green-600" />
+                <Eye className="w-6 h-6 text-green-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Active Users</p>
+                <p className="text-sm font-medium text-gray-600">Post Views</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.activeUsers || 0}
+                  {summary?.postViews?.toLocaleString() || 0}
                 </p>
-                <p className="text-xs text-green-600">
-                  {analyticsData?.activeUsers > 0 ? '+8.2% from last month' : 'No data available'}
+                <p className="text-xs text-gray-500">
+                  Total Events: {summary?.totalEvents?.toLocaleString() || 0}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+        
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
               <div className="p-2 bg-purple-100 rounded-lg">
-                <Calendar className="w-6 h-6 text-purple-600" />
+                <TrendingUp className="w-6 h-6 text-purple-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Total Posts</p>
+                <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.contentStats?.totalPosts || 0}
+                  {summary?.engagementRate?.toFixed(1) || 0}%
                 </p>
-                <p className="text-xs text-green-600">
-                  {analyticsData?.contentStats?.totalPosts > 0 ? '+15.3% from last month' : 'No data available'}
+                <p className="text-xs text-gray-500">
+                  Total Posts: {summary?.totalPosts?.toLocaleString() || 0}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+        
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Calendar className="w-6 h-6 text-yellow-600" />
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
+                <p className="text-sm font-medium text-gray-600">Crashes</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {analyticsData?.engagementMetrics?.avgLikes ? 
-                    `${((analyticsData.engagementMetrics.avgLikes / 100) * 100).toFixed(1)}%` : 
-                    '0%'
-                  }
+                  {summary?.crashCount || 0}
                 </p>
-                <p className="text-xs text-green-600">
-                  {analyticsData?.engagementMetrics?.avgLikes > 0 ? '+2.1% from last month' : 'No data available'}
+                <p className="text-xs text-gray-500">
+                  Unresolved errors
                 </p>
               </div>
             </div>
@@ -215,49 +264,93 @@ const Analytics = () => {
         </Card>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="flex items-center space-x-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">Filters:</span>
+            </div>
+            <select
+              className="input"
+              value={selectedEventType}
+              onChange={(e) => setSelectedEventType(e.target.value)}
+            >
+              <option value="">All Event Types</option>
+              <option value="post_view">Post Views</option>
+              <option value="post_liked">Likes</option>
+              <option value="comment_added">Comments</option>
+              <option value="feature_usage">Feature Usage</option>
+              <option value="drop_off">Drop-offs</option>
+            </select>
+            <select
+              className="input"
+              value={selectedPlatform}
+              onChange={(e) => setSelectedPlatform(e.target.value)}
+            >
+              <option value="">All Platforms</option>
+              <option value="ios">iOS</option>
+              <option value="android">Android</option>
+              <option value="web">Web</option>
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Chart Controls */}
       <Card>
         <CardContent className="p-6">
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setSelectedChart('users')}
+              onClick={() => setSelectedChart('timeseries')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedChart === 'users'
+                selectedChart === 'timeseries'
                   ? 'bg-accent text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              User Growth
+              Time Series
             </button>
             <button
-              onClick={() => setSelectedChart('engagement')}
+              onClick={() => setSelectedChart('breakdown')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedChart === 'engagement'
+                selectedChart === 'breakdown'
                   ? 'bg-accent text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Engagement
+              Event Breakdown
             </button>
             <button
-              onClick={() => setSelectedChart('locations')}
+              onClick={() => setSelectedChart('features')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedChart === 'locations'
+                selectedChart === 'features'
                   ? 'bg-accent text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Locations
+              Top Features
             </button>
             <button
-              onClick={() => setSelectedChart('content')}
+              onClick={() => setSelectedChart('dropoffs')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedChart === 'content'
+                selectedChart === 'dropoffs'
                   ? 'bg-accent text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Content Types
+              Drop-offs
+            </button>
+            <button
+              onClick={() => setSelectedChart('retention')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedChart === 'retention'
+                  ? 'bg-accent text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              User Retention
             </button>
           </div>
         </CardContent>
@@ -270,130 +363,181 @@ const Analytics = () => {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Main Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {selectedChart === 'timeseries' && 'Event Time Series'}
+                {selectedChart === 'breakdown' && 'Event Breakdown by Type'}
+                {selectedChart === 'features' && 'Top Features Usage'}
+                {selectedChart === 'dropoffs' && 'Drop-off Points'}
+                {selectedChart === 'retention' && 'User Retention'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {selectedChart === 'timeseries' && timeSeriesChartData.length > 0 && (
+                <LineChartComponent data={timeSeriesChartData} dataKey="events" name="Events" />
+              )}
+              {selectedChart === 'breakdown' && breakdownChartData.length > 0 && (
+                <PieChartComponent data={breakdownChartData} dataKey="value" nameKey="name" />
+              )}
+              {selectedChart === 'features' && featuresChartData.length > 0 && (
+                <BarChartComponent data={featuresChartData} dataKey="usage" name="Usage Count" />
+              )}
+              {selectedChart === 'dropoffs' && dropOffsChartData.length > 0 && (
+                <BarChartComponent data={dropOffsChartData} dataKey="count" name="Drop-off Count" />
+              )}
+              {selectedChart === 'retention' && retentionChartData.length > 0 && (
+                <LineChartComponent data={retentionChartData} dataKey="day30" name="30-Day Retention %" />
+              )}
+              {(!timeSeriesChartData.length && !breakdownChartData.length && !featuresChartData.length && !dropOffsChartData.length && !retentionChartData.length) && (
+                <div className="flex items-center justify-center h-64 text-gray-500">
+                  No data available for the selected period
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Main Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {selectedChart === 'users' && 'User Growth & Posts'}
-            {selectedChart === 'engagement' && 'Daily Engagement Metrics'}
-            {selectedChart === 'locations' && 'Users by Region'}
-            {selectedChart === 'content' && 'Content Type Distribution'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {selectedChart === 'users' && (
-            <LineChartComponent data={userGrowthData} dataKey="users" name="Users" />
-          )}
-          {selectedChart === 'engagement' && (
-            <AreaChartComponent data={engagementData} dataKey="views" name="Views" />
-          )}
-          {selectedChart === 'locations' && (
-            <BarChartComponent data={locationData} dataKey="users" name="Users" />
-          )}
-          {selectedChart === 'content' && (
-            <PieChartComponent data={contentTypeData} dataKey="value" nameKey="name" />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Additional Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Device Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Device Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <PieChartComponent data={deviceData} dataKey="value" nameKey="name" />
-          </CardContent>
-        </Card>
-
-        {/* User Retention */}
-        <Card>
-          <CardHeader>
-            <CardTitle>User Retention</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <LineChartComponent data={retentionData} dataKey="retention" name="Retention %" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Detailed Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Locations */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Travel Locations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {locationData.slice(0, 5).map((location, index) => (
-                <div key={location.name} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-6 h-6 bg-accent rounded-full flex items-center justify-center text-white text-xs font-bold">
-                      {index + 1}
-                    </div>
-                    <span className="text-sm font-medium">{location.name}</span>
+          {/* Additional Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Features */}
+            {topFeatures.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Features</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {topFeatures.slice(0, 5).map((feature, index) => (
+                      <div key={feature.featureName} className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-6 h-6 bg-accent rounded-full flex items-center justify-center text-white text-xs font-bold">
+                            {index + 1}
+                          </div>
+                          <span className="text-sm font-medium">{feature.featureName}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold">{feature.usageCount.toLocaleString()}</div>
+                          <div className="text-xs text-gray-500">{feature.uniqueUsers} users</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold">{location.users.toLocaleString()}</div>
-                    <div className="text-xs text-gray-500">{location.posts.toLocaleString()} posts</div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Drop-off Points */}
+            {dropOffs.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Drop-off Points</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {dropOffs.slice(0, 5).map((dropOff, index) => (
+                      <div key={dropOff.step} className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center text-red-600 text-xs font-bold">
+                            {index + 1}
+                          </div>
+                          <span className="text-sm font-medium">{dropOff.step}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold">{dropOff.dropOffCount.toLocaleString()}</div>
+                          <div className="text-xs text-gray-500">{dropOff.affectedUsers} users</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Recent Events Table */}
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <CardTitle>Recent Events</CardTitle>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    placeholder="Search events..."
+                    className="input"
+                    value={eventsSearch}
+                    onChange={(e) => {
+                      setEventsSearch(e.target.value)
+                      setEventsPage(1)
+                    }}
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {recentEvents.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Event
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          User
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Platform
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Timestamp
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {recentEvents.map((event) => (
+                        <tr key={event._id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {event.event}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {event.userId?.fullName || event.userId?.username || 'Anonymous'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {event.platform || 'Unknown'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {new Date(event.timestamp).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex justify-between items-center mt-4">
+                    <button
+                      onClick={() => setEventsPage(prev => Math.max(1, prev - 1))}
+                      disabled={eventsPage === 1}
+                      className="btn btn-secondary"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-gray-600">Page {eventsPage}</span>
+                    <button
+                      onClick={() => setEventsPage(prev => prev + 1)}
+                      disabled={recentEvents.length < 50}
+                      className="btn btn-secondary"
+                    >
+                      Next
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Content Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Content Performance</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {contentTypeData.map((content, index) => (
-                <div key={content.name} className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{content.name}</span>
-                  <div className="text-right">
-                    <div className="text-sm font-bold">{content.value}%</div>
-                    <div className="text-xs text-gray-500">{content.count.toLocaleString()} posts</div>
-                  </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  No recent events found
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Engagement Trends */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Engagement Trends</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Average Likes per Post</span>
-                <span className="text-sm font-bold">156</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Average Comments per Post</span>
-                <span className="text-sm font-bold">23</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Average Shares per Post</span>
-                <span className="text-sm font-bold">8</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Peak Activity Time</span>
-                <span className="text-sm font-bold">7-9 PM</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

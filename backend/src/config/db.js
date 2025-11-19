@@ -3,6 +3,22 @@ const logger = require('../utils/logger');
 
 const connectDB = async () => {
   try {
+    // Set up event listeners before connecting
+    mongoose.connection.on('connected', () => {
+      logger.info(`MongoDB Connected: ${mongoose.connection.host}`);
+      logger.info(`Database: ${mongoose.connection.name}`);
+      logger.debug(`Connection pool size: ${mongoose.connection.maxPoolSize || 'default'}`);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('MongoDB disconnected');
+    });
+
+    mongoose.connection.on('error', (err) => {
+      logger.error('MongoDB connection error:', err);
+    });
+
+    // Connect to MongoDB
     const conn = await mongoose.connect(process.env.MONGO_URL, {
       dbName: 'Taatom',
       // Connection Pool Settings for Performance Optimization
@@ -19,21 +35,6 @@ const connectDB = async () => {
       retryReads: true, // Retry reads on network errors
     });
 
-    // Monitor connection pool
-    mongoose.connection.on('connected', () => {
-      logger.info(`MongoDB Connected: ${conn.connection.host}`);
-      logger.info(`Database: ${conn.connection.name}`);
-      logger.debug(`Connection pool size: ${conn.connection.maxPoolSize || 'default'}`);
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      logger.warn('MongoDB disconnected');
-    });
-
-    mongoose.connection.on('error', (err) => {
-      logger.error('MongoDB connection error:', err);
-    });
-
     // Log pool statistics periodically (development only)
     if (process.env.NODE_ENV === 'development') {
       setInterval(() => {
@@ -44,9 +45,11 @@ const connectDB = async () => {
       }, 60000); // Every minute
     }
 
+    // Return connection for chaining
+    return conn;
   } catch (error) {
     logger.error('MongoDB connection error:', error.message);
-    process.exit(1);
+    throw error; // Re-throw so server.js can handle it
   }
 };
 

@@ -6,4 +6,5 @@
 !.vscode/launch.json
 .expo
 de/rules/byterover-rules.md
+.env
 

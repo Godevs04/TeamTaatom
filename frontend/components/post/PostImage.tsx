@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, ActivityIndicator, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
-import { loadImageWithFallback } from '../../utils/imageLoader';
+import { loadImageWithFallback, generateBlurUpUrl, generateWebPUrl } from '../../utils/imageLoader';
 import { Platform } from 'react-native';
 
 interface PostImageProps {
@@ -28,6 +28,26 @@ export default function PostImage({
   pulseAnim,
 }: PostImageProps) {
   const { theme } = useTheme();
+  const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
+  const [showBlur, setShowBlur] = useState(true);
+  const [mainImageLoaded, setMainImageLoaded] = useState(false);
+
+  // Generate blur-up placeholder for progressive loading
+  useEffect(() => {
+    if (post.imageUrl && !blurUpUri) {
+      const blurUrl = generateBlurUpUrl(post.imageUrl);
+      setBlurUpUri(blurUrl);
+    }
+  }, [post.imageUrl, blurUpUri]);
+
+  // Hide blur once main image is loaded
+  const handleMainImageLoad = () => {
+    setMainImageLoaded(true);
+    // Small delay to ensure smooth transition
+    setTimeout(() => {
+      setShowBlur(false);
+    }, 100);
+  };
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.9}>
@@ -40,16 +60,28 @@ export default function PostImage({
         
         {imageUri && !imageError ? (
           <View style={styles.imageWrapper}>
+            {/* Blur-up placeholder for progressive loading */}
+            {blurUpUri && showBlur && (
+              <Image
+                source={{ uri: blurUpUri }}
+                style={[styles.image, styles.blurImage]}
+                resizeMode="cover"
+                blurRadius={Platform.OS === 'ios' ? 10 : 5}
+              />
+            )}
+            
+            {/* Main image with progressive loading */}
             <Image
               source={{ uri: imageUri }}
-              style={styles.image}
+              style={[
+                styles.image,
+                mainImageLoaded ? styles.imageLoaded : styles.imageLoading
+              ]}
               resizeMode="cover"
               onLoadStart={() => {
                 // Loading state handled by parent
               }}
-              onLoad={() => {
-                // Loading state handled by parent
-              }}
+              onLoad={handleMainImageLoad}
               onError={onImageError}
             />
             
@@ -143,6 +175,18 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+  },
+  blurImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 1,
+  },
+  imageLoading: {
+    opacity: 0,
+  },
+  imageLoaded: {
+    opacity: 1,
   },
   multipleImagesIndicator: {
     position: 'absolute',

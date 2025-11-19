@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -18,6 +18,8 @@ import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
 import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
+import { ErrorBoundary } from '../utils/errorBoundary';
+import { registerServiceWorker } from '../utils/serviceWorker';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -65,11 +67,12 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Initialize analytics, feature flags, and crash reporting
+        // Initialize analytics, feature flags, crash reporting, and service worker
         await Promise.all([
           analyticsService.initialize(),
           featureFlagsService.initialize(),
           crashReportingService.initialize(),
+          registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
 
         const user = await initializeAuth();
@@ -322,34 +325,44 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: theme.colors.background },
-        }}
-      >
-        {!isAuthenticated
-          ? <Stack.Screen name="(auth)" />
-          : <Stack.Screen name="(tabs)" />
+      <Suspense
+        fallback={
+          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
         }
-      </Stack>
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: theme.colors.background },
+          }}
+        >
+          {!isAuthenticated
+            ? <Stack.Screen name="(auth)" />
+            : <Stack.Screen name="(tabs)" />
+          }
+        </Stack>
+      </Suspense>
     </ResponsiveContainer>
   );
 }
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider>
-        <SettingsProvider>
-          <AlertProvider>
-            <View style={styles.rootContainer}>
-              <RootLayoutInner />
-            </View>
-          </AlertProvider>
-        </SettingsProvider>
-      </ThemeProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary level="global" showDetails={process.env.NODE_ENV === 'development'}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <ThemeProvider>
+          <SettingsProvider>
+            <AlertProvider>
+              <View style={styles.rootContainer}>
+                <RootLayoutInner />
+              </View>
+            </AlertProvider>
+          </SettingsProvider>
+        </ThemeProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 

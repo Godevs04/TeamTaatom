@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getUserFromStorage } from './auth';
 import { getApiUrl } from '../utils/config';
+import logger from '../utils/logger';
 
 interface ErrorContext {
   userId?: string;
@@ -83,7 +84,7 @@ class CrashReportingService {
 
     // Log to console in development
     if (process.env.NODE_ENV === 'development') {
-      console.error('[Crash Report]', errorReport);
+      logger.error('[Crash Report]', errorReport);
     }
 
     // Send to backend for logging/storage
@@ -120,7 +121,7 @@ class CrashReportingService {
     };
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Crash Report ${level.toUpperCase()}]`, report);
+      logger.debug(`[Crash Report ${level.toUpperCase()}]`, report);
     }
 
     try {
@@ -143,7 +144,7 @@ class CrashReportingService {
   addBreadcrumb(message: string, category: string, data?: Record<string, any>) {
     // For now, just log in development
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Breadcrumb] ${category}: ${message}`, data);
+      logger.debug(`[Breadcrumb] ${category}: ${message}`, data);
     }
   }
 }

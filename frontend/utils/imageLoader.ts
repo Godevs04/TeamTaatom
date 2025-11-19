@@ -55,19 +55,54 @@ export const loadImageWithFallback = async (
 };
 
 const generateOptimizedCloudinaryUrl = (originalUrl: string): string => {
-  // Extract public ID and generate optimized URL
+  // Extract public ID and generate optimized URL with WebP format and progressive loading
   const urlParts = originalUrl.split('/');
   const publicIdWithExtension = urlParts[urlParts.length - 1];
   const publicId = publicIdWithExtension.split('.')[0];
   
-  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_800,h_800,c_limit,q_auto:good,f_auto/taatom/posts/${publicId}`;
+  // Use WebP format (auto-detected by Cloudinary), progressive JPEG flag, and quality optimization
+  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_800,h_800,c_limit,q_auto:good,f_auto,fl_progressive/taatom/posts/${publicId}`;
 };
 
 const generateSmallCloudinaryUrl = (originalUrl: string): string => {
-  // Extract public ID and generate small URL
+  // Extract public ID and generate small URL for blur-up technique (thumbnail)
   const urlParts = originalUrl.split('/');
   const publicIdWithExtension = urlParts[urlParts.length - 1];
   const publicId = publicIdWithExtension.split('.')[0];
   
-  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_400,h_400,c_limit,q_auto:low,f_auto/taatom/posts/${publicId}`;
+  // Small, low-quality image for blur-up placeholder
+  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_50,h_50,c_limit,q_auto:low,f_auto,fl_progressive,e_blur:200/taatom/posts/${publicId}`;
+};
+
+/**
+ * Generate a blur-up placeholder URL for progressive image loading
+ * This creates a very small, blurred version of the image for instant display
+ */
+export const generateBlurUpUrl = (originalUrl: string): string => {
+  if (!originalUrl.includes('cloudinary.com')) {
+    return originalUrl; // Return original if not Cloudinary
+  }
+  
+  const urlParts = originalUrl.split('/');
+  const publicIdWithExtension = urlParts[urlParts.length - 1];
+  const publicId = publicIdWithExtension.split('.')[0];
+  
+  // Generate a very small, heavily blurred placeholder (20x20px, blur effect)
+  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_20,h_20,c_fill,q_auto:low,f_auto,e_blur:400/taatom/posts/${publicId}`;
+};
+
+/**
+ * Generate WebP format URL for better compression
+ */
+export const generateWebPUrl = (originalUrl: string, width: number = 800, height: number = 800): string => {
+  if (!originalUrl.includes('cloudinary.com')) {
+    return originalUrl; // Return original if not Cloudinary
+  }
+  
+  const urlParts = originalUrl.split('/');
+  const publicIdWithExtension = urlParts[urlParts.length - 1];
+  const publicId = publicIdWithExtension.split('.')[0];
+  
+  // Force WebP format for better compression
+  return `https://res.cloudinary.com/dcvdqhqzc/image/upload/w_${width},h_${height},c_limit,q_auto:good,f_webp,fl_progressive/taatom/posts/${publicId}`;
 };

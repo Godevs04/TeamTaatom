@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger';
 
 export interface UserSettings {
   privacy: {
@@ -8,6 +9,7 @@ export interface UserSettings {
     allowMessages: 'everyone' | 'followers' | 'none';
     requireFollowApproval: boolean;
     allowFollowRequests: boolean;
+    shareActivity?: boolean;
   };
   notifications: {
     pushNotifications: boolean;
@@ -37,7 +39,7 @@ const checkNetworkConnectivity = async (): Promise<boolean> => {
     const response = await api.get('/api/v1/auth/me', { timeout: 5000 });
     return response.status === 200;
   } catch (error) {
-    console.log('Network connectivity check failed:', error);
+    logger.debug('Network connectivity check failed:', error);
     return false;
   }
 };
@@ -65,7 +67,7 @@ export const updateSettings = async (settings: Partial<UserSettings>): Promise<S
 // Update specific settings category
 export const updateSettingCategory = async (category: 'privacy' | 'notifications' | 'account', settings: any): Promise<SettingsResponse> => {
   try {
-    console.log(`Updating ${category} settings:`, settings);
+    logger.debug(`Updating ${category} settings:`, settings);
     
     // Check network connectivity first
     const isConnected = await checkNetworkConnectivity();
@@ -80,10 +82,10 @@ export const updateSettingCategory = async (category: 'privacy' | 'notifications
       }
     });
     
-    console.log(`Successfully updated ${category} settings:`, response.data);
+    logger.debug(`Successfully updated ${category} settings:`, response.data);
     return response.data;
   } catch (error: any) {
-    console.error(`Error updating ${category} settings:`, error);
+    logger.error(`Error updating ${category} settings:`, error);
     
     // Handle different types of errors
     if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {

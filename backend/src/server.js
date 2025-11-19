@@ -1,5 +1,5 @@
 require('dotenv').config();
-const app = require('./app');
+const { app, dbConnectionPromise } = require('./app');
 const http = require('http');
 const { setupSocket } = require('./socket');
 const { initializeRedis, checkRedisHealth } = require('./utils/redisHealth');
@@ -42,10 +42,22 @@ if (process.env.ENABLE_BACKGROUND_JOBS === 'true' || process.env.NODE_ENV === 'p
 
 const PORT = process.env.PORT || 5000;
 
-const server = http.createServer(app);
-setupSocket(server);
+// Wait for database connection before starting the server
+(async () => {
+  try {
+    // Wait for MongoDB connection
+    await dbConnectionPromise;
+    logger.info('✅ Database connection established, starting server...');
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+    const server = http.createServer(app);
+    setupSocket(server);
+
+    server.listen(PORT, '0.0.0.0', () => {
+      logger.info(`🚀 Server running on port ${PORT}`);
+      logger.info(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+  } catch (error) {
+    logger.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+})();
