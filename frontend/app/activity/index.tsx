@@ -20,6 +20,7 @@ import { getActivityFeed, Activity as ActivityType } from '../../services/activi
 import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
+import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 
 export default function ActivityFeedScreen() {
   const [activities, setActivities] = useState<ActivityType[]>([]);
@@ -66,8 +67,11 @@ export default function ActivityFeedScreen() {
   }, [filterType]);
 
   const handleRefresh = async () => {
+    // Trigger haptic feedback for better UX
+    triggerRefreshHaptic();
     setRefreshing(true);
     await loadActivities(1, false);
+    setRefreshing(false);
   };
 
   const handleLoadMore = () => {
