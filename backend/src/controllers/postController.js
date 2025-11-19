@@ -21,24 +21,39 @@ const getPosts = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
+    const cursor = req.query.cursor; // Cursor for cursor-based pagination
+    const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
 
     // Cache key with filters
-    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo' });
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor });
 
     // Use cache wrapper for performance
     const result = await cacheWrapper(cacheKey, async () => {
+      // Build match query
+      const matchQuery = {
+        isActive: true,
+        isArchived: { $ne: true },
+        isHidden: { $ne: true },
+        type: 'photo'
+      };
+
+      // Add cursor-based filtering if cursor is provided
+      if (useCursor && cursor) {
+        try {
+          const cursorDate = new Date(cursor);
+          matchQuery.createdAt = { $lt: cursorDate };
+        } catch (e) {
+          logger.warn('Invalid cursor provided, using offset pagination');
+        }
+      }
+
       // Use aggregation pipeline for better performance (single query instead of populate)
       const posts = await Post.aggregate([
         {
-          $match: {
-            isActive: true,
-            isArchived: { $ne: true },
-            isHidden: { $ne: true },
-            type: 'photo'
-          }
+          $match: matchQuery
         },
         { $sort: { createdAt: -1 } },
-        { $skip: skip },
+        ...(useCursor && cursor ? [] : [{ $skip: skip }]), // Skip only for offset pagination
         { $limit: limit },
         {
           $lookup: {
@@ -151,19 +166,30 @@ const getPosts = async (req, res) => {
       };
     });
 
+    // Determine next cursor (last post's createdAt)
+    const nextCursor = postsWithLikeStatus.length > 0 
+      ? postsWithLikeStatus[postsWithLikeStatus.length - 1].createdAt 
+      : null;
+
     const totalPages = Math.ceil(totalPosts / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+    const hasNextPage = useCursor ? (postsWithLikeStatus.length === limit) : (page < totalPages);
+    const hasPrevPage = !useCursor && page > 1;
 
     return sendSuccess(res, 200, 'Posts fetched successfully', {
       posts: postsWithLikeStatus,
       pagination: {
-        currentPage: page,
-        totalPages,
-        totalPosts,
-        hasNextPage,
-        hasPrevPage,
-        limit
+        ...(useCursor ? {
+          cursor: nextCursor,
+          hasNextPage,
+          limit
+        } : {
+          currentPage: page,
+          totalPages,
+          totalPosts,
+          hasNextPage,
+          hasPrevPage,
+          limit
+        })
       }
     });
 

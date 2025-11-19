@@ -1865,4 +1865,26 @@ router.post('/settings/reset', checkPermission('canManageSettings'), async (req,
   }
 })
 
+// Query monitoring stats endpoint
+const { getQueryStats, resetQueryStats } = require('../middleware/queryMonitor');
+router.get('/query-stats', authenticateSuperAdmin, (req, res) => {
+  try {
+    const stats = getQueryStats();
+    return sendSuccess(res, 200, 'Query statistics fetched successfully', { stats });
+  } catch (error) {
+    logger.error('Get query stats error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch query statistics');
+  }
+});
+
+router.post('/query-stats/reset', authenticateSuperAdmin, (req, res) => {
+  try {
+    resetQueryStats();
+    return sendSuccess(res, 200, 'Query statistics reset successfully');
+  } catch (error) {
+    logger.error('Reset query stats error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to reset query statistics');
+  }
+});
+
 module.exports = router
