@@ -143,12 +143,32 @@ const { generalLimiter } = require('./middleware/rateLimit');
 // Apply general rate limiting
 app.use(generalLimiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing middleware with stricter limits per endpoint type
+// Default limits (can be overridden per route)
+app.use(express.json({ 
+  limit: process.env.MAX_JSON_BODY_SIZE || '1mb', // Stricter default: 1MB for JSON
+  verify: (req, res, buf) => {
+    // Additional validation: reject if body is too large
+    if (buf.length > 1 * 1024 * 1024) { // 1MB
+      throw new Error('Request body too large');
+    }
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: process.env.MAX_URLENCODED_BODY_SIZE || '1mb' // Stricter default: 1MB
+}));
 
 // Input sanitization middleware (applied to all routes)
 app.use(sanitizeInput);
+
+// Request/Response logging middleware (applied to all routes)
+const requestLogger = require('./middleware/requestLogger');
+app.use(requestLogger);
+
+// Request size limiting middleware (applied to all routes)
+const { requestSizeLimiter } = require('./middleware/requestSizeLimiter');
+app.use(requestSizeLimiter);
 
 // Database query monitoring middleware (applied to all routes)
 app.use(queryMonitor);

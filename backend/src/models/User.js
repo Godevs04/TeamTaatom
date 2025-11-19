@@ -277,6 +277,7 @@ userSchema.methods.clearOTP = function() {
 userSchema.methods.getPublicProfile = function() {
   return {
     _id: this._id,
+    username: this.username,
     fullName: this.fullName,
     bio: this.bio,
     email: this.email,
@@ -285,7 +286,8 @@ userSchema.methods.getPublicProfile = function() {
     following: this.following.length,
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,
-    createdAt: this.createdAt
+    createdAt: this.createdAt,
+    lastLogin: this.lastLogin
   };
 };
 

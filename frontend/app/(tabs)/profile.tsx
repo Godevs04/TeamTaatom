@@ -27,6 +27,7 @@ import EditProfile from '../../components/EditProfile';
 import RotatingGlobe from '../../components/RotatingGlobe';
 import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
+import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -204,6 +205,8 @@ export default function ProfileScreen() {
   }, [checkingUser, user, router]);
 
   const handleRefresh = useCallback(async () => {
+    // Trigger haptic feedback for better UX
+    triggerRefreshHaptic();
     setRefreshing(true);
     await loadUserData();
     await loadUnreadCount();
