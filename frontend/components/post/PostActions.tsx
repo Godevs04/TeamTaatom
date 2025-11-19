@@ -25,7 +25,13 @@ export default function PostActions({
   return (
     <View style={styles.actions}>
       <View style={styles.leftActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={onLike}>
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={onLike}
+          accessibilityLabel={isLiked ? 'Unlike post' : 'Like post'}
+          accessibilityRole="button"
+          accessibilityHint="Double tap to like or unlike this post"
+        >
           <Ionicons
             name={isLiked ? 'heart' : 'heart-outline'}
             size={24}
@@ -36,6 +42,9 @@ export default function PostActions({
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onComment}
+          accessibilityLabel="Comment on post"
+          accessibilityRole="button"
+          accessibilityHint="Double tap to add a comment"
         >
           <Ionicons name="chatbubble-outline" size={24} color={theme.colors.text} />
         </TouchableOpacity>
@@ -43,6 +52,9 @@ export default function PostActions({
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onShare}
+          accessibilityLabel="Share post"
+          accessibilityRole="button"
+          accessibilityHint="Double tap to share this post"
         >
           <Ionicons name="paper-plane-outline" size={24} color={theme.colors.text} />
         </TouchableOpacity>
@@ -51,6 +63,9 @@ export default function PostActions({
       <TouchableOpacity
         style={styles.actionButton}
         onPress={onSave}
+        accessibilityLabel={isSaved ? 'Remove from saved' : 'Save post'}
+        accessibilityRole="button"
+        accessibilityHint="Double tap to save or unsave this post"
       >
         <Ionicons 
           name={isSaved ? 'bookmark' : 'bookmark-outline'} 
