@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -25,11 +26,27 @@ const collectionRoutes = require('./routes/collectionRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const sanitizeInput = require('./middleware/sanitizeInput');
 const { generateCSRF, verifyCSRF } = require('./middleware/csrfProtection');
+const { queryMonitor } = require('./middleware/queryMonitor');
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB - store promise for server.js to await
+const dbConnectionPromise = connectDB();
+
+// Initialize query monitoring after DB connection is established
+dbConnectionPromise
+  .then(() => {
+    // Wait a bit more to ensure mongoose is fully ready
+    setTimeout(() => {
+      const { initializeQueryMonitoring } = require('./middleware/queryMonitor');
+      if (process.env.ENABLE_QUERY_MONITORING !== 'false') {
+        initializeQueryMonitoring();
+      }
+    }, 500);
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize query monitoring:', error);
+  });
 
 // Security middleware - Helmet.js with comprehensive security headers
 app.use(helmet({
@@ -72,8 +89,8 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.12:8081',
-      'http://192.168.1.12:3000',
+      'http://192.168.1.7:8081',
+      'http://192.168.1.7:3000',
 
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
@@ -106,18 +123,55 @@ app.use(cors({
 // Cookie parser (needed for CSRF tokens)
 app.use(cookieParser());
 
+// Response compression middleware (compress all responses)
+app.use(compression({
+  filter: (req, res) => {
+    // Compress all responses except if explicitly disabled
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use compression for all text-based responses
+    return compression.filter(req, res);
+  },
+  level: 6, // Compression level (0-9, 6 is a good balance)
+  threshold: 1024 // Only compress responses larger than 1KB
+}));
+
 // Enhanced rate limiting
 const { generalLimiter } = require('./middleware/rateLimit');
 
 // Apply general rate limiting
 app.use(generalLimiter);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing middleware with stricter limits per endpoint type
+// Default limits (can be overridden per route)
+app.use(express.json({ 
+  limit: process.env.MAX_JSON_BODY_SIZE || '1mb', // Stricter default: 1MB for JSON
+  verify: (req, res, buf) => {
+    // Additional validation: reject if body is too large
+    if (buf.length > 1 * 1024 * 1024) { // 1MB
+      throw new Error('Request body too large');
+    }
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: process.env.MAX_URLENCODED_BODY_SIZE || '1mb' // Stricter default: 1MB
+}));
 
 // Input sanitization middleware (applied to all routes)
 app.use(sanitizeInput);
+
+// Request/Response logging middleware (applied to all routes)
+const requestLogger = require('./middleware/requestLogger');
+app.use(requestLogger);
+
+// Request size limiting middleware (applied to all routes)
+const { requestSizeLimiter } = require('./middleware/requestSizeLimiter');
+app.use(requestSizeLimiter);
+
+// Database query monitoring middleware (applied to all routes)
+app.use(queryMonitor);
 
 // CSRF protection - Generate token for all requests
 app.use(generateCSRF);
@@ -138,7 +192,11 @@ app.use((req, res, next) => {
       '/auth/forgot-password',
       '/auth/reset-password',
       '/auth/google',
-      '/auth/check-username'
+      '/auth/check-username',
+      '/api/superadmin/login',
+      '/api/superadmin/verify-2fa',
+      '/api/superadmin/resend-2fa',
+      '/api/superadmin/create'
     ];
     
     const isPublicAuthEndpoint = publicAuthPaths.some(path => req.path === path || req.path.startsWith(path + '/'));
@@ -246,4 +304,5 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-module.exports = app;
+// Export both app and dbConnectionPromise so server.js can wait for DB connection
+module.exports = { app, dbConnectionPromise };

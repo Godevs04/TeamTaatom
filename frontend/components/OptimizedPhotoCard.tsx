@@ -27,6 +27,7 @@ import { realtimePostsService } from '../services/realtimePosts';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { trackEngagement, trackPostView, trackFeatureUsage } from '../services/analytics';
+import { triggerLikeHaptic, triggerCommentHaptic } from '../utils/hapticFeedback';
 import ShareModal from './ShareModal';
 import AddToCollectionModal from './AddToCollectionModal';
 import PostHeader from './post/PostHeader';
@@ -294,12 +295,26 @@ function PhotoCard({
       return;
     }
 
+    // Optimistic update - update UI immediately
+    const previousLiked = isLiked;
+    const previousCount = likesCount;
+    const newLiked = !isLiked;
+    const newCount = newLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
+    
+    // Trigger haptic feedback
+    triggerLikeHaptic(newLiked);
+    
+    setIsLikedWithRef(newLiked);
+    setLikesCountWithRef(newCount);
+
     try {
       // Mark as updating to prevent WebSocket listener from processing
       isUpdatingRef.current = true;
       lastUpdateTimeRef.current = Date.now();
       
       const response = await toggleLike(post._id);
+      
+      // Update with actual response (in case of errors or discrepancies)
       setIsLikedWithRef(response.isLiked);
       setLikesCountWithRef(response.likesCount);
       
@@ -323,6 +338,9 @@ function PhotoCard({
       }, 500);
       
     } catch (error) {
+      // Revert optimistic update on error
+      setIsLikedWithRef(previousLiked);
+      setLikesCountWithRef(previousCount);
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like status.');
     }
@@ -447,9 +465,31 @@ function PhotoCard({
       return;
     }
 
+    // Optimistic update - add comment immediately
+    const optimisticComment = {
+      _id: `temp_${Date.now()}`,
+      user: {
+        _id: currentUser._id,
+        fullName: currentUser.fullName,
+        profilePic: currentUser.profilePic,
+      },
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+      isOptimistic: true, // Mark as optimistic for potential rollback
+    };
+    
+    // Trigger haptic feedback
+    triggerCommentHaptic();
+    
+    setComments(prev => [...prev, optimisticComment]);
+
     try {
       const response = await addComment(post._id, text);
-      setComments(prev => [...prev, response.comment]);
+      
+      // Replace optimistic comment with real one
+      setComments(prev => prev.map(comment => 
+        comment._id === optimisticComment._id ? response.comment : comment
+      ));
       
       // Emit event to notify other pages
       savedEvents.emitPostAction(post._id, 'comment', {
@@ -459,6 +499,8 @@ function PhotoCard({
       
       showCustomAlertMessage('Success', 'Comment added successfully!', 'success');
     } catch (error) {
+      // Revert optimistic update on error
+      setComments(prev => prev.filter(comment => comment._id !== optimisticComment._id));
       console.error('Error adding comment:', error);
       showCustomAlertMessage('Error', 'Failed to add comment.', 'error');
     }

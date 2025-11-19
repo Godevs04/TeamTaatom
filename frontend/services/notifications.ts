@@ -1,5 +1,6 @@
 import api from './api';
 import { NotificationResponse, MarkAsReadResponse } from '../types/notification';
+import logger from '../utils/logger';
 
 // Get notifications
 export const getNotifications = async (page: number = 1, limit: number = 20): Promise<NotificationResponse> => {
@@ -52,7 +53,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
     // Mark notification as read first
     await markNotificationAsRead(notification._id);
     
-    console.log('Processing notification:', notification.type, notification);
+    logger.debug('Processing notification:', notification.type, notification);
     
     // Determine navigation based on notification type
     switch (notification.type) {
@@ -121,7 +122,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
       shouldNavigate: false
     };
   } catch (error: any) {
-    console.error('Error handling notification click:', error);
+    logger.error('Error handling notification click:', error);
     return {
       success: false,
       message: error.message || 'Failed to process notification',

@@ -31,6 +31,7 @@ import api from '../../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
+import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -173,6 +174,8 @@ export default function HomeScreen() {
   );
 
   const handleRefresh = useCallback(async () => {
+    // Trigger haptic feedback for better UX
+    triggerRefreshHaptic();
     setRefreshing(true);
     await Promise.all([
       fetchPosts(1, false),

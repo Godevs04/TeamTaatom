@@ -471,8 +471,8 @@ const Logs = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  logs.map((log) => (
-                    <TableRow key={log._id} className="hover:bg-gray-50">
+                  logs.map((log, index) => (
+                    <TableRow key={log._id || `log_${index}_${log.timestamp}_${log.action || 'unknown'}`} className="hover:bg-gray-50">
                       <TableCell className="font-mono text-sm">
                         {formatDate(log.timestamp)}
                       </TableCell>
