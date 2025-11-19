@@ -2,7 +2,10 @@ import axios from 'axios'
 import logger from '../utils/logger'
 import { parseError } from '../utils/errorCodes'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+// Use environment variable if set, otherwise use relative path for Vite proxy
+// In development, Vite proxy will handle /api requests
+// In production, use the full API URL from environment variable
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://localhost:3000')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

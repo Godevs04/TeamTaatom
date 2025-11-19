@@ -24,13 +24,42 @@ const getProfile = async (req, res) => {
     // Cache key
     const cacheKey = CacheKeys.user(id);
 
-    // Use cache wrapper with optimized query
+    // Use cache wrapper with optimized query using aggregation to avoid N+1
     const user = await cacheWrapper(cacheKey, async () => {
-      return await User.findById(id)
-        .populate('followers', 'fullName profilePic')
-        .populate('following', 'fullName profilePic')
-        .select('-password -otp -otpExpires')
-        .lean();
+      // Use aggregation pipeline to efficiently fetch user with followers/following
+      const users = await User.aggregate([
+        { $match: { _id: new mongoose.Types.ObjectId(id) } },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'followers',
+            foreignField: '_id',
+            as: 'followers',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'following',
+            foreignField: '_id',
+            as: 'following',
+            pipeline: [
+              { $project: { fullName: 1, profilePic: 1 } }
+            ]
+          }
+        },
+        {
+          $project: {
+            password: 0,
+            otp: 0,
+            otpExpires: 0
+          }
+        }
+      ]);
+      return users[0] || null;
     }, CACHE_TTL.USER_PROFILE);
 
     if (!user) {
@@ -443,12 +472,14 @@ const toggleFollow = async (req, res) => {
 
         await Promise.all([currentUser.save(), targetUser.save()]);
 
-        // Create activity
+        // Create activity (respect user's privacy settings)
+        const user = await User.findById(currentUserId).select('settings.privacy.shareActivity').lean();
+        const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
         Activity.createActivity({
           user: currentUserId,
           type: 'user_followed',
           targetUser: id,
-          isPublic: true
+          isPublic: shareActivity
         }).catch(err => logger.error('Error creating activity:', err));
 
         // Send notification to target user

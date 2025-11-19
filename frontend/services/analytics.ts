@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import api from './api';
 import { getUserFromStorage } from './auth';
+import logger from '../utils/logger';
 
 interface AnalyticsEvent {
   event: string;
@@ -50,7 +51,7 @@ class AnalyticsService {
         this.eventQueue = JSON.parse(stored);
       }
     } catch (error) {
-      console.error('Error loading analytics queue:', error);
+      logger.error('Error loading analytics queue:', error);
     }
   }
 
@@ -58,7 +59,7 @@ class AnalyticsService {
     try {
       await AsyncStorage.setItem('analytics_queue', JSON.stringify(this.eventQueue));
     } catch (error) {
-      console.error('Error saving analytics queue:', error);
+      logger.error('Error saving analytics queue:', error);
     }
   }
 
@@ -114,7 +115,7 @@ class AnalyticsService {
       // Re-queue events on failure
       this.eventQueue = [...eventsToSend, ...this.eventQueue];
       await this.saveQueuedEvents();
-      console.error('Error flushing analytics events:', error);
+      logger.error('Error flushing analytics events:', error);
     }
   }
 

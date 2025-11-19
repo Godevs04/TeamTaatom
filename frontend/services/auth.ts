@@ -294,7 +294,7 @@ export const signOut = async (): Promise<void> => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
   } catch (error) {
-    console.error('Error signing out:', error);
+    logger.error('Error signing out:', error);
   }
 };
 
@@ -309,7 +309,7 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
     if (error.response?.status === 404) {
       throw new Error('Email not found');
     }
-    console.error("Error in forgotPassword:", error);
+    logger.error("Error in forgotPassword:", error);
     throw new Error(error.response?.data?.message || 'An error occurred while processing your request');
   }
 };
@@ -362,9 +362,7 @@ export const refreshAuthState = async (): Promise<UserType | null> => {
     
     return null;
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('[refreshAuthState] Error:', error);
-    }
+    logger.error('[refreshAuthState] Error:', error);
     return null;
   }
 };

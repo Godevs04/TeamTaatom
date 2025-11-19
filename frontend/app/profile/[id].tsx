@@ -102,6 +102,17 @@ export default function UserProfileScreen() {
 
   const handleFollow = async () => {
     if (!profile) return;
+    
+    // Optimistic update - update UI immediately
+    const previousFollowing = isFollowing;
+    const previousRequestSent = followRequestSent;
+    const newFollowing = !isFollowing;
+    
+    setIsFollowing(newFollowing);
+    if (!newFollowing) {
+      setFollowRequestSent(false);
+    }
+    
     setFollowLoading(true);
     try {
       const res = await api.post(`/profile/${profile._id}/follow`);
@@ -118,6 +129,10 @@ export default function UserProfileScreen() {
         showSuccess('You have unfollowed this user.');
       }
     } catch (e: any) {
+      // Revert optimistic update on error
+      setIsFollowing(previousFollowing);
+      setFollowRequestSent(previousRequestSent);
+      
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
         console.error('Error following/unfollowing user:', e);

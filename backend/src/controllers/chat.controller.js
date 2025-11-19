@@ -161,9 +161,11 @@ exports.getMessages = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     if (!(await canChat(userId, otherUserId))) return sendError(res, 'AUTH_1006', 'Not allowed');
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
+      .select('messages')
+      .lean();
     if (!chat) return sendSuccess(res, 200, 'Messages fetched successfully', { messages: [] });
-    return sendSuccess(res, 200, 'Messages fetched successfully', { messages: chat.messages });
+    return sendSuccess(res, 200, 'Messages fetched successfully', { messages: chat.messages || [] });
   } catch (error) {
     logger.error('Error getting messages:', error);
     return sendError(res, 'SRV_6001', 'Failed to get messages');

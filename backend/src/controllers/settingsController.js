@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Activity = require('../models/Activity');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
@@ -183,6 +184,15 @@ const updateSettingCategory = async (req, res) => {
     });
 
     logger.debug('Update query:', updateQuery);
+
+    // If shareActivity is being updated, also update all user's activities
+    if (category === 'privacy' && 'shareActivity' in settingsData) {
+      const shareActivity = settingsData.shareActivity !== false; // Default to true if not set
+      await Activity.updateMany(
+        { user: userId },
+        { isPublic: shareActivity }
+      ).catch(err => logger.error('Error updating activity privacy:', err));
+    }
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
