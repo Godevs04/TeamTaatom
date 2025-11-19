@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -25,11 +26,27 @@ const collectionRoutes = require('./routes/collectionRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const sanitizeInput = require('./middleware/sanitizeInput');
 const { generateCSRF, verifyCSRF } = require('./middleware/csrfProtection');
+const { queryMonitor } = require('./middleware/queryMonitor');
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB - store promise for server.js to await
+const dbConnectionPromise = connectDB();
+
+// Initialize query monitoring after DB connection is established
+dbConnectionPromise
+  .then(() => {
+    // Wait a bit more to ensure mongoose is fully ready
+    setTimeout(() => {
+      const { initializeQueryMonitoring } = require('./middleware/queryMonitor');
+      if (process.env.ENABLE_QUERY_MONITORING !== 'false') {
+        initializeQueryMonitoring();
+      }
+    }, 500);
+  })
+  .catch((error) => {
+    logger.error('Failed to initialize query monitoring:', error);
+  });
 
 // Security middleware - Helmet.js with comprehensive security headers
 app.use(helmet({
@@ -106,6 +123,20 @@ app.use(cors({
 // Cookie parser (needed for CSRF tokens)
 app.use(cookieParser());
 
+// Response compression middleware (compress all responses)
+app.use(compression({
+  filter: (req, res) => {
+    // Compress all responses except if explicitly disabled
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Use compression for all text-based responses
+    return compression.filter(req, res);
+  },
+  level: 6, // Compression level (0-9, 6 is a good balance)
+  threshold: 1024 // Only compress responses larger than 1KB
+}));
+
 // Enhanced rate limiting
 const { generalLimiter } = require('./middleware/rateLimit');
 
@@ -118,6 +149,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Input sanitization middleware (applied to all routes)
 app.use(sanitizeInput);
+
+// Database query monitoring middleware (applied to all routes)
+app.use(queryMonitor);
 
 // CSRF protection - Generate token for all requests
 app.use(generateCSRF);
@@ -250,4 +284,5 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-module.exports = app;
+// Export both app and dbConnectionPromise so server.js can wait for DB connection
+module.exports = { app, dbConnectionPromise };
