@@ -32,11 +32,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 
 export default function HomeScreen() {
+  const { handleScroll } = useScrollToHideNav();
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -318,6 +320,8 @@ export default function HomeScreen() {
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

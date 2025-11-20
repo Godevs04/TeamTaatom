@@ -149,16 +149,16 @@ const Analytics = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-2">
           <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-gray-600">
             Comprehensive analytics and insights
           </p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-3">
           <select
-            className="input"
+            className="input min-w-[160px]"
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
           >
@@ -186,7 +186,7 @@ const Analytics = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
@@ -267,13 +267,13 @@ const Analytics = () => {
       {/* Filters */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex flex-wrap gap-4 items-center">
+          <div className="flex flex-col lg:flex-row lg:flex-wrap gap-4 items-start lg:items-center">
             <div className="flex items-center space-x-2">
               <Filter className="w-4 h-4 text-gray-500" />
               <span className="text-sm font-medium text-gray-700">Filters:</span>
             </div>
             <select
-              className="input"
+              className="input w-full sm:w-auto"
               value={selectedEventType}
               onChange={(e) => setSelectedEventType(e.target.value)}
             >
@@ -285,7 +285,7 @@ const Analytics = () => {
               <option value="drop_off">Drop-offs</option>
             </select>
             <select
-              className="input"
+              className="input w-full sm:w-auto"
               value={selectedPlatform}
               onChange={(e) => setSelectedPlatform(e.target.value)}
             >
@@ -458,13 +458,13 @@ const Analytics = () => {
           {/* Recent Events Table */}
           <Card>
             <CardHeader>
-              <div className="flex justify-between items-center">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <CardTitle>Recent Events</CardTitle>
-                <div className="flex space-x-2">
+                <div className="flex w-full lg:w-auto">
                   <input
                     type="text"
                     placeholder="Search events..."
-                    className="input"
+                    className="input w-full"
                     value={eventsSearch}
                     onChange={(e) => {
                       setEventsSearch(e.target.value)
@@ -513,7 +513,7 @@ const Analytics = () => {
                       ))}
                     </tbody>
                   </table>
-                  <div className="flex justify-between items-center mt-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4">
                     <button
                       onClick={() => setEventsPage(prev => Math.max(1, prev - 1))}
                       disabled={eventsPage === 1}
@@ -521,7 +521,7 @@ const Analytics = () => {
                     >
                       Previous
                     </button>
-                    <span className="text-sm text-gray-600">Page {eventsPage}</span>
+                    <span className="text-sm text-gray-600 text-center">Page {eventsPage}</span>
                     <button
                       onClick={() => setEventsPage(prev => prev + 1)}
                       disabled={recentEvents.length < 50}

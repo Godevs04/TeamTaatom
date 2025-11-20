@@ -44,9 +44,80 @@ const createShortValidation = [
 ];
 
 // Routes
+/**
+ * @swagger
+ * /api/v1/shorts:
+ *   get:
+ *     summary: Get feed of short-form videos
+ *     tags: [Shorts]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Paginated shorts feed
+ */
 router.get('/', optionalAuth, getShorts);
+/**
+ * @swagger
+ * /api/v1/shorts/user/{userId}:
+ *   get:
+ *     summary: Get shorts by user
+ *     tags: [Shorts]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User shorts list
+ */
 router.get('/user/:userId', optionalAuth, getUserShorts);
 // Accept video and optional image (thumbnail) fields
+/**
+ * @swagger
+ * /api/v1/shorts:
+ *   post:
+ *     summary: Upload a new short
+ *     tags: [Shorts]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - video
+ *               - caption
+ *             properties:
+ *               caption:
+ *                 type: string
+ *                 maxLength: 1000
+ *               latitude:
+ *                 type: number
+ *               longitude:
+ *                 type: number
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Short created
+ */
 router.post('/', authMiddleware, upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'image', maxCount: 1 }

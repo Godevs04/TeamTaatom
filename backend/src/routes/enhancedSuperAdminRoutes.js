@@ -31,9 +31,93 @@ const {
 const authenticateSuperAdmin = verifySuperAdminToken
 
 // Public routes (no authentication required)
+/**
+ * @swagger
+ * /api/v1/superadmin/login:
+ *   post:
+ *     summary: SuperAdmin login
+ *     tags: [SuperAdmin]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *                 format: password
+ *     responses:
+ *       200:
+ *         description: Step 1 login success (requires 2FA)
+ */
 router.post('/login', loginSuperAdmin)
+/**
+ * @swagger
+ * /api/v1/superadmin/create:
+ *   post:
+ *     summary: Bootstrap a SuperAdmin account
+ *     tags: [SuperAdmin]
+ *     description: Intended for initial setup only.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               inviteCode:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: SuperAdmin created
+ */
 router.post('/create', createSuperAdmin) // For initial setup only
+/**
+ * @swagger
+ * /api/v1/superadmin/verify-2fa:
+ *   post:
+ *     summary: Verify SuperAdmin 2FA token
+ *     tags: [SuperAdmin]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 2FA verified, JWT issued
+ */
 router.post('/verify-2fa', verify2FA)
+/**
+ * @swagger
+ * /api/v1/superadmin/resend-2fa:
+ *   post:
+ *     summary: Resend SuperAdmin 2FA code
+ *     tags: [SuperAdmin]
+ *     responses:
+ *       200:
+ *         description: Code sent
+ */
 router.post('/resend-2fa', resend2FA)
 
 
@@ -41,6 +125,20 @@ router.post('/resend-2fa', resend2FA)
 router.use(verifySuperAdminToken)
 
 // Authentication routes
+/**
+ * @swagger
+ * /api/v1/superadmin/verify:
+ *   get:
+ *     summary: Validate SuperAdmin token
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Token valid + user payload
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
 router.get('/verify', (req, res) => {
   try {
     return sendSuccess(res, 200, 'Token is valid', {
@@ -57,11 +155,85 @@ router.get('/verify', (req, res) => {
     return sendError(res, 'AUTH_1001', 'Invalid token')
   }
 })
+/**
+ * @swagger
+ * /api/v1/superadmin/logout:
+ *   post:
+ *     summary: Revoke SuperAdmin session
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logged out
+ */
 router.post('/logout', logout)
+/**
+ * @swagger
+ * /api/v1/superadmin/change-password:
+ *   patch:
+ *     summary: Change SuperAdmin password
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *     responses:
+ *       200:
+ *         description: Password updated
+ */
 router.patch('/change-password', changePassword)
+/**
+ * @swagger
+ * /api/v1/superadmin/profile:
+ *   patch:
+ *     summary: Update SuperAdmin profile details
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *               avatar:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ */
 router.patch('/profile', updateProfile)
 
 // Notifications endpoint
+/**
+ * @swagger
+ * /api/v1/superadmin/notifications:
+ *   get:
+ *     summary: Get latest SuperAdmin notifications (reports, new users, alerts)
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Notifications feed
+ */
 router.get('/notifications', async (req, res) => {
   try {
     const User = require('../models/User')
@@ -170,6 +342,18 @@ function parseTimeAgo(timeStr) {
 }
 
 // Dashboard overview with real-time data (all roles can view)
+/**
+ * @swagger
+ * /api/v1/superadmin/dashboard/overview:
+ *   get:
+ *     summary: Get dashboard overview metrics
+ *     tags: [SuperAdmin Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Overview metrics and AI insights
+ */
 router.get('/dashboard/overview', async (req, res) => {
   try {
     const User = require('../models/User')
@@ -272,6 +456,25 @@ router.get('/dashboard/overview', async (req, res) => {
 })
 
 // Real-time analytics with auto-refresh support (Dashboard has basic analytics, this is for detailed)
+/**
+ * @swagger
+ * /api/v1/superadmin/analytics/realtime:
+ *   get:
+ *     summary: Get real-time analytics for dashboard charts
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [1h, 24h, 7d, 30d]
+ *           default: 24h
+ *     responses:
+ *       200:
+ *         description: Real-time analytics payload
+ */
 router.get('/analytics/realtime', async (req, res) => {
   try {
     const { period = '24h' } = req.query
@@ -351,6 +554,45 @@ router.get('/analytics/realtime', async (req, res) => {
 })
 
 // Users management with advanced features
+/**
+ * @swagger
+ * /api/v1/superadmin/users:
+ *   get:
+ *     summary: List users with advanced filters/sorting
+ *     tags: [SuperAdmin Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [all, active, inactive, pending, banned]
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *     responses:
+ *       200:
+ *         description: Paginated user dataset with metrics
+ */
 router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
   try {
     
@@ -450,6 +692,31 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
 })
 
 // Update single user
+/**
+ * @swagger
+ * /api/v1/superadmin/users/{id}:
+ *   patch:
+ *     summary: Update a user's status or profile
+ *     tags: [SuperAdmin Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: true
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ */
 router.patch('/users/:id', checkPermission('canManageUsers'), async (req, res) => {
   try {
     const { id } = req.params
@@ -479,6 +746,24 @@ router.patch('/users/:id', checkPermission('canManageUsers'), async (req, res) =
 })
 
 // Delete single user
+/**
+ * @swagger
+ * /api/v1/superadmin/users/{id}:
+ *   delete:
+ *     summary: Delete or ban a user
+ *     tags: [SuperAdmin Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: User removed
+ */
 router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) => {
   try {
     const { id } = req.params
@@ -510,6 +795,35 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
 })
 
 // Bulk actions for users
+/**
+ * @swagger
+ * /api/v1/superadmin/users/bulk-action:
+ *   post:
+ *     summary: Execute a bulk action across selected users
+ *     tags: [SuperAdmin Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - action
+ *               - userIds
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [ban, unban, verify, delete, restore]
+ *               userIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Bulk action completed
+ */
 router.post('/users/bulk-action', async (req, res) => {
   try {
     const { action, userIds, reason } = req.body
@@ -568,6 +882,41 @@ router.post('/users/bulk-action', async (req, res) => {
 })
 
 // Travel content management
+/**
+ * @swagger
+ * /api/v1/superadmin/travel-content:
+ *   get:
+ *     summary: List travel posts/shorts for moderation
+ *     tags: [SuperAdmin Content]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [photo, short, video, all]
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, inactive]
+ *     responses:
+ *       200:
+ *         description: Paginated content list
+ */
 router.get('/travel-content', checkPermission('canManageContent'), async (req, res) => {
   try {
     const { page = 1, limit = 20, search, type, status } = req.query
@@ -627,6 +976,24 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
 })
 
 // Delete a post
+/**
+ * @swagger
+ * /api/v1/superadmin/posts/{id}:
+ *   delete:
+ *     summary: Permanently delete a post
+ *     tags: [SuperAdmin Content]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Post deleted
+ */
 router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const Post = require('../models/Post')
@@ -654,6 +1021,35 @@ router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Update a post (activate/deactivate/flag)
+/**
+ * @swagger
+ * /api/v1/superadmin/posts/{id}:
+ *   patch:
+ *     summary: Update post moderation attributes
+ *     tags: [SuperAdmin Content]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isActive:
+ *                 type: boolean
+ *               flagged:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Post updated
+ */
 router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const { isActive, flagged } = req.body
@@ -677,6 +1073,24 @@ router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Flag a post
+/**
+ * @swagger
+ * /api/v1/superadmin/posts/{id}/flag:
+ *   patch:
+ *     summary: Flag a post for review
+ *     tags: [SuperAdmin Content]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Post flagged
+ */
 router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
   try {
     const Post = require('../models/Post')
@@ -702,6 +1116,39 @@ router.patch('/posts/:id/flag', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Reports management
+/**
+ * @swagger
+ * /api/v1/superadmin/reports:
+ *   get:
+ *     summary: Fetch content reports for moderation
+ *     tags: [SuperAdmin Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: priority
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Paginated reports list
+ */
 router.get('/reports', checkPermission('canManageContent'), async (req, res) => {
   try {
     const { page = 1, limit = 20, status, type, priority } = req.query
@@ -750,6 +1197,37 @@ router.get('/reports', checkPermission('canManageContent'), async (req, res) => 
 })
 
 // Update report status (accept/reject)
+/**
+ * @swagger
+ * /api/v1/superadmin/reports/{id}:
+ *   patch:
+ *     summary: Update report status, priority, or notes
+ *     tags: [SuperAdmin Reports]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Report updated
+ */
 router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const { status, adminNotes } = req.body
@@ -790,6 +1268,67 @@ router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Analytics data with enhanced metrics (Dashboard has basic analytics)
+/**
+ * @swagger
+ * /api/v1/superadmin/analytics:
+ *   get:
+ *     summary: Fetch advanced analytics dataset
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [1d, 7d, 30d, 90d]
+ *           default: 7d
+ *     responses:
+ *       200:
+ *         description: Analytics payload
+ * /api/v1/superadmin/analytics/summary:
+ *   get:
+ *     summary: Key KPI summary metrics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/timeseries:
+ *   get:
+ *     summary: Time series data for charts
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/breakdown:
+ *   get:
+ *     summary: Event breakdown analytics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/features:
+ *   get:
+ *     summary: Feature usage analytics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/dropoffs:
+ *   get:
+ *     summary: Funnel drop-off analytics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/events:
+ *   get:
+ *     summary: Recent analytics events
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ * /api/v1/superadmin/analytics/retention:
+ *   get:
+ *     summary: Retention cohort analytics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ */
 router.get('/analytics', async (req, res) => {
   try {
     const { period = '7d' } = req.query
@@ -857,6 +1396,32 @@ router.get('/analytics/events', getRecentEvents)
 router.get('/analytics/retention', getUserRetention)
 
 // Feature flags management
+/**
+ * @swagger
+ * /api/v1/superadmin/feature-flags:
+ *   get:
+ *     summary: List feature flags
+ *     tags: [SuperAdmin Feature Flags]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: enabled
+ *         schema:
+ *           type: string
+ *           enum: [true, false, all]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Feature flag list
+ */
 router.get('/feature-flags', async (req, res) => {
   try {
     const FeatureFlag = require('../models/FeatureFlag')
@@ -894,6 +1459,41 @@ router.get('/feature-flags', async (req, res) => {
 })
 
 // Create new feature flag
+/**
+ * @swagger
+ * /api/v1/superadmin/feature-flags:
+ *   post:
+ *     summary: Create a feature flag
+ *     tags: [SuperAdmin Feature Flags]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               description:
+ *                 type: string
+ *               enabled:
+ *                 type: boolean
+ *               rolloutPercentage:
+ *                 type: number
+ *               targetUsers:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *               impact:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Feature flag created
+ */
 router.post('/feature-flags', authenticateSuperAdmin, async (req, res) => {
   try {
     const FeatureFlag = require('../models/FeatureFlag')
@@ -924,6 +1524,31 @@ router.post('/feature-flags', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Update feature flags
+/**
+ * @swagger
+ * /api/v1/superadmin/feature-flags/{id}:
+ *   patch:
+ *     summary: Update a feature flag
+ *     tags: [SuperAdmin Feature Flags]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: true
+ *     responses:
+ *       200:
+ *         description: Feature flag updated
+ */
 router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const FeatureFlag = require('../models/FeatureFlag')
@@ -990,6 +1615,39 @@ router.patch('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Schedule Standalone Downtime
+/**
+ * @swagger
+ * /api/v1/superadmin/schedule-downtime:
+ *   post:
+ *     summary: Schedule planned downtime
+ *     tags: [SuperAdmin Maintenance]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - startTime
+ *               - endTime
+ *               - reason
+ *             properties:
+ *               startTime:
+ *                 type: string
+ *                 format: date-time
+ *               endTime:
+ *                 type: string
+ *                 format: date-time
+ *               reason:
+ *                 type: string
+ *               notifyUsers:
+ *                 type: boolean
+ *     responses:
+ *       201:
+ *         description: Downtime scheduled
+ */
 router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
   try {
     const ScheduledDowntime = require('../models/ScheduledDowntime')
@@ -1052,6 +1710,24 @@ router.post('/schedule-downtime', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Complete Standalone Downtime
+/**
+ * @swagger
+ * /api/v1/superadmin/complete-downtime/{id}:
+ *   post:
+ *     summary: Mark a scheduled downtime as completed
+ *     tags: [SuperAdmin Maintenance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Downtime marked complete
+ */
 router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const ScheduledDowntime = require('../models/ScheduledDowntime')
@@ -1099,6 +1775,18 @@ router.post('/complete-downtime/:id', authenticateSuperAdmin, async (req, res) =
 })
 
 // Get scheduled downtimes
+/**
+ * @swagger
+ * /api/v1/superadmin/scheduled-downtimes:
+ *   get:
+ *     summary: List scheduled downtimes
+ *     tags: [SuperAdmin Maintenance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Downtime schedule list
+ */
 router.get('/scheduled-downtimes', authenticateSuperAdmin, async (req, res) => {
   try {
     const ScheduledDowntime = require('../models/ScheduledDowntime')
@@ -1118,6 +1806,24 @@ router.get('/scheduled-downtimes', authenticateSuperAdmin, async (req, res) => {
 })
 
 // Delete feature flag
+/**
+ * @swagger
+ * /api/v1/superadmin/feature-flags/{id}:
+ *   delete:
+ *     summary: Delete a feature flag
+ *     tags: [SuperAdmin Feature Flags]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Feature flag removed
+ */
 router.delete('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const FeatureFlag = require('../models/FeatureFlag')
@@ -1147,6 +1853,29 @@ router.delete('/feature-flags/:id', authenticateSuperAdmin, async (req, res) => 
 })
 
 // Global search
+/**
+ * @swagger
+ * /api/v1/superadmin/search:
+ *   get:
+ *     summary: Global admin search across users, posts, reports
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: query
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [users, posts, reports, all]
+ *     responses:
+ *       200:
+ *         description: Search results grouped by type
+ */
 router.get('/search', async (req, res) => {
   try {
     const { q, type = 'all', limit = 10 } = req.query
@@ -1202,6 +1931,34 @@ router.get('/search', async (req, res) => {
 })
 
 // Audit logs with enhanced filtering and export
+/**
+ * @swagger
+ * /api/v1/superadmin/audit-logs:
+ *   get:
+ *     summary: Export/view SuperAdmin audit logs
+ *     tags: [SuperAdmin Compliance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: format
+ *         schema:
+ *           type: string
+ *           enum: [json, csv]
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Audit log stream
+ */
 router.get('/audit-logs', async (req, res) => {
   try {
     const { page = 1, limit = 50, action, startDate, endDate, export: exportFormat } = req.query
@@ -1466,6 +2223,31 @@ function generateCSV(logs) {
 // Moderators Management
 
 // GET /moderators - Get all moderators (admin and moderator roles)
+/**
+ * @swagger
+ * /api/v1/superadmin/moderators:
+ *   get:
+ *     summary: List moderators/admin accounts
+ *     tags: [SuperAdmin Moderators]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Moderators list
+ */
 router.get('/moderators', checkPermission('canManageModerators'), async (req, res) => {
   try {
     const { page = 1, limit = 20, search } = req.query
@@ -1508,6 +2290,35 @@ router.get('/moderators', checkPermission('canManageModerators'), async (req, re
 })
 
 // POST /moderators - Create a new moderator
+/**
+ * @swagger
+ * /api/v1/superadmin/moderators:
+ *   post:
+ *     summary: Invite or create a moderator account
+ *     tags: [SuperAdmin Moderators]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               permissions:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       201:
+ *         description: Moderator created
+ */
 router.post('/moderators', checkPermission('canManageModerators'), async (req, res) => {
   try {
     const { email, password, role = 'moderator', permissions } = req.body
@@ -1551,6 +2362,31 @@ router.post('/moderators', checkPermission('canManageModerators'), async (req, r
 })
 
 // PATCH /moderators/:id - Update moderator
+/**
+ * @swagger
+ * /api/v1/superadmin/moderators/{id}:
+ *   patch:
+ *     summary: Update moderator role/permissions
+ *     tags: [SuperAdmin Moderators]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: true
+ *     responses:
+ *       200:
+ *         description: Moderator updated
+ */
 router.patch('/moderators/:id', checkPermission('canManageModerators'), async (req, res) => {
   try {
     const { role, isActive, permissions } = req.body
@@ -1575,6 +2411,24 @@ router.patch('/moderators/:id', checkPermission('canManageModerators'), async (r
 })
 
 // DELETE /moderators/:id - Remove moderator (deactivate)
+/**
+ * @swagger
+ * /api/v1/superadmin/moderators/{id}:
+ *   delete:
+ *     summary: Remove moderator access
+ *     tags: [SuperAdmin Moderators]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Moderator removed
+ */
 router.delete('/moderators/:id', checkPermission('canManageModerators'), async (req, res) => {
   try {
     const moderator = await SuperAdmin.findByIdAndUpdate(

@@ -273,9 +273,9 @@ const TravelContent = () => {
       <div className="space-y-6">
         {/* Header */}
         <div className="bg-gradient-to-r from-cyan-50 via-blue-50 to-indigo-50 rounded-2xl p-8 shadow-lg border border-cyan-100">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="flex items-center space-x-3 mb-3">
+              <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="p-3 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-lg">
                   <MapPin className="w-6 h-6 text-white" />
                 </div>
@@ -291,7 +291,7 @@ const TravelContent = () => {
               </div>
               <p className="text-gray-600 text-lg">Manage travel posts and destinations</p>
             </div>
-            <div className="flex space-x-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button 
                 onClick={handleRefresh}
                 disabled={loading}
@@ -315,7 +315,7 @@ const TravelContent = () => {
       {/* Filters */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col lg:flex-row gap-4">
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -328,9 +328,9 @@ const TravelContent = () => {
                 />
               </div>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <select
-                className="input"
+                className="input w-full sm:w-auto"
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
               >
@@ -340,7 +340,7 @@ const TravelContent = () => {
               </select>
               <button 
                 onClick={() => setShowMoreFilters(!showMoreFilters)}
-                className={`btn btn-secondary ${showMoreFilters ? 'bg-blue-600 text-white' : ''}`}
+                className={`btn btn-secondary flex-1 sm:flex-none ${showMoreFilters ? 'bg-blue-600 text-white' : ''}`}
               >
                 <Filter className="w-4 h-4 mr-2" />
                 More Filters

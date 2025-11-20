@@ -9,7 +9,7 @@ import { PostType } from '../../types/post';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getUserFromStorage } from '../../services/auth';
 import CustomAlert from '../../components/CustomAlert';
-import CommentModal from '../../components/CommentModal';
+import PostComments from '../../components/post/PostComments';
 import ShareModal from '../../components/ShareModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { realtimePostsService } from '../../services/realtimePosts';
@@ -54,6 +54,21 @@ export default function PostDetail() {
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
     onConfirm: () => {},
   });
+
+  const upsertComment = useCallback((incomingComment: any) => {
+    if (!incomingComment) return;
+    setComments((prev) => {
+      const next = [...prev];
+      if (incomingComment._id) {
+        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
+        if (existingIndex !== -1) {
+          next[existingIndex] = incomingComment;
+          return next;
+        }
+      }
+      return [...next, incomingComment];
+    });
+  }, []);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -241,7 +256,7 @@ export default function PostDetail() {
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
       if (data.postId === post._id) {
         // Use functional update to avoid dependency issues
-        setComments(prev => [...prev, data.comment]);
+        upsertComment(data.comment);
       }
     });
 
@@ -256,7 +271,7 @@ export default function PostDetail() {
       unsubscribeComments();
       unsubscribeSaves();
     };
-  }, [post?._id]);
+  }, [post?._id, upsertComment]);
 
   // Listen for post action events from home page
   React.useEffect(() => {
@@ -277,14 +292,14 @@ export default function PostDetail() {
             setIsBookmarked(data.isBookmarked);
             break;
           case 'comment':
-            setComments(prev => [...prev, data.comment]);
+            upsertComment(data.comment);
             break;
         }
       }
     });
 
     return unsubscribe;
-  }, [post?._id]);
+  }, [post?._id, upsertComment]);
 
   // Custom alert helper function
   const showCustomAlertMessage = (
@@ -466,15 +481,15 @@ export default function PostDetail() {
   };
 
   const handleCommentAdded = (newComment: any) => {
-    setComments(prev => [...prev, newComment]);
-    
+    upsertComment(newComment);
+
     // Emit event to notify home page
     savedEvents.emitPostAction(post!._id, 'comment', {
       comment: newComment,
       commentsCount: comments.length + 1
     });
     
-    // Don't auto-close modal here - let CommentModal handle it
+    // Don't auto-close modal here - let PostComments handle it
   };
 
   const handleRelatedPostPress = (relatedPost: PostType) => {
@@ -848,7 +863,7 @@ export default function PostDetail() {
 
       {/* Comment Modal */}
       {post && (
-        <CommentModal
+        <PostComments
           visible={showCommentModal}
           postId={post._id}
           comments={comments}

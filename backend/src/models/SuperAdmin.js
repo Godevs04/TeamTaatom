@@ -135,7 +135,6 @@ const superAdminSchema = new mongoose.Schema({
 })
 
 // Index for performance
-superAdminSchema.index({ email: 1 })
 superAdminSchema.index({ role: 1 })
 superAdminSchema.index({ isActive: 1 })
 superAdminSchema.index({ 'securityLogs.timestamp': -1 })

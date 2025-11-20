@@ -25,6 +25,7 @@ import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 const { width } = Dimensions.get('window');
 
@@ -159,6 +160,7 @@ interface FilterState {
 }
 
 export default function LocaleScreen() {
+  const { handleScroll } = useScrollToHideNav();
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [savedLocations, setSavedLocations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -875,6 +877,8 @@ export default function LocaleScreen() {
       {activeTab === 'locale' ? (
         <ScrollView 
           showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -892,6 +896,8 @@ export default function LocaleScreen() {
           renderItem={renderSavedLocationCard}
           keyExtractor={(item) => item.id || `saved-${item.slug || item.name}`}
           ListEmptyComponent={savedLocations.length === 0 && mockSavedLocations.length === 0 ? renderEmptySavedState() : null}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Bell, LogOut, User, Moon, Sun, Search, ChevronDown, Settings, 
-  User as UserIcon, HelpCircle, Mail, FileText, Shield, Activity } from 'lucide-react'
+import {
+  Bell,
+  LogOut,
+  User,
+  Moon,
+  Sun,
+  Search,
+  ChevronDown,
+  Settings,
+  User as UserIcon,
+  HelpCircle,
+  Mail,
+  FileText,
+  Shield,
+  Activity,
+  Menu,
+} from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useRealTime } from '../context/RealTimeContext'
 import { useNavigate } from 'react-router-dom'
@@ -8,7 +23,7 @@ import { api } from '../services/api'
 import GlobalSearch from './GlobalSearch'
 import toast from 'react-hot-toast'
 
-const Topbar = () => {
+const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const { isConnected } = useRealTime()
@@ -122,18 +137,29 @@ const Topbar = () => {
   ).join(' ')
 
   return (
-    <header className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 text-white border-b border-blue-700 px-6 py-4 shadow-lg">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">
-            Welcome back, {capitalizedName}
-          </h2>
-          <p className="text-blue-100">Manage your TeamTaatom platform</p>
+    <header className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 text-white border-b border-blue-700 px-4 sm:px-6 py-4 shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          {!isDesktop && (
+            <button
+              onClick={onToggleSidebar}
+              className="p-2 rounded-xl border border-white/30 bg-white/10 hover:bg-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              aria-label="Toggle navigation"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <h2 className="text-2xl font-bold">
+              Welcome back, {capitalizedName}
+            </h2>
+            <p className="text-blue-100">Manage your TeamTaatom platform</p>
+          </div>
         </div>
         
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3 justify-end flex-1 min-w-[200px]">
           {/* Global Search */}
-          <div className="relative">
+          <div className="relative w-full sm:w-auto sm:min-w-[240px] lg:min-w-[320px]">
             <GlobalSearch />
           </div>
           

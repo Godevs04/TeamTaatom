@@ -15,12 +15,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, addComment, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
+import { toggleLike, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
 import { loadImageWithFallback } from '../utils/imageLoader';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
-import CommentModal from './CommentModal';
+import PostComments from './post/PostComments';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { savedEvents } from '../utils/savedEvents';
 import { realtimePostsService } from '../services/realtimePosts';
@@ -55,11 +55,9 @@ function PhotoCard({
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
   
-  const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [showWorldMap, setShowWorldMap] = useState(false);
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
@@ -122,6 +120,21 @@ function PhotoCard({
     setLikesCount(value);
   }, []);
   
+  const upsertComment = useCallback((incomingComment: any) => {
+    if (!incomingComment) return;
+    setComments((prev) => {
+      const next = [...prev];
+      if (incomingComment._id) {
+        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
+        if (existingIndex !== -1) {
+          next[existingIndex] = incomingComment;
+          return next;
+        }
+      }
+      return [...next, incomingComment];
+    });
+  }, []);
+
   React.useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
       if (data.postId === post._id) {
@@ -173,9 +186,8 @@ function PhotoCard({
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
-      if (data.postId === post._id) {
-        // Update comments count if needed - use functional update
-        setComments(prev => [...prev, data.comment]);
+      if (data.postId === post._id && data.comment) {
+        upsertComment(data.comment);
       }
     });
 
@@ -190,7 +202,7 @@ function PhotoCard({
       unsubscribeComments();
       unsubscribeSaves();
     };
-  }, [post._id]);
+  }, [post._id, upsertComment]);
 
   // Listen for post action events from other pages (legacy fallback)
   React.useEffect(() => {
@@ -459,55 +471,9 @@ function PhotoCard({
     }
   };
 
-  const handleComment = async (text: string) => {
-    if (!currentUser) {
-      showCustomAlertMessage('Error', 'You must be signed in to comment.', 'error');
-      return;
-    }
-
-    // Optimistic update - add comment immediately
-    const optimisticComment = {
-      _id: `temp_${Date.now()}`,
-      user: {
-        _id: currentUser._id,
-        fullName: currentUser.fullName,
-        profilePic: currentUser.profilePic,
-      },
-      text: text.trim(),
-      createdAt: new Date().toISOString(),
-      isOptimistic: true, // Mark as optimistic for potential rollback
-    };
-    
-    // Trigger haptic feedback
-    triggerCommentHaptic();
-    
-    setComments(prev => [...prev, optimisticComment]);
-
-    try {
-      const response = await addComment(post._id, text);
-      
-      // Replace optimistic comment with real one
-      setComments(prev => prev.map(comment => 
-        comment._id === optimisticComment._id ? response.comment : comment
-      ));
-      
-      // Emit event to notify other pages
-      savedEvents.emitPostAction(post._id, 'comment', {
-        comment: response.comment,
-        commentsCount: comments.length + 1
-      });
-      
-      showCustomAlertMessage('Success', 'Comment added successfully!', 'success');
-    } catch (error) {
-      // Revert optimistic update on error
-      setComments(prev => prev.filter(comment => comment._id !== optimisticComment._id));
-      console.error('Error adding comment:', error);
-      showCustomAlertMessage('Error', 'Failed to add comment.', 'error');
-    }
-  };
-
   const handleCommentAdded = (newComment: any) => {
-    setComments(prev => [...prev, newComment]);
+    triggerCommentHaptic();
+    upsertComment(newComment);
   };
 
   const handleOpenComments = () => {
@@ -707,32 +673,6 @@ function PhotoCard({
       {/* Caption */}
       <PostCaption post={post} />
 
-
-      {/* Comments Modal */}
-      <Modal
-        visible={showComments}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          <TouchableOpacity onPress={() => setShowComments(false)}>
-            <Text style={{ color: theme.colors.text }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
-      {/* World Map Modal */}
-      <Modal
-        visible={showWorldMap}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-          <TouchableOpacity onPress={() => setShowWorldMap(false)}>
-            <Text style={{ color: theme.colors.text }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
 
       {/* Elegant Menu Modal */}
       <Modal
@@ -1015,7 +955,7 @@ function PhotoCard({
       </Modal>
 
       {/* Comment Modal */}
-      <CommentModal
+      <PostComments
         visible={showCommentModal}
         postId={post._id}
         comments={comments}

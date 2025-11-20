@@ -82,7 +82,23 @@ function ErrorFallback({
   showDetails?: boolean;
   level?: string;
 }) {
-  const { theme } = useTheme();
+  // Safely get theme, with fallback if not available
+  let theme;
+  try {
+    theme = useTheme();
+  } catch {
+    // Fallback theme if ThemeProvider is not available
+    theme = {
+      colors: {
+        background: '#FFFFFF',
+        text: '#000000',
+        textSecondary: '#666666',
+        error: '#ff5252',
+        card: '#F5F5F5',
+        primary: '#0A84FF',
+      },
+    };
+  }
 
   return (
     <ScrollView 
