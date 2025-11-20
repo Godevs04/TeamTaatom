@@ -312,9 +312,9 @@ const Users = () => {
       <div className="space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl p-8 shadow-lg border border-blue-100">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <div className="flex items-center space-x-3 mb-3">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
               <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg">
                 <UsersIcon className="w-6 h-6 text-white" />
               </div>
@@ -330,7 +330,7 @@ const Users = () => {
             </div>
             <p className="text-gray-600 text-lg">Manage travelers and moderators</p>
           </div>
-          <div className="flex space-x-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <button 
               onClick={handleRefresh}
               disabled={loading}
@@ -353,7 +353,7 @@ const Users = () => {
       {/* Filters */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col lg:flex-row gap-4">
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -366,7 +366,7 @@ const Users = () => {
                 />
               </div>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <select
                 className="input"
                 value={filterStatus}

@@ -55,9 +55,89 @@ const paginationValidation = [
 ];
 
 // Routes
+/**
+ * @swagger
+ * /api/v1/hashtags/search:
+ *   get:
+ *     summary: Search hashtags by keyword
+ *     tags: [Hashtags]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Search results
+ */
 router.get('/search', searchValidation, searchHashtags);
+/**
+ * @swagger
+ * /api/v1/hashtags/trending:
+ *   get:
+ *     summary: Get trending hashtags
+ *     tags: [Hashtags]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: timeRange
+ *         schema:
+ *           type: string
+ *           enum: [1h, 24h, 7d, 30d]
+ *     responses:
+ *       200:
+ *         description: Trending hashtags
+ */
 router.get('/trending', trendingValidation, getTrendingHashtags);
+/**
+ * @swagger
+ * /api/v1/hashtags/{hashtag}:
+ *   get:
+ *     summary: Get hashtag details (counts, metadata)
+ *     tags: [Hashtags]
+ *     parameters:
+ *       - in: path
+ *         name: hashtag
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Hashtag details
+ */
 router.get('/:hashtag', hashtagParamValidation, getHashtagDetails);
+/**
+ * @swagger
+ * /api/v1/hashtags/{hashtag}/posts:
+ *   get:
+ *     summary: Get posts attached to a hashtag
+ *     tags: [Hashtags]
+ *     parameters:
+ *       - in: path
+ *         name: hashtag
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Paginated posts list
+ */
 router.get('/:hashtag/posts', hashtagParamValidation, paginationValidation, optionalAuth, getHashtagPosts);
 
 module.exports = router;

@@ -12,13 +12,12 @@ import {
   Platform,
   Dimensions,
   Animated,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../context/ThemeContext';
-import { addComment } from '../services/posts';
-import { getUserFromStorage } from '../services/auth';
-import CustomAlert from './CustomAlert';
+import { useTheme } from '../../context/ThemeContext';
+import { addComment } from '../../services/posts';
+import { getUserFromStorage } from '../../services/auth';
+import CustomAlert from '../CustomAlert';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -33,7 +32,7 @@ interface Comment {
   createdAt: string;
 }
 
-interface CommentModalProps {
+interface PostCommentsProps {
   visible: boolean;
   postId: string;
   comments: Comment[];
@@ -42,14 +41,14 @@ interface CommentModalProps {
   commentsDisabled?: boolean;
 }
 
-export default function CommentModal({
+export default function PostComments({
   visible,
   postId,
   comments,
   onClose,
   onCommentAdded,
   commentsDisabled = false,
-}: CommentModalProps) {
+}: PostCommentsProps) {
   const { theme } = useTheme();
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,19 +61,16 @@ export default function CommentModal({
     onConfirm: () => {},
   });
 
-  // Animation values
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.8)).current;
 
   useEffect(() => {
     if (visible) {
-      // Reset animation values
       translateY.setValue(screenHeight);
       opacity.setValue(0);
       scale.setValue(0.9);
-      
-      // Animate in with proper timing
+
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: 0,
@@ -94,7 +90,7 @@ export default function CommentModal({
         }),
       ]).start();
     }
-  }, [visible]);
+  }, [visible, opacity, scale, translateY]);
 
   React.useEffect(() => {
     const loadUser = async () => {
@@ -119,20 +115,18 @@ export default function CommentModal({
     setShowCustomAlert(true);
   };
 
-  const addCommentWithRetry = async (postId: string, comment: string, retries = 3): Promise<any> => {
+  const addCommentWithRetry = async (comment: string, retries = 3): Promise<any> => {
     for (let i = 0; i < retries; i++) {
       try {
         const response = await addComment(postId, comment);
         return response;
       } catch (error: any) {
-        // If it's a rate limit error and we have retries left, wait and retry
         if (error?.response?.status === 429 && i < retries - 1) {
-          const waitTime = Math.pow(2, i) * 1000; // Exponential backoff: 1s, 2s, 4s
-          console.log(`Rate limited, waiting ${waitTime}ms before retry ${i + 1}/${retries}`);
+          const waitTime = Math.pow(2, i) * 1000;
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
-        throw error; // Re-throw if not rate limit or no retries left
+        throw error;
       }
     }
   };
@@ -155,23 +149,14 @@ export default function CommentModal({
 
     setIsSubmitting(true);
     try {
-      const response = await addCommentWithRetry(postId, newComment.trim());
+      const response = await addCommentWithRetry(newComment.trim());
       onCommentAdded(response.comment);
       setNewComment('');
-      
-      // Show success message but don't auto-close the modal
-      // showCustomAlertMessage('Success', 'Comment added successfully!', 'success');
-      console.log('Comment added successfully!');
-      
-      // Small delay to prevent rapid state changes
+
       setTimeout(() => {
         setIsSubmitting(false);
       }, 100);
-      
     } catch (error: any) {
-      console.error('Error adding comment:', error);
-      
-      // Handle rate limiting specifically
       if (error?.response?.status === 429) {
         showCustomAlertMessage('Rate Limited', 'Too many requests. Please wait a moment before commenting again.', 'warning');
       } else {
@@ -211,14 +196,10 @@ export default function CommentModal({
   );
 
   const handleClose = () => {
-    // Reset form state
     setNewComment('');
     setIsSubmitting(false);
-    
-    // Close any open alerts first
     setShowCustomAlert(false);
-    
-    // Animate out smoothly
+
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: screenHeight,
@@ -236,7 +217,6 @@ export default function CommentModal({
         useNativeDriver: true,
       }),
     ]).start(() => {
-      // Only close after animation completes
       onClose();
     });
   };
@@ -246,7 +226,7 @@ export default function CommentModal({
       <Modal
         visible={visible}
         animationType="none"
-        transparent={true}
+        transparent
         onRequestClose={handleClose}
         statusBarTranslucent
       >
@@ -283,14 +263,12 @@ export default function CommentModal({
               style={styles.container}
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-              enabled={true}
+              enabled
             >
-              {/* Handle Bar */}
               <View style={styles.handleBar}>
                 <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
               </View>
 
-              {/* Header */}
               <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
                 <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
                   <Ionicons name="close" size={24} color={theme.colors.text} />
@@ -303,7 +281,6 @@ export default function CommentModal({
                 </TouchableOpacity>
               </View>
 
-              {/* Comments List */}
               <FlatList
                 data={comments}
                 renderItem={renderComment}
@@ -324,7 +301,6 @@ export default function CommentModal({
                 }
               />
 
-              {/* Comment Input */}
               {commentsDisabled ? (
                 <View style={[styles.inputContainer, styles.disabledInputContainer, { 
                   borderTopColor: theme.colors.border,
@@ -388,7 +364,6 @@ export default function CommentModal({
         </Animated.View>
       </Modal>
 
-      {/* Custom Alert */}
       <CustomAlert
         visible={showCustomAlert}
         title={alertConfig.title}
@@ -404,73 +379,66 @@ export default function CommentModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
   overlayTouchable: {
     flex: 1,
   },
-  container: {
-    flex: 1,
-  },
   bottomSheet: {
-    height: screenHeight * 0.75, // Increased height for better experience
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 15,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    maxHeight: '90%',
+  },
+  container: {
+    flex: 0,
   },
   handleBar: {
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   handle: {
     width: 48,
     height: 5,
-    borderRadius: 3,
+    borderRadius: 999,
+    opacity: 0.5,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   closeButton: {
-    padding: 8,
-    borderRadius: 20,
+    padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontSize: 16,
+    fontWeight: '600',
   },
   moreButton: {
-    padding: 8,
-    borderRadius: 20,
+    padding: 4,
   },
   commentsList: {
-    flex: 1,
+    maxHeight: screenHeight * 0.45,
   },
   commentsContent: {
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 80,
   },
   commentItem: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    marginBottom: 16,
   },
   commentAvatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
     marginRight: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
   },
   commentContent: {
     flex: 1,
@@ -478,86 +446,71 @@ const styles = StyleSheet.create({
   commentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   commentUsername: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginRight: 12,
-    letterSpacing: 0.2,
+    fontSize: 14,
+    fontWeight: '600',
   },
   commentTime: {
     fontSize: 12,
-    opacity: 0.7,
   },
   commentText: {
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 20,
-    letterSpacing: 0.1,
   },
   emptyComments: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    justifyContent: 'center',
+    paddingVertical: 40,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 12,
   },
   emptySubtext: {
     fontSize: 14,
-    opacity: 0.7,
+    marginTop: 4,
   },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    gap: 12,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  disabledInputContainer: {
+    justifyContent: 'center',
+  },
+  disabledText: {
+    marginLeft: 12,
+    fontSize: 14,
   },
   userAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 12,
   },
   commentInput: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
+    paddingVertical: 10,
+    fontSize: 14,
     maxHeight: 120,
-    minHeight: 44,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  disabledInputContainer: {
-    flexDirection: 'row',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  disabledText: {
-    fontSize: 15,
-    fontWeight: '500',
-    fontStyle: 'italic',
+    marginLeft: 12,
   },
 });
+
+

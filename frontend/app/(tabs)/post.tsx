@@ -30,6 +30,7 @@ import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, ResizeMode } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 
 interface PostFormValues {
@@ -60,6 +61,7 @@ export default function PostScreen() {
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
   const router = useRouter();
   const { theme } = useTheme();
+  const { handleScroll } = useScrollToHideNav();
 
   // Check for existing posts and shorts
   const checkExistingContent = async () => {
@@ -732,7 +734,12 @@ export default function PostScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <NavBar title="New Post" />
-      <ScrollView style={{ flex: 1, padding: theme.spacing.md }} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={{ flex: 1, padding: theme.spacing.md }} 
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
         {/* User Profile Section */}
         {user && (
           <View style={{ 
