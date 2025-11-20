@@ -282,9 +282,9 @@ const QueryMonitor = () => {
     <div className="space-y-6 animate-fadeIn">
       {/* Enhanced Header with Gradient */}
       <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-2xl">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <div className="flex items-center space-x-4 mb-4">
+            <div className="flex flex-wrap items-center gap-4 mb-4">
               <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
                 <Database className="w-8 h-8" />
               </div>
@@ -300,7 +300,7 @@ const QueryMonitor = () => {
               </div>
             )}
           </div>
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap gap-3 justify-end">
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
               className={`px-4 py-2.5 rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2 ${
@@ -358,7 +358,7 @@ const QueryMonitor = () => {
       ) : (
         <>
           {/* Enhanced Key Metrics with Animations */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
             <Card className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-l-blue-500">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
