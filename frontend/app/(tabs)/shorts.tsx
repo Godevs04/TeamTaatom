@@ -28,6 +28,7 @@ import { useRouter } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -58,6 +59,7 @@ export default function ShortsScreen() {
   const { theme, mode } = useTheme();
   const router = useRouter();
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
+  const { handleScroll } = useScrollToHideNav();
 
   useEffect(() => {
     loadShorts();
@@ -602,6 +604,7 @@ export default function ShortsScreen() {
         initialNumToRender={3}
         maxToRenderPerBatch={2}
         windowSize={5}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         directionalLockEnabled={false}
         alwaysBounceVertical={true}

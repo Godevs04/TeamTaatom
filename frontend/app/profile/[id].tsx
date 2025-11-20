@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, SafeAreaView, Modal } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, SafeAreaView, Modal, ScrollView, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -8,7 +8,11 @@ import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
 import BioDisplay from '../../components/BioDisplay';
+import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+
+const { width } = Dimensions.get('window');
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams();
@@ -161,179 +165,238 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <FlatList
-        ListHeaderComponent={
-          <View style={styles.profileContainer}>
-            {/* Header with Back Button */}
-            <View style={styles.header}>
-              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
+    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Profile Header - Gradient Style with Back Button */}
+        <ExpoLinearGradient
+          colors={['#E3F2FD', '#FFFFFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.profileHeaderGradient}
+        >
+          {/* Back Button - Positioned at Top */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color="#1A1A1A" />
+            </TouchableOpacity>
+          </View>
 
+          <View style={styles.profileHeader}>
             {/* Profile Picture */}
-            <View style={styles.profilePictureContainer}>
-              <Image
-                source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                style={styles.profilePicture}
-              />
-              <View style={styles.profilePictureBorder} />
+            <View style={styles.profilePictureWrapper}>
+              <View style={styles.profilePictureContainer}>
+                <Image
+                  source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                  style={styles.profilePicture}
+                />
+              </View>
             </View>
 
-            {/* User Info */}
-            <View style={styles.userInfo}>
-              <Text style={[styles.userName, { color: theme.colors.text }]}>{profile.fullName}</Text>
-              {profile.email && (
-                <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>{profile.email}</Text>
-              )}
-              <BioDisplay bio={profile.bio || ''} />
-            </View>
+            {/* Name */}
+            <Text style={styles.profileName}>{profile.fullName}</Text>
+            
+            {/* Bio */}
+            {profile.bio && (
+              <View style={styles.bioContainer}>
+                <BioDisplay bio={profile.bio || ''} />
+              </View>
+            )}
 
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
-                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
+            {/* Stats Cards with Icons */}
+            <View style={styles.statsRow}>
+              <TouchableOpacity 
+                style={styles.statCard}
+                onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.statIconContainer, { backgroundColor: '#FFF3E0' }]}>
+                  <Ionicons name="trophy" size={20} color="#FF6B35" />
+                </View>
+                <Text style={styles.statValue}>
                   {typeof profile.followers === 'number' ? profile.followers : Array.isArray(profile.followers) ? profile.followers.length : 0}
                 </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
-                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
+                <Text style={styles.statLabel}>Followers</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.statCard}
+                onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.statIconContainer, { backgroundColor: '#E8F5E9' }]}>
+                  <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                </View>
+                <Text style={styles.statValue}>
                   {typeof profile.following === 'number' ? profile.following : Array.isArray(profile.following) ? profile.following.length : 0}
                 </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: theme.colors.surface }]}>
-                <Text style={[styles.statNumber, { color: theme.colors.text }]}>
+                <Text style={styles.statLabel}>Following</Text>
+              </TouchableOpacity>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconContainer, { backgroundColor: '#E3F2FD' }]}>
+                  <Ionicons name="location" size={20} color="#0A84FF" />
+                </View>
+                <Text style={styles.statValue}>
                   {(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
                 </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Locations</Text>
+                <Text style={styles.statLabel}>Locations</Text>
               </View>
             </View>
 
             {/* Action Buttons */}
             {currentUser && currentUser._id !== profile._id && (
-              <View style={styles.actionButtons}>
+              <View style={styles.actionButtonsContainer}>
                 <TouchableOpacity
                   style={[
                     styles.actionButton,
-                    styles.followButton,
-                    { 
-                      backgroundColor: isFollowing ? theme.colors.surface : followRequestSent ? '#FF9800' : theme.colors.primary,
-                      borderColor: isFollowing ? theme.colors.primary : 'transparent'
-                    }
+                    isFollowing ? styles.followingButton : styles.followButton
                   ]}
                   onPress={handleFollow}
                   disabled={followLoading}
                 >
-                  <Text style={[
-                    styles.actionButtonText,
-                    { color: isFollowing ? theme.colors.primary : '#fff' }
-                  ]}>
-                    {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
-                  </Text>
+                  {followLoading ? (
+                    <ActivityIndicator size="small" color={isFollowing ? '#0A84FF' : '#FFFFFF'} />
+                  ) : (
+                    <Text style={[
+                      styles.actionButtonText,
+                      { color: isFollowing ? '#0A84FF' : '#FFFFFF' }
+                    ]}>
+                      {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                    </Text>
+                  )}
                 </TouchableOpacity>
                 
                 {isFollowing && (
                   <TouchableOpacity
-                    style={[styles.actionButton, styles.messageButton, { backgroundColor: theme.colors.primary }]}
+                    style={[styles.actionButton, styles.messageButton]}
                     onPress={() => router.push(`/chat?userId=${profile._id}`)}
                   >
-                    <Text style={[styles.actionButtonText, { color: '#fff' }]}>Message</Text>
+                    <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.actionButtonText}>Message</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
-
-            {/* TripScore Section - Only show if user has posted locations */}
-            {profile.tripScore && profile.locations && profile.locations.length > 0 && (
-              <View style={styles.sectionContainer}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
-                <TouchableOpacity 
-                  style={styles.tripScoreContainer}
-                  onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
-                >
-                  <View style={styles.tripScoreCard}>
-                    <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
-                      {profile.tripScore.totalScore}
-                    </Text>
-                    <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
-                      Total TripScore
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Posted Locations Section */}
-            <View style={styles.sectionContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
-              {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
-                <View style={styles.locationsContainer}>
-                  <TouchableOpacity onPress={() => setShowWorldMap(true)} style={styles.globeContainer}>
-                    <View style={styles.globeIconContainer}>
-                      <Ionicons name="earth" size={60} color={theme.colors.primary} />
-                    </View>
-                    <Text style={[styles.locationsCount, { color: theme.colors.textSecondary }]}>
-                      {profile.locations.length} locations visited
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.emptyLocationsContainer}>
-                  <View style={styles.emptyGlobeContainer}>
-                    <Ionicons name="earth" size={50} color={theme.colors.textSecondary} />
-                  </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                    {profile.canViewLocations 
-                      ? 'No locations yet'
-                      : profile.profileVisibility === 'followers' 
-                      ? 'Follow to view posted locations'
-                      : profile.profileVisibility === 'private'
-                      ? 'Follow request pending to view locations'
-                      : 'Follow to view posted locations'
-                    }
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* Recent Posts Section */}
-            {profile.canViewPosts && (
-              <View style={styles.sectionContainer}>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
-              </View>
-            )}
           </View>
-        }
-        data={profile.canViewPosts ? (profile.posts || []).slice(0, 6) : []}
-        keyExtractor={item => item._id}
-        numColumns={3}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.postThumbnail}
-            onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+        </ExpoLinearGradient>
+
+        {/* TripScore Section */}
+        {profile.tripScore && profile.locations && profile.locations.length > 0 && profile.canViewLocations && (
+          <TouchableOpacity 
+            style={styles.sectionCard}
+            onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
+            activeOpacity={0.8}
           >
-            <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIconContainer, { backgroundColor: '#FFF3E0' }]}>
+                <Ionicons name="trophy" size={22} color="#FF6B35" />
+              </View>
+              <Text style={styles.sectionTitle}>TripScore</Text>
+            </View>
+            <View style={styles.tripScoreContent}>
+              <View style={styles.tripScoreCard}>
+                <Text style={styles.tripScoreNumber}>
+                  {profile.tripScore.totalScore}
+                </Text>
+                <Text style={styles.tripScoreLabel}>
+                  Total TripScore
+                </Text>
+              </View>
+            </View>
           </TouchableOpacity>
         )}
-        ListEmptyComponent={
-          <View style={styles.emptyPostsContainer}>
-            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-              {profile.canViewPosts 
-                ? 'No posts yet.' 
-                : profile.profileVisibility === 'followers' 
-                ? 'Follow to view posts'
-                : profile.profileVisibility === 'private'
-                ? 'Follow request pending to view posts'
-                : 'Follow to view posts'
-              }
-            </Text>
+
+        {/* Locations Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconContainer, { backgroundColor: '#E3F2FD' }]}>
+              <Ionicons name="globe" size={22} color="#0A84FF" />
+            </View>
+            <Text style={styles.sectionTitle}>Posted Locations</Text>
           </View>
-        }
-        contentContainerStyle={{ paddingBottom: 40 }}
-      />
+          {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
+            <TouchableOpacity 
+              onPress={() => setShowWorldMap(true)} 
+              style={styles.globeContainer}
+              activeOpacity={0.8}
+            >
+              <RotatingGlobe 
+                locations={profile.locations || []} 
+                size={120} 
+              />
+              <Text style={styles.locationsCount}>
+                {profile.locations.length} locations visited
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.emptyLocationsContainer}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="globe-outline" size={48} color="#CCCCCC" />
+              </View>
+              <Text style={styles.emptyText}>
+                {profile.canViewLocations 
+                  ? 'No locations yet'
+                  : profile.profileVisibility === 'followers' 
+                  ? 'Follow to view posted locations'
+                  : profile.profileVisibility === 'private'
+                  ? 'Follow request pending to view locations'
+                  : 'Follow to view posted locations'
+                }
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Recent Posts Section */}
+        {profile.canViewPosts && (
+          <View style={styles.postsContainer}>
+            <Text style={styles.postsSectionTitle}>Recent Posts</Text>
+            {profile.posts && profile.posts.length > 0 ? (
+              <View style={styles.postsGrid}>
+                {(profile.posts || []).slice(0, 6).map((item: any) => (
+                  <TouchableOpacity
+                    key={item._id}
+                    style={styles.postThumbnail}
+                    onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+                    activeOpacity={0.8}
+                  >
+                    <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconContainer}>
+                  <Ionicons name="camera-outline" size={48} color="#CCCCCC" />
+                </View>
+                <Text style={styles.emptyText}>No posts yet</Text>
+                <Text style={styles.emptySubtext}>This user hasn't shared any posts yet</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!profile.canViewPosts && (
+          <View style={styles.sectionCard}>
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="lock-closed-outline" size={48} color="#CCCCCC" />
+              </View>
+              <Text style={styles.emptyText}>
+                {profile.profileVisibility === 'followers' 
+                  ? 'Follow to view posts'
+                  : profile.profileVisibility === 'private'
+                  ? 'Follow request pending to view posts'
+                  : 'Follow to view posts'
+                }
+              </Text>
+            </View>
+          </View>
+        )}
+      </ScrollView>
+      
       {/* World Map Modal */}
       {((currentUser && currentUser._id === profile._id) || isFollowing) && GOOGLE_MAPS_API_KEY ? (
         <>
@@ -359,7 +422,7 @@ export default function UserProfileScreen() {
         type={alertConfig.type}
         onClose={() => setAlertVisible(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -367,199 +430,273 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  profileContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  scrollContent: {
+    backgroundColor: '#FFFFFF',
   },
   
   // Header Styles
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 10,
     width: '100%',
-    marginBottom: 20,
   },
   backButton: {
-    padding: 8,
+    padding: 10,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
 
-  // Profile Picture Styles
+  // Profile Header - Gradient Style
+  profileHeaderGradient: {
+    paddingTop: 0,
+    paddingBottom: 36,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+    minHeight: 380,
+  },
+  profileHeader: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  profilePictureWrapper: {
+    marginBottom: 20,
+  },
   profilePictureContainer: {
     position: 'relative',
-    marginBottom: 24,
+    width: 120,
+    height: 120,
   },
   profilePicture: {
     width: 120,
     height: 120,
     borderRadius: 60,
-  },
-  profilePictureBorder: {
-    position: 'absolute',
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderRadius: 64,
     borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-
-  // User Info Styles
-  userInfo: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  userName: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  userEmail: {
-    fontSize: 16,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-
-  // Stats Styles
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 32,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    borderColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
   },
-  statNumber: {
+  profileName: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  bioContainer: {
+    marginBottom: 24,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  
+  // Stats Row - Screenshot Style
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 8,
+    gap: 8,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1A1A1A',
     marginBottom: 4,
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
-    opacity: 0.7,
+    color: '#666666',
+    textTransform: 'capitalize',
   },
 
-  // Action Buttons Styles
-  actionButtons: {
+  // Action Buttons
+  actionButtonsContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 32,
+    justifyContent: 'center',
     width: '100%',
+    gap: 12,
+    paddingHorizontal: 20,
   },
   actionButton: {
     flex: 1,
     paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 25,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    maxWidth: 200,
   },
   followButton: {
+    backgroundColor: '#0A84FF',
+  },
+  followingButton: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 2,
+    borderColor: '#0A84FF',
   },
   messageButton: {
-    // Additional styles for message button if needed
+    backgroundColor: '#4CAF50',
   },
   actionButtonText: {
     fontSize: 16,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
 
-  // Section Styles
-  sectionContainer: {
-    width: '100%',
-    marginBottom: 32,
+  // Section Cards - Unified Style
+  sectionCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  sectionIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-
-  // Locations Styles
-  locationsContainer: {
-    alignItems: 'center',
+    color: '#1A1A1A',
+    flex: 1,
   },
   globeContainer: {
     alignItems: 'center',
     paddingVertical: 20,
   },
-  globeIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
   locationsCount: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
+    color: '#666666',
+    marginTop: 12,
+    textAlign: 'center',
   },
   emptyLocationsContainer: {
     alignItems: 'center',
     paddingVertical: 40,
   },
-  emptyGlobeContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    justifyContent: 'center',
+  tripScoreContent: {
     alignItems: 'center',
-    marginBottom: 16,
+  },
+  tripScoreCard: {
+    paddingVertical: 20,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8F9FA',
+    alignItems: 'center',
+  },
+  tripScoreNumber: {
+    fontSize: 42,
+    fontWeight: '800',
+    color: '#0A84FF',
+    marginBottom: 8,
+  },
+  tripScoreLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 
-  // Posts Styles
+  // Posts Container
+  postsContainer: {
+    margin: 16,
+    marginTop: 8,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    marginBottom: 24,
+  },
+  postsSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 16,
+  },
+  postsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
   postThumbnail: {
-    flex: 1 / 3,
+    width: (width - 32 - 24) / 3,
     aspectRatio: 1,
-    margin: 2,
+    marginBottom: 12,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
@@ -568,44 +705,31 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  emptyPostsContainer: {
+
+  // Empty State
+  emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
   },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   emptyText: {
     fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
     textAlign: 'center',
-    lineHeight: 24,
-  },
-
-  // TripScore Styles
-  tripScoreContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  tripScoreCard: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  tripScoreNumber: {
-    fontSize: 42,
-    fontWeight: '800',
     marginBottom: 8,
   },
-  tripScoreLabel: {
+  emptySubtext: {
     fontSize: 14,
-    fontWeight: '500',
-    opacity: 0.7,
+    color: '#666666',
+    textAlign: 'center',
   },
 });

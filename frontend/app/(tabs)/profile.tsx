@@ -7,7 +7,7 @@ import {
   TouchableOpacity, 
   Image, 
   ActivityIndicator,
-  RefreshControl 
+  RefreshControl
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -28,6 +28,8 @@ import RotatingGlobe from '../../components/RotatingGlobe';
 import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -55,6 +57,7 @@ interface ProfileData extends UserType {
 }
 
 export default function ProfileScreen() {
+  const { handleScroll } = useScrollToHideNav();
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -65,7 +68,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
-  const [checkingUser, setCheckingUser] = useState(true); // new state
+  const [checkingUser, setCheckingUser] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -93,23 +96,18 @@ export default function ProfileScreen() {
       }
       setUser(userData);
       setCheckingUser(false);
-      // Load profile data
       const profile = await getProfile(userData._id);
       setProfileData(profile.profile);
-      // Load user posts
       const userPosts = await getUserPosts(userData._id);
       setPosts(userPosts.posts);
-      // Load user shorts (filter by owner)
       try {
         const shortsResp = await getUserShorts(userData._id, 1, 100);
         setUserShorts(shortsResp.shorts || []);
       } catch {}
-      // Load saved ids from AsyncStorage (set by Shorts page)
       try {
         const stored = await AsyncStorage.getItem('savedShorts');
         if (stored) setSavedIds(JSON.parse(stored));
       } catch {}
-      // Load unread count
       await loadUnreadCount();
     } catch (error: any) {
       console.error('Failed to load profile:', error);
@@ -124,7 +122,6 @@ export default function ProfileScreen() {
     loadUserData();
   }, [loadUserData]);
 
-  // Listen to saved changes to refresh instantly
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(async () => {
       try {
@@ -138,7 +135,6 @@ export default function ProfileScreen() {
     return () => { unsubscribe(); };
   }, []);
 
-  // Refresh saved IDs when switching to Saved tab
   useEffect(() => {
     const loadSaved = async () => {
       if (activeTab !== 'saved') return;
@@ -153,7 +149,6 @@ export default function ProfileScreen() {
     loadSaved();
   }, [activeTab]);
 
-  // Resolve saved IDs to full post/short objects (from any user)
   useEffect(() => {
     const resolveSaved = async () => {
       if (activeTab !== 'saved') return;
@@ -163,7 +158,6 @@ export default function ProfileScreen() {
       }
       try {
         const uniqueIds = Array.from(new Set(savedIds));
-        // Batch resolve in small chunks to avoid 429
         const chunkSize = 5;
         const chunks: string[][] = [];
         for (let i = 0; i < uniqueIds.length; i += chunkSize) {
@@ -179,7 +173,6 @@ export default function ProfileScreen() {
               if (item) items.push(item);
             }
           });
-          // brief delay between chunks
           await new Promise(res => setTimeout(res, 250));
         }
         setSavedItems(items);
@@ -199,13 +192,11 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (!checkingUser && !user) {
-      // Only redirect after confirming user is missing
       router.replace('/(auth)/signin');
     }
   }, [checkingUser, user, router]);
 
   const handleRefresh = useCallback(async () => {
-    // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
     setRefreshing(true);
     await loadUserData();
@@ -246,17 +237,14 @@ export default function ProfileScreen() {
             await deletePost(postId);
           }
           
-          // Remove from local state
           if (isShort) {
             setUserShorts(prev => prev.filter(short => short._id !== postId));
           } else {
             setPosts(prev => prev.filter(post => post._id !== postId));
           }
           
-          // Remove from saved items if it exists there
           setSavedItems(prev => prev.filter(item => item._id !== postId));
           
-          // Update posts count
           if (profileData) {
             setProfileData(prev => prev ? { 
               ...prev, 
@@ -298,7 +286,7 @@ export default function ProfileScreen() {
             style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
             onPress={loadUserData}
           >
-            <Text style={[styles.retryButtonText, { color: theme.colors.text }]}>
+            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
               Retry
             </Text>
           </TouchableOpacity>
@@ -309,23 +297,23 @@ export default function ProfileScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      {/* Header with Notification Button and Kebab Menu */}
+      {/* Enhanced Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
         <View style={styles.headerContent}>
           <View style={styles.headerLeft} />
           <View style={styles.headerRight}>
             <TouchableOpacity
-              style={styles.notificationButton}
+              style={[styles.notificationButton, { backgroundColor: theme.colors.surface }]}
               onPress={() => router.push('/notifications')}
             >
               <Ionicons
                 name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                size={24}
+                size={22}
                 color={theme.colors.text}
               />
               {unreadCount > 0 && (
                 <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                  <Text style={[styles.badgeText, { color: theme.colors.text }]}>
+                  <Text style={styles.badgeText}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </Text>
                 </View>
@@ -352,6 +340,9 @@ export default function ProfileScreen() {
       
       <ScrollView
         style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -361,68 +352,88 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Profile Header */}
-        <View style={[styles.profileHeader, { backgroundColor: theme.colors.surface }]}> 
-          <View style={styles.profileInfo}>
-            <View style={styles.avatarContainer}>
-              <Image
-                source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                style={styles.avatar}
-              />
-              <View style={styles.avatarBorder} />
+        {/* Profile Header - Screenshot Style */}
+        <ExpoLinearGradient
+          colors={['#E3F2FD', '#FFFFFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.profileHeaderGradient}
+        >
+          <View style={styles.profileHeader}>
+            {/* Profile Picture */}
+            <View style={styles.profilePictureWrapper}>
+              <View style={styles.profilePictureContainer}>
+                <Image
+                  source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                  style={styles.profilePicture}
+                />
+              </View>
             </View>
-            <Text style={[styles.name, { color: theme.colors.text }]}> 
-              {profileData.fullName}
-            </Text>
-            {profileData.email && (
-              <Text style={[styles.email, { color: theme.colors.textSecondary }]}> 
-                {profileData.email}
+
+            {/* Name */}
+            <Text style={styles.profileName}>{profileData.fullName}</Text>
+            
+            {/* Member Since */}
+            {profileData.createdAt && (
+              <Text style={styles.memberSince}>
+                Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </Text>
             )}
-            <BioDisplay bio={profileData.bio || ''} />
-          </View>
-          
-          {/* Stats Cards */}
-          <View style={styles.statsContainer}>
-            <View style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
-            </View>
-            <TouchableOpacity 
-              style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]} 
-              onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
-            >
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]} 
-              onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
-            >
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
-            </TouchableOpacity>
-            <View style={[styles.statCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
-              <Text style={[styles.statNumber, { color: theme.colors.text }]}>{profileData?.totalLikes || 0}</Text>
-              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Likes</Text>
-            </View>
-          </View>
-        </View>
 
+            {/* Stats Cards with Icons */}
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <View style={styles.statIconContainer}>
+                  <Ionicons name="flame" size={20} color="#FF6B35" />
+                </View>
+                <Text style={styles.statValue}>{profileData?.postsCount || 0}</Text>
+                <Text style={styles.statLabel}>Posts</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.statCard}
+                onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.statIconContainer, { backgroundColor: '#FFF3E0' }]}>
+                  <Ionicons name="trophy" size={20} color="#FF6B35" />
+                </View>
+                <Text style={styles.statValue}>{profileData?.followersCount || 0}</Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.statCard}
+                onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.statIconContainer, { backgroundColor: '#E8F5E9' }]}>
+                  <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                </View>
+                <Text style={styles.statValue}>{profileData?.followingCount || 0}</Text>
+                <Text style={styles.statLabel}>Following</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ExpoLinearGradient>
 
-        {/* TripScore Section - Only show if user has posted locations */}
+        {/* TripScore Section */}
         {profileData?.tripScore && profileData.locations && profileData.locations.length > 0 && (
           <TouchableOpacity 
-            style={[styles.tripScoreSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+            style={styles.sectionCard}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIconContainer, { backgroundColor: '#FFF3E0' }]}>
+                <Ionicons name="trophy" size={22} color="#FF6B35" />
+              </View>
+              <Text style={styles.sectionTitle}>TripScore</Text>
+            </View>
             <View style={styles.tripScoreContent}>
               <View style={styles.tripScoreCard}>
-                <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
+                <Text style={styles.tripScoreNumber}>
                   {profileData.tripScore.totalScore}
                 </Text>
-                <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                <Text style={styles.tripScoreLabel}>
                   Total TripScore
                 </Text>
               </View>
@@ -430,11 +441,16 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Posted Locations Section */}
-        <View style={[styles.locationsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}> 
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
-          </Text>
+        {/* Locations Section */}
+        <View style={styles.sectionCard}> 
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconContainer, { backgroundColor: '#E3F2FD' }]}>
+              <Ionicons name="globe" size={22} color="#0A84FF" />
+            </View>
+            <Text style={styles.sectionTitle}>
+              {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
+            </Text>
+          </View>
           <View style={styles.globeContainer}>
             <RotatingGlobe 
               locations={profileData?.locations || []} 
@@ -445,63 +461,67 @@ export default function ProfileScreen() {
 
         {/* Collections Section */}
         <TouchableOpacity 
-          style={[styles.collectionsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+          style={styles.sectionCard}
           onPress={() => router.push('/collections')}
           activeOpacity={0.7}
         >
-          <View style={styles.collectionsHeader}>
-            <View style={styles.collectionsHeaderLeft}>
-              <Ionicons name="albums-outline" size={22} color={theme.colors.primary} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, fontSize: 16 }]}>Collections</Text>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconContainer, { backgroundColor: '#E8F5E9' }]}>
+              <Ionicons name="albums" size={22} color="#4CAF50" />
             </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+            <View style={styles.sectionTextContainer}>
+              <Text style={styles.sectionTitle}>Collections</Text>
+              <Text style={styles.sectionDescription}>
+                Organize your posts into collections
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999999" />
           </View>
-          <Text style={[styles.collectionsDescription, { color: theme.colors.textSecondary }]}>
-            Organize your posts into collections
-          </Text>
         </TouchableOpacity>
 
         {/* Activity Feed Section */}
         <TouchableOpacity 
-          style={[styles.collectionsSection, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+          style={styles.sectionCard}
           onPress={() => router.push('/activity')}
           activeOpacity={0.7}
         >
-          <View style={styles.collectionsHeader}>
-            <View style={styles.collectionsHeaderLeft}>
-              <Ionicons name="pulse-outline" size={22} color={theme.colors.primary} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, fontSize: 16 }]}>Activity Feed</Text>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconContainer, { backgroundColor: '#FFF3E0' }]}>
+              <Ionicons name="pulse" size={22} color="#FF6B35" />
             </View>
-            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+            <View style={styles.sectionTextContainer}>
+              <Text style={styles.sectionTitle}>Activity Feed</Text>
+              <Text style={styles.sectionDescription}>
+                See what your friends are up to
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#999999" />
           </View>
-          <Text style={[styles.collectionsDescription, { color: theme.colors.textSecondary }]}>
-            See what your friends are up to
-          </Text>
         </TouchableOpacity>
 
-
         {/* Posts/Shorts/Saved Tabs */}
-        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface }]}> 
-          <View style={[styles.tabsRow, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+        <View style={styles.postsContainer}> 
+          <View style={styles.tabsRow}>
             {(['posts','shorts','saved'] as const).map(tab => (
               <TouchableOpacity 
                 key={tab} 
                 style={[
                   styles.tabButton, 
-                  {
-                    borderColor: activeTab===tab ? theme.colors.primary : theme.colors.border,
-                    backgroundColor: activeTab===tab ? theme.colors.primary + '20' : 'transparent'
-                  },
+                  activeTab===tab && styles.activeTabButton
                 ]} 
                 onPress={() => setActiveTab(tab)}
+                activeOpacity={0.7}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons 
                     name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                    size={16} 
-                    color={activeTab===tab ? theme.colors.primary : theme.colors.textSecondary} 
+                    size={18} 
+                    color={activeTab===tab ? '#FFFFFF' : '#666666'} 
                   />
-                  <Text style={[styles.tabText, { color: activeTab===tab ? theme.colors.primary : theme.colors.textSecondary }]}>
+                  <Text style={[
+                    styles.tabText, 
+                    { color: activeTab===tab ? '#FFFFFF' : '#666666' }
+                  ]}>
                     {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
                   </Text>
                 </View>
@@ -518,21 +538,20 @@ export default function ProfileScreen() {
                       key={post._id} 
                       style={styles.postThumbnail}
                       onLongPress={() => handleDeletePost(post._id, false)}
+                      onPress={() => router.push(`/post/${post._id}`)}
                       activeOpacity={0.8}
                     >
                       <Image source={{ uri: post.imageUrl }} style={styles.thumbnailImage} />
-                      <View style={styles.deleteOverlay}>
-                        <Ionicons name="trash-outline" size={20} color="white" />
-                      </View>
                     </TouchableOpacity>
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
-                    <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
+                    <Ionicons name="camera-outline" size={48} color="#CCCCCC" />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>No posts yet</Text>
+                  <Text style={styles.emptyText}>No posts yet</Text>
+                  <Text style={styles.emptySubtext}>Start sharing your adventures!</Text>
                 </View>
               )
             )}
@@ -549,8 +568,8 @@ export default function ProfileScreen() {
                           onLongPress={() => handleDeletePost(s._id, true)}
                           activeOpacity={0.8}
                         >
-                          <View style={styles.deleteOverlay}>
-                            <Ionicons name="trash-outline" size={20} color="white" />
+                          <View style={styles.placeholderThumbnail}>
+                            <Ionicons name="videocam-outline" size={32} color={theme.colors.textSecondary} />
                           </View>
                         </TouchableOpacity>
                       );
@@ -560,11 +579,12 @@ export default function ProfileScreen() {
                         key={s._id} 
                         style={styles.postThumbnail}
                         onLongPress={() => handleDeletePost(s._id, true)}
+                        onPress={() => router.push(`/post/${s._id}`)}
                         activeOpacity={0.8}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
-                        <View style={styles.deleteOverlay}>
-                          <Ionicons name="trash-outline" size={20} color="white" />
+                        <View style={styles.playIconOverlay}>
+                          <Ionicons name="play" size={24} color="#FFFFFF" />
                         </View>
                       </TouchableOpacity>
                     );
@@ -573,9 +593,10 @@ export default function ProfileScreen() {
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
-                    <Ionicons name="videocam-outline" size={48} color={theme.colors.textSecondary} />
+                    <Ionicons name="videocam-outline" size={48} color="#CCCCCC" />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>No shorts yet</Text>
+                  <Text style={styles.emptyText}>No shorts yet</Text>
+                  <Text style={styles.emptySubtext}>Create your first short video!</Text>
                 </View>
               )
             )}
@@ -583,17 +604,26 @@ export default function ProfileScreen() {
               savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {savedItems.map((item) => (
-                    <View key={item._id} style={styles.postThumbnail}>
+                    <TouchableOpacity 
+                      key={item._id} 
+                      style={styles.postThumbnail}
+                      onPress={() => router.push(`/post/${item._id}`)}
+                      activeOpacity={0.8}
+                    >
                       <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
-                    </View>
+                      <View style={styles.bookmarkOverlay}>
+                        <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+                      </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
-                    <Ionicons name="bookmark-outline" size={48} color={theme.colors.textSecondary} />
+                    <Ionicons name="bookmark-outline" size={48} color="#CCCCCC" />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>No saved items</Text>
+                  <Text style={styles.emptyText}>No saved items</Text>
+                  <Text style={styles.emptySubtext}>Save posts you love to view later</Text>
                 </View>
               )
             )}
@@ -637,9 +667,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   notificationButton: {
-    padding: 12,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    padding: 10,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -649,18 +678,19 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
   },
   badgeText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 'bold',
+    color: '#FFFFFF',
     textAlign: 'center',
   },
   scrollView: {
@@ -683,231 +713,217 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   retryButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },
   
-  // Profile Header Styles
-  profileHeader: {
-    padding: 24,
-    marginTop: 5,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 20,
+  // Profile Header - Screenshot Style
+  profileHeaderGradient: {
+    paddingTop: 32,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
     alignItems: 'center',
+  },
+  profileHeader: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  profilePictureWrapper: {
+    marginBottom: 20,
+  },
+  profilePictureContainer: {
+    position: 'relative',
+    width: 120,
+    height: 120,
+  },
+  profilePicture: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  profileInfo: {
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: 16,
-  },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-  },
-  avatarBorder: {
-    position: 'absolute',
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderRadius: 54,
-    borderWidth: 3,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  name: {
+  profileName: {
     fontSize: 24,
     fontWeight: '700',
+    color: '#1A1A1A',
     marginBottom: 8,
     textAlign: 'center',
   },
-  email: {
-    fontSize: 16,
-    marginBottom: 12,
+  memberSince: {
+    fontSize: 14,
+    color: '#666666',
+    marginBottom: 24,
     textAlign: 'center',
   },
   
-  // Stats Styles
-  statsContainer: {
+  // Stats Row - Screenshot Style
+  statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    gap: 12,
+    paddingHorizontal: 8,
+    gap: 8,
   },
   statCard: {
     flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
-    elevation: 4,
-    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
-  statNumber: {
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF3E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statValue: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#1A1A1A',
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
     fontWeight: '500',
-    opacity: 0.7,
+    color: '#666666',
+    textTransform: 'capitalize',
   },
   
-  // Locations Section Styles
-  collectionsSection: {
+  // Section Cards - Unified Style
+  sectionCard: {
     marginHorizontal: 16,
-    marginTop: 0,
-    marginBottom: 8,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 12,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
-  collectionsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  collectionsHeaderLeft: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    flex: 1,
+    marginBottom: 16,
   },
-  collectionsDescription: {
-    fontSize: 13,
-    marginLeft: 36,
-    lineHeight: 18,
-  },
-  locationsSection: {
-    marginTop: 0,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 20,
-    borderRadius: 20,
+  sectionIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: StyleSheet.hairlineWidth,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
+    color: '#1A1A1A',
+    flex: 1,
+  },
+  sectionTextContainer: {
+    flex: 1,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    color: '#666666',
+    marginTop: 4,
+    lineHeight: 18,
   },
   globeContainer: {
     alignItems: 'center',
     paddingVertical: 20,
   },
-  
-  // TripScore Section Styles
-  tripScoreSection: {
-    marginTop: 0,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 20,
-    borderRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   tripScoreContent: {
     alignItems: 'center',
   },
   tripScoreCard: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
     paddingVertical: 20,
     paddingHorizontal: 32,
     borderRadius: 16,
+    backgroundColor: '#F8F9FA',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
   },
   tripScoreNumber: {
     fontSize: 42,
     fontWeight: '800',
+    color: '#0A84FF',
     marginBottom: 8,
   },
   tripScoreLabel: {
     fontSize: 14,
-    fontWeight: '500',
-    opacity: 0.7,
+    fontWeight: '600',
+    color: '#666666',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   
-  // Posts Container Styles
+  // Posts Container
   postsContainer: {
     margin: 16,
+    marginTop: 8,
     padding: 20,
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   tabsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
-    borderRadius: 16,
-    padding: 8,
-    borderWidth: 1,
+    borderRadius: 12,
+    padding: 4,
+    backgroundColor: '#F5F5F5',
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    justifyContent: 'center',
+  },
+  activeTabButton: {
+    backgroundColor: '#0A84FF',
   },
   tabText: {
     fontSize: 14,
     fontWeight: '600',
   },
   
-  // Content Area Styles
+  // Content Area
   contentArea: {
-    marginTop: 16,
+    marginTop: 20,
   },
   postsGrid: {
     flexDirection: 'row',
@@ -918,47 +934,74 @@ const styles = StyleSheet.create({
     width: '31%',
     aspectRatio: 1,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.05)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 6,
   },
   thumbnailImage: {
     width: '100%',
     height: '100%',
   },
-  deleteOverlay: {
+  placeholderThumbnail: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+  },
+  playIconOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bookmarkOverlay: {
     position: 'absolute',
     top: 8,
     right: 8,
-    backgroundColor: 'rgba(255,0,0,0.8)',
-    borderRadius: 12,
-    padding: 6,
-    opacity: 0,
-    transform: [{ scale: 0.8 }],
-  },
-  
-  // Empty State Styles
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+  },
+  
+  // Empty State
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   emptyText: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#666666',
     textAlign: 'center',
   },
 });

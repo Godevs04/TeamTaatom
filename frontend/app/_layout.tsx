@@ -8,6 +8,7 @@ import { updateExpoPushToken } from '../services/profile';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
 import { AlertProvider } from '../context/AlertContext';
+import { ScrollProvider } from '../context/ScrollContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -355,9 +356,11 @@ export default function RootLayout() {
         <ThemeProvider>
           <SettingsProvider>
             <AlertProvider>
-              <View style={styles.rootContainer}>
-                <RootLayoutInner />
-              </View>
+              <ScrollProvider>
+                <View style={styles.rootContainer}>
+                  <RootLayoutInner />
+                </View>
+              </ScrollProvider>
             </AlertProvider>
           </SettingsProvider>
         </ThemeProvider>
