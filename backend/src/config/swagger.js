@@ -4,6 +4,18 @@
  */
 
 const swaggerJsdoc = require('swagger-jsdoc');
+const path = require('path');
+
+// Ensure environment variables are loaded even when this file is required directly
+if (!process.env.API_BASE_URL) {
+  require('dotenv').config({
+    path: path.resolve(__dirname, '../../.env'),
+  });
+}
+
+const DEFAULT_PORT = process.env.PORT || 5000;
+const DEV_SERVER_URL = process.env.API_BASE_URL || `http://localhost:${DEFAULT_PORT}`;
+const PROD_SERVER_URL = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || DEV_SERVER_URL;
 
 const options = {
   definition: {
@@ -100,13 +112,13 @@ All errors follow this format:
     },
     servers: [
       {
-        url: process.env.API_BASE_URL || 'http://localhost:3000',
-        description: 'Development server'
+        url: DEV_SERVER_URL,
+        description: 'Primary server (current env)'
       },
-      {
-        url: 'https://api.taatom.com',
-        description: 'Production server'
-      }
+      ...(PROD_SERVER_URL && PROD_SERVER_URL !== DEV_SERVER_URL ? [{
+        url: PROD_SERVER_URL,
+        description: 'Secondary/Production server'
+      }] : [])
     ],
     components: {
       securitySchemes: {

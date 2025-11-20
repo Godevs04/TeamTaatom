@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -27,7 +27,8 @@ import { getUserFromStorage } from '../../services/auth';
 import { useRouter } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import CommentModal from '../../components/CommentModal';
+import PostComments from '../../components/post/PostComments';
+import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -58,6 +59,7 @@ export default function ShortsScreen() {
   const { theme, mode } = useTheme();
   const router = useRouter();
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
+  const { handleScroll } = useScrollToHideNav();
 
   useEffect(() => {
     loadShorts();
@@ -214,6 +216,21 @@ export default function ShortsScreen() {
     }
   };
 
+  const upsertSelectedComment = useCallback((incomingComment: any) => {
+    if (!incomingComment) return;
+    setSelectedShortComments((prev) => {
+      const next = [...prev];
+      if (incomingComment._id) {
+        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
+        if (existingIndex !== -1) {
+          next[existingIndex] = incomingComment;
+          return next;
+        }
+      }
+      return [incomingComment, ...next];
+    });
+  }, []);
+
   const handleComment = async (shortId: string) => {
     try {
       const response = await getPostById(shortId);
@@ -227,7 +244,7 @@ export default function ShortsScreen() {
   };
 
   const handleCommentAdded = (comment: any) => {
-    setSelectedShortComments(prev => [comment, ...prev]);
+    upsertSelectedComment(comment);
     setShorts(prev => prev.map(short => 
       short._id === selectedShortId 
         ? { ...short, commentsCount: short.commentsCount + 1 }
@@ -587,6 +604,7 @@ export default function ShortsScreen() {
         initialNumToRender={3}
         maxToRenderPerBatch={2}
         windowSize={5}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         directionalLockEnabled={false}
         alwaysBounceVertical={true}
@@ -607,7 +625,7 @@ export default function ShortsScreen() {
 
       {/* Comment Modal */}
       {selectedShortId && (
-        <CommentModal
+        <PostComments
           postId={selectedShortId}
           visible={showCommentModal}
           comments={selectedShortComments}

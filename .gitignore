@@ -1,6 +1,7 @@
 node_modules
 node_modules
 .env
+.idea
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md
 .roo/rules/byterover-rules.md
@@ -12,6 +13,7 @@ node_modules
 .expo
 de/rules/byterover-rules.md
 .idea   
+.DS_Store
 .vscode
 .vscode/*
 !.vscode/settings.json
