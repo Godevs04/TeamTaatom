@@ -20,6 +20,7 @@ const {
   toggleBlockUser,
   getBlockStatus,
   getSuggestedUsers,
+  saveInterests,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -95,6 +96,38 @@ router.get('/search', optionalAuth, searchUsers);
  *         description: Suggested user list
  */
 router.get('/suggested-users', authMiddleware, getSuggestedUsers);
+/**
+ * @swagger
+ * /api/v1/profile/interests:
+ *   post:
+ *     summary: Save user interests
+ *     tags: [Profile]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - interests
+ *             properties:
+ *               interests:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["adventure", "beach", "mountains"]
+ *     responses:
+ *       200:
+ *         description: Interests saved successfully
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.post('/interests', authMiddleware, saveInterests);
 /**
  * @swagger
  * /api/v1/profile/follow-requests:

@@ -10,8 +10,8 @@ import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services
 
 const INTERESTS = [
   { id: 'adventure', label: 'Adventure', icon: 'trail-sign' },
-  { id: 'beach', label: 'Beach', icon: 'beach' },
-  { id: 'mountains', label: 'Mountains', icon: 'mountain' },
+  { id: 'beach', label: 'Beach', icon: 'water' },
+  { id: 'mountains', label: 'Mountains', icon: 'triangle' },
   { id: 'city', label: 'City Life', icon: 'business' },
   { id: 'nature', label: 'Nature', icon: 'leaf' },
   { id: 'culture', label: 'Culture', icon: 'library' },

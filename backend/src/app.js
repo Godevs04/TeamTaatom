@@ -89,8 +89,8 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.8:8081',
-      'http://192.168.1.8:3000',
+      'http://192.168.1.10:8081',
+      'http://192.168.1.10:3000',
 
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
@@ -184,6 +184,7 @@ app.use(generateCSRF);
 app.use((req, res, next) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     // Skip CSRF for public auth endpoints
+    // Check both with and without /api/v1 prefix
     const publicAuthPaths = [
       '/auth/signin',
       '/auth/signup',
@@ -193,13 +194,24 @@ app.use((req, res, next) => {
       '/auth/reset-password',
       '/auth/google',
       '/auth/check-username',
+      '/api/v1/auth/signin',
+      '/api/v1/auth/signup',
+      '/api/v1/auth/verify-otp',
+      '/api/v1/auth/resend-otp',
+      '/api/v1/auth/forgot-password',
+      '/api/v1/auth/reset-password',
+      '/api/v1/auth/google',
+      '/api/v1/auth/check-username',
       '/api/superadmin/login',
       '/api/superadmin/verify-2fa',
       '/api/superadmin/resend-2fa',
       '/api/superadmin/create'
     ];
     
-    const isPublicAuthEndpoint = publicAuthPaths.some(path => req.path === path || req.path.startsWith(path + '/'));
+    // Check if path matches exactly or starts with any public auth path
+    const isPublicAuthEndpoint = publicAuthPaths.some(path => {
+      return req.path === path || req.path.startsWith(path + '/');
+    });
     
     if (isPublicAuthEndpoint) {
       return next();
