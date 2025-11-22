@@ -41,6 +41,7 @@ interface PhotoCardProps {
   onRefresh?: () => void;
   onPress?: () => void;
   isVisible?: boolean; // For lazy loading
+  showBookmark?: boolean; // Show/hide bookmark button
 }
 
 function PhotoCard({
@@ -48,6 +49,7 @@ function PhotoCard({
   onRefresh,
   onPress,
   isVisible = true,
+  showBookmark = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
   const { theme } = useTheme();
@@ -665,6 +667,7 @@ function PhotoCard({
         onComment={handleOpenComments}
         onShare={handleShareClick}
         onSave={handleSave}
+        showBookmark={showBookmark && currentUser && currentUser._id !== post.user._id}
       />
 
       {/* Likes Count */}

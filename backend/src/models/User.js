@@ -137,6 +137,10 @@ const userSchema = new mongoose.Schema({
       required: false,
       default: null
   },
+  interests: {
+    type: [String],
+    default: []
+  },
   settings: {
     privacy: {
       profileVisibility: {

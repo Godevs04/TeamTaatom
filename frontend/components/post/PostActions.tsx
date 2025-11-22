@@ -10,6 +10,7 @@ interface PostActionsProps {
   onComment: () => void;
   onShare: () => void;
   onSave: () => void;
+  showBookmark?: boolean;
 }
 
 export default function PostActions({
@@ -19,6 +20,7 @@ export default function PostActions({
   onComment,
   onShare,
   onSave,
+  showBookmark = true,
 }: PostActionsProps) {
   const { theme } = useTheme();
 
@@ -60,19 +62,21 @@ export default function PostActions({
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        style={styles.actionButton}
-        onPress={onSave}
-        accessibilityLabel={isSaved ? 'Remove from saved' : 'Save post'}
-        accessibilityRole="button"
-        accessibilityHint="Double tap to save or unsave this post"
-      >
-        <Ionicons 
-          name={isSaved ? 'bookmark' : 'bookmark-outline'} 
-          size={24} 
-          color={theme.colors.text} 
-        />
-      </TouchableOpacity>
+      {showBookmark && (
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={onSave}
+          accessibilityLabel={isSaved ? 'Remove from saved' : 'Save post'}
+          accessibilityRole="button"
+          accessibilityHint="Double tap to save or unsave this post"
+        >
+          <Ionicons 
+            name={isSaved ? 'bookmark' : 'bookmark-outline'} 
+            size={24} 
+            color={theme.colors.text} 
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
