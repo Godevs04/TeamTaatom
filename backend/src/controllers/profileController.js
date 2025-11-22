@@ -1776,6 +1776,41 @@ const getSuggestedUsers = async (req, res) => {
   }
 };
 
+// @desc    Save user interests
+// @route   POST /profile/interests
+// @access  Private
+const saveInterests = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { interests } = req.body;
+
+    // Validate interests
+    if (!Array.isArray(interests)) {
+      return sendError(res, 'VAL_2001', 'Interests must be an array');
+    }
+
+    // Update user interests
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { interests },
+      { new: true, runValidators: true }
+    ).select('interests');
+
+    if (!user) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    // Clear cache for this user
+    deleteCache(CacheKeys.user(userId));
+
+    logger.info(`User ${userId} updated interests:`, interests);
+    return sendSuccess(res, 200, 'Interests saved successfully', { interests: user.interests });
+  } catch (error) {
+    logger.error('Save interests error:', error);
+    return sendError(res, 'SRV_6001', 'Error saving interests');
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -1793,5 +1828,6 @@ module.exports = {
   getTravelMapData,
   toggleBlockUser,
   getBlockStatus,
-  getSuggestedUsers
+  getSuggestedUsers,
+  saveInterests
 };
