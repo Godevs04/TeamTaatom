@@ -45,7 +45,7 @@ export const listChats = async (): Promise<ChatListResponse> => {
     const response = await api.get('/api/v1/chat');
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to list chats:', error);
+    logger.error('listChats', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch chats');
   }
 };
@@ -58,7 +58,7 @@ export const getChat = async (otherUserId: string): Promise<ChatResponse> => {
     const response = await api.get(`/api/v1/chat/${otherUserId}`);
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to get chat:', error);
+    logger.error('getChat', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch chat');
   }
 };
@@ -71,7 +71,7 @@ export const getMessages = async (otherUserId: string): Promise<MessagesResponse
     const response = await api.get(`/api/v1/chat/${otherUserId}/messages`);
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to get messages:', error);
+    logger.error('getMessages', error);
     throw new Error(error.response?.data?.message || 'Failed to fetch messages');
   }
 };
@@ -87,7 +87,7 @@ export const sendMessage = async (
     const response = await api.post(`/api/v1/chat/${otherUserId}/messages`, { text });
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to send message:', error);
+    logger.error('sendMessage', error);
     throw new Error(error.response?.data?.message || 'Failed to send message');
   }
 };
@@ -100,7 +100,7 @@ export const markAllMessagesSeen = async (otherUserId: string): Promise<{ succes
     const response = await api.post(`/api/v1/chat/${otherUserId}/mark-all-seen`);
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to mark messages as seen:', error);
+    logger.error('markAllMessagesSeen', error);
     throw new Error(error.response?.data?.message || 'Failed to mark messages as seen');
   }
 };
@@ -111,7 +111,7 @@ export const clearChat = async (otherUserId: string): Promise<{ success: boolean
     const response = await api.delete(`/api/v1/chat/${otherUserId}/messages`);
     return response.data;
   } catch (error: any) {
-    logger.error('Failed to clear chat:', error);
+    logger.error('clearChat', error);
     throw new Error(error.response?.data?.message || 'Failed to clear chat');
   }
 };

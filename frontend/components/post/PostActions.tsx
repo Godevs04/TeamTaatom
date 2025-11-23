@@ -11,6 +11,7 @@ interface PostActionsProps {
   onShare: () => void;
   onSave: () => void;
   showBookmark?: boolean;
+  isLoading?: boolean;
 }
 
 export default function PostActions({
@@ -21,6 +22,7 @@ export default function PostActions({
   onShare,
   onSave,
   showBookmark = true,
+  isLoading = false,
 }: PostActionsProps) {
   const { theme } = useTheme();
 
@@ -30,6 +32,7 @@ export default function PostActions({
         <TouchableOpacity 
           style={styles.actionButton} 
           onPress={onLike}
+          disabled={isLoading}
           accessibilityLabel={isLiked ? 'Unlike post' : 'Like post'}
           accessibilityRole="button"
           accessibilityHint="Double tap to like or unlike this post"
@@ -44,6 +47,7 @@ export default function PostActions({
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onComment}
+          disabled={isLoading}
           accessibilityLabel="Comment on post"
           accessibilityRole="button"
           accessibilityHint="Double tap to add a comment"
@@ -54,6 +58,7 @@ export default function PostActions({
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onShare}
+          disabled={isLoading}
           accessibilityLabel="Share post"
           accessibilityRole="button"
           accessibilityHint="Double tap to share this post"
@@ -66,6 +71,7 @@ export default function PostActions({
         <TouchableOpacity
           style={styles.actionButton}
           onPress={onSave}
+          disabled={isLoading}
           accessibilityLabel={isSaved ? 'Remove from saved' : 'Save post'}
           accessibilityRole="button"
           accessibilityHint="Double tap to save or unsave this post"
