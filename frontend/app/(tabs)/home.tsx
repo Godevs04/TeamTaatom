@@ -7,13 +7,13 @@ import {
   ActivityIndicator, 
   Image, 
   RefreshControl, 
-  SafeAreaView,
   TouchableOpacity,
   StatusBar,
   ScrollView,
   Platform,
   Dimensions
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';

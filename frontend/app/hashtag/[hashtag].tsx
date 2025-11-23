@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -16,6 +17,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import EmptyState from '../../components/EmptyState';
 import ErrorMessage from '../../components/ErrorMessage';
+import NavBar from '../../components/NavBar';
 
 export default function HashtagDetailScreen() {
   const { hashtag } = useLocalSearchParams<{ hashtag: string }>();
@@ -92,18 +94,11 @@ export default function HashtagDetailScreen() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            #{hashtagName}
-          </Text>
-          <View style={styles.placeholder} />
-        </View>
+        <NavBar 
+          title={`#${hashtagName}`}
+          showBack={true}
+          onBack={() => router.back()}
+        />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
@@ -114,18 +109,11 @@ export default function HashtagDetailScreen() {
   if (error && posts.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            #{hashtagName}
-          </Text>
-          <View style={styles.placeholder} />
-        </View>
+        <NavBar 
+          title={`#${hashtagName}`}
+          showBack={true}
+          onBack={() => router.back()}
+        />
         <ErrorMessage
           message={error}
           onRetry={loadData}
@@ -136,26 +124,26 @@ export default function HashtagDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            #{hashtagName}
-          </Text>
+      {/* Header with NavBar */}
+      <NavBar 
+        title={`#${hashtagName}`}
+        showBack={true}
+        onBack={() => router.back()}
+      />
+      
+      {/* Hashtag Info Section - Simplified */}
           {hashtagData && (
-            <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>
+        <View style={[styles.infoSection, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+          <View style={[styles.hashtagIconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
+            <Ionicons name="pricetag" size={20} color={theme.colors.primary} />
+          </View>
+          <View style={styles.infoContent}>
+            <Text style={[styles.postCount, { color: theme.colors.textSecondary }]}>
               {hashtagData.postCount} {hashtagData.postCount === 1 ? 'post' : 'posts'}
             </Text>
-          )}
+          </View>
         </View>
-        <View style={styles.placeholder} />
-      </View>
+      )}
 
       {/* Posts List */}
       {posts.length === 0 ? (
@@ -196,35 +184,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    marginTop: 2,
-  },
-  placeholder: {
-    width: 40,
-  },
-  loadingContainer: {
-    flex: 1,
+  hashtagIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
+  },
+  infoContent: {
+    flex: 1,
+  },
+  postCount: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   listContent: {
     paddingBottom: 20,

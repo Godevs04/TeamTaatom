@@ -35,6 +35,20 @@ export interface PostType {
   commentsDisabled?: boolean;
   isArchived?: boolean;
   isHidden?: boolean;
+  // Song selection
+  song?: {
+    songId?: {
+      _id: string;
+      title: string;
+      artist: string;
+      duration: number;
+      s3Url: string;
+      thumbnailUrl?: string;
+    };
+    startTime?: number;
+    endTime?: number;
+    volume?: number;
+  };
 }
 
 export interface CommentType {

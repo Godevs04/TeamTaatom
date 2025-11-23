@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   FlatList,
@@ -16,6 +15,7 @@ import {
   Platform,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -31,6 +31,7 @@ import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
+import SongPlayer from '../../components/SongPlayer';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const logger = createLogger('ShortsScreen');
@@ -502,10 +503,24 @@ export default function ShortsScreen() {
   };
 
   const renderShortItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
-    const isVideoPlaying = videoStates[item._id] || index === currentIndex;
+    // Get actual video playing state - if videoStates has a value, use it; otherwise default to true only if current index
+    const videoState = videoStates[item._id];
+    const isVideoPlaying = videoState !== undefined ? videoState : (index === currentIndex);
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
+    
+    // Debug: Log song data
+    if (item.song) {
+      logger.debug('Short has song data:', {
+        hasSong: !!item.song,
+        hasSongId: !!item.song.songId,
+        songId: item.song.songId,
+        s3Url: item.song.songId?.s3Url,
+        title: item.song.songId?.title,
+        artist: item.song.songId?.artist,
+      });
+    }
 
     return (
       <View style={styles.shortItem}>
@@ -540,9 +555,31 @@ export default function ShortsScreen() {
               isMuted={index !== currentIndex}
               onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
                 if (status.isLoaded) {
+                  const wasPlaying = videoStates[item._id];
+                  const isNowPlaying = status.isPlaying;
+                  
+                  // Always update video state to reflect actual playback status
+                  setVideoStates(prev => {
+                    const newState = {
+                      ...prev,
+                      [item._id]: isNowPlaying
+                    };
+                    
+                    // Log state change for debugging
+                    if (wasPlaying !== isNowPlaying) {
+                      logger.debug(`Video ${item._id} ${isNowPlaying ? 'playing' : 'paused'}`);
+                    }
+                    
+                    return newState;
+                  });
+                }
+              }}
+              onLoad={(status) => {
+                // Initialize video state when video loads
+                if (status.isLoaded) {
                   setVideoStates(prev => ({
                     ...prev,
-                    [item._id]: status.isPlaying
+                    [item._id]: status.isPlaying || false
                   }));
                 }
               }}
@@ -658,30 +695,64 @@ export default function ShortsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Content */}
+          {/* Bottom Content with Elegant Design */}
           <View style={styles.bottomContent}>
-            <View style={styles.userInfo}>
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
+              style={styles.bottomGradientOverlay}
+            />
+            
+            <View style={styles.bottomContentInner}>
               <TouchableOpacity 
                 style={styles.userProfileSection}
                 onPress={() => handleProfilePress(item.user._id)}
                 activeOpacity={0.7}
               >
+                <View style={styles.avatarContainer}>
                 <Image
                   source={{ uri: item.user.profilePic }}
                   style={styles.userAvatar}
                 />
+                  <View style={styles.avatarRing} />
+                </View>
                 <View style={styles.userDetails}>
+                  <View style={styles.usernameRow}>
                   <Text style={styles.username}>@{item.user.fullName}</Text>
-                  <Text style={styles.caption}>{item.caption}</Text>
+                    {isFollowing && (
+                      <View style={styles.followingBadge}>
+                        <Text style={styles.followingText}>Following</Text>
+                      </View>
+                    )}
+                  </View>
+                  
+                  {item.caption && (
+                    <Text style={styles.caption} numberOfLines={2}>
+                      {item.caption}
+                    </Text>
+                  )}
+                  
                   {item.tags && item.tags.length > 0 && (
                     <View style={styles.tagsContainer}>
                       {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                        <Text key={tagIndex} style={styles.tag}>#{tag}</Text>
+                        <View key={tagIndex} style={styles.tagBadge}>
+                          <Text style={styles.tag}>#{tag}</Text>
+                        </View>
                       ))}
                     </View>
                   )}
                 </View>
               </TouchableOpacity>
+              
+              {/* Song Player - Elegant Design - Synced with Video */}
+              {item.song?.songId && item.song.songId.s3Url ? (
+                <View style={styles.songPlayerWrapper} pointerEvents="box-none">
+                  <SongPlayer 
+                    post={item} 
+                    isVisible={index === currentIndex} 
+                    autoPlay={isVideoPlaying} 
+                  />
+                </View>
+              ) : null}
             </View>
           </View>
       </View>
@@ -995,61 +1066,120 @@ const styles = StyleSheet.create({
   },
   bottomContent: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 0,
     left: 0,
     right: 80,
-    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingTop: 20,
+    paddingHorizontal: 20,
     zIndex: 5,
   },
-  userInfo: {
-    marginBottom: 8,
+  bottomGradientOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    zIndex: 0,
+  },
+  bottomContentInner: {
+    position: 'relative',
+    zIndex: 1,
   },
   userProfileSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 46,
+    marginBottom: 16,
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 14,
   },
   userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
+  avatarRing: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderRadius: 26,
+    borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.3)',
-    marginRight: 12,
   },
   userDetails: {
     flex: 1,
+    paddingTop: 2,
+  },
+  usernameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    flexWrap: 'wrap',
   },
   username: {
     color: 'white',
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: 6,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
+    marginRight: 8,
+  },
+  followingBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  followingText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
   },
   caption: {
-    color: 'rgba(255,255,255,0.95)',
+    color: 'rgba(255,255,255,0.98)',
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 8,
+    marginBottom: 10,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    marginBottom: 4,
+    gap: 6,
+  },
+  tagBadge: {
+    backgroundColor: 'rgba(255, 215, 0, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 215, 0, 0.4)',
   },
   tag: {
     color: '#FFD700',
     fontSize: 12,
     fontWeight: '600',
-    marginRight: 8,
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+  },
+  songPlayerWrapper: {
+    marginTop: 14,
+    width: '100%',
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    zIndex: 100,
   },
 });
