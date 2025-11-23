@@ -351,19 +351,19 @@ export default function PostScreen() {
         clearUploadState();
         setSelectedVideo(asset.uri);
         setSelectedImages([]);
-        setPostType('short');
+      setPostType('short');
         // Reset audio choice and show modal to ask user
         setAudioChoice(null);
         setSelectedSong(null);
         setShowAudioChoiceModal(true);
-        // Generate initial thumbnail
-        try {
+      // Generate initial thumbnail
+      try {
           const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
-          setVideoThumbnail(uri);
-        } catch (e) {
-          logger.warn('Thumbnail generation failed', e);
-          setVideoThumbnail(null);
-        }
+        setVideoThumbnail(uri);
+      } catch (e) {
+        logger.warn('Thumbnail generation failed', e);
+        setVideoThumbnail(null);
+      }
       
       // Add a small delay to ensure MediaLibrary is updated with the selected video
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -489,7 +489,7 @@ export default function PostScreen() {
       }
       
       setSelectedVideo(asset.uri);
-      setSelectedImages([]);
+        setSelectedImages([]);
       setPostType('short');
       try {
         const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
@@ -834,25 +834,25 @@ export default function PostScreen() {
               borderColor: theme.colors.primary + '30',
               padding: 2,
               backgroundColor: theme.colors.background
-            }}>
-              <Image
-                source={user.profilePic ? { uri: user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                style={{ 
+          }}>
+            <Image
+              source={user.profilePic ? { uri: user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+              style={{ 
                   width: '100%', 
                   height: '100%', 
-                  borderRadius: 20,
-                }}
-              />
+                borderRadius: 20, 
+              }}
+            />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ 
+            <Text style={{ 
                 fontSize: theme.typography.h3.fontSize, 
                 fontWeight: '700', 
                 color: theme.colors.text,
                 marginBottom: 2
-              }}>
-                {user.fullName}
-              </Text>
+            }}>
+              {user.fullName}
+            </Text>
               <Text style={{ 
                 fontSize: theme.typography.small.fontSize, 
                 color: theme.colors.textSecondary 
@@ -954,11 +954,11 @@ export default function PostScreen() {
                 alignItems: 'center',
                 marginBottom: theme.spacing.lg
               }}>
-                <Ionicons 
+              <Ionicons 
                   name={postType === 'photo' ? "image" : "videocam"} 
                   size={64} 
                   color={theme.colors.primary} 
-                />
+              />
               </View>
               <Text style={{ 
                 color: theme.colors.text, 
@@ -1201,11 +1201,11 @@ export default function PostScreen() {
                 zIndex: 10
               }} 
               onPress={() => { 
-                setSelectedImages([]); 
-                setSelectedVideo(null);
-                setVideoThumbnail(null);
-                setLocation(null); 
-                setAddress(""); 
+              setSelectedImages([]); 
+              setSelectedVideo(null);
+              setVideoThumbnail(null);
+              setLocation(null); 
+              setAddress(""); 
               }}
               activeOpacity={0.7}
             >

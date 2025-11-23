@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client'
+import logger from '../utils/logger'
 
 class SocketService {
   constructor() {
@@ -12,18 +13,19 @@ class SocketService {
 
   async connect() {
     if (this.socket && this.socket.connected) {
-      console.log('✅ Socket already connected')
+      logger.debug('✅ Socket already connected')
       return this.socket
     }
 
     try {
       const token = localStorage.getItem('founder_token')
       if (!token) {
-        console.warn('⚠️ No authentication token found, skipping socket connection')
+        // Don't log as warning - this is expected when user is not logged in
+        logger.debug('No authentication token found, skipping socket connection')
         return null
       }
 
-      console.log('🔌 Attempting to connect socket...')
+      logger.debug('🔌 Attempting to connect socket...')
       this.socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
         path: '/socket.io/',
         transports: ['websocket', 'polling'], // Add polling as fallback
@@ -43,59 +45,59 @@ class SocketService {
 
       // Don't throw error on connection failure, just log it
       this.socket.once('connect', () => {
-        console.log('✅ Socket connection established')
+        logger.debug('✅ Socket connection established')
       })
 
       this.socket.once('connect_error', (error) => {
-        console.warn('⚠️ Socket connection failed, will retry:', error.message)
+        logger.warn('⚠️ Socket connection failed, will retry:', error.message)
       })
 
       return this.socket
     } catch (error) {
-      console.warn('⚠️ Socket connection setup failed:', error)
+      logger.warn('⚠️ Socket connection setup failed:', error)
       return null
     }
   }
 
   setupEventHandlers() {
     this.socket.on('connect', () => {
-      console.log('✅ Socket connected successfully')
+      logger.debug('✅ Socket connected successfully')
       this.isConnected = true
       this.reconnectAttempts = 0
       this.emit('connect')
     })
 
     this.socket.on('disconnect', (reason) => {
-      console.log('⚠️ Socket disconnected:', reason)
+      logger.warn('⚠️ Socket disconnected:', reason)
       this.isConnected = false
       this.emit('disconnect', reason)
     })
 
     this.socket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error.message)
+      logger.error('❌ Socket connection error:', error.message)
       this.reconnectAttempts++
       this.emit('connect_error', error)
     })
 
     this.socket.on('reconnect', (attemptNumber) => {
-      console.log('✅ Socket reconnected after', attemptNumber, 'attempts')
+      logger.debug('✅ Socket reconnected after', attemptNumber, 'attempts')
       this.isConnected = true
       this.emit('reconnect', attemptNumber)
     })
 
     this.socket.on('reconnect_error', (error) => {
-      console.error('❌ Socket reconnection error:', error.message)
+      logger.error('❌ Socket reconnection error:', error.message)
       this.emit('reconnect_error', error)
     })
 
     this.socket.on('reconnect_failed', () => {
-      console.warn('⚠️ Socket reconnection failed')
+      logger.warn('⚠️ Socket reconnection failed')
       this.emit('reconnect_failed')
     })
 
     // Forward all custom events to registered listeners
     this.socket.onAny((event, ...args) => {
-      console.log('📡 Socket event received:', event, args)
+      logger.debug('📡 Socket event received:', event, args)
       this.emit(event, ...args)
     })
   }
@@ -120,7 +122,7 @@ class SocketService {
         try {
           callback(...args)
         } catch (error) {
-          console.error('Error in socket event callback:', error)
+          logger.error('Error in socket event callback:', error)
         }
       })
     }
@@ -131,7 +133,7 @@ class SocketService {
     if (this.socket && this.isConnected) {
       this.socket.emit(event, data)
     } else {
-      console.warn('Socket not connected, cannot send data')
+      logger.warn('Socket not connected, cannot send data')
     }
   }
 
@@ -152,7 +154,7 @@ class SocketService {
   // Disconnect socket
   disconnect() {
     if (this.socket) {
-      console.log('🔌 Disconnecting socket...')
+      logger.debug('🔌 Disconnecting socket...')
       this.socket.disconnect()
       this.socket = null
       this.isConnected = false

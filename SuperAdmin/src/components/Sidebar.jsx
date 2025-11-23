@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useMemo } from 'react'
+import PropTypes from 'prop-types'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -34,7 +35,7 @@ const navItems = [
 const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {
   const { user } = useAuth()
 
-  const navigation = React.useMemo(() => {
+  const navigation = useMemo(() => {
     if (user?.role === 'founder') return navItems
     return navItems.filter(item => !item.permission || user?.permissions?.[item.permission])
   }, [user])
@@ -118,6 +119,12 @@ const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {
       </aside>
     </>
   )
+}
+
+Sidebar.propTypes = {
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  isMobile: PropTypes.bool
 }
 
 export default Sidebar

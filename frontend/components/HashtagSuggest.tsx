@@ -70,15 +70,15 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
       const spaceIndex = textAfterHash.search(/[\s\n]/);
       if (spaceIndex !== -1) {
         // There's a space/newline, meaning the hashtag is already completed
-        setSuggestions([]);
-        setCurrentHashtag('');
-        return;
-      }
-      
+      setSuggestions([]);
+      setCurrentHashtag('');
+      return;
+    }
+
       // Extract the hashtag query (word characters and emojis)
       const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
       const hashtagQuery = match ? match[1] : '';
-      setCurrentHashtag(hashtagQuery);
+    setCurrentHashtag(hashtagQuery);
     }
 
     // Clear previous timer

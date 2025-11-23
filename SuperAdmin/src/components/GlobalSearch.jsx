@@ -3,6 +3,7 @@ import { Search, X, Users, MessageSquare, FileText, Clock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRealTime } from '../context/RealTimeContext'
 import { formatDistanceToNow } from 'date-fns'
+import logger from '../utils/logger'
 
 const GlobalSearch = () => {
   const [isOpen, setIsOpen] = useState(false)
@@ -62,7 +63,7 @@ const GlobalSearch = () => {
         setSearchHistory(prev => [query.trim(), ...prev.slice(0, 9)])
       }
     } catch (error) {
-      console.error('Search failed:', error)
+      logger.error('Search failed:', error)
     } finally {
       setIsLoading(false)
     }
@@ -70,7 +71,7 @@ const GlobalSearch = () => {
 
   const handleResultClick = (result) => {
     // Handle navigation based on result type
-    console.log('Navigate to:', result)
+    logger.debug('Navigate to:', result)
     setIsOpen(false)
     setQuery('')
   }

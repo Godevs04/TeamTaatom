@@ -8,6 +8,10 @@ import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { api } from '../services/api'
+import logger from '../utils/logger'
+import { handleError } from '../utils/errorCodes'
+import { handleModalClose } from '../utils/modalUtils'
+import { sanitizeText } from '../utils/sanitize'
 
 const Users = () => {
   const { users, fetchUsers, performBulkAction, isConnected } = useRealTime()
@@ -32,6 +36,11 @@ const Users = () => {
     role: 'all'
   })
 
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterStatus, sortBy, sortOrder])
+
   // Fetch users data on component mount and when filters change
   useEffect(() => {
     const fetchData = async () => {
@@ -45,7 +54,7 @@ const Users = () => {
           sortOrder
         })
       } catch (error) {
-        toast.error('Failed to fetch users')
+        handleError(error, toast, 'Failed to fetch users')
       } finally {
         setLoading(false)
       }
@@ -54,13 +63,13 @@ const Users = () => {
     fetchData()
   }, [fetchUsers, currentPage, searchTerm, filterStatus, sortBy, sortOrder])
 
-  // Handle search with debouncing
+  // Handle search with debouncing (standardized 500ms delay)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (searchTerm !== '') {
         setCurrentPage(1) // Reset to first page when searching
       }
-    }, 500)
+    }, 500) // Standardized debounce delay: 500ms
 
     return () => clearTimeout(timeoutId)
   }, [searchTerm])
@@ -97,7 +106,7 @@ const Users = () => {
         sortOrder
       })
     } catch (error) {
-      toast.error(`Failed to ${action} user`)
+      handleError(error, toast, `Failed to ${action} user`)
     }
   }
 
@@ -163,9 +172,7 @@ const Users = () => {
           try {
             await api.patch(`/api/superadmin/users/${selectedUser._id}`, editFormData)
             toast.success('User updated successfully')
-            setShowModal(false)
-            setSelectedUser(null)
-            setEditFormData({})
+            handleModalClose(setShowModal, setSelectedUser, () => setEditFormData({}))
             // Refresh users
             await fetchUsers({
               page: currentPage,
@@ -175,16 +182,15 @@ const Users = () => {
               sortOrder
             })
           } catch (error) {
-            toast.error('Failed to update user')
-            console.error('Update error:', error)
+            handleError(error, toast, 'Failed to update user')
+            logger.error('Update error:', error)
           }
         } else if (selectedUser.action === 'delete') {
           // Handle delete action
           try {
             await api.delete(`/api/superadmin/users/${selectedUser._id}`)
             toast.success('User deleted successfully')
-            setShowModal(false)
-            setSelectedUser(null)
+            handleModalClose(setShowModal, setSelectedUser)
             // Refresh users
             await fetchUsers({
               page: currentPage,
@@ -194,18 +200,21 @@ const Users = () => {
               sortOrder
             })
           } catch (error) {
-            toast.error('Failed to delete user')
-            console.error('Delete error:', error)
+            handleError(error, toast, 'Failed to delete user')
+            logger.error('Delete error:', error)
           }
         } else {
           await handleUserActionClick(selectedUser._id, selectedUser.action)
-          setShowModal(false)
-          setSelectedUser(null)
+          handleModalClose(setShowModal, setSelectedUser)
         }
       } catch (error) {
-        toast.error(`Failed to ${selectedUser.action} user`)
+        handleError(error, toast, `Failed to ${selectedUser.action} user`)
       }
     }
+  }
+  
+  const handleCloseModal = () => {
+    handleModalClose(setShowModal, setSelectedUser, () => setEditFormData({}))
   }
   
   // Handle bulk delete/ban
@@ -302,8 +311,8 @@ const Users = () => {
       toast.success(`Successfully exported ${usersToExport.length} user(s)`)
       setShowExportModal(false)
     } catch (error) {
-      toast.error('Failed to export users')
-      console.error('Export error:', error)
+      handleError(error, toast, 'Failed to export users')
+      logger.error('Export error:', error)
     }
   }
 
@@ -817,7 +826,7 @@ const Users = () => {
                   <input
                     type="text"
                     value={editFormData.fullName || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, fullName: e.target.value })}
+                    onChange={(e) => setEditFormData({ ...editFormData, fullName: sanitizeText(e.target.value) })}
                     className="input w-full"
                     placeholder="Enter full name"
                   />
@@ -830,7 +839,7 @@ const Users = () => {
                   <input
                     type="email"
                     value={editFormData.email || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: sanitizeText(e.target.value) })}
                     className="input w-full"
                     placeholder="Enter email"
                   />
@@ -842,7 +851,7 @@ const Users = () => {
                   </label>
                   <textarea
                     value={editFormData.bio || ''}
-                    onChange={(e) => setEditFormData({ ...editFormData, bio: e.target.value })}
+                    onChange={(e) => setEditFormData({ ...editFormData, bio: sanitizeText(e.target.value) })}
                     className="input w-full h-24 resize-none"
                     placeholder="Enter bio"
                   />

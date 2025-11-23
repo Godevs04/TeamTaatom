@@ -71,15 +71,15 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
       const spaceIndex = textAfterAt.search(/[\s\n]/);
       if (spaceIndex !== -1) {
         // There's a space/newline, meaning the mention is already completed
-        setSuggestions([]);
-        setCurrentMention('');
-        return;
-      }
-      
+      setSuggestions([]);
+      setCurrentMention('');
+      return;
+    }
+
       // Extract the mention query (word characters only)
       const match = textAfterAt.match(/^([\w]*)/);
       const mentionQuery = match ? match[1] : '';
-      setCurrentMention(mentionQuery);
+    setCurrentMention(mentionQuery);
     }
 
     // Clear previous timer

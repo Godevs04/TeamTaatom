@@ -1,6 +1,7 @@
 import axios from 'axios'
 import logger from '../utils/logger'
 import { parseError } from '../utils/errorCodes'
+import rateLimiter from '../utils/rateLimiter'
 
 // Use environment variable if set, otherwise use relative path for Vite proxy
 // In development, Vite proxy will handle /api requests
@@ -15,9 +16,83 @@ export const api = axios.create({
   },
 })
 
+// CSRF token management
+let csrfToken = null
+
+const getCsrfToken = async () => {
+  try {
+    // Only fetch CSRF token if user is authenticated
+    const token = localStorage.getItem('founder_token')
+    if (!token) {
+      return null
+    }
+
+    if (!csrfToken) {
+      // Try to get CSRF token from cookie first (if set by backend)
+      const cookies = document.cookie.split(';')
+      const csrfCookie = cookies.find(c => c.trim().startsWith('csrf-token='))
+      if (csrfCookie) {
+        csrfToken = csrfCookie.split('=')[1]
+        return csrfToken
+      }
+      
+      // If not in cookie, try to fetch from backend endpoint (if exists)
+      // Only if we have an auth token
+      try {
+        const response = await api.get('/api/superadmin/csrf-token', {
+          skipAuthRedirect: true,
+          skipRateLimit: true
+        })
+        if (response?.data?.csrfToken) {
+          csrfToken = response.data.csrfToken
+        }
+      } catch (err) {
+        // Silently fail - endpoint might not exist or user not authenticated
+        // Don't log as error to avoid console spam
+        if (err.response?.status !== 401) {
+          logger.debug('CSRF token endpoint not available, using cookie-based CSRF if configured')
+        }
+      }
+    }
+    return csrfToken
+  } catch (error) {
+    // Only log non-401 errors
+    if (error.response?.status !== 401) {
+      logger.warn('Failed to fetch CSRF token:', error)
+    }
+    return null
+  }
+}
+
 // Request interceptor
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
+    // Skip rate limiting for certain endpoints
+    const skipRateLimit = config.skipRateLimit || 
+      config.url?.includes('/verify-2fa') || 
+      config.url?.includes('/resend-2fa') ||
+      config.url?.includes('/login')
+    
+    // Check rate limit
+    if (!skipRateLimit) {
+      const endpoint = config.url || 'default'
+      if (!rateLimiter.isAllowed(endpoint)) {
+        const error = new Error('Rate limit exceeded. Please wait before making more requests.')
+        error.code = 'RATE_5001'
+        error.response = {
+          status: 429,
+          data: {
+            error: {
+              code: 'RATE_5001',
+              message: 'Too many requests. Please wait before making more requests.'
+            }
+          }
+        }
+        logger.warn('Rate limit exceeded for:', endpoint)
+        return Promise.reject(error)
+      }
+    }
+    
     // Don't add Authorization header for 2FA endpoints
     const is2FAEndpoint = config.url?.includes('/verify-2fa') || config.url?.includes('/resend-2fa') || config.url?.includes('/login')
     
@@ -25,6 +100,18 @@ api.interceptors.request.use(
       const token = localStorage.getItem('founder_token')
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
+      }
+    }
+    
+    // Add CSRF token for state-changing requests (POST, PUT, PATCH, DELETE)
+    // Only if user is authenticated
+    if (!config.skipCsrf && ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase())) {
+      const authToken = localStorage.getItem('founder_token')
+      if (authToken) {
+        const token = await getCsrfToken()
+        if (token) {
+          config.headers['X-CSRF-Token'] = token
+        }
       }
     }
     
@@ -43,16 +130,34 @@ api.interceptors.response.use(
     logger.debug('API Response:', response.status, response.config.url)
     return response
   },
-  (error) => {
+  async (error) => {
     const parsedError = parseError(error)
     logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
     
     if (error.response?.status === 401) {
+      // Clear token and auth header
       localStorage.removeItem('founder_token')
+      delete api.defaults.headers.common['Authorization']
+      csrfToken = null // Clear CSRF token on auth failure
+      
       // Only redirect if not already on login page to prevent infinite loops
       if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+        // Use a small delay to ensure state is cleared
+        setTimeout(() => {
+          window.location.href = '/login'
+        }, 100)
       }
+    }
+    
+    // Handle CSRF token errors
+    if (error.response?.status === 403 && error.response?.data?.message?.includes('CSRF')) {
+      logger.warn('CSRF token invalid, fetching new token')
+      csrfToken = null // Force refresh on next request
+    }
+    
+    // Handle token expiration specifically
+    if (error.response?.status === 401 && error.response?.data?.message?.includes('expired')) {
+      logger.warn('Token expired, redirecting to login')
     }
     
     // Attach parsed error to the error object for easier handling
