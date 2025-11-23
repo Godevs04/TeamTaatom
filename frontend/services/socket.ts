@@ -133,7 +133,7 @@ const connectSocket = async () => {
     
     // Only log if it's not an auth error (which is expected if no token)
     if (process.env.NODE_ENV === 'development' && err.message !== 'Invalid token') {
-      logger.error('Socket service - Connect error:', err);
+      logger.error('socketService.connect', err);
     }
 
     // Retry connection with exponential backoff
@@ -189,7 +189,7 @@ const processMessageQueue = () => {
     try {
       socket?.emit(event, ...args);
     } catch (error) {
-      logger.error('Error emitting queued message:', error);
+      logger.error('emitQueuedMessage', error);
     }
   });
 

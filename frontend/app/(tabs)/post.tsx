@@ -21,6 +21,7 @@ import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
+import { LocationExtractionService } from "../../services/locationExtraction";
 import { createPost, createPostWithProgress, createShort, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage } from "../../services/auth";
 import { UserType } from "../../types/user";
@@ -31,7 +32,11 @@ import { Video, ResizeMode } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
+import { createLogger } from '../../utils/logger';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
+const logger = createLogger('PostScreen');
 
 interface PostFormValues {
   comment: string;
@@ -52,7 +57,11 @@ export default function PostScreen() {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [address, setAddress] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    percentage: number;
+  }>({ current: 0, total: 0, percentage: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [postType, setPostType] = useState<'photo' | 'short'>('photo');
@@ -62,6 +71,10 @@ export default function PostScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { handleScroll } = useScrollToHideNav();
+  
+  // Draft saving
+  const DRAFT_KEY = 'postDraft';
+  const DRAFT_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 
   // Check for existing posts and shorts
   const checkExistingContent = async () => {
@@ -74,7 +87,7 @@ export default function PostScreen() {
       const shortsResponse = await getShorts(1, 1);
       setHasExistingShorts(shortsResponse.shorts && shortsResponse.shorts.length > 0);
     } catch (error) {
-      console.error('Error checking existing content:', error);
+      logger.error('Error checking existing content', error);
       // Set to false if there's an error
       setHasExistingPosts(false);
       setHasExistingShorts(false);
@@ -86,17 +99,98 @@ export default function PostScreen() {
     const loadUser = async () => {
       const userData = await getUserFromStorage();
       setUser(userData);
-      console.log('PostScreen: User loaded:', userData);
+      logger.debug('User loaded:', userData);
       
       // Check for existing content
       await checkExistingContent();
+      
+      // Load draft if available
+      await loadDraft();
     };
     loadUser();
   }, []);
 
+  // Auto-save draft
+  useEffect(() => {
+    const saveDraft = async () => {
+      if (selectedImages.length === 0 && !selectedVideo) return;
+      
+      const draft = {
+        selectedImages,
+        selectedVideo,
+        location,
+        address,
+        postType,
+        timestamp: Date.now()
+      };
+      
+      try {
+        await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        logger.debug('Draft auto-saved');
+      } catch (error) {
+        logger.error('Failed to save draft', error);
+      }
+    };
+    
+    const timeoutId = setTimeout(saveDraft, 2000); // Debounce by 2 seconds
+    return () => clearTimeout(timeoutId);
+  }, [selectedImages, selectedVideo, location, address, postType]);
+
+  // Load draft on mount
+  const loadDraft = async () => {
+    try {
+      const draftJson = await AsyncStorage.getItem(DRAFT_KEY);
+      if (!draftJson) return;
+      
+      const draft = JSON.parse(draftJson);
+      
+      // Check if draft is still valid (less than 24 hours old)
+      if (Date.now() - draft.timestamp > DRAFT_EXPIRY) {
+        await AsyncStorage.removeItem(DRAFT_KEY);
+        return;
+      }
+      
+      // Show restore option
+      Alert.alert(
+        'Draft Found',
+        'Would you like to restore your previous draft?',
+        [
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              await AsyncStorage.removeItem(DRAFT_KEY);
+            }
+          },
+          {
+            text: 'Restore',
+            onPress: () => {
+              if (draft.selectedImages) setSelectedImages(draft.selectedImages);
+              if (draft.selectedVideo) setSelectedVideo(draft.selectedVideo);
+              if (draft.location) setLocation(draft.location);
+              if (draft.address) setAddress(draft.address);
+              if (draft.postType) setPostType(draft.postType);
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      logger.error('Failed to load draft', error);
+    }
+  };
+
+  // Clear draft after successful post
+  const clearDraft = async () => {
+    try {
+      await AsyncStorage.removeItem(DRAFT_KEY);
+    } catch (error) {
+      logger.error('Failed to clear draft', error);
+    }
+  };
+
   const clearUploadState = () => {
     setUploadError(null);
-    setUploadProgress(0);
+    setUploadProgress({ current: 0, total: 0, percentage: 0 });
     setIsUploading(false);
   };
 
@@ -125,7 +219,7 @@ export default function PostScreen() {
       });
 
       if (!result.canceled && result.assets) {
-        console.log('📸 Selected assets data:', result.assets.map(asset => ({
+        logger.debug('Selected assets data:', result.assets.map(asset => ({
           uri: asset.uri,
           fileName: asset.fileName,
           id: (asset as any).id,
@@ -135,7 +229,7 @@ export default function PostScreen() {
         })));
         
         // IMPORTANT: Clear location state explicitly before processing new images
-        console.log('🔄 Clearing location state for new selection');
+        logger.debug('Clearing location state for new selection');
         setLocation(null);
         setAddress('');
         
@@ -181,24 +275,31 @@ export default function PostScreen() {
         setPostType('photo');
         
         // Add a small delay to ensure MediaLibrary is updated with the selected photo
-        console.log('⏳ Waiting for MediaLibrary to update...');
+        logger.debug('Waiting for MediaLibrary to update...');
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log('🔍 Starting location extraction for new photo');
-        console.log('📅 Selection started at:', new Date(selectionStartTime));
+        logger.debug('Starting location extraction for new photo');
+        logger.debug('Selection started at:', new Date(selectionStartTime));
         
         // Try to get location from photo EXIF data first
-        const hasLocation = await getLocationFromPhotos(result.assets, selectionStartTime);
-        console.log('📍 Location extraction result:', hasLocation ? 'Found' : 'Not found');
+        const locationResult = await LocationExtractionService.extractFromPhotos(
+          result.assets,
+          selectionStartTime
+        );
         
-        if (!hasLocation) {
-          // Fall back to current device location
-          console.log('📱 Falling back to device location');
+        if (locationResult) {
+          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+          if (locationResult.address) {
+            setAddress(locationResult.address);
+          }
+          logger.debug('Location extraction result: Found');
+        } else {
+          logger.debug('Location extraction result: Not found, falling back to device location');
           await getLocation();
         }
       }
     } catch (error) {
-      console.error('Error picking images:', error);
+      logger.error('Error picking images', error);
       Alert.alert('Error', 'Failed to pick images');
     }
   };
@@ -234,7 +335,7 @@ export default function PostScreen() {
         const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
         setVideoThumbnail(uri);
       } catch (e) {
-        console.warn('Thumbnail generation failed:', e);
+        logger.warn('Thumbnail generation failed', e);
         setVideoThumbnail(null);
       }
       
@@ -242,9 +343,17 @@ export default function PostScreen() {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Try to get location from video metadata
-      const hasLocation = await getLocationFromPhotos(result.assets, selectionStartTime);
-      if (!hasLocation) {
-        // Fall back to current device location
+      const locationResult = await LocationExtractionService.extractFromPhotos(
+        result.assets,
+        selectionStartTime
+      );
+      
+      if (locationResult) {
+        setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+        if (locationResult.address) {
+          setAddress(locationResult.address);
+        }
+      } else {
         await getLocation();
       }
     }
@@ -298,14 +407,22 @@ export default function PostScreen() {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // Try to get location from photo EXIF data first
-        const hasLocation = await getLocationFromPhotos(result.assets, captureStartTime);
-        if (!hasLocation) {
-          // Fall back to current device location
+        const locationResult = await LocationExtractionService.extractFromPhotos(
+          result.assets,
+          captureStartTime
+        );
+        
+        if (locationResult) {
+          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+          if (locationResult.address) {
+            setAddress(locationResult.address);
+          }
+        } else {
           await getLocation();
         }
       }
     } catch (error) {
-      console.error('Error taking photo:', error);
+      logger.error('Error taking photo', error);
       Alert.alert('Error', 'Failed to take photo');
     }
   };
@@ -339,7 +456,7 @@ export default function PostScreen() {
         const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
         setVideoThumbnail(uri);
       } catch (e) {
-        console.warn('Thumbnail generation failed:', e);
+        logger.warn('Thumbnail generation failed', e);
         setVideoThumbnail(null);
       }
       
@@ -347,9 +464,17 @@ export default function PostScreen() {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Try to get location from video metadata
-      const hasLocation = await getLocationFromPhotos(result.assets, captureStartTime);
-      if (!hasLocation) {
-        // Fall back to current device location
+      const locationResult = await LocationExtractionService.extractFromPhotos(
+        result.assets,
+        captureStartTime
+      );
+      
+      if (locationResult) {
+        setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+        if (locationResult.address) {
+          setAddress(locationResult.address);
+        }
+      } else {
         await getLocation();
       }
     }
@@ -362,177 +487,6 @@ export default function PostScreen() {
   };
   let lastAddress = "";
   let lastGeocodeTime = 0;
-  
-  // Get location from photo/video metadata (EXIF data)
-  const getLocationFromPhotos = async (assets: any[], selectionStartTime?: number): Promise<boolean> => {
-    try {
-      // Request media library permissions
-      const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-      if (mediaStatus === 'granted') {
-        try {
-          // Try to get location using the asset ID from ImagePicker
-          for (const asset of assets) {
-            const assetId = (asset as any).id;
-            console.log('📸 Processing asset:', { 
-              uri: asset.uri,
-              id: assetId,
-              hasId: !!assetId
-            });
-            
-            // If asset has an ID, try to get info directly
-            if (assetId) {
-              try {
-                const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
-                
-                console.log('📱 Asset info from ID:', {
-                  id: assetInfo.id,
-                  hasLocation: !!assetInfo.location
-                });
-                
-                if (assetInfo.location) {
-                  console.log('📱 Raw location data:', assetInfo.location);
-                  
-                  const latValue: any = (assetInfo.location as any).latitude;
-                  const lngValue: any = (assetInfo.location as any).longitude;
-                  
-                  console.log('📱 Extracted lat/lng values:', { latValue, lngValue });
-                  
-                  const lat = typeof latValue === 'number' ? latValue : parseFloat(latValue?.toString() || '0');
-                  const lng = typeof lngValue === 'number' ? lngValue : parseFloat(lngValue?.toString() || '0');
-                  
-                  if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-                    const coords = { lat, lng };
-                    setLocation(coords);
-                    
-                    const addressText = await getAddressFromCoords(coords.lat, coords.lng);
-                    setAddress(addressText);
-                    
-                    console.log('✅ Got location from photo using ID:', addressText);
-                    return true;
-                  }
-                }
-              } catch (idError) {
-                console.log('Error getting asset by ID:', idError);
-              }
-            }
-          }
-          
-          // Fallback: Get recent photos sorted by modification time
-          const recentAssets = await MediaLibrary.getAssetsAsync({
-            first: 30,
-            mediaType: MediaLibrary.MediaType.photo,
-            sortBy: MediaLibrary.SortBy.modificationTime,
-          });
-          
-          console.log('📱 Found recent assets:', recentAssets.assets.length);
-          
-          // Try to match the selected photo by filename from ImagePicker
-          let assetsToCheck: any[] = [];
-          let matchedAssetInfo: any = null;
-          
-          for (const selectedAsset of assets) {
-            const selectedFileName = selectedAsset.fileName;
-            console.log('🔍 Looking for photo with filename:', selectedFileName);
-            
-            if (selectedFileName) {
-              console.log('🔍 Searching through recent photos for filename match...');
-              
-              // Check each recent photo to find the one with matching filename
-              for (const mediaAsset of recentAssets.assets) {
-                try {
-                  const assetInfo = await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
-                  const assetFileName = assetInfo.localUri?.split('/').pop() || '';
-                  
-                  console.log('📋 Comparing:', assetFileName, 'with', selectedFileName);
-                  
-                  // Check if filename matches (case insensitive)
-                  if (assetFileName.toLowerCase().includes(selectedFileName.toLowerCase()) ||
-                      selectedFileName.toLowerCase().includes(assetFileName.toLowerCase())) {
-                    console.log('✅ Found matching photo by filename!');
-                    assetsToCheck = [mediaAsset];
-                    matchedAssetInfo = assetInfo; // Cache the asset info to avoid duplicate calls
-                    break;
-                  }
-                } catch (err) {
-                  // Continue searching
-                }
-              }
-              
-              if (assetsToCheck.length > 0) break;
-            }
-          }
-          
-          // If no filename match found, fallback to most recent photo
-          if (assetsToCheck.length === 0) {
-            // Sort by modification time and get most recent
-            const sortedAssets = recentAssets.assets.sort((a, b) => 
-              (b.modificationTime || 0) - (a.modificationTime || 0)
-            );
-            assetsToCheck = sortedAssets.slice(0, 1);
-            console.log('📱 No filename match, using most recent photo:', assetsToCheck[0]?.modificationTime);
-          } else {
-            console.log('📱 Using filename-matched photo');
-          }
-          
-          for (const mediaAsset of assetsToCheck) {
-            try {
-              // Use cached asset info if available, otherwise fetch it
-              const assetInfo = matchedAssetInfo || await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
-              
-              console.log('📱 Checking asset:', {
-                id: mediaAsset.id,
-                modificationTime: mediaAsset.modificationTime,
-                hasLocation: !!assetInfo.location
-              });
-              
-              if (assetInfo.location) {
-                console.log('📱 Raw location data:', assetInfo.location);
-                
-                const latValue: any = (assetInfo.location as any).latitude;
-                const lngValue: any = (assetInfo.location as any).longitude;
-                
-                console.log('📱 Extracted lat/lng values:', { latValue, lngValue });
-                
-                const lat = typeof latValue === 'number' ? latValue : parseFloat(latValue?.toString() || '0');
-                const lng = typeof lngValue === 'number' ? lngValue : parseFloat(lngValue?.toString() || '0');
-                
-                if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-                  const coords = { lat, lng };
-                  
-                  console.log('✅ Setting NEW location from photo:', coords);
-                  
-                  // Use functional setState to ensure we overwrite any previous location
-                  setLocation(prevLoc => {
-                    console.log('Previous location was:', prevLoc, 'setting to:', coords);
-                    return coords;
-                  });
-                  
-                  // Clear address first, then set new one
-                  setAddress('');
-                  
-                  const addressText = await getAddressFromCoords(coords.lat, coords.lng);
-                  setAddress(addressText);
-                  
-                  console.log('✅ Got location from photo:', addressText);
-                  return true;
-                }
-              }
-            } catch (infoError) {
-              console.log('Error getting asset info:', infoError);
-            }
-          }
-        } catch (libraryError) {
-          console.log('MediaLibrary query failed:', libraryError);
-        }
-      }
-      
-      console.log('⚠️ No location found in photo metadata');
-      return false;
-    } catch (error) {
-      console.error('Error getting location from photos:', error);
-      return false;
-    }
-  };
   
   const getLocation = async () => {
     try {
@@ -565,7 +519,7 @@ export default function PostScreen() {
         }
       }
     } catch (error) {
-      console.error("Error getting location:", error);
+      logger.error("Error getting location", error);
     }
   };
 
@@ -581,26 +535,74 @@ export default function PostScreen() {
     
     setIsLoading(true);
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress({ current: 0, total: selectedImages.length, percentage: 0 });
     setUploadError(null);
     
     try {
-      console.log('Creating post with images:', selectedImages);
+      logger.debug('Creating post with images:', selectedImages);
       
-      // Prepare images data
-      const imagesData = selectedImages.map(img => ({
-        uri: img.uri,
-        type: img.type,
-        name: img.name
-      }));
+      // Optimize images before upload for better performance and quality
+      setIsUploading(true);
+      setUploadProgress({ current: 0, total: selectedImages.length, percentage: 0 });
+      
+      const imagesData = await Promise.all(
+        selectedImages.map(async (img, index) => {
+          try {
+            // Check if image needs optimization
+            const needsOptimization = await shouldOptimizeImage(img.uri);
+            if (needsOptimization) {
+              // Optimize image
+              const fileInfo = await FileSystem.getInfoAsync(img.uri);
+              const fileSize = (fileInfo.exists && (fileInfo as any).size) || 0;
+              const optimized = await optimizeImageForUpload(img.uri, {
+                maxWidth: 1200,
+                maxHeight: 1200,
+                quality: getOptimalQuality(fileSize),
+                format: 'jpeg'
+              });
+              
+              // Update progress
+              setUploadProgress({
+                current: index + 1,
+                total: selectedImages.length,
+                percentage: ((index + 1) / selectedImages.length) * 50 // First 50% is optimization
+              });
+              
+              return {
+                uri: optimized.uri,
+                type: 'image/jpeg',
+                name: img.name || 'image.jpg'
+              };
+            }
+            
+            // Update progress even if no optimization needed
+            setUploadProgress({
+              current: index + 1,
+              total: selectedImages.length,
+              percentage: ((index + 1) / selectedImages.length) * 50
+            });
+            
+            return {
+              uri: img.uri,
+              type: img.type,
+              name: img.name
+            };
+          } catch (error) {
+            logger.error('Error optimizing image', error);
+            // Fallback to original image if optimization fails
+            return {
+              uri: img.uri,
+              type: img.type,
+              name: img.name
+            };
+          }
+        })
+      );
 
-      // Simulate progress updates since we can't track actual upload progress with fetch
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) return prev;
-          return prev + Math.random() * 10;
-        });
-      }, 200);
+      // Upload with progress tracking for multiple images
+      // Progress is now 50% optimization + 50% upload
+      const totalImages = imagesData.length;
+      let uploadedCount = 0;
 
       const response = await createPostWithProgress({
         images: imagesData,
@@ -608,17 +610,35 @@ export default function PostScreen() {
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+      }, (progress) => {
+        // Calculate overall progress: 50% optimization (already done) + 50% upload
+        const uploadProgressPercent = progress / 100; // 0 to 1
+        const overallProgress = 50 + (uploadProgressPercent * 50); // 50% to 100%
+        setUploadProgress({
+          current: uploadedCount + 1,
+          total: totalImages,
+          percentage: Math.min(overallProgress, 100)
+        });
+        
+        // If this image is complete, move to next
+        if (progress >= 100) {
+          uploadedCount++;
+        }
       });
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      console.log('Post created successfully:', response);
+      logger.debug('Post created successfully:', response);
+      
+      // Set final progress
+      setUploadProgress({
+        current: totalImages,
+        total: totalImages,
+        percentage: 100
+      });
       
       // Wait a moment to show 100% progress
       setTimeout(() => {
         setIsUploading(false);
-        setUploadProgress(0);
+        setUploadProgress({ current: 0, total: 0, percentage: 0 });
         Alert.alert('Success!', 'Your post has been shared.', [
           {
             text: 'OK',
@@ -635,10 +655,10 @@ export default function PostScreen() {
       }, 500);
       
     } catch (error: any) {
-      console.error('Post creation failed:', error);
+      logger.error('Post creation failed', error);
       setUploadError(error?.message || 'Upload failed. Please try again.');
       setIsUploading(false);
-      setUploadProgress(0);
+      setUploadProgress({ current: 0, total: 0, percentage: 0 });
       Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
@@ -646,9 +666,9 @@ export default function PostScreen() {
   };
 
   const handleShort = async (values: ShortFormValues) => {
-    console.log('handleShort called with values:', values);
-    console.log('selectedVideo:', selectedVideo);
-    console.log('user:', user);
+    logger.debug('handleShort called with values:', values);
+    logger.debug('selectedVideo:', selectedVideo);
+    logger.debug('user:', user);
     
     if (!selectedVideo) {
       Alert.alert("Error", "Please select a video first.");
@@ -661,18 +681,18 @@ export default function PostScreen() {
     
     setIsLoading(true);
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress({ current: 0, total: 0, percentage: 0 });
     setUploadError(null);
     
     try {
-      console.log('Creating short with video:', selectedVideo);
+      logger.debug('Creating short with video:', selectedVideo);
       
       // Extract filename from URI
       const filename = selectedVideo.split('/').pop() || 'short_video.mp4';
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `video/${match[1]}` : 'video/mp4';
 
-      console.log('Sending data to createShort:', {
+      logger.debug('Sending data to createShort:', {
         video: {
           uri: selectedVideo,
           type: type,
@@ -703,7 +723,7 @@ export default function PostScreen() {
         longitude: location?.lng,
       });
 
-      console.log('Short created successfully:', response);
+      logger.debug('Short created successfully:', response);
       
       Alert.alert('Success!', 'Your short has been uploaded.', [
         {
@@ -715,19 +735,19 @@ export default function PostScreen() {
             setHasExistingShorts(true);
             setAddress('');
             setIsUploading(false);
-            setUploadProgress(0);
+            setUploadProgress({ current: 0, total: 0, percentage: 0 });
             router.replace('/(tabs)/home');
           },
         },
       ]);
     } catch (error: any) {
-      console.error('Short creation failed:', error);
+      logger.error('Short creation failed', error);
       setUploadError(error?.message || 'Upload failed. Please try again.');
       Alert.alert('Upload failed', error?.message || 'Please try again later.');
     } finally {
       setIsLoading(false);
       setIsUploading(false);
-      setUploadProgress(0);
+      setUploadProgress({ current: 0, total: 0, percentage: 0 });
     }
   };
 
@@ -967,7 +987,7 @@ export default function PostScreen() {
                 validationSchema={postSchema}
                 onSubmit={handlePost}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => {
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
                   const [commentCursorPosition, setCommentCursorPosition] = useState<number | undefined>();
                   const commentInputRef = useRef<TextInput>(null);
 
@@ -1032,6 +1052,10 @@ export default function PostScreen() {
                             value={values.comment}
                             onChangeText={(text) => {
                               handleChange("comment")(text);
+                              // Clear error when user starts typing
+                              if (errors.comment && touched.comment) {
+                                setFieldTouched("comment", false);
+                              }
                             }}
                             onSelectionChange={(e) => {
                               setCommentCursorPosition(e.nativeEvent.selection.start);
@@ -1056,7 +1080,28 @@ export default function PostScreen() {
                           </View>
                         </View>
                         {errors.comment && touched.comment && (
-                          <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.comment}</Text>
+                          <View style={{ 
+                            flexDirection: 'row', 
+                            alignItems: 'center', 
+                            marginTop: theme.spacing.xs,
+                            paddingHorizontal: theme.spacing.xs
+                          }}>
+                            <Ionicons 
+                              name="alert-circle" 
+                              size={16} 
+                              color={theme.colors.error} 
+                              style={{ marginRight: theme.spacing.xs }}
+                            />
+                            <Text style={{ 
+                              color: theme.colors.error, 
+                              fontSize: theme.typography.small.fontSize,
+                              flex: 1
+                            }}>
+                              {errors.comment === 'required' 
+                                ? 'Caption is required' 
+                                : errors.comment}
+                            </Text>
+                          </View>
                         )}
                       </View>
                     <View style={{ marginBottom: theme.spacing.md }}>
@@ -1108,7 +1153,7 @@ export default function PostScreen() {
                 validationSchema={shortSchema}
                 onSubmit={handleShort}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue }) => {
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
                   const [captionCursorPosition, setCaptionCursorPosition] = useState<number | undefined>();
                   const captionInputRef = useRef<TextInput>(null);
 
@@ -1167,12 +1212,29 @@ export default function PostScreen() {
                         <View style={{ position: 'relative' }}>
                           <TextInput
                             ref={captionInputRef}
-                            style={{ backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.md, fontSize: theme.typography.body.fontSize, color: theme.colors.text, borderWidth: 1, borderColor: theme.colors.border }}
+                            style={[
+                              { 
+                                backgroundColor: theme.colors.surfaceSecondary, 
+                                borderRadius: theme.borderRadius.md, 
+                                paddingHorizontal: theme.spacing.md, 
+                                paddingVertical: theme.spacing.md, 
+                                fontSize: theme.typography.body.fontSize, 
+                                color: theme.colors.text, 
+                                borderWidth: 1, 
+                                borderColor: errors.caption && touched.caption 
+                                  ? theme.colors.error 
+                                  : theme.colors.border
+                              }
+                            ]}
                             placeholder="Add a caption for your short..."
                             placeholderTextColor={theme.colors.textSecondary}
                             value={values.caption}
                             onChangeText={(text) => {
                               handleChange("caption")(text);
+                              // Clear error when user starts typing
+                              if (errors.caption && touched.caption) {
+                                setFieldTouched("caption", false);
+                              }
                             }}
                             onSelectionChange={(e) => {
                               setCaptionCursorPosition(e.nativeEvent.selection.start);
@@ -1197,7 +1259,28 @@ export default function PostScreen() {
                           </View>
                         </View>
                         {errors.caption && touched.caption && (
-                          <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.caption}</Text>
+                          <View style={{ 
+                            flexDirection: 'row', 
+                            alignItems: 'center', 
+                            marginTop: theme.spacing.xs,
+                            paddingHorizontal: theme.spacing.xs
+                          }}>
+                            <Ionicons 
+                              name="alert-circle" 
+                              size={16} 
+                              color={theme.colors.error} 
+                              style={{ marginRight: theme.spacing.xs }}
+                            />
+                            <Text style={{ 
+                              color: theme.colors.error, 
+                              fontSize: theme.typography.small.fontSize,
+                              flex: 1
+                            }}>
+                              {errors.caption === 'required' 
+                                ? 'Caption is required' 
+                                : errors.caption}
+                            </Text>
+                          </View>
                         )}
                       </View>
                     <View style={{ marginBottom: theme.spacing.md }}>
@@ -1245,10 +1328,10 @@ export default function PostScreen() {
                         isLoading && { opacity: 0.6 },
                       ]}
                       onPress={() => {
-                        console.log('Upload Short button pressed');
-                        console.log('Form values:', values);
-                        console.log('Form errors:', errors);
-                        console.log('Form touched:', touched);
+                        logger.debug('Upload Short button pressed');
+                        logger.debug('Form values:', values);
+                        logger.debug('Form errors:', errors);
+                        logger.debug('Form touched:', touched);
                         handleSubmit();
                       }}
                       disabled={isLoading}
@@ -1271,14 +1354,16 @@ export default function PostScreen() {
       {/* Progress Alert */}
       <ProgressAlert
         visible={isUploading}
-        title="Uploading Post"
-        message="Please wait while your media is being uploaded..."
-        progress={uploadProgress}
+        title={`Uploading Post (${uploadProgress.current}/${uploadProgress.total})`}
+        message={uploadProgress.total > 1 
+          ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
+          : "Please wait while your media is being uploaded..."}
+        progress={uploadProgress.percentage || 0}
         type="upload"
         showCancel={true}
         onCancel={() => {
           setIsUploading(false);
-          setUploadProgress(0);
+          setUploadProgress({ current: 0, total: 0, percentage: 0 });
           setIsLoading(false);
         }}
       />

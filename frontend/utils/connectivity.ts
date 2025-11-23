@@ -1,4 +1,7 @@
 import { Alert } from 'react-native';
+import { createLogger } from './logger';
+
+const logger = createLogger('Connectivity');
 
 export const testAPIConnectivity = async (): Promise<boolean> => {
   try {
@@ -8,14 +11,14 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
     });
     
     if (response.ok) {
-      console.log('API connectivity test: SUCCESS');
+      logger.debug('API connectivity test: SUCCESS');
       return true;
     } else {
-      console.log('API connectivity test: FAILED - Status:', response.status);
+      logger.warn('API connectivity test: FAILED - Status:', response.status);
       return false;
     }
   } catch (error) {
-    console.log('API connectivity test: FAILED - Error:', error);
+    logger.error('API connectivity test: FAILED', error);
     return false;
   }
 };

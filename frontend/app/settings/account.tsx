@@ -15,12 +15,17 @@ import NavBar from '../../components/NavBar';
 import { getUserFromStorage } from '../../services/auth';
 import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
 import { useAlert } from '../../context/AlertContext';
+import { createLogger } from '../../utils/logger';
+import { TextInput } from 'react-native';
+
+const logger = createLogger('AccountSettings');
 
 export default function AccountSettingsScreen() {
   const [user, setUser] = useState<any>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [updatingKey, setUpdatingKey] = useState<string | null>(null);
   const router = useRouter();
   const { theme } = useTheme();
   const { showError, showSuccess, showConfirm, showOptions } = useAlert();
@@ -45,7 +50,19 @@ export default function AccountSettingsScreen() {
   const updateSetting = async (key: string, value: any) => {
     if (!settings) return;
     
+    // Validate input
+    if (key === 'language' && !['en', 'es', 'fr', 'de', 'zh'].includes(value)) {
+      showError('Invalid language selection');
+      return;
+    }
+    
+    if (key === 'dataUsage' && !['low', 'medium', 'high'].includes(value)) {
+      showError('Invalid data usage selection');
+      return;
+    }
+    
     setUpdating(true);
+    setUpdatingKey(key);
     try {
       const updatedSettings = {
         ...settings.account,
@@ -54,10 +71,13 @@ export default function AccountSettingsScreen() {
       
       const response = await updateSettingCategory('account', updatedSettings);
       setSettings(response.settings);
-    } catch (err) {
-      showError('Failed to update setting');
+      logger.debug(`Setting ${key} updated successfully`);
+    } catch (err: any) {
+      logger.error(`Failed to update setting ${key}`, err);
+      showError(err.message || 'Failed to update setting');
     } finally {
       setUpdating(false);
+      setUpdatingKey(null);
     }
   };
 
@@ -196,7 +216,7 @@ export default function AccountSettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleLanguageChange}
-            disabled={updating}
+            disabled={updating && updatingKey === 'language'}
           >
             <View style={styles.settingContent}>
               <Ionicons name="language-outline" size={20} color={theme.colors.text} />
@@ -205,19 +225,25 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             <View style={styles.settingRight}>
-              <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
-                {settings?.account?.language === 'en' ? 'English' : 
-                 settings?.account?.language === 'es' ? 'Spanish' : 
-                 settings?.account?.language === 'fr' ? 'French' : 'English'}
-              </Text>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+              {updating && updatingKey === 'language' ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <>
+                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                    {settings?.account?.language === 'en' ? 'English' : 
+                     settings?.account?.language === 'es' ? 'Spanish' : 
+                     settings?.account?.language === 'fr' ? 'French' : 'English'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+                </>
+              )}
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleDataUsageChange}
-            disabled={updating}
+            disabled={updating && updatingKey === 'dataUsage'}
           >
             <View style={styles.settingContent}>
               <Ionicons name="cellular-outline" size={20} color={theme.colors.text} />
@@ -226,11 +252,17 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             <View style={styles.settingRight}>
-              <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
-                {settings?.account?.dataUsage === 'low' ? 'Low' : 
-                 settings?.account?.dataUsage === 'medium' ? 'Medium' : 'High'}
-              </Text>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+              {updating && updatingKey === 'dataUsage' ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <>
+                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                    {settings?.account?.dataUsage === 'low' ? 'Low' : 
+                     settings?.account?.dataUsage === 'medium' ? 'Medium' : 'High'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+                </>
+              )}
             </View>
           </TouchableOpacity>
 

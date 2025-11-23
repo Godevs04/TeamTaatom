@@ -15,6 +15,9 @@ import NavBar from '../../components/NavBar';
 import { getFollowRequests, approveFollowRequest, rejectFollowRequest } from '../../services/profile';
 import CustomAlert from '../../components/CustomAlert';
 import { FollowRequest } from '../../types/user';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('FollowRequestsScreen');
 
 export default function FollowRequestsScreen() {
   const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
@@ -51,7 +54,7 @@ export default function FollowRequestsScreen() {
       const response = await getFollowRequests();
       setFollowRequests(response.followRequests);
     } catch (error) {
-      console.error('Error loading follow requests:', error);
+      logger.error('Error loading follow requests', error);
       showError('Failed to load follow requests');
     } finally {
       setLoading(false);
@@ -70,7 +73,7 @@ export default function FollowRequestsScreen() {
       setFollowRequests(prev => prev.filter(req => req._id !== requestId));
       showSuccess(`${userName} is now following you!`);
     } catch (error) {
-      console.error('Error approving follow request:', error);
+      logger.error('Error approving follow request', error);
       showError('Failed to approve follow request');
     }
   };
@@ -81,7 +84,7 @@ export default function FollowRequestsScreen() {
       setFollowRequests(prev => prev.filter(req => req._id !== requestId));
       showSuccess(`Follow request from ${userName} has been declined`);
     } catch (error) {
-      console.error('Error rejecting follow request:', error);
+      logger.error('Error rejecting follow request', error);
       showError('Failed to reject follow request');
     }
   };

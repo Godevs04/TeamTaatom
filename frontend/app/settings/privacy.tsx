@@ -16,6 +16,9 @@ import NavBar from '../../components/NavBar';
 import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
 import CustomAlert from '../../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../../components/CustomOptions';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('PrivacySettings');
 
 export default function PrivacySettingsScreen() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -68,89 +71,46 @@ export default function PrivacySettingsScreen() {
     if (!settings) return;
     
     setUpdating(true);
-    let retryCount = 0;
-    const maxRetries = 2; // Fewer retries for individual settings
-    
-    while (retryCount < maxRetries) {
-      try {
-        console.log(`Attempt ${retryCount + 1}: Updating setting ${key}:`, value);
-        
-        const updatedSettings = {
-          ...settings.privacy,
-          [key]: value
-        };
-        
-        const response = await updateSettingCategory('privacy', updatedSettings);
-        setSettings(response.settings);
-        showSuccess('Setting updated successfully');
-        break; // Success, exit retry loop
-        
-      } catch (error: any) {
-        retryCount++;
-        console.error(`Attempt ${retryCount} failed for setting ${key}:`, error);
-        
-        if (retryCount >= maxRetries) {
-          console.error(`All retry attempts failed for setting ${key}:`, error);
-          showError(`Failed to update setting after ${maxRetries} attempts. ${error.message}`);
-          break;
-        } else {
-          // Wait before retrying
-          const delay = 1000; // 1 second delay
-          console.log(`Retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+    try {
+      const updatedSettings = {
+        ...settings.privacy,
+        [key]: value
+      };
+      
+      const response = await updateSettingCategory('privacy', updatedSettings);
+      setSettings(response.settings);
+      showSuccess('Setting updated successfully');
+      logger.debug(`Setting ${key} updated successfully`);
+    } catch (error: any) {
+      logger.error(`Failed to update setting ${key}`, error);
+      showError(error.message || 'Failed to update setting');
+    } finally {
+      setUpdating(false);
     }
-    
-    setUpdating(false);
   };
 
   const updateProfileVisibilitySettings = async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
     if (!settings) return;
     
     setUpdating(true);
-    let retryCount = 0;
-    const maxRetries = 3;
-    
-    while (retryCount < maxRetries) {
-      try {
-        console.log(`Attempt ${retryCount + 1}: Updating profile visibility settings:`, { profileVisibility, requireFollowApproval, allowFollowRequests });
-        
-        const updatedSettings = {
-          ...settings.privacy,
-          profileVisibility,
-          requireFollowApproval,
-          allowFollowRequests
-        };
-        
-        console.log('Sending updated settings:', updatedSettings);
-        
-        const response = await updateSettingCategory('privacy', updatedSettings);
-        console.log('Response received:', response);
-        
-        setSettings(response.settings);
-        showSuccess('Profile visibility updated successfully');
-        break; // Success, exit retry loop
-        
-      } catch (error: any) {
-        retryCount++;
-        console.error(`Attempt ${retryCount} failed:`, error);
-        
-        if (retryCount >= maxRetries) {
-          // All retries failed
-          console.error('All retry attempts failed for profile visibility update:', error);
-          showError(`Failed to update profile visibility after ${maxRetries} attempts. ${error.message}`);
-          break;
-        } else {
-          // Wait before retrying (exponential backoff)
-          const delay = Math.pow(2, retryCount - 1) * 1000; // 1s, 2s, 4s
-          console.log(`Retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+    try {
+      const updatedSettings = {
+        ...settings.privacy,
+        profileVisibility,
+        requireFollowApproval,
+        allowFollowRequests
+      };
+      
+      const response = await updateSettingCategory('privacy', updatedSettings);
+      setSettings(response.settings);
+      showSuccess('Profile visibility updated successfully');
+      logger.debug('Profile visibility updated successfully');
+    } catch (error: any) {
+      logger.error('Failed to update profile visibility', error);
+      showError(error.message || 'Failed to update profile visibility');
+    } finally {
+      setUpdating(false);
     }
-    
-    setUpdating(false);
   };
 
   const handleProfileVisibilityChange = () => {
@@ -273,8 +233,6 @@ export default function PrivacySettingsScreen() {
                   const visibility = settings?.privacy?.profileVisibility;
                   const requiresApproval = settings?.privacy?.requireFollowApproval;
                   const allowsRequests = settings?.privacy?.allowFollowRequests;
-                  
-                  console.log('Current privacy settings:', { visibility, requiresApproval, allowsRequests });
                   
                   if (visibility === 'public') return 'Public';
                   if (visibility === 'followers') return 'Followers Only';

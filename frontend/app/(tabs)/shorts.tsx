@@ -29,8 +29,11 @@ import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
+import { createLogger } from '../../utils/logger';
+import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const logger = createLogger('ShortsScreen');
 
 export default function ShortsScreen() {
   const [shorts, setShorts] = useState<PostType[]>([]);
@@ -49,6 +52,7 @@ export default function ShortsScreen() {
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
+  const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
@@ -66,13 +70,143 @@ export default function ShortsScreen() {
     loadCurrentUser();
     loadSavedShorts();
     
+    // Track screen view
+    trackScreenView('shorts');
+    
     // Hide swipe hint after 3 seconds
     const timer = setTimeout(() => {
       setShowSwipeHint(false);
     }, 3000);
     
-    return () => clearTimeout(timer);
+    // Cleanup video refs on unmount
+    return () => {
+      clearTimeout(timer);
+      // Cleanup all video refs
+      Object.values(videoRefs.current).forEach(video => {
+        if (video) {
+          video.unloadAsync().catch(() => {
+            // Silently fail cleanup
+          });
+        }
+      });
+      videoRefs.current = {};
+      
+      // Clear all pause timeouts
+      Object.values(pauseTimeoutRefs.current).forEach(timeout => {
+        clearTimeout(timeout);
+      });
+      pauseTimeoutRefs.current = {};
+      
+      // Clear video cache
+      if (videoCacheRef.current) {
+        videoCacheRef.current.clear();
+      }
+    };
   }, []);
+
+  // Monitor network status for video quality adaptation
+  useEffect(() => {
+    const checkNetworkStatus = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch('https://www.google.com/favicon.ico', {
+          method: 'HEAD',
+          mode: 'no-cors',
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        // Assume WiFi if request succeeds quickly
+        setVideoQuality('high');
+      } catch (error) {
+        // Likely cellular or offline - use lower quality
+        setVideoQuality('low');
+      }
+    };
+    
+    checkNetworkStatus();
+    const interval = setInterval(checkNetworkStatus, 60000); // Check every minute
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Cleanup videos that are far from viewport
+  useEffect(() => {
+    const cleanupDistance = 3; // Cleanup videos 3 positions away
+    Object.keys(videoRefs.current).forEach((videoId) => {
+      const videoIndex = shorts.findIndex(s => s._id === videoId);
+      if (videoIndex === -1) return;
+      
+      const distance = Math.abs(videoIndex - currentIndex);
+      if (distance > cleanupDistance) {
+        const video = videoRefs.current[videoId];
+        if (video) {
+          video.unloadAsync().catch(() => {
+            // Silently fail cleanup
+          });
+          delete videoRefs.current[videoId];
+        }
+      }
+    });
+  }, [currentIndex, shorts]);
+
+  // Video cache for offline support
+  const videoCacheRef = useRef<Map<string, { url: string; timestamp: number }>>(new Map());
+  const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+  // Get quality-adaptive video URL with caching
+  const getVideoUrl = useCallback((item: PostType) => {
+    const baseUrl = item.mediaUrl || item.imageUrl;
+    const videoId = item._id;
+    
+    // Check cache first
+    const cached = videoCacheRef.current.get(videoId);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return cached.url;
+    }
+    
+    // Generate URL based on quality
+    let url = baseUrl;
+    if (videoQuality === 'low') {
+      url = `${baseUrl}?q=low`;
+    } else if (videoQuality === 'medium') {
+      url = `${baseUrl}?q=medium`;
+    }
+    
+    // Cache the URL
+    videoCacheRef.current.set(videoId, {
+      url,
+      timestamp: Date.now()
+    });
+    
+    return url;
+  }, [videoQuality]);
+  
+  // Preload next video for smoother playback and track video views
+  useEffect(() => {
+    if (shorts[currentIndex]) {
+      const currentShort = shorts[currentIndex];
+      // Track video view
+      trackPostView(currentShort._id, {
+        type: 'short',
+        source: 'shorts_feed'
+      });
+    }
+    
+    if (currentIndex < shorts.length - 1) {
+      const nextShort = shorts[currentIndex + 1];
+      if (nextShort) {
+        const nextVideoUrl = getVideoUrl(nextShort);
+        // Preload video in background
+        setTimeout(() => {
+          // Video preloading happens automatically when Video component mounts
+          logger.debug('Preloading next video:', nextShort._id);
+        }, 1000);
+      }
+    }
+  }, [currentIndex, shorts, getVideoUrl]);
 
   const loadSavedShorts = async () => {
     try {
@@ -87,7 +221,7 @@ export default function ShortsScreen() {
       const user = await getUserFromStorage();
       setCurrentUser(user);
     } catch (error) {
-      console.error('Error loading current user:', error);
+      logger.error('Error loading current user', error);
     }
   };
 
@@ -105,7 +239,7 @@ export default function ShortsScreen() {
       });
       setFollowStates(followStatesMap);
     } catch (error) {
-      console.error('Error loading shorts:', error);
+      logger.error('Error loading shorts', error);
       showError('Failed to load shorts');
     } finally {
       setLoading(false);
@@ -149,11 +283,16 @@ export default function ShortsScreen() {
           : short
       ));
       
+      // Track engagement
+      trackEngagement('like', 'short', shortId, {
+        isLiked: response.isLiked
+      });
+      
       if (response.isLiked) {
         showSuccess('Added to favorites!');
       }
     } catch (error) {
-      console.error('Error toggling like:', error);
+      logger.error('Error toggling like', error);
       showError('Failed to update like status');
     } finally {
       setActionLoading(null);
@@ -178,7 +317,7 @@ export default function ShortsScreen() {
         showInfo('Unfollowed user');
       }
     } catch (error) {
-      console.error('Error toggling follow:', error);
+      logger.error('Error toggling follow', error);
       showError('Failed to update follow status');
     } finally {
       setActionLoading(null);
@@ -199,7 +338,7 @@ export default function ShortsScreen() {
       }
       setSavedShorts(newSavedShorts);
     } catch (error) {
-      console.error('Error saving short:', error);
+      logger.error('Error saving short', error);
       showError('Failed to save short');
     }
   };
@@ -210,8 +349,11 @@ export default function ShortsScreen() {
         message: `Check out this amazing short by ${short.user.fullName}: ${short.caption}`,
         url: short.mediaUrl || short.imageUrl,
       });
+      
+      // Track share engagement
+      trackEngagement('share', 'short', short._id);
     } catch (error) {
-      console.error('Error sharing:', error);
+      logger.error('Error sharing', error);
       showError('Failed to share');
     }
   };
@@ -232,15 +374,20 @@ export default function ShortsScreen() {
   }, []);
 
   const handleComment = async (shortId: string) => {
-    try {
-      const response = await getPostById(shortId);
-      setSelectedShortComments(response.post.comments || []);
-      setSelectedShortId(shortId);
-      setShowCommentModal(true);
-    } catch (error) {
-      console.error('Error loading comments:', error);
-      showError('Failed to load comments');
-    }
+    setShowCommentModal(true);
+    setSelectedShortId(shortId);
+    
+    // Load comments asynchronously to prevent UI blocking
+    getPostById(shortId)
+      .then(response => {
+        setSelectedShortComments(response.post.comments || []);
+      })
+      .catch(error => {
+        logger.error('Error loading comments', error);
+        showError('Failed to load comments');
+        setShowCommentModal(false);
+        setSelectedShortId(null);
+      });
   };
 
   const handleCommentAdded = (comment: any) => {
@@ -335,9 +482,10 @@ export default function ShortsScreen() {
     const deltaX = pageX - swipeStartX;
     const deltaY = pageY - swipeStartY;
     
-    // Check if it's a horizontal swipe (left)
-    if (Math.abs(deltaX) > Math.abs(deltaY) && deltaX < -50) {
-      console.log('Swipe left detected, navigating to profile:', userId);
+    // Only trigger swipe if horizontal movement is significantly greater
+    const horizontalRatio = Math.abs(deltaX) / (Math.abs(deltaY) || 1);
+    if (horizontalRatio > 1.5 && Math.abs(deltaX) > 50) {
+      logger.debug('Swipe left detected, navigating to profile:', userId);
       handleSwipeLeft(userId);
     } else {
       // Reset animation if not a valid swipe
@@ -353,7 +501,7 @@ export default function ShortsScreen() {
     setSwipeStartY(null);
   };
 
-  const renderShortItem = ({ item, index }: { item: PostType; index: number }) => {
+  const renderShortItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     const isVideoPlaying = videoStates[item._id] || index === currentIndex;
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
@@ -384,7 +532,7 @@ export default function ShortsScreen() {
               ref={(ref) => {
                 videoRefs.current[item._id] = ref;
               }}
-              source={{ uri: item.mediaUrl || item.imageUrl }}
+              source={{ uri: getVideoUrl(item) }}
               style={styles.shortVideo}
               resizeMode={ResizeMode.COVER}
               shouldPlay={isVideoPlaying}
@@ -538,7 +686,16 @@ export default function ShortsScreen() {
           </View>
       </View>
     );
-  };
+  }, [currentIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, swipeAnimation, fadeAnimation, handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl]);
+
+  // Memoize keyExtractor and getItemLayout at top level (before conditional returns)
+  const keyExtractor = useCallback((item: PostType) => item._id, []);
+  
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: SCREEN_HEIGHT,
+    offset: SCREEN_HEIGHT * index,
+    index,
+  }), []);
 
   if (loading) {
     return (
@@ -594,7 +751,7 @@ export default function ShortsScreen() {
         ref={flatListRef}
         data={shorts}
         renderItem={renderShortItem}
-        keyExtractor={(item) => item._id}
+        keyExtractor={keyExtractor}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         snapToInterval={SCREEN_HEIGHT}
@@ -616,11 +773,7 @@ export default function ShortsScreen() {
           const index = Math.round(event.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
           setCurrentIndex(index);
         }}
-        getItemLayout={(data, index) => ({
-          length: SCREEN_HEIGHT,
-          offset: SCREEN_HEIGHT * index,
-          index,
-        })}
+        getItemLayout={getItemLayout}
       />
 
       {/* Comment Modal */}

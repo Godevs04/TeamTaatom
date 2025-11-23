@@ -220,7 +220,24 @@ app.use((req, res, next) => {
     // For web, check if request has X-Platform header (indicates it's from our frontend)
     // Mobile apps don't need CSRF protection (they use Bearer tokens)
     const platform = req.headers['x-platform'];
-    if (platform && platform !== 'web') {
+    const authHeader = req.headers['authorization'];
+    
+    // Skip CSRF if:
+    // 1. Platform header indicates mobile app (not 'web')
+    // 2. Request uses Bearer token authentication (mobile apps)
+    // 3. User-Agent indicates mobile app (Expo, React Native, etc.)
+    const userAgent = req.headers['user-agent'] || '';
+    const isMobileApp = 
+      (platform && platform !== 'web') ||
+      (authHeader && authHeader.startsWith('Bearer ')) ||
+      (userAgent && (
+        userAgent.toLowerCase().includes('expo') ||
+        userAgent.toLowerCase().includes('reactnative') ||
+        userAgent.toLowerCase().includes('okhttp') ||
+        userAgent.toLowerCase().includes('cfnetwork')
+      ));
+    
+    if (isMobileApp) {
       // Mobile app - skip CSRF (uses Bearer token authentication)
       return next();
     }

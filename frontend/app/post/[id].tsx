@@ -15,6 +15,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
 import { trackScreenView, trackPostView, trackEngagement } from '../../services/analytics';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('PostDetail');
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -33,6 +36,7 @@ export default function PostDetail() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
+  const [viewsCount, setViewsCount] = useState(0); // Track views separately
   const [isFollowing, setIsFollowing] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [relatedPosts, setRelatedPosts] = useState<PostType[]>([]);
@@ -87,6 +91,9 @@ export default function PostDetail() {
         const correctIsLiked = response.post?.isLiked === true;
         const correctLikesCount = response.post?.likesCount || 0;
         
+        // Log view count for debugging
+        logger.debug('Post loaded with viewsCount:', response.post?.viewsCount);
+        
         console.log('Post detail - Initial data loaded:', {
           postId: response.post?._id,
           apiIsLiked: response.post?.isLiked,
@@ -98,6 +105,11 @@ export default function PostDetail() {
         setIsLiked(correctIsLiked);
         setLikesCount(correctLikesCount);
         setIsFollowing(response.post?.user?.isFollowing || false);
+        
+        // Update views count from response
+        const postViewsCount = response.post?.viewsCount || 0;
+        setViewsCount(postViewsCount);
+        logger.debug('Post loaded with viewsCount:', postViewsCount);
         
         // Track post view (wrap in try-catch to prevent crashes)
         if (response.post?._id) {
@@ -630,21 +642,23 @@ export default function PostDetail() {
                 />
               )}
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.floatingButton, { backgroundColor: theme.colors.surface }]}
-              onPress={handleBookmark}
-              disabled={actionLoading === 'bookmark'}
-            >
-              {actionLoading === 'bookmark' ? (
-                <ActivityIndicator size="small" color={theme.colors.text} />
-              ) : (
-                <Ionicons 
-                  name={isBookmarked ? "bookmark" : "bookmark-outline"} 
-                  size={20} 
-                  color={theme.colors.text} 
-                />
-              )}
-            </TouchableOpacity>
+            {currentUser && currentUser._id !== post?.user._id && (
+              <TouchableOpacity 
+                style={[styles.floatingButton, { backgroundColor: theme.colors.surface }]}
+                onPress={handleBookmark}
+                disabled={actionLoading === 'bookmark'}
+              >
+                {actionLoading === 'bookmark' ? (
+                  <ActivityIndicator size="small" color={theme.colors.text} />
+                ) : (
+                  <Ionicons 
+                    name={isBookmarked ? "bookmark" : "bookmark-outline"} 
+                    size={20} 
+                    color={theme.colors.text} 
+                  />
+                )}
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -752,7 +766,7 @@ export default function PostDetail() {
                 <Ionicons name="eye" size={16} color="white" />
               </View>
               <Text style={[styles.statText, { color: theme.colors.text }]}>
-                {Math.floor(Math.random() * 1000) + 100} views
+                {viewsCount || post?.viewsCount || 0} views
               </Text>
             </View>
           </View>
