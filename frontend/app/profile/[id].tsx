@@ -387,18 +387,18 @@ export default function UserProfileScreen() {
                     return dateB - dateA;
                   })
                   .map((item: any, index: number) => (
-                    <TouchableOpacity
-                      key={item._id}
+                  <TouchableOpacity
+                    key={item._id}
                       style={[
                         styles.postThumbnail,
                         { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow },
                         (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
                       ]}
-                      onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
-                      activeOpacity={0.8}
-                    >
-                      <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
-                    </TouchableOpacity>
+                    onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+                    activeOpacity={0.8}
+                  >
+                    <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+                  </TouchableOpacity>
                   ))
                 )}
               </View>

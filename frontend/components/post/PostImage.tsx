@@ -51,7 +51,7 @@ export default function PostImage({
   };
 
   return (
-    <View style={styles.imageContainer}>
+      <View style={styles.imageContainer}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={StyleSheet.absoluteFill}>
         {imageLoading && (
           <View style={styles.imageLoader}>
@@ -153,7 +153,7 @@ export default function PostImage({
           <SongPlayer post={post} isVisible={true} autoPlay={false} showPlayPause={true} />
         </View>
       )}
-    </View>
+      </View>
   );
 }
 

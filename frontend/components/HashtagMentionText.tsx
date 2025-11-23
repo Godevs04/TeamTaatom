@@ -56,7 +56,7 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
           // Fallback to search if user not found
           router.push(`/search?q=${encodeURIComponent(username)}`);
         }
-      } else {
+    } else {
         // Fallback to search if no users found
         router.push(`/search?q=${encodeURIComponent(username)}`);
       }
@@ -143,9 +143,9 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
               {isLoading ? (
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               ) : (
-                <Text style={[styles.mention, { color: theme.colors.primary }]}>
-                  {part.text}
-                </Text>
+              <Text style={[styles.mention, { color: theme.colors.primary }]}>
+                {part.text}
+              </Text>
               )}
             </TouchableOpacity>
           );

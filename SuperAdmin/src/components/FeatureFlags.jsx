@@ -10,6 +10,7 @@ import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import { api } from '../services/api'
 import SafeComponent from './SafeComponent'
+import logger from '../utils/logger'
 
 const FeatureFlags = () => {
   const { isConnected } = useRealTime()
@@ -82,7 +83,7 @@ const FeatureFlags = () => {
         setFeatureFlags(transformed)
       }
     } catch (error) {
-      console.error('Failed to fetch feature flags:', error)
+      logger.error('Failed to fetch feature flags:', error)
       toast.error('Failed to fetch feature flags')
     } finally {
       setIsLoading(false)
@@ -103,7 +104,7 @@ const FeatureFlags = () => {
       toast.success(`Feature ${!flag.enabled ? 'enabled' : 'disabled'} successfully`)
       await fetchFeatureFlags()
     } catch (error) {
-      console.error('Failed to toggle feature flag:', error)
+      logger.error('Failed to toggle feature flag:', error)
       toast.error('Failed to toggle feature flag')
     } finally {
       setIsLoading(false)
@@ -121,7 +122,7 @@ const FeatureFlags = () => {
       setEditingFlag(null)
       await fetchFeatureFlags()
     } catch (error) {
-      console.error('Failed to update rollout:', error)
+      logger.error('Failed to update rollout:', error)
       toast.error('Failed to update feature flag')
     } finally {
       setIsLoading(false)
@@ -151,7 +152,7 @@ const FeatureFlags = () => {
       })
       await fetchFeatureFlags()
     } catch (error) {
-      console.error('Failed to create feature flag:', error)
+      logger.error('Failed to create feature flag:', error)
       toast.error(error.response?.data?.message || 'Failed to create feature flag')
     } finally {
       setIsLoading(false)
@@ -169,7 +170,7 @@ const FeatureFlags = () => {
       toast.success('Feature flag deleted successfully')
       await fetchFeatureFlags()
     } catch (error) {
-      console.error('Failed to delete feature flag:', error)
+      logger.error('Failed to delete feature flag:', error)
       toast.error('Failed to delete feature flag')
     } finally {
       setIsLoading(false)
@@ -190,7 +191,7 @@ const FeatureFlags = () => {
       setDowntimeSchedule({ reason: '', scheduledDate: '', scheduledTime: '', duration: 30 })
       await fetchFeatureFlags()
     } catch (error) {
-      console.error('Failed to schedule downtime:', error)
+      logger.error('Failed to schedule downtime:', error)
       toast.error(error.response?.data?.message || 'Failed to schedule downtime')
     } finally {
       setIsLoading(false)

@@ -709,15 +709,15 @@ export default function ShortsScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.avatarContainer}>
-                  <Image
-                    source={{ uri: item.user.profilePic }}
-                    style={styles.userAvatar}
-                  />
+                <Image
+                  source={{ uri: item.user.profilePic }}
+                  style={styles.userAvatar}
+                />
                   <View style={styles.avatarRing} />
                 </View>
                 <View style={styles.userDetails}>
                   <View style={styles.usernameRow}>
-                    <Text style={styles.username}>@{item.user.fullName}</Text>
+                  <Text style={styles.username}>@{item.user.fullName}</Text>
                     {isFollowing && (
                       <View style={styles.followingBadge}>
                         <Text style={styles.followingText}>Following</Text>

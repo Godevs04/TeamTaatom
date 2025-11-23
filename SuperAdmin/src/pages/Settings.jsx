@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
+import { handleError } from '../utils/errorCodes'
 
 const Settings = () => {
   const { isConnected } = useRealTime()
@@ -112,10 +113,8 @@ const Settings = () => {
         }
       } catch (error) {
         const logger = (await import('../utils/logger')).default
-        const { parseError } = await import('../utils/errorCodes')
-        const parsedError = parseError(error)
-        logger.error('Failed to fetch settings:', parsedError.code, parsedError.message)
-        toast.error('Failed to fetch settings')
+        logger.error('Failed to fetch settings:', error)
+        handleError(error, toast, 'Failed to fetch settings')
       }
     }
     fetchSettings()
@@ -204,10 +203,8 @@ const Settings = () => {
       window.location.reload()
     } catch (error) {
       const logger = (await import('../utils/logger')).default
-      const { parseError } = await import('../utils/errorCodes')
-      const parsedError = parseError(error)
-      logger.error('Error resetting settings:', parsedError.code, parsedError.message)
-      toast.error(parsedError.adminMessage || 'Failed to reset settings')
+      logger.error('Error resetting settings:', error)
+      handleError(error, toast, 'Failed to reset settings')
     } finally {
       setIsLoading(false)
     }
@@ -226,10 +223,8 @@ const Settings = () => {
       toast.success('Settings exported successfully')
     } catch (error) {
       const logger = (await import('../utils/logger')).default
-      const { parseError } = await import('../utils/errorCodes')
-      const parsedError = parseError(error)
-      logger.error('Error exporting settings:', parsedError.code, parsedError.message)
-      toast.error('Failed to export settings')
+      logger.error('Error exporting settings:', error)
+      handleError(error, toast, 'Failed to export settings')
     }
   }
 
