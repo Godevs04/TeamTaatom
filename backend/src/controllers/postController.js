@@ -80,6 +80,17 @@ const getPosts = async (req, res) => {
           }
         },
         {
+          $lookup: {
+            from: 'songs',
+            localField: 'song.songId',
+            foreignField: '_id',
+            as: 'songData',
+            pipeline: [
+              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+            ]
+          }
+        },
+        {
           $addFields: {
             comments: {
               $map: {
@@ -105,6 +116,17 @@ const getPosts = async (req, res) => {
                 }
               }
             },
+            song: {
+              $cond: {
+                if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+                then: {
+                  songId: { $arrayElemAt: ['$songData', 0] },
+                  startTime: '$song.startTime',
+                  volume: '$song.volume'
+                },
+                else: null
+              }
+            },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
             viewsCount: { $ifNull: ['$views', 0] } // Include views count
@@ -112,7 +134,8 @@ const getPosts = async (req, res) => {
         },
         {
           $project: {
-            commentUsers: 0 // Remove temporary field
+            commentUsers: 0, // Remove temporary field
+            songData: 0 // Remove temporary field
           }
         }
       ]);
@@ -324,6 +347,17 @@ const getPostById = async (req, res) => {
           }
         },
         {
+          $lookup: {
+            from: 'songs',
+            localField: 'song.songId',
+            foreignField: '_id',
+            as: 'songData',
+            pipeline: [
+              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+            ]
+          }
+        },
+        {
           $addFields: {
             comments: {
               $map: {
@@ -349,6 +383,17 @@ const getPostById = async (req, res) => {
                 }
               }
             },
+            song: {
+              $cond: {
+                if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+                then: {
+                  songId: { $arrayElemAt: ['$songData', 0] },
+                  startTime: '$song.startTime',
+                  volume: '$song.volume'
+                },
+                else: null
+              }
+            },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
             viewsCount: { $ifNull: ['$views', 0] } // Include views count
@@ -357,8 +402,8 @@ const getPostById = async (req, res) => {
         {
           $project: {
             commentUsers: 0, // Remove temporary field
-            views: 1, // Explicitly include views field
-            viewsCount: 1 // Explicitly include viewsCount field
+            songData: 0 // Remove temporary field
+            // views and viewsCount are already included from $addFields, no need to explicitly project them
           }
         }
       ]);
@@ -461,7 +506,7 @@ const createPost = async (req, res) => {
       return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
-    const { caption, address, latitude, longitude, tags } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
 
     // Upload all images to Cloudinary
     const imageUrls = [];
@@ -519,10 +564,26 @@ const createPost = async (req, res) => {
           latitude: parseFloat(latitude) || 0,
           longitude: parseFloat(longitude) || 0
         }
-      }
+      },
+      song: songId ? {
+        songId: songId,
+        startTime: parseFloat(songStartTime) || 0,
+        volume: parseFloat(songVolume) || 0.5
+      } : undefined
     });
 
     await post.save();
+
+    // Increment song usage count if song is attached
+    if (songId) {
+      try {
+        const Song = require('../models/Song');
+        await Song.findByIdAndUpdate(songId, { $inc: { usageCount: 1 } });
+      } catch (songError) {
+        logger.error('Error incrementing song usage count:', songError);
+        // Don't fail post creation if song update fails
+      }
+    }
 
     // Create activity (respect user's privacy settings)
     const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
@@ -832,6 +893,17 @@ const getUserPosts = async (req, res) => {
           }
         },
         {
+          $lookup: {
+            from: 'songs',
+            localField: 'song.songId',
+            foreignField: '_id',
+            as: 'songData',
+            pipeline: [
+              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+            ]
+          }
+        },
+        {
           $addFields: {
             comments: {
               $map: {
@@ -857,6 +929,17 @@ const getUserPosts = async (req, res) => {
                 }
               }
             },
+            song: {
+              $cond: {
+                if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+                then: {
+                  songId: { $arrayElemAt: ['$songData', 0] },
+                  startTime: '$song.startTime',
+                  volume: '$song.volume'
+                },
+                else: null
+              }
+            },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
             isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false
@@ -864,7 +947,8 @@ const getUserPosts = async (req, res) => {
         },
         {
           $project: {
-            commentUsers: 0
+            commentUsers: 0,
+            songData: 0
           }
         }
       ]);
@@ -1622,7 +1706,7 @@ const createShort = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload a video');
     }
 
-    const { caption, address, latitude, longitude, tags } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
 
     // Upload video to Cloudinary with async eager; fallback to upload_large for very big files
     let cloudinaryResult;
@@ -1696,10 +1780,26 @@ const createShort = async (req, res) => {
           latitude: parseFloat(latitude) || 0,
           longitude: parseFloat(longitude) || 0
         }
-      }
+      },
+      song: songId ? {
+        songId: songId,
+        startTime: parseFloat(songStartTime) || 0,
+        volume: parseFloat(songVolume) || 0.5
+      } : undefined
     });
 
     await short.save();
+
+    // Increment song usage count if song is attached
+    if (songId) {
+      try {
+        const Song = require('../models/Song');
+        await Song.findByIdAndUpdate(songId, { $inc: { usageCount: 1 } });
+      } catch (songError) {
+        logger.error('Error incrementing song usage count:', songError);
+        // Don't fail short creation if song update fails
+      }
+    }
 
     // Update hashtag counts asynchronously (don't block short creation)
     if (allHashtags.length > 0) {

@@ -48,6 +48,12 @@ const REQUEST_SIZE_LIMITS = {
     urlencoded: 100 * 1024,
     multipart: 5 * 1024 * 1024, // 5MB
   },
+  // Songs upload (allow larger for audio files)
+  songs: {
+    json: 10 * 1024, // 10KB
+    urlencoded: 10 * 1024,
+    multipart: 20 * 1024 * 1024, // 20MB for audio file uploads
+  },
 };
 
 /**
@@ -59,6 +65,8 @@ const getSizeLimit = (path, contentType) => {
   
   if (path.includes('/auth/') || path.includes('/signin') || path.includes('/signup')) {
     endpointType = 'auth';
+  } else if (path.includes('/songs')) {
+    endpointType = 'songs';
   } else if (path.includes('/shorts')) {
     endpointType = 'shorts';
   } else if (path.includes('/posts') && path.includes('/comments')) {
@@ -83,7 +91,7 @@ const getSizeLimit = (path, contentType) => {
   }
   
   // Default: if content-type is not set but path suggests file upload, use multipart limit
-  if (path.includes('/posts') || path.includes('/shorts') || path.includes('/profile')) {
+  if (path.includes('/posts') || path.includes('/shorts') || path.includes('/profile') || path.includes('/songs')) {
     return limits.multipart || REQUEST_SIZE_LIMITS.default.multipart;
   }
   
