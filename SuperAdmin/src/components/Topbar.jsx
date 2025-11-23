@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import PropTypes from 'prop-types'
 import {
   Bell,
   LogOut,
@@ -92,7 +93,7 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const toggleDarkMode = () => {
+  const toggleDarkMode = useCallback(() => {
     const newDarkMode = !isDarkMode
     setIsDarkMode(newDarkMode)
     
@@ -105,9 +106,9 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
     }
     
     toast.success(`Switched to ${newDarkMode ? 'dark' : 'light'} mode`)
-  }
+  }, [isDarkMode])
 
-  const handleNotificationClick = (notification) => {
+  const handleNotificationClick = useCallback((notification) => {
     // Mark as read
     setNotifications(prev => prev.map(n => 
       n.id === notification.id ? { ...n, unread: false } : n
@@ -122,19 +123,26 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
     } else if (notification.type === 'content') {
       navigate('/travel-content')
     }
-  }
+  }, [navigate])
 
-  const unreadCount = notifications.filter(n => n.unread).length
+  const unreadCount = useMemo(() => 
+    notifications.filter(n => n.unread).length,
+    [notifications]
+  )
 
   // Get user display name and role
-  const displayName = user?.email?.split('@')[0]?.replace(/[._]/g, ' ') || 'Admin'
-  const roleName = user?.role === 'founder' ? 'Founder' : 
-                   user?.role === 'admin' ? 'Administrator' : 
-                   user?.role === 'moderator' ? 'Moderator' : 'Admin'
-  
-  const capitalizedName = displayName.split(' ').map(word => 
-    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-  ).join(' ')
+  const { displayName, roleName, capitalizedName } = useMemo(() => {
+    const name = user?.email?.split('@')[0]?.replace(/[._]/g, ' ') || 'Admin'
+    const role = user?.role === 'founder' ? 'Founder' : 
+                 user?.role === 'admin' ? 'Administrator' : 
+                 user?.role === 'moderator' ? 'Moderator' : 'Admin'
+    
+    const capitalized = name.split(' ').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    ).join(' ')
+    
+    return { displayName: name, roleName: role, capitalizedName: capitalized }
+  }, [user])
 
   return (
     <header className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 text-white border-b border-blue-700 px-4 sm:px-6 py-4 shadow-lg">
@@ -381,6 +389,11 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
       </div>
     </header>
   )
+}
+
+Topbar.propTypes = {
+  onToggleSidebar: PropTypes.func,
+  isDesktop: PropTypes.bool
 }
 
 export default Topbar

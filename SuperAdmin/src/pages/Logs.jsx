@@ -67,6 +67,11 @@ const Logs = () => {
     }
   }
 
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterLevel, filterType, dateRange])
+
   // Fetch logs on mount and when filters change
   useEffect(() => {
     fetchLogs()

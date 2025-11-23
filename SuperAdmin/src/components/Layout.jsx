@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import PropTypes from 'prop-types'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 
@@ -33,18 +34,22 @@ const Layout = ({ children }) => {
     }
   }, [isDesktop])
 
+  const sidebarProps = useMemo(() => ({
+    isOpen: isSidebarOpen,
+    isMobile: !isDesktop,
+    onClose: handleCloseSidebar
+  }), [isSidebarOpen, isDesktop, handleCloseSidebar])
+
+  const topbarProps = useMemo(() => ({
+    onToggleSidebar: handleToggleSidebar,
+    isDesktop
+  }), [handleToggleSidebar, isDesktop])
+
   return (
     <div className="min-h-screen bg-gray-50 lg:bg-gradient-to-br lg:from-slate-50 lg:via-white lg:to-slate-100">
-      <Sidebar
-        isOpen={isSidebarOpen}
-        isMobile={!isDesktop}
-        onClose={handleCloseSidebar}
-      />
+      <Sidebar {...sidebarProps} />
       <div className={`flex flex-col min-h-screen transition-all duration-300 ${isDesktop ? 'lg:pl-64' : ''}`}>
-        <Topbar
-          onToggleSidebar={handleToggleSidebar}
-          isDesktop={isDesktop}
-        />
+        <Topbar {...topbarProps} />
         <main className="flex-1 p-4 sm:p-6 overflow-auto">
           <div className="max-w-7xl mx-auto w-full">
             {children}
@@ -53,6 +58,10 @@ const Layout = ({ children }) => {
       </div>
     </div>
   )
+}
+
+Layout.propTypes = {
+  children: PropTypes.node.isRequired
 }
 
 export default Layout

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
+import PropTypes from 'prop-types'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import logger from '../utils/logger'
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading, isInitialized } = useAuth()
@@ -10,7 +12,7 @@ const ProtectedRoute = ({ children }) => {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (loading || !isInitialized) {
-        console.log('Auth loading timeout - forcing redirect to login')
+        logger.warn('Auth loading timeout - forcing redirect to login')
         setFallbackTimeout(true)
       }
     }, 15000) // 15 second timeout
@@ -37,6 +39,10 @@ const ProtectedRoute = ({ children }) => {
   }
 
   return children
+}
+
+ProtectedRoute.propTypes = {
+  children: PropTypes.node.isRequired
 }
 
 export default ProtectedRoute

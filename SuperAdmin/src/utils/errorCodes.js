@@ -114,3 +114,21 @@ export const createError = (code, message, adminMessage) => {
   };
 };
 
+/**
+ * Handle error and show toast notification
+ * @param {any} error - Error object from API call
+ * @param {Function} toast - Toast function from react-hot-toast
+ * @param {string} fallbackMessage - Fallback message if error parsing fails
+ * @returns {object} Parsed error object
+ */
+export const handleError = (error, toast, fallbackMessage = 'An unexpected error occurred') => {
+  const parsedError = parseError(error);
+  const message = parsedError.adminMessage || fallbackMessage;
+  
+  if (toast) {
+    toast.error(message);
+  }
+  
+  return parsedError;
+};
+

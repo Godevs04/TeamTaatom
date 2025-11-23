@@ -333,7 +333,7 @@ export default function ProfileScreen() {
             style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
             onPress={loadUserData}
           >
-            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
+            <Text style={[styles.retryButtonText, { color: theme.colors.surface }]}>
               Retry
             </Text>
           </TouchableOpacity>
@@ -351,7 +351,7 @@ export default function ProfileScreen() {
           <View style={styles.headerLeft} />
           <View style={styles.headerRight}>
             <TouchableOpacity
-              style={[styles.notificationButton, { backgroundColor: theme.colors.surface }]}
+              style={[styles.notificationButton, { backgroundColor: theme.colors.surface, shadowColor: theme.colors.shadow }]}
               onPress={() => router.push('/notifications')}
             >
               <Ionicons
@@ -361,7 +361,7 @@ export default function ProfileScreen() {
               />
               {unreadCount > 0 && (
                 <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                  <Text style={styles.badgeText}>
+                  <Text style={[styles.badgeText, { color: theme.colors.surface }]}>
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </Text>
                 </View>
@@ -402,7 +402,7 @@ export default function ProfileScreen() {
       >
         {/* Profile Header - Screenshot Style */}
         <ExpoLinearGradient
-          colors={['#E3F2FD', '#FFFFFF']}
+          colors={[theme.colors.primary + '20', theme.colors.background]}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
           style={styles.profileHeaderGradient}
@@ -413,51 +413,51 @@ export default function ProfileScreen() {
               <View style={styles.profilePictureContainer}>
                 <Image
                   source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={styles.profilePicture}
+                  style={[styles.profilePicture, { borderColor: theme.colors.surface, shadowColor: theme.colors.shadow }]}
                 />
               </View>
             </View>
 
             {/* Name */}
-            <Text style={styles.profileName}>{profileData.fullName}</Text>
+            <Text style={[styles.profileName, { color: theme.colors.text }]}>{profileData.fullName}</Text>
             
             {/* Member Since */}
             {profileData.createdAt && (
-              <Text style={styles.memberSince}>
+              <Text style={[styles.memberSince, { color: theme.colors.textSecondary }]}>
                 Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               </Text>
             )}
 
             {/* Stats Cards with Icons */}
             <View style={styles.statsRow}>
-              <View style={styles.statCard}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="flame" size={20} color="#FF6B35" />
+              <View style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}>
+                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="flame" size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={styles.statValue}>{profileData?.postsCount || 0}</Text>
-                <Text style={styles.statLabel}>Posts</Text>
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
               </View>
               <TouchableOpacity 
-                style={styles.statCard}
+                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
                 onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
                 activeOpacity={0.7}
               >
-                <View style={[styles.statIconContainer, { backgroundColor: '#FFF3E0' }]}>
-                  <Ionicons name="trophy" size={20} color="#FF6B35" />
+                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="trophy" size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={styles.statValue}>{profileData?.followersCount || 0}</Text>
-                <Text style={styles.statLabel}>Followers</Text>
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={styles.statCard}
+                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
                 onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
                 activeOpacity={0.7}
               >
-                <View style={[styles.statIconContainer, { backgroundColor: '#E8F5E9' }]}>
-                  <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={styles.statValue}>{profileData?.followingCount || 0}</Text>
-                <Text style={styles.statLabel}>Following</Text>
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -466,22 +466,22 @@ export default function ProfileScreen() {
         {/* TripScore Section */}
         {profileData?.tripScore && profileData.locations && profileData.locations.length > 0 && (
           <TouchableOpacity 
-            style={styles.sectionCard}
+            style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
             activeOpacity={0.8}
           >
             <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: '#FFF3E0' }]}>
-                <Ionicons name="trophy" size={22} color="#FF6B35" />
+              <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                <Ionicons name="trophy" size={22} color={theme.colors.primary} />
               </View>
-              <Text style={styles.sectionTitle}>TripScore</Text>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
             </View>
             <View style={styles.tripScoreContent}>
-              <View style={styles.tripScoreCard}>
-                <Text style={styles.tripScoreNumber}>
+              <View style={[styles.tripScoreCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary + '30', borderWidth: 1 }]}>
+                <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
                   {profileData.tripScore?.totalScore || 0}
                 </Text>
-                <Text style={styles.tripScoreLabel}>
+                <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
                   Total TripScore
                 </Text>
               </View>
@@ -490,12 +490,12 @@ export default function ProfileScreen() {
         )}
 
         {/* Locations Section */}
-        <View style={styles.sectionCard}> 
+        <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}> 
           <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: '#E3F2FD' }]}>
-              <Ionicons name="globe" size={22} color="#0A84FF" />
+            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+              <Ionicons name="globe" size={22} color={theme.colors.primary} />
             </View>
-            <Text style={styles.sectionTitle}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
               {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
             </Text>
           </View>
@@ -509,53 +509,55 @@ export default function ProfileScreen() {
 
         {/* Collections Section */}
         <TouchableOpacity 
-          style={styles.sectionCard}
+          style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
           onPress={() => router.push('/collections')}
           activeOpacity={0.7}
         >
           <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="albums" size={22} color="#4CAF50" />
+            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+              <Ionicons name="albums" size={22} color={theme.colors.primary} />
             </View>
             <View style={styles.sectionTextContainer}>
-              <Text style={styles.sectionTitle}>Collections</Text>
-              <Text style={styles.sectionDescription}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Collections</Text>
+              <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
                 Organize your posts into collections
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#999999" />
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
           </View>
         </TouchableOpacity>
 
         {/* Activity Feed Section */}
         <TouchableOpacity 
-          style={styles.sectionCard}
+          style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
           onPress={() => router.push('/activity')}
           activeOpacity={0.7}
         >
           <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: '#FFF3E0' }]}>
-              <Ionicons name="pulse" size={22} color="#FF6B35" />
+            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+              <Ionicons name="pulse" size={22} color={theme.colors.primary} />
             </View>
             <View style={styles.sectionTextContainer}>
-              <Text style={styles.sectionTitle}>Activity Feed</Text>
-              <Text style={styles.sectionDescription}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Activity Feed</Text>
+              <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
                 See what your friends are up to
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#999999" />
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
           </View>
         </TouchableOpacity>
 
         {/* Posts/Shorts/Saved Tabs */}
-        <View style={styles.postsContainer}> 
-          <View style={styles.tabsRow}>
+        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}> 
+          <View style={[styles.tabsRow, { backgroundColor: theme.colors.background }]}>
             {(['posts','shorts','saved'] as const).map(tab => (
               <TouchableOpacity 
                 key={tab} 
                 style={[
                   styles.tabButton, 
-                  activeTab===tab && styles.activeTabButton
+                  activeTab===tab 
+                    ? [styles.activeTabButton, { backgroundColor: theme.colors.primary }]
+                    : { backgroundColor: theme.colors.background }
                 ]} 
                 onPress={() => setActiveTab(tab)}
                 activeOpacity={0.7}
@@ -564,11 +566,11 @@ export default function ProfileScreen() {
                   <Ionicons 
                     name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
                     size={18} 
-                    color={activeTab===tab ? '#FFFFFF' : '#666666'} 
+                    color={activeTab===tab ? theme.colors.surface : theme.colors.textSecondary} 
                   />
                   <Text style={[
                     styles.tabText, 
-                    { color: activeTab===tab ? '#FFFFFF' : '#666666' }
+                    { color: activeTab===tab ? theme.colors.surface : theme.colors.textSecondary }
                   ]}>
                     {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
                   </Text>
@@ -584,7 +586,7 @@ export default function ProfileScreen() {
                   {posts.map((post) => (
                     <TouchableOpacity 
                       key={post._id} 
-                      style={styles.postThumbnail}
+                      style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
                       onLongPress={() => handleDeletePost(post._id, false)}
                       onPress={() => router.push(`/post/${post._id}`)}
                       activeOpacity={0.8}
@@ -595,11 +597,11 @@ export default function ProfileScreen() {
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={styles.emptyIconContainer}>
-                    <Ionicons name="camera-outline" size={48} color="#CCCCCC" />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
+                    <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
                   </View>
-                  <Text style={styles.emptyText}>No posts yet</Text>
-                  <Text style={styles.emptySubtext}>Start sharing your adventures!</Text>
+                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No posts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Start sharing your adventures!</Text>
                 </View>
               )
             )}
@@ -612,11 +614,11 @@ export default function ProfileScreen() {
                       return (
                         <TouchableOpacity 
                           key={s._id} 
-                          style={styles.postThumbnail}
+                          style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
                           activeOpacity={0.8}
                         >
-                          <View style={styles.placeholderThumbnail}>
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: theme.colors.background + '80' }]}>
                             <Ionicons name="videocam-outline" size={32} color={theme.colors.textSecondary} />
                           </View>
                         </TouchableOpacity>
@@ -625,14 +627,14 @@ export default function ProfileScreen() {
                     return (
                       <TouchableOpacity 
                         key={s._id} 
-                        style={styles.postThumbnail}
+                        style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
                         onPress={() => router.push(`/post/${s._id}`)}
                         activeOpacity={0.8}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
-                        <View style={styles.playIconOverlay}>
-                          <Ionicons name="play" size={24} color="#FFFFFF" />
+                        <View style={[styles.playIconOverlay, { backgroundColor: theme.colors.overlay || 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="play" size={24} color={theme.colors.surface} />
                         </View>
                       </TouchableOpacity>
                     );
@@ -640,11 +642,11 @@ export default function ProfileScreen() {
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={styles.emptyIconContainer}>
-                    <Ionicons name="videocam-outline" size={48} color="#CCCCCC" />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
+                    <Ionicons name="videocam-outline" size={48} color={theme.colors.textSecondary} />
                   </View>
-                  <Text style={styles.emptyText}>No shorts yet</Text>
-                  <Text style={styles.emptySubtext}>Create your first short video!</Text>
+                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No shorts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Create your first short video!</Text>
                 </View>
               )
             )}
@@ -654,24 +656,24 @@ export default function ProfileScreen() {
                   {savedItems.map((item) => (
                     <TouchableOpacity 
                       key={item._id} 
-                      style={styles.postThumbnail}
+                      style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
                       onPress={() => router.push(`/post/${item._id}`)}
                       activeOpacity={0.8}
                     >
                       <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
-                      <View style={styles.bookmarkOverlay}>
-                        <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+                      <View style={[styles.bookmarkOverlay, { backgroundColor: theme.colors.overlay || 'rgba(0,0,0,0.5)' }]}>
+                        <Ionicons name="bookmark" size={16} color={theme.colors.surface} />
                       </View>
                     </TouchableOpacity>
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={styles.emptyIconContainer}>
-                    <Ionicons name="bookmark-outline" size={48} color="#CCCCCC" />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
+                    <Ionicons name="bookmark-outline" size={48} color={theme.colors.textSecondary} />
                   </View>
-                  <Text style={styles.emptyText}>No saved items</Text>
-                  <Text style={styles.emptySubtext}>Save posts you love to view later</Text>
+                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No saved items</Text>
+                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Save posts you love to view later</Text>
                 </View>
               )
             )}
@@ -718,7 +720,6 @@ const styles = StyleSheet.create({
   notificationButton: {
     padding: 10,
     borderRadius: 20,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -739,7 +740,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 10,
     fontWeight: 'bold',
-    color: '#FFFFFF',
     textAlign: 'center',
   },
   scrollView: {
@@ -795,8 +795,6 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -805,13 +803,11 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#1A1A1A',
     marginBottom: 8,
     textAlign: 'center',
   },
   memberSince: {
     fontSize: 14,
-    color: '#666666',
     marginBottom: 24,
     textAlign: 'center',
   },
@@ -826,24 +822,20 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 12,
     alignItems: 'center',
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
     borderWidth: 1,
-    borderColor: '#F0F0F0',
   },
   statIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFF3E0',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
@@ -851,13 +843,11 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#1A1A1A',
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#666666',
     textTransform: 'capitalize',
   },
   
@@ -866,15 +856,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 12,
     padding: 20,
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
     borderWidth: 1,
-    borderColor: '#F0F0F0',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -892,7 +879,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1A1A1A',
     flex: 1,
   },
   sectionTextContainer: {
@@ -900,7 +886,6 @@ const styles = StyleSheet.create({
   },
   sectionDescription: {
     fontSize: 13,
-    color: '#666666',
     marginTop: 4,
     lineHeight: 18,
   },
@@ -915,19 +900,16 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 32,
     borderRadius: 16,
-    backgroundColor: '#F8F9FA',
     alignItems: 'center',
   },
   tripScoreNumber: {
     fontSize: 42,
     fontWeight: '800',
-    color: '#0A84FF',
     marginBottom: 8,
   },
   tripScoreLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#666666',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -937,15 +919,12 @@ const styles = StyleSheet.create({
     margin: 16,
     marginTop: 8,
     padding: 20,
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
     borderWidth: 1,
-    borderColor: '#F0F0F0',
   },
   tabsRow: {
     flexDirection: 'row',
@@ -953,7 +932,6 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: 12,
     padding: 4,
-    backgroundColor: '#F5F5F5',
   },
   tabButton: {
     flex: 1,
@@ -963,7 +941,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeTabButton: {
-    backgroundColor: '#0A84FF',
   },
   tabText: {
     fontSize: 14,
@@ -985,8 +962,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -1001,7 +976,6 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.1)',
   },
   playIconOverlay: {
     position: 'absolute',
@@ -1011,7 +985,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1022,7 +995,6 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1036,7 +1008,6 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
@@ -1044,13 +1015,11 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1A1A1A',
     textAlign: 'center',
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: '#666666',
     textAlign: 'center',
   },
 });
