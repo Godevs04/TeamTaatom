@@ -85,7 +85,7 @@ export const updateSettingCategory = async (category: 'privacy' | 'notifications
     logger.debug(`Successfully updated ${category} settings:`, response.data);
     return response.data;
   } catch (error: any) {
-    logger.error(`Error updating ${category} settings:`, error);
+    logger.error('updateSettingCategory', error);
     
     // Handle different types of errors
     if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {

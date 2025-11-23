@@ -33,9 +33,11 @@ import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
+import { createLogger } from '../../utils/logger';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
+const logger = createLogger('HomeScreen');
 
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
@@ -46,15 +48,27 @@ export default function HomeScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
+  const isFetchingRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  const lastErrorTimeRef = useRef(0);
+  const errorCountRef = useRef(0);
+  const isFetchingMessagesRef = useRef(false);
+  const lastMessageFetchRef = useRef(0);
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
+    // Prevent multiple simultaneous calls
+    if (isFetchingRef.current && !shouldAppend) {
+      logger.debug('Already fetching posts, skipping...');
+      return;
+    }
+    
+    isFetchingRef.current = true;
     try {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Fetching posts for page:', pageNum);
-      }
+      logger.debug('Fetching posts for page:', pageNum);
       
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
@@ -69,27 +83,96 @@ export default function HomeScreen() {
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
       
-      // Preload images for better performance (more aggressive on web)
+      // Cache posts for offline support
+      if (pageNum === 1 && !shouldAppend) {
+        try {
+          await AsyncStorage.setItem('cachedPosts', JSON.stringify({
+            data: response.posts,
+            timestamp: Date.now()
+          }));
+        } catch (error) {
+          logger.error('Error caching posts', error);
+        }
+      }
+      
+      // Enhanced image preloading with priority strategy
       if (response.posts.length > 0) {
         const preloadCount = isWeb ? 8 : 5;
-        response.posts.forEach((post, index) => {
-          if (post.imageUrl && index < preloadCount) {
+        // Preload visible posts first (first 3)
+        const visiblePosts = response.posts.slice(0, 3);
+        visiblePosts.forEach((post) => {
+          if (post.imageUrl) {
             imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
               // Silently fail
             });
           }
         });
+        
+        // Preload upcoming posts in background (next 5-8)
+        const upcomingPosts = response.posts.slice(3, preloadCount);
+        setTimeout(() => {
+          upcomingPosts.forEach((post) => {
+            if (post.imageUrl) {
+              imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
+                // Silently fail
+              });
+            }
+          });
+        }, 500); // Delay to not block initial render
       }
     } catch (error: any) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Failed to fetch posts:', error);
+      const now = Date.now();
+      const timeSinceLastError = now - lastErrorTimeRef.current;
+      
+      // Only log error if it's been more than 2 seconds since last error (prevent spam)
+      if (timeSinceLastError > 2000) {
+        errorCountRef.current = 0;
+        logger.error('Failed to fetch posts', error);
+      } else {
+        errorCountRef.current++;
+        // Only log every 10th error to prevent log spam
+        if (errorCountRef.current % 10 === 0) {
+          logger.error(`Failed to fetch posts (${errorCountRef.current} attempts)`, error);
+        }
       }
-      // Don't show error popup, just log it
-      // Posts will show as empty, user can pull to refresh
+      lastErrorTimeRef.current = now;
+      
+      // Only show error once per failure, not repeatedly
+      const isNetworkError = !isOnline || 
+        error?.message?.includes('Network') || 
+        error?.code === 'ERR_NETWORK' ||
+        error?.message === 'Network Error';
+      
+      // Use setTimeout to prevent error from triggering re-renders that cause loops
+      // Only show error if it's been more than 5 seconds since last error shown
+      if (timeSinceLastError > 5000 || errorCountRef.current === 1) {
+        setTimeout(() => {
+          if (isNetworkError) {
+            showError('Connection issue. Please check your internet and try again.');
+          } else if (error?.response?.status === 429) {
+            showError('Too many requests. Please wait a moment and try again.');
+          } else if (pageNum === 1 && !shouldAppend) {
+            // Only show error on first page load, not on pagination
+            showError('Failed to load posts. Pull down to refresh.');
+          }
+        }, 100);
+      }
+      // For pagination errors, silently fail - user can retry by scrolling
+    } finally {
+      isFetchingRef.current = false;
     }
-  }, []);
+  }, [isOnline]);
 
   const fetchUnseenMessageCount = useCallback(async () => {
+    // Prevent duplicate calls within 2 seconds
+    const now = Date.now();
+    if (isFetchingMessagesRef.current || (now - lastMessageFetchRef.current < 2000)) {
+      return;
+    }
+    
+    isFetchingMessagesRef.current = true;
+    lastMessageFetchRef.current = now;
+    
     try {
       const token = await AsyncStorage.getItem('authToken');
       const userData = await AsyncStorage.getItem('userData');
@@ -100,7 +183,10 @@ export default function HomeScreen() {
         } catch {}
       }
       
-      if (!token || !myUserId) return;
+      if (!token || !myUserId) {
+        isFetchingMessagesRef.current = false;
+        return;
+      }
       
       const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
       const response = await fetch(`${API_BASE_URL}/chat`, {
@@ -134,13 +220,53 @@ export default function HomeScreen() {
       
       setUnseenMessageCount(totalUnseen);
     } catch (error) {
-      console.error('Error fetching unseen message count:', error);
-      // Silently fail - don't show error to user
+      logger.error('fetchUnseenMessageCount', error);
+      // Silently fail - don't show error to user for message count
+    } finally {
+      isFetchingMessagesRef.current = false;
     }
   }, []);
 
+  // Monitor network status using fetch with timeout
   useEffect(() => {
+    const checkNetworkStatus = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        const response = await fetch('https://www.google.com/favicon.ico', {
+          method: 'HEAD',
+          mode: 'no-cors',
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        setIsOnline(true);
+      } catch (error) {
+        setIsOnline(false);
+        logger.warn('Network connection lost');
+      }
+    };
+    
+    // Check initially
+    checkNetworkStatus();
+    
+    // Check periodically
+    const interval = setInterval(checkNetworkStatus, 30000); // Check every 30 seconds
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    // Prevent multiple initializations
+    if (hasInitializedRef.current) {
+      return;
+    }
+    
     const loadInitialData = async () => {
+      if (hasInitializedRef.current) return;
+      hasInitializedRef.current = true;
+      
       setLoading(true);
       try {
         // Load current user first
@@ -151,12 +277,15 @@ export default function HomeScreen() {
         await fetchUnseenMessageCount();
         
         // Try to load posts without blocking on connectivity test
-        console.log('Loading posts...');
+        logger.debug('Loading posts...');
         await fetchPosts(1, false);
       } catch (error) {
-        console.error('Error loading initial data:', error);
-        // Don't show error popup, just log it
-        console.log('Failed to load posts, will retry on refresh');
+        logger.error('Error loading initial data', error);
+        // Use setTimeout to prevent error from causing re-renders
+        setTimeout(() => {
+          showError('Failed to load content. Please pull down to refresh.');
+        }, 100);
+        hasInitializedRef.current = false; // Allow retry
       } finally {
         setLoading(false);
       }
@@ -166,7 +295,7 @@ export default function HomeScreen() {
     
     // Track screen view
     trackScreenView('home');
-  }, [fetchPosts, fetchUnseenMessageCount]);
+  }, []); // Empty deps - only run once on mount
 
   // Refresh unseen count when screen comes into focus
   useFocusEffect(
@@ -265,6 +394,18 @@ export default function HomeScreen() {
       padding: theme.spacing.md,
       alignItems: 'center',
     },
+    offlineBanner: {
+      backgroundColor: theme.colors.error + '20',
+      padding: theme.spacing.sm,
+      alignItems: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.error,
+    },
+    offlineText: {
+      color: theme.colors.error,
+      fontSize: theme.typography.small.fontSize,
+      fontWeight: '600',
+    },
   });
 
   const renderHeader = () => <AnimatedHeader unseenMessageCount={unseenMessageCount} />;
@@ -314,6 +455,14 @@ export default function HomeScreen() {
       <SafeAreaView style={styles.safeArea}>
         {renderHeader()}
         
+        {!isOnline && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>
+              You're offline. Some features may be limited.
+            </Text>
+          </View>
+        )}
+        
         <FlatList
         data={posts}
         keyExtractor={(item) => item._id}
@@ -360,15 +509,16 @@ export default function HomeScreen() {
             key={item._id}
           />
         )}
-        // Web-specific optimizations
-        {...(isWeb && {
-          removeClippedSubviews: true,
-          maxToRenderPerBatch: 5,
-          updateCellsBatchingPeriod: 50,
-          initialNumToRender: 3,
-          windowSize: 5,
-          getItemLayout: undefined, // Let FlatList calculate
-        })}
+        // Virtual scrolling optimizations (both web and mobile)
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={isWeb ? 5 : 3}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={isWeb ? 3 : 2}
+        windowSize={isWeb ? 5 : 3}
+        getItemLayout={undefined} // Let FlatList calculate dynamically
+        // Performance optimizations
+        maintainVisibleContentPosition={undefined}
+        legacyImplementation={false}
       />
       </SafeAreaView>
     </View>

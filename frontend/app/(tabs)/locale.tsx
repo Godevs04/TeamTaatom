@@ -26,6 +26,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
+import { createLogger } from '../../utils/logger';
+import { useReducer, useMemo, useCallback, useRef } from 'react';
+import api from '../../services/api';
+
+const logger = createLogger('LocaleScreen');
 
 const { width } = Dimensions.get('window');
 
@@ -38,118 +43,6 @@ interface LocationData {
   imageUrl?: string;
 }
 
-// Mock data for beautiful location cards
-const mockLocations = [
-  {
-    id: '1',
-    name: 'BRISTOL',
-    imageUrl: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400&h=300&fit=crop',
-    type: 'city',
-    description: 'Historic city with stunning suspension bridge',
-  },
-  {
-    id: '2',
-    name: 'SNOW HILL',
-    imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
-    type: 'mountain',
-    description: 'Majestic mountain peak with snow-capped views',
-  },
-  {
-    id: '3',
-    name: 'B.VILLAGE',
-    imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=400&h=300&fit=crop',
-    type: 'village',
-    description: 'Charming countryside village',
-  },
-  {
-    id: '4',
-    name: 'RIVER SPOT',
-    imageUrl: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Peaceful riverside location',
-  },
-  {
-    id: '5',
-    name: 'MOUNTAIN VIEW',
-    imageUrl: 'https://images.unsplash.com/photo-1519904981063-b0cf448d479e?w=400&h=300&fit=crop',
-    type: 'mountain',
-    description: 'Breathtaking mountain landscape',
-  },
-  {
-    id: '6',
-    name: 'LAKE POINT',
-    imageUrl: 'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Serene lake surrounded by nature',
-  },
-  {
-    id: '7',
-    name: 'SUNRISE PEAK',
-    imageUrl: 'https://images.unsplash.com/photo-1495616811223-4d98c6e9c869?w=400&h=300&fit=crop',
-    type: 'mountain',
-    description: 'Perfect spot for sunrise views',
-  },
-  {
-    id: '8',
-    name: 'FOREST TRAIL',
-    imageUrl: 'https://images.unsplash.com/photo-1511497584788-876760111969?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Peaceful forest walking trail',
-  },
-];
-
-// Mock data for saved locations
-const mockSavedLocations = [
-  {
-    id: 's1',
-    name: 'LAKE POINT',
-    imageUrl: 'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Serene lake surrounded by lush green trees',
-    savedDate: '2024-01-15',
-  },
-  {
-    id: 's2',
-    name: 'MOUNTAIN VIEW',
-    imageUrl: 'https://images.unsplash.com/photo-1519904981063-b0cf448d479e?w=400&h=300&fit=crop',
-    type: 'mountain',
-    description: 'Majestic mountain range at sunset',
-    savedDate: '2024-01-14',
-  },
-  {
-    id: 's3',
-    name: 'SUNRISE POINT',
-    imageUrl: 'https://images.unsplash.com/photo-1495616811223-4d98c6e9c869?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Misty mountain landscape at sunrise',
-    savedDate: '2024-01-13',
-  },
-  {
-    id: 's4',
-    name: 'RIVER ROAD',
-    imageUrl: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=400&h=300&fit=crop',
-    type: 'nature',
-    description: 'Tranquil river lined with tall trees',
-    savedDate: '2024-01-12',
-  },
-  {
-    id: 's5',
-    name: 'STONE BRIDGE',
-    imageUrl: 'https://images.unsplash.com/photo-1511497584788-876760111969?w=400&h=300&fit=crop',
-    type: 'historical',
-    description: 'Picturesque stone bridge over calm river',
-    savedDate: '2024-01-11',
-  },
-  {
-    id: 's6',
-    name: 'MOUNTAIN CABIN',
-    imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
-    type: 'village',
-    description: 'Charming wooden cabin on hillside',
-    savedDate: '2024-01-10',
-  },
-];
-
 interface FilterState {
   country: string;
   countryCode: string;
@@ -158,6 +51,40 @@ interface FilterState {
   spotTypes: string[];
   searchRadius: string;
 }
+
+type FilterAction =
+  | { type: 'SET_COUNTRY'; payload: { country: string; countryCode: string } }
+  | { type: 'SET_STATE'; payload: { stateProvince: string; stateCode: string } }
+  | { type: 'TOGGLE_SPOT_TYPE'; payload: string }
+  | { type: 'SET_SEARCH_RADIUS'; payload: string }
+  | { type: 'RESET' };
+
+const filterReducer = (state: FilterState, action: FilterAction): FilterState => {
+  switch (action.type) {
+    case 'SET_COUNTRY':
+      return { ...state, country: action.payload.country, countryCode: action.payload.countryCode, stateProvince: '', stateCode: '' };
+    case 'SET_STATE':
+      return { ...state, stateProvince: action.payload.stateProvince, stateCode: action.payload.stateCode };
+    case 'TOGGLE_SPOT_TYPE':
+      const spotTypes = state.spotTypes.includes(action.payload)
+        ? state.spotTypes.filter(t => t !== action.payload)
+        : [...state.spotTypes, action.payload];
+      return { ...state, spotTypes };
+    case 'SET_SEARCH_RADIUS':
+      return { ...state, searchRadius: action.payload };
+    case 'RESET':
+      return {
+        country: 'United Kingdom',
+        countryCode: 'GB',
+        stateProvince: '',
+        stateCode: '',
+        spotTypes: [],
+        searchRadius: '',
+      };
+    default:
+      return state;
+  }
+};
 
 export default function LocaleScreen() {
   const { handleScroll } = useScrollToHideNav();
@@ -175,14 +102,18 @@ export default function LocaleScreen() {
   const [states, setStates] = useState<State[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
   const [loadingStates, setLoadingStates] = useState(false);
-  const [filters, setFilters] = useState<FilterState>({
+  const [filters, dispatchFilter] = useReducer(filterReducer, {
     country: 'United Kingdom',
     countryCode: 'GB',
-    stateProvince: 'Bristol',
-    stateCode: 'BRI',
+    stateProvince: '',
+    stateCode: '',
     spotTypes: [],
     searchRadius: '',
   });
+  
+  // Location caching
+  const CACHE_KEY = 'locations_cache';
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const { theme, mode } = useTheme();
   const router = useRouter();
 
@@ -215,7 +146,7 @@ export default function LocaleScreen() {
       const locations = saved ? JSON.parse(saved) : [];
       setSavedLocations(locations);
     } catch (error) {
-      console.error('Error loading saved locations:', error);
+      logger.error('Error loading saved locations', error);
       setSavedLocations([]);
     }
   };
@@ -231,7 +162,7 @@ export default function LocaleScreen() {
         await loadStatesForCountry(filters.countryCode);
       }
     } catch (error) {
-      console.log('Countries loaded from static data');
+      logger.debug('Countries loaded from static data');
       // Countries will be loaded from static data automatically
     } finally {
       setLoadingCountries(false);
@@ -246,10 +177,10 @@ export default function LocaleScreen() {
       
       // If no states found, show a message
       if (statesData.length === 0) {
-        console.log(`No states/provinces available for country code: ${countryCode}`);
+        logger.debug(`No states/provinces available for country code: ${countryCode}`);
       }
     } catch (error) {
-      console.log(`States loaded from static data for ${countryCode}`);
+      logger.debug(`States loaded from static data for ${countryCode}`);
       setStates([]); // Ensure states array is empty on error
     } finally {
       setLoadingStates(false);
@@ -257,13 +188,7 @@ export default function LocaleScreen() {
   };
 
   const handleCountrySelect = async (country: Country) => {
-    setFilters(prev => ({
-      ...prev,
-      country: country.name,
-      countryCode: country.code,
-      stateProvince: '', // Reset state when country changes
-      stateCode: '',
-    }));
+    dispatchFilter({ type: 'SET_COUNTRY', payload: { country: country.name, countryCode: country.code } });
     setShowCountryDropdown(false);
     
     // Load states for the selected country
@@ -271,15 +196,11 @@ export default function LocaleScreen() {
   };
 
   const handleStateSelect = (state: State) => {
-    setFilters(prev => ({
-      ...prev,
-      stateProvince: state.name,
-      stateCode: state.code,
-    }));
+    dispatchFilter({ type: 'SET_STATE', payload: { stateProvince: state.name, stateCode: state.code } });
     setShowStateDropdown(false);
   };
 
-  const loadUserLocations = async () => {
+  const loadUserLocations = async (forceRefresh = false) => {
     try {
       setLoading(true);
       const user = await getUserFromStorage();
@@ -289,11 +210,45 @@ export default function LocaleScreen() {
         return;
       }
 
-      const response = await getProfile(user._id);
-      setLocations(response.profile.locations || []);
+      // Check cache first
+      if (!forceRefresh) {
+        const cached = await AsyncStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < CACHE_DURATION) {
+            setLocations(data);
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Fetch from API - get posts with locations
+      const response = await api.get(`/api/v1/posts?user=${user._id}&hasLocation=true`);
+      const postsWithLocations = response.data.posts || [];
+      
+      // Transform posts to location data format
+      const locationData: LocationData[] = postsWithLocations
+        .filter((post: any) => post.location && post.location.coordinates)
+        .map((post: any) => ({
+          latitude: post.location.coordinates.latitude,
+          longitude: post.location.coordinates.longitude,
+          address: post.location.address || 'Unknown Location',
+          date: post.createdAt,
+          postId: post._id,
+          imageUrl: post.imageUrl || post.images?.[0],
+        }));
+
+      setLocations(locationData);
+      
+      // Update cache
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({
+        data: locationData,
+        timestamp: Date.now()
+      }));
     } catch (error: any) {
+      logger.error('Failed to fetch locations', error);
       Alert.alert('Error', 'Failed to load locations');
-      console.error('Failed to fetch locations:', error);
     } finally {
       setLoading(false);
     }
@@ -306,18 +261,13 @@ export default function LocaleScreen() {
   };
 
   const toggleSpotType = (spotType: string) => {
-    setFilters(prev => ({
-      ...prev,
-      spotTypes: prev.spotTypes.includes(spotType)
-        ? prev.spotTypes.filter(type => type !== spotType)
-        : [...prev.spotTypes, spotType]
-    }));
+    dispatchFilter({ type: 'TOGGLE_SPOT_TYPE', payload: spotType });
   };
 
   const handleSearch = () => {
-    console.log('Searching with filters:', filters);
     setShowFilterModal(false);
-    // Implement search logic here
+    // Reload locations with filters applied
+    loadUserLocations(true);
   };
 
   const renderFilterModal = () => (
@@ -518,7 +468,7 @@ export default function LocaleScreen() {
                 placeholder="Enter radius in km"
                 placeholderTextColor={theme.colors.textSecondary}
                 value={filters.searchRadius}
-                onChangeText={(text) => setFilters(prev => ({ ...prev, searchRadius: text }))}
+                onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
                 keyboardType="numeric"
               />
               <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
@@ -539,7 +489,7 @@ export default function LocaleScreen() {
     </Modal>
   );
 
-  const renderLocationCard = ({ item, index }: { item: any; index: number }) => {
+  const renderLocationCard = useCallback(({ item, index }: { item: any; index: number }) => {
     // All cards are wide cards now
     return (
       <TouchableOpacity 
@@ -554,7 +504,7 @@ export default function LocaleScreen() {
           setIsGeocoding(item.name);
           
           try {
-            console.log('Navigating to location detail:', item.name);
+            logger.debug('Navigating to location detail:', item.name);
             
             // Get user ID for navigation
             const user = await getUserFromStorage();
@@ -573,14 +523,14 @@ export default function LocaleScreen() {
               }
             });
           } catch (error) {
-            console.error('Error navigating to location:', error);
+            logger.error('Error navigating to location', error);
           } finally {
             setIsGeocoding(null);
           }
         }}
       >
         <Image 
-          source={{ uri: item.imageUrl }} 
+          source={{ uri: item.imageUrl || 'https://via.placeholder.com/400x300' }} 
           style={styles.cardImage}
           resizeMode="cover"
         />
@@ -593,13 +543,13 @@ export default function LocaleScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [isGeocoding, router, theme]);
 
   const renderCurrentLocationCard = (currentLocation: any) => {
     // Use OpenStreetMap since Google Maps is failing
     const mapUrl = `https://tile.openstreetmap.org/15/${Math.floor((currentLocation.longitude + 180) / 360 * Math.pow(2, 15))}/${Math.floor((1 - Math.log(Math.tan(currentLocation.latitude * Math.PI / 180) + 1 / Math.cos(currentLocation.latitude * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, 15))}.png`;
     
-    console.log('Using OpenStreetMap URL:', mapUrl);
+    logger.debug('Using OpenStreetMap URL:', mapUrl);
     
     return (
       <TouchableOpacity 
@@ -614,7 +564,7 @@ export default function LocaleScreen() {
           setIsGeocoding('Current Location');
           
           try {
-            console.log('Navigating to current location detail:', currentLocation.address);
+            logger.debug('Navigating to current location detail:', currentLocation.address);
             
             // Get user ID for navigation
             const user = await getUserFromStorage();
@@ -633,7 +583,7 @@ export default function LocaleScreen() {
               }
             });
           } catch (error) {
-            console.error('Error navigating to current location:', error);
+            logger.error('Error navigating to current location', error);
           } finally {
             setIsGeocoding(null);
           }
@@ -644,11 +594,11 @@ export default function LocaleScreen() {
           style={styles.cardImage}
           resizeMode="cover"
           onError={(error) => {
-            console.error('OpenStreetMap failed:', error.nativeEvent.error);
+            logger.error('OpenStreetMap failed', error.nativeEvent.error);
           }}
 
           onLoad={() => {
-            console.log('OpenStreetMap loaded successfully!');
+            logger.debug('OpenStreetMap loaded successfully');
           }}
         />
         {/* Red marker overlay for location */}
@@ -683,21 +633,33 @@ export default function LocaleScreen() {
     );
   };
 
-  const renderCustomLayout = () => {
-    // Create a modified locations array
-    const modifiedLocations = [...mockLocations];
+  // Memoize location cards
+  const memoizedLocationCards = useMemo(() => {
+    return locations.map((location, index) => ({
+      id: location.postId || `loc-${index}`,
+      name: location.address,
+      imageUrl: location.imageUrl,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      date: location.date,
+    }));
+  }, [locations]);
+
+  const renderCustomLayout = useCallback(() => {
+    if (locations.length === 0) {
+      return renderEmptyState();
+    }
     
     return (
       <View style={styles.listContainer}>
-        {/* All cards - all wide cards */}
-        {modifiedLocations.map((item, index) => (
+        {memoizedLocationCards.map((item, index) => (
           <View key={item.id}>
-            {renderLocationCard({ item, index: index })}
+            {renderLocationCard({ item, index })}
           </View>
         ))}
       </View>
     );
-  };
+  }, [memoizedLocationCards, locations.length]);
 
   const renderSavedLocationCard = ({ item, index }: { item: any; index: number }) => {
     return (
@@ -713,7 +675,7 @@ export default function LocaleScreen() {
           setIsGeocoding(item.name);
           
           try {
-            console.log('Navigating to saved location detail:', item.name);
+            logger.debug('Navigating to saved location detail:', item.name);
             
             // Get user ID for navigation
             const user = await getUserFromStorage();
@@ -732,7 +694,7 @@ export default function LocaleScreen() {
               }
             });
           } catch (error) {
-            console.error('Error navigating to saved location:', error);
+            logger.error('Error navigating to saved location', error);
           } finally {
             setIsGeocoding(null);
           }
@@ -892,10 +854,10 @@ export default function LocaleScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={savedLocations.length > 0 ? savedLocations : mockSavedLocations}
+          data={savedLocations}
           renderItem={renderSavedLocationCard}
           keyExtractor={(item) => item.id || `saved-${item.slug || item.name}`}
-          ListEmptyComponent={savedLocations.length === 0 && mockSavedLocations.length === 0 ? renderEmptySavedState() : null}
+          ListEmptyComponent={savedLocations.length === 0 ? renderEmptySavedState() : null}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={

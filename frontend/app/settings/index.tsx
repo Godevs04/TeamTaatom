@@ -16,6 +16,20 @@ import NavBar from '../../components/NavBar';
 import { getUserFromStorage } from '../../services/auth';
 import { getSettings, updateSettings, resetSettings, UserSettings } from '../../services/settings';
 import { useAlert } from '../../context/AlertContext';
+import { createLogger } from '../../utils/logger';
+
+// Get version from package.json
+let appVersion = '1.0.0';
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const packageJson = require('../../../package.json');
+  appVersion = packageJson.version || '1.0.0';
+} catch {
+  // Fallback if package.json is not accessible
+  appVersion = '1.0.0';
+}
+
+const logger = createLogger('SettingsScreen');
 
 interface SettingsSection {
   id: string;
@@ -99,7 +113,7 @@ export default function SettingsScreen() {
       const settingsData = await getSettings();
       setSettings(settingsData.settings);
     } catch (error: any) {
-      console.error('Failed to load settings:', error);
+      logger.error('Failed to load settings', error);
       Alert.alert('Error', 'Failed to load settings');
     } finally {
       setLoading(false);
@@ -260,7 +274,7 @@ export default function SettingsScreen() {
         {/* App Version */}
         <View style={styles.versionContainer}>
           <Text style={[styles.versionText, { color: theme.colors.textSecondary }]}>
-            Taatom v1.0.0
+            Taatom v{appVersion}
           </Text>
         </View>
       </ScrollView>

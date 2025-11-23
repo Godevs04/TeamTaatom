@@ -101,6 +101,10 @@ const postSchema = new mongoose.Schema({
   commentsDisabled: {
     type: Boolean,
     default: false
+  },
+  views: {
+    type: Number,
+    default: 0
   }
 }, {
   timestamps: true
@@ -125,6 +129,11 @@ postSchema.virtual('likesCount').get(function() {
 // Virtual for comments count
 postSchema.virtual('commentsCount').get(function() {
   return this.comments ? this.comments.length : 0;
+});
+
+// Virtual for views count (alias for views field)
+postSchema.virtual('viewsCount').get(function() {
+  return this.views || 0;
 });
 
 // Virtual for media URL (returns videoUrl for shorts, imageUrl for photos)

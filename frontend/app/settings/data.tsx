@@ -14,6 +14,10 @@ import NavBar from '../../components/NavBar';
 import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
+import { createLogger } from '../../utils/logger';
+import * as FileSystem from 'expo-file-system';
+
+const logger = createLogger('DataSettings');
 
 export default function DataStorageSettingsScreen() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -35,34 +39,94 @@ export default function DataStorageSettingsScreen() {
 
   const calculateStorageUsage = async () => {
     try {
-      // Get all AsyncStorage keys to calculate usage
+      // Calculate AsyncStorage usage
       const keys = await AsyncStorage.getAllKeys();
-      let totalSize = 0;
+      let asyncStorageSize = 0;
       
       for (const key of keys) {
         const value = await AsyncStorage.getItem(key);
         if (value) {
-          totalSize += value.length * 2; // Rough estimate: 2 bytes per character
+          asyncStorageSize += value.length * 2; // 2 bytes per character (UTF-16)
         }
       }
       
-      // Convert to MB
-      const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
+      // Calculate FileSystem cache directory size
+      let cacheSize = 0;
+      let imagesSize = 0;
+      let downloadsSize = 0;
       
-      // Estimate breakdown (this is simplified - in a real app you'd track this more precisely)
-      const imagesMB = (totalSize * 0.3 / (1024 * 1024)).toFixed(1);
-      const downloadsMB = (totalSize * 0.4 / (1024 * 1024)).toFixed(1);
-      const documentsMB = (totalSize * 0.3 / (1024 * 1024)).toFixed(1);
+      try {
+        const cacheDir = (FileSystem as any).cacheDirectory || null;
+        if (cacheDir) {
+          const cacheInfo = await FileSystem.getInfoAsync(cacheDir);
+          if (cacheInfo.exists && cacheInfo.isDirectory) {
+            const files = await FileSystem.readDirectoryAsync(cacheDir);
+            for (const file of files) {
+              try {
+                const fileInfo = await FileSystem.getInfoAsync(`${cacheDir}${file}`);
+                if (fileInfo.exists && !fileInfo.isDirectory) {
+                  const size = fileInfo.size || 0;
+                  cacheSize += size;
+                  if (file.includes('image') || file.includes('thumb')) {
+                    imagesSize += size;
+                  } else if (file.includes('download') || file.includes('video')) {
+                    downloadsSize += size;
+                  }
+                }
+              } catch (err) {
+                logger.debug(`Error reading file ${file}`, err);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.debug('Error reading cache directory', err);
+      }
+      
+      // Calculate document directory size
+      let documentsSize = 0;
+      try {
+        const documentDir = (FileSystem as any).documentDirectory || null;
+        if (documentDir) {
+          const docInfo = await FileSystem.getInfoAsync(documentDir);
+          if (docInfo.exists && docInfo.isDirectory) {
+            const files = await FileSystem.readDirectoryAsync(documentDir);
+            for (const file of files) {
+              try {
+                const fileInfo = await FileSystem.getInfoAsync(`${documentDir}${file}`);
+                if (fileInfo.exists && !fileInfo.isDirectory) {
+                  documentsSize += fileInfo.size || 0;
+                }
+              } catch (err) {
+                logger.debug(`Error reading document file ${file}`, err);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.debug('Error reading document directory', err);
+      }
+      
+      // Total size
+      const totalSize = asyncStorageSize + cacheSize + documentsSize;
+      
+      // Format sizes
+      const formatSize = (bytes: number) => {
+        if (bytes < 1024) return `${bytes.toFixed(0)} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      };
       
       setStorageData({
-        images: `${imagesMB} MB`,
-        downloads: `${downloadsMB} MB`,
-        documents: `${documentsMB} MB`,
-        total: `${totalMB} MB`,
-        available: '15.2 GB' // This would need device-specific API
+        images: formatSize(imagesSize),
+        downloads: formatSize(downloadsSize),
+        documents: formatSize(documentsSize + asyncStorageSize),
+        total: formatSize(totalSize),
+        available: 'N/A' // Device storage info requires native modules
       });
     } catch (error) {
-      console.error('Error calculating storage:', error);
+      logger.error('Error calculating storage', error);
+      showError('Failed to calculate storage usage');
     }
   };
 
