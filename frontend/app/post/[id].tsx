@@ -16,6 +16,7 @@ import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
 import { trackScreenView, trackPostView, trackEngagement } from '../../services/analytics';
 import { createLogger } from '../../utils/logger';
+import SongPlayer from '../../components/SongPlayer';
 
 const logger = createLogger('PostDetail');
 
@@ -624,6 +625,13 @@ export default function PostDetail() {
             colors={['transparent', 'rgba(0,0,0,0.3)']}
             style={styles.imageOverlay}
           />
+
+          {/* Song Player Overlay */}
+          {post.song?.songId && (
+            <View style={styles.songPlayerContainer} pointerEvents="box-none">
+              <SongPlayer post={post} isVisible={true} autoPlay={true} />
+            </View>
+          )}
           
           {/* Floating Action Buttons */}
           <View style={styles.floatingActions}>
@@ -1003,6 +1011,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 100,
+  },
+  songPlayerContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    zIndex: 10,
   },
   floatingActions: {
     position: 'absolute',

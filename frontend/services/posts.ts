@@ -23,6 +23,9 @@ export interface CreatePostData {
   address?: string;
   latitude?: number;
   longitude?: number;
+  songId?: string;
+  songStartTime?: number;
+  songVolume?: number;
 }
 
 export interface CreateShortData {
@@ -41,6 +44,9 @@ export interface CreateShortData {
   address?: string;
   latitude?: number;
   longitude?: number;
+  songId?: string;
+  songStartTime?: number;
+  songVolume?: number;
 }
 
 export interface PostsResponse {
@@ -157,6 +163,11 @@ export const createPostWithProgress = async (
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (data.songId) {
+      formData.append('songId', data.songId);
+      if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
 
     // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
@@ -204,6 +215,11 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (data.songId) {
+      formData.append('songId', data.songId);
+      if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
 
     const response = await api.post('/api/v1/posts', formData, {
       headers: {
@@ -432,9 +448,9 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       name: data.video.name,
     } as any);
     
-    // Add optional image (thumbnail)
+    // Add optional image (thumbnail) - backend expects 'image' not 'images'
     if (data.image) {
-      formData.append('images', {
+      formData.append('image', {
         uri: data.image.uri,
         type: data.image.type,
         name: data.image.name,
@@ -455,6 +471,11 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (data.songId) {
+      formData.append('songId', data.songId);
+      if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
 
     logger.debug('Sending request to /shorts endpoint');
     

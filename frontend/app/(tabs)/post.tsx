@@ -35,6 +35,8 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { SongSelector } from '../../components/SongSelector';
+import { Song } from '../../services/songs';
 
 const logger = createLogger('PostScreen');
 
@@ -68,6 +70,8 @@ export default function PostScreen() {
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
+  const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [showSongSelector, setShowSongSelector] = useState(false);
   const router = useRouter();
   const { theme } = useTheme();
   const { handleScroll } = useScrollToHideNav();
@@ -610,6 +614,9 @@ export default function PostScreen() {
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+        songId: selectedSong?._id,
+        songStartTime: 0,
+        songVolume: 0.5,
       }, (progress) => {
         // Calculate overall progress: 50% optimization (already done) + 50% upload
         const uploadProgressPercent = progress / 100; // 0 to 1
@@ -646,6 +653,7 @@ export default function PostScreen() {
               setSelectedImages([]);
               setLocation(null);
               setAddress('');
+              setSelectedSong(null);
               // Update existing posts state
               setHasExistingPosts(true);
               router.replace('/(tabs)/home');
@@ -721,6 +729,9 @@ export default function PostScreen() {
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+        songId: selectedSong?._id,
+        songStartTime: 0,
+        songVolume: 0.5,
       });
 
       logger.debug('Short created successfully:', response);
@@ -731,6 +742,7 @@ export default function PostScreen() {
           onPress: () => {
             setSelectedVideo(null);
             setLocation(null);
+            setSelectedSong(null);
             // Update existing shorts state
             setHasExistingShorts(true);
             setAddress('');
@@ -1130,6 +1142,35 @@ export default function PostScreen() {
                       </View>
                     )}
                     <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: theme.colors.surfaceSecondary,
+                        borderRadius: theme.borderRadius.md,
+                        paddingVertical: theme.spacing.md,
+                        paddingHorizontal: theme.spacing.md,
+                        marginTop: theme.spacing.md,
+                        borderWidth: 1,
+                        borderColor: selectedSong ? theme.colors.primary : theme.colors.border,
+                      }}
+                      onPress={() => setShowSongSelector(true)}
+                    >
+                      <Ionicons 
+                        name={selectedSong ? "musical-notes" : "musical-notes-outline"} 
+                        size={20} 
+                        color={selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
+                        style={{ marginRight: theme.spacing.xs }}
+                      />
+                      <Text style={{ 
+                        color: selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
+                        fontSize: theme.typography.body.fontSize,
+                        fontWeight: selectedSong ? '600' : '400'
+                      }}>
+                        {selectedSong ? `${selectedSong.title} - ${selectedSong.artist}` : 'Add Music'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       style={[
                         { backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md, paddingVertical: theme.spacing.md, alignItems: "center", marginTop: theme.spacing.lg, ...theme.shadows.medium },
                         isLoading && { opacity: 0.6 },
@@ -1323,6 +1364,35 @@ export default function PostScreen() {
                       </View>
                     )}
                     <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: theme.colors.surfaceSecondary,
+                        borderRadius: theme.borderRadius.md,
+                        paddingVertical: theme.spacing.md,
+                        paddingHorizontal: theme.spacing.md,
+                        marginTop: theme.spacing.md,
+                        borderWidth: 1,
+                        borderColor: selectedSong ? theme.colors.primary : theme.colors.border,
+                      }}
+                      onPress={() => setShowSongSelector(true)}
+                    >
+                      <Ionicons 
+                        name={selectedSong ? "musical-notes" : "musical-notes-outline"} 
+                        size={20} 
+                        color={selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
+                        style={{ marginRight: theme.spacing.xs }}
+                      />
+                      <Text style={{ 
+                        color: selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
+                        fontSize: theme.typography.body.fontSize,
+                        fontWeight: selectedSong ? '600' : '400'
+                      }}>
+                        {selectedSong ? `${selectedSong.title} - ${selectedSong.artist}` : 'Add Music'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       style={[
                         { backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md, paddingVertical: theme.spacing.md, alignItems: "center", marginTop: theme.spacing.lg, ...theme.shadows.medium },
                         isLoading && { opacity: 0.6 },
@@ -1366,6 +1436,17 @@ export default function PostScreen() {
           setUploadProgress({ current: 0, total: 0, percentage: 0 });
           setIsLoading(false);
         }}
+      />
+
+      {/* Song Selector Modal */}
+      <SongSelector
+        visible={showSongSelector}
+        onClose={() => setShowSongSelector(false)}
+        onSelect={(song) => {
+          setSelectedSong(song);
+          setShowSongSelector(false);
+        }}
+        selectedSong={selectedSong}
       />
     </View>
   );
