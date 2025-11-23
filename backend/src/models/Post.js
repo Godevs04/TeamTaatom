@@ -116,6 +116,10 @@ const postSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
+    endTime: {
+      type: Number,
+      default: null // null means play until end or 60 seconds from start
+    },
     volume: {
       type: Number,
       default: 0.5,

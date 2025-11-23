@@ -25,6 +25,7 @@ export interface CreatePostData {
   longitude?: number;
   songId?: string;
   songStartTime?: number;
+  songEndTime?: number;
   songVolume?: number;
 }
 
@@ -46,6 +47,7 @@ export interface CreateShortData {
   longitude?: number;
   songId?: string;
   songStartTime?: number;
+  songEndTime?: number;
   songVolume?: number;
 }
 
@@ -166,6 +168,7 @@ export const createPostWithProgress = async (
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
 
@@ -218,6 +221,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
 
@@ -474,6 +478,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+      if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
 

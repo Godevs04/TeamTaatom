@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView, Image, Alert } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -8,7 +8,7 @@ import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { io, Socket } from 'socket.io-client';
-import { SafeAreaView as RNSafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
@@ -1885,7 +1885,7 @@ export default function ChatModal() {
 
       {/* Enhanced New Message Modal */}
       {showNewMessage && (
-        <RNSafeAreaView edges={['top']} style={styles.newMessageOverlay}>
+        <SafeAreaView edges={['top']} style={styles.newMessageOverlay}>
           <View style={styles.newMessageHeader}>
             <Text style={styles.newMessageTitle}>New Message</Text>
             <TouchableOpacity 
@@ -1937,7 +1937,7 @@ export default function ChatModal() {
               />
             )}
           </View>
-        </RNSafeAreaView>
+        </SafeAreaView>
       )}
     </SafeAreaView>
     </>

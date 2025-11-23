@@ -95,3 +95,19 @@ export const toggleSongStatus = async (id, isActive) => {
   }
 };
 
+/**
+ * Update song details
+ * @param {string} id - Song ID
+ * @param {object} data - Song data to update (title, artist, genre, duration)
+ * @returns {Promise} Updated song data
+ */
+export const updateSong = async (id, data) => {
+  try {
+    const response = await api.put(`/api/v1/songs/${id}`, data);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating song:', error);
+    throw error;
+  }
+};
+

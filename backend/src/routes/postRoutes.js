@@ -96,6 +96,10 @@ const createPostValidation = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Song start time must be a positive number'),
+  body('songEndTime')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Song end time must be a positive number'),
   body('songVolume')
     .optional()
     .isFloat({ min: 0, max: 1 })
