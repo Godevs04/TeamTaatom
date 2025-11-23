@@ -30,6 +30,12 @@ import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
+import { createLogger } from '../../utils/logger';
+import { ErrorBoundary } from '../../utils/errorBoundary';
+import { useMemo } from 'react';
+import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
+
+const logger = createLogger('ProfileScreen');
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -80,7 +86,7 @@ export default function ProfileScreen() {
       const response = await getUnreadCount();
       setUnreadCount(response.unreadCount);
     } catch (error) {
-      console.error('Failed to load unread count:', error);
+      logger.error('Failed to load unread count', error);
     }
   }, []);
 
@@ -88,7 +94,7 @@ export default function ProfileScreen() {
     setCheckingUser(true);
     try {
       const userData = await getUserFromStorage();
-      console.log('[ProfileScreen] getUserFromStorage:', userData);
+      logger.debug('getUserFromStorage:', userData);
       if (!userData) {
         setCheckingUser(false);
         setLoading(false);
@@ -110,7 +116,7 @@ export default function ProfileScreen() {
       } catch {}
       await loadUnreadCount();
     } catch (error: any) {
-      console.error('Failed to load profile:', error);
+      logger.error('Failed to load profile', error);
       showError('Failed to load profile data');
     } finally {
       setLoading(false);
@@ -121,6 +127,18 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadUserData();
   }, [loadUserData]);
+  
+  // Track profile screen view with analytics
+  useEffect(() => {
+    if (user && profileData) {
+      trackScreenView('profile', {
+        userId: user._id,
+        hasPosts: posts.length > 0,
+        hasShorts: userShorts.length > 0,
+        postsCount: profileData.postsCount || 0
+      });
+    }
+  }, [user?._id, profileData?.postsCount, posts.length, userShorts.length]);
 
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(async () => {
@@ -130,9 +148,13 @@ export default function ProfileScreen() {
         const shortsArr = savedShorts ? JSON.parse(savedShorts) : [];
         const postsArr = savedPosts ? JSON.parse(savedPosts) : [];
         setSavedIds([...(Array.isArray(postsArr)?postsArr:[]), ...(Array.isArray(shortsArr)?shortsArr:[])]);
-      } catch {}
+      } catch (error) {
+        logger.error('Error loading saved items in listener', error);
+      }
     });
-    return () => { unsubscribe(); };
+    return () => { 
+      unsubscribe(); 
+    };
   }, []);
 
   useEffect(() => {
@@ -158,26 +180,33 @@ export default function ProfileScreen() {
       }
       try {
         const uniqueIds = Array.from(new Set(savedIds));
-        const chunkSize = 5;
-        const chunks: string[][] = [];
-        for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-          chunks.push(uniqueIds.slice(i, i + chunkSize));
+        const batchSize = 10; // Increased batch size for better performance
+        const batches: string[][] = [];
+        for (let i = 0; i < uniqueIds.length; i += batchSize) {
+          batches.push(uniqueIds.slice(i, i + batchSize));
         }
+        
+        // Load all batches in parallel
+        const allResults = await Promise.all(
+          batches.map(batch => 
+            Promise.allSettled(batch.map(id => getPostById(id)))
+          )
+        );
+        
         const items: PostType[] = [];
-        for (const chunk of chunks) {
-          const results = await Promise.allSettled(chunk.map(id => getPostById(id)));
-          results.forEach(r => {
+        allResults.forEach(batchResults => {
+          batchResults.forEach(r => {
             if (r.status === 'fulfilled') {
               const val: any = (r as any).value;
               const item = val.post || val;
               if (item) items.push(item);
             }
           });
-          await new Promise(res => setTimeout(res, 250));
-        }
+        });
+        
         setSavedItems(items);
       } catch (e) {
-        console.error('Failed to load saved items:', e);
+        logger.error('Failed to load saved items', e);
         setSavedItems([]);
       }
     };
@@ -230,13 +259,14 @@ export default function ProfileScreen() {
     showConfirm(
       `Are you sure you want to delete this ${isShort ? 'short' : 'post'}?`,
       async () => {
+        // Optimistic update - update UI immediately
+        const previousPosts = [...posts];
+        const previousShorts = [...userShorts];
+        const previousSavedItems = [...savedItems];
+        const previousProfileData = profileData;
+        
         try {
-          if (isShort) {
-            await deleteShort(postId);
-          } else {
-            await deletePost(postId);
-          }
-          
+          // Update UI optimistically
           if (isShort) {
             setUserShorts(prev => prev.filter(short => short._id !== postId));
           } else {
@@ -252,8 +282,25 @@ export default function ProfileScreen() {
             } : null);
           }
           
+          // Track deletion
+          trackEngagement('delete', isShort ? 'short' : 'post', postId);
+          
+          // Perform actual deletion
+          if (isShort) {
+            await deleteShort(postId);
+          } else {
+            await deletePost(postId);
+          }
+          
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
         } catch (error: any) {
+          // Revert optimistic update on error
+          setPosts(previousPosts);
+          setUserShorts(previousShorts);
+          setSavedItems(previousSavedItems);
+          setProfileData(previousProfileData);
+          
+          logger.error('Failed to delete post', error);
           showError(error.message || `Failed to delete ${isShort ? 'short' : 'post'}`);
         }
       },
@@ -296,7 +343,8 @@ export default function ProfileScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+    <ErrorBoundary level="route">
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       {/* Enhanced Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
         <View style={styles.headerContent}>
@@ -431,7 +479,7 @@ export default function ProfileScreen() {
             <View style={styles.tripScoreContent}>
               <View style={styles.tripScoreCard}>
                 <Text style={styles.tripScoreNumber}>
-                  {profileData.tripScore.totalScore}
+                  {profileData.tripScore?.totalScore || 0}
                 </Text>
                 <Text style={styles.tripScoreLabel}>
                   Total TripScore
@@ -641,6 +689,7 @@ export default function ProfileScreen() {
         )}
       </ScrollView>
     </View>
+    </ErrorBoundary>
   );
 }
 

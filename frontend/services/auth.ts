@@ -203,7 +203,7 @@ export const isAuthenticated = async (): Promise<boolean> => {
     return !!user;
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      logger.error('[isAuthenticated] Error:', error);
+      logger.error('isAuthenticated', error);
     }
     // Don't automatically sign out on error, just return false
     return false;
@@ -260,7 +260,7 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
     return user;
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      logger.error('Auth initialization error:', error);
+      logger.error('initializeAuth', error);
     }
     // Don't sign out on initialization error, try to get from storage
     const storedUser = await getUserFromStorage();
@@ -294,7 +294,7 @@ export const signOut = async (): Promise<void> => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
   } catch (error) {
-    logger.error('Error signing out:', error);
+    logger.error('signOut', error);
   }
 };
 
@@ -309,7 +309,7 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
     if (error.response?.status === 404) {
       throw new Error('Email not found');
     }
-    logger.error("Error in forgotPassword:", error);
+    logger.error('forgotPassword', error);
     throw new Error(error.response?.data?.message || 'An error occurred while processing your request');
   }
 };
@@ -362,7 +362,7 @@ export const refreshAuthState = async (): Promise<UserType | null> => {
     
     return null;
   } catch (error) {
-    logger.error('[refreshAuthState] Error:', error);
+      logger.error('refreshAuthState', error);
     return null;
   }
 };

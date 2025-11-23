@@ -16,6 +16,10 @@ import NavBar from '../../components/NavBar';
 import { getArchivedPosts, getHiddenPosts, unarchivePost, unhidePost } from '../../services/posts';
 import { PostType } from '../../types/post';
 import CustomAlert from '../../components/CustomAlert';
+import { createLogger } from '../../utils/logger';
+import { TextInput } from 'react-native';
+
+const logger = createLogger('ManagePosts');
 
 type TabType = 'archived' | 'hidden';
 
@@ -29,6 +33,10 @@ export default function ManagePostsScreen() {
   const [showAlert, setShowAlert] = useState(false);
   const [showConfirmAlert, setShowConfirmAlert] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ postId: string; type: TabType } | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
@@ -39,20 +47,39 @@ export default function ManagePostsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
 
-  const loadPosts = useCallback(async () => {
+  const loadPosts = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
-      setLoading(true);
+      if (!append) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+      
+      const pageSize = 20;
       const [archivedData, hiddenData] = await Promise.all([
-        getArchivedPosts(1, 50),
-        getHiddenPosts(1, 50),
+        getArchivedPosts(page, pageSize),
+        getHiddenPosts(page, pageSize),
       ]);
-      setArchivedPosts(archivedData.posts || []);
-      setHiddenPosts(hiddenData.posts || []);
+      
+      if (append) {
+        setArchivedPosts(prev => [...prev, ...(archivedData.posts || [])]);
+        setHiddenPosts(prev => [...prev, ...(hiddenData.posts || [])]);
+      } else {
+        setArchivedPosts(archivedData.posts || []);
+        setHiddenPosts(hiddenData.posts || []);
+      }
+      
+      setHasMore(
+        (archivedData.posts?.length || 0) >= pageSize || 
+        (hiddenData.posts?.length || 0) >= pageSize
+      );
+      setCurrentPage(page);
     } catch (error: any) {
-      console.error('Error loading posts:', error);
+      logger.error('Error loading posts', error);
       showAlertMessage('Error', error.message || 'Failed to load posts', 'error');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   }, []);
 
@@ -140,8 +167,25 @@ export default function ManagePostsScreen() {
     }
   };
 
-  const currentPosts = activeTab === 'archived' ? archivedPosts : hiddenPosts;
+  // Filter posts by search query
+  const filteredPosts = (activeTab === 'archived' ? archivedPosts : hiddenPosts).filter(post => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      post.caption?.toLowerCase().includes(query) ||
+      post.location?.address?.toLowerCase().includes(query) ||
+      post.tags?.some(tag => tag.toLowerCase().includes(query))
+    );
+  });
+  
+  const currentPosts = filteredPosts;
   const hasPosts = currentPosts.length > 0;
+  
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore && !searchQuery.trim()) {
+      loadPosts(currentPage + 1, true);
+    }
+  }, [currentPage, hasMore, loadingMore, searchQuery, loadPosts]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -150,6 +194,25 @@ export default function ManagePostsScreen() {
         showBack={true}
         onBack={() => router.back()}
       />
+
+      {/* Search Bar */}
+      <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface }]}>
+        <View style={[styles.searchBar, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+          <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.colors.text }]}
+            placeholder="Search posts..."
+            placeholderTextColor={theme.colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
       {/* Tabs */}
       <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface }]}>
@@ -220,17 +283,21 @@ export default function ManagePostsScreen() {
           {!hasPosts ? (
             <View style={styles.emptyContainer}>
               <Ionicons
-                name={activeTab === 'archived' ? 'archive-outline' : 'eye-off-outline'}
+                name={searchQuery.trim() ? 'search-outline' : (activeTab === 'archived' ? 'archive-outline' : 'eye-off-outline')}
                 size={64}
                 color={theme.colors.textSecondary}
               />
               <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                No {activeTab === 'archived' ? 'archived' : 'hidden'} posts
+                {searchQuery.trim() 
+                  ? 'No posts found' 
+                  : `No ${activeTab === 'archived' ? 'archived' : 'hidden'} posts`}
               </Text>
               <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
-                {activeTab === 'archived'
-                  ? 'Posts you archive will appear here'
-                  : 'Posts you hide will appear here'}
+                {searchQuery.trim()
+                  ? 'Try adjusting your search terms'
+                  : (activeTab === 'archived'
+                      ? 'Posts you archive will appear here'
+                      : 'Posts you hide will appear here')}
               </Text>
             </View>
           ) : (
@@ -282,6 +349,21 @@ export default function ManagePostsScreen() {
                   </TouchableOpacity>
                 </View>
               ))}
+              
+              {/* Load More Button */}
+              {hasMore && !searchQuery.trim() && (
+                <TouchableOpacity
+                  style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
+                  onPress={loadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.loadMoreText}>Load More</Text>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </ScrollView>
@@ -413,6 +495,35 @@ const styles = StyleSheet.create({
   restoreButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  searchContainer: {
+    padding: 16,
+    paddingBottom: 8,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+  },
+  loadMoreButton: {
+    marginTop: 16,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  loadMoreText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
 });
