@@ -9,9 +9,10 @@ interface SongPlayerProps {
   post: PostType;
   isVisible?: boolean;
   autoPlay?: boolean;
+  showPlayPause?: boolean; // Show play/pause button (for home page)
 }
 
-export default function SongPlayer({ post, isVisible = true, autoPlay = false }: SongPlayerProps) {
+export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false }: SongPlayerProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -53,9 +54,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false }:
   useEffect(() => {
     return () => {
       if (soundRef.current) {
+        soundRef.current.stopAsync().catch(() => {});
         soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
+        setSound(null);
+        setIsPlaying(false);
       }
+      isInitializedRef.current = false;
     };
   }, []);
 
@@ -178,32 +183,38 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false }:
     }
   }, [song?.s3Url, autoPlay, isMuted, volume, startTime]);
 
-  // Auto-play when component becomes visible and autoPlay is true
+  // Auto-play when component becomes visible and autoPlay is true (for shorts)
+  // For home page (showPlayPause=true), don't auto-play
   useEffect(() => {
-    if (isVisible && autoPlay && song?.s3Url && !isInitializedRef.current) {
-      isInitializedRef.current = true;
-      loadAndPlaySong();
+    // For shorts: sync with video playback (autoPlay prop changes with video state)
+    if (isVisible && !showPlayPause && song?.s3Url) {
+      if (autoPlay) {
+        // Video is playing - play song
+        if (!soundRef.current) {
+          // Load and play if not already loaded
+          loadAndPlaySong();
+        } else {
+          // If already loaded, play it immediately
+          soundRef.current.playAsync().catch(err => console.error('Error playing:', err));
+          setIsPlaying(true);
+        }
+      } else {
+        // Video is paused - pause song immediately
+        if (soundRef.current) {
+          soundRef.current.pauseAsync().catch(err => {
+            console.error('Error pausing:', err);
+          });
+          setIsPlaying(false);
+        }
+      }
     }
 
-    // Cleanup when component becomes invisible
-    if (!isVisible && soundRef.current) {
-      const cleanup = async () => {
-        if (soundRef.current) {
-          try {
-            await soundRef.current.stopAsync();
-            await soundRef.current.unloadAsync();
-            soundRef.current = null;
-            setSound(null);
-            setIsPlaying(false);
-          } catch (error) {
-            console.error('Error stopping song:', error);
-          }
-        }
-        isInitializedRef.current = false;
-      };
-      cleanup();
+    // Pause when component becomes invisible (only for auto-play mode)
+    if (!isVisible && !showPlayPause && soundRef.current) {
+      soundRef.current.pauseAsync().catch(err => console.error('Error pausing:', err));
+      setIsPlaying(false);
     }
-  }, [isVisible, autoPlay, song?.s3Url, loadAndPlaySong]);
+  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong]);
 
   const togglePlayPause = useCallback(async () => {
     if (!soundRef.current) {
@@ -282,27 +293,46 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false }:
     container: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(0, 0, 0, 0.7)',
-      borderRadius: 20,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      marginTop: 8,
-      minHeight: 40,
+      backgroundColor: showPlayPause 
+        ? 'rgba(0, 0, 0, 0.25)' // More transparent for home page (glass effect)
+        : 'rgba(0, 0, 0, 0.4)', // Less transparent for shorts
+      borderRadius: 25,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginTop: 0,
+      minHeight: 44,
       zIndex: 1000,
+      width: '100%',
+      borderWidth: 1,
+      borderColor: showPlayPause 
+        ? 'rgba(255, 255, 255, 0.25)' // Lighter border for glass effect
+        : 'rgba(255, 255, 255, 0.15)',
+      // Glass effect shadows
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: showPlayPause ? 0.15 : 0.2,
+      shadowRadius: showPlayPause ? 8 : 6,
+      elevation: showPlayPause ? 3 : 5,
     },
     songInfo: {
       flex: 1,
-      marginLeft: 8,
+      marginLeft: 10,
     },
     songTitle: {
       color: '#fff',
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: '600',
+      textShadowColor: 'rgba(0, 0, 0, 0.5)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 2,
     },
     songArtist: {
-      color: 'rgba(255, 255, 255, 0.7)',
-      fontSize: 10,
+      color: 'rgba(255, 255, 255, 0.85)',
+      fontSize: 11,
       marginTop: 2,
+      textShadowColor: 'rgba(0, 0, 0, 0.5)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 2,
     },
     controls: {
       flexDirection: 'row',
@@ -327,36 +357,62 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false }:
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.controlButton}
-        onPress={() => {
-          console.log('Play/Pause button pressed');
-          togglePlayPause();
-        }}
-        disabled={isLoading}
-        activeOpacity={0.7}
-      >
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <Animated.View
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: '#fff',
-                opacity: fadeAnim,
-              }}
+      {/* Play/Pause Button (for home page) or Music Icon (for shorts) */}
+      {showPlayPause ? (
+        <TouchableOpacity
+          style={styles.controlButton}
+          onPress={() => {
+            console.log('Play/Pause button pressed');
+            togglePlayPause();
+          }}
+          disabled={isLoading}
+          activeOpacity={0.7}
+        >
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <Animated.View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: '#fff',
+                  opacity: fadeAnim,
+                }}
+              />
+            </View>
+          ) : (
+            <Ionicons
+              name={isPlaying ? 'pause' : 'play'}
+              size={18}
+              color="#fff"
             />
-          </View>
-        ) : (
-          <Ionicons
-            name={isPlaying ? 'pause' : 'play'}
-            size={18}
-            color="#fff"
-          />
-        )}
-      </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.controlButton}>
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <Animated.View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: '#fff',
+                  opacity: fadeAnim,
+                }}
+              />
+            </View>
+          ) : (
+            <Ionicons
+              name="musical-notes"
+              size={18}
+              color="#fff"
+            />
+          )}
+        </View>
+      )}
 
+      {/* Song Info */}
       <View style={styles.songInfo} pointerEvents="none">
         <Text style={styles.songTitle} numberOfLines={1}>
           {song.title || 'Unknown Song'}
@@ -366,19 +422,20 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false }:
         </Text>
       </View>
 
+      {/* Mute/Unmute Button */}
       <TouchableOpacity
         style={styles.controlButton}
         onPress={() => {
           console.log('Mute button pressed');
           toggleMute();
         }}
-        disabled={!soundRef.current}
+        disabled={!soundRef.current && !isLoading}
         activeOpacity={0.7}
       >
         <Animated.View style={{ opacity: fadeAnim }}>
           <Ionicons
             name={isMuted ? 'volume-mute' : 'volume-high'}
-            size={18}
+            size={20}
             color="#fff"
           />
         </Animated.View>
