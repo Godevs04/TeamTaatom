@@ -105,11 +105,26 @@ const requestLogger = (req, res, next) => {
   const startTime = Date.now();
   const requestInfo = extractRequestInfo(req);
 
-  // Log request
-  logger.info('API Request', {
-    ...requestInfo,
-    type: 'request',
-  });
+  // Skip logging for health checks and 304 responses (cached)
+  const isHealthCheck = req.path === '/health' || req.path === '/api/health';
+  const isCachedRequest = req.get('if-none-match') || req.get('if-modified-since');
+  
+  // Only log request if not a health check
+  if (!isHealthCheck) {
+    // For cached requests, use debug level instead of info
+    if (isCachedRequest) {
+      logger.debug('API Request (cached)', {
+        method: requestInfo.method,
+        path: requestInfo.path,
+        type: 'request',
+      });
+    } else {
+      logger.info('API Request', {
+        ...requestInfo,
+        type: 'request',
+      });
+    }
+  }
 
   // Store original end function
   const originalEnd = res.end;
@@ -126,13 +141,29 @@ const requestLogger = (req, res, next) => {
     const responseTime = Date.now() - startTime;
     const responseInfo = extractResponseInfo(res, responseTime);
 
-    // Log response
-    const logLevel = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
-    logger[logLevel]('API Response', {
-      ...requestInfo,
-      ...responseInfo,
-      type: 'response',
-    });
+    // Skip logging for health checks
+    const isHealthCheck = req.path === '/health' || req.path === '/api/health';
+    
+    if (!isHealthCheck) {
+      // For 304 (Not Modified) responses, use debug level to reduce log noise
+      if (res.statusCode === 304) {
+        logger.debug('API Response (304 Not Modified)', {
+          method: requestInfo.method,
+          path: requestInfo.path,
+          statusCode: res.statusCode,
+          responseTime: responseInfo.responseTime,
+          type: 'response',
+        });
+      } else {
+        // Log response for other status codes
+        const logLevel = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+        logger[logLevel]('API Response', {
+          ...requestInfo,
+          ...responseInfo,
+          type: 'response',
+        });
+      }
+    }
 
     // Call original end
     originalEnd.call(this, chunk, encoding);

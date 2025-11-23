@@ -122,7 +122,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
       shouldNavigate: false
     };
   } catch (error: any) {
-    logger.error('Error handling notification click:', error);
+    logger.error('handleNotificationClick', error);
     return {
       success: false,
       message: error.message || 'Failed to process notification',

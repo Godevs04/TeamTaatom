@@ -106,7 +106,8 @@ const getPosts = async (req, res) => {
               }
             },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
-            commentsCount: { $size: { $ifNull: ['$comments', []] } }
+            commentsCount: { $size: { $ifNull: ['$comments', []] } },
+            viewsCount: { $ifNull: ['$views', 0] } // Include views count
           }
         },
         {
@@ -211,7 +212,79 @@ const getPostById = async (req, res) => {
     // Cache key
     const cacheKey = CacheKeys.post(id);
 
-    // Use cache wrapper with aggregation pipeline to avoid N+1 queries
+    // FIRST: Handle view increment (this must happen regardless of cache)
+    // We need to check if we should increment BEFORE fetching from cache
+    // So we'll fetch the post owner info first to determine if increment is needed
+    let shouldIncrementViews = false;
+    let postOwnerId = null;
+    
+    // Quick check to get post owner for view increment decision
+    try {
+      const postOwnerCheck = await Post.findById(id).select('user').lean();
+      if (postOwnerCheck) {
+        postOwnerId = postOwnerCheck.user?.toString();
+        
+        // Check if user is viewing someone else's post
+        if (userId) {
+          if (postOwnerId && postOwnerId !== userId) {
+            shouldIncrementViews = true;
+            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing another user's post (owner: ${postOwnerId}), will increment views`;
+            logger.info(msg);
+            console.log(msg);
+          } else {
+            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing own post (owner: ${postOwnerId}), skipping view increment`;
+            logger.info(msg);
+            console.log(msg);
+          }
+        } else {
+          // Anonymous user - allow view increment
+          shouldIncrementViews = true;
+          const msg = `[VIEW TRACKING] Post ${id} - Anonymous user viewing post, will increment views`;
+          logger.info(msg);
+          console.log(msg);
+        }
+      }
+    } catch (err) {
+      logger.error(`[VIEW TRACKING] Error checking post owner for ${id}:`, err);
+    }
+
+    // Increment views BEFORE fetching from cache (if needed)
+    let incrementedViews = null;
+    if (shouldIncrementViews) {
+      try {
+        const incrementMsg = `[VIEW TRACKING] Post ${id} - Incrementing views, userId: ${userId || 'anonymous'}, postOwnerId: ${postOwnerId}`;
+        logger.info(incrementMsg);
+        console.log(incrementMsg);
+        
+        const updateResult = await Post.findOneAndUpdate(
+          { _id: id },
+          { $inc: { views: 1 } },
+          { new: true, projection: { views: 1 }, lean: true }
+        );
+        
+        if (updateResult && updateResult.views !== undefined && updateResult.views !== null) {
+          incrementedViews = updateResult.views;
+          const successMsg = `[VIEW TRACKING] Post ${id} views incremented to ${incrementedViews}`;
+          logger.info(successMsg);
+          console.log(successMsg);
+          
+          // Invalidate cache so fresh data is fetched
+          await deleteCache(cacheKey).catch(() => {});
+        } else {
+          // Fallback: fetch updated views
+          const postDoc = await Post.findById(id).select('views').lean();
+          if (postDoc && postDoc.views !== undefined) {
+            incrementedViews = postDoc.views;
+            logger.info(`[VIEW TRACKING] Post ${id} views fetched after increment: ${incrementedViews}`);
+            await deleteCache(cacheKey).catch(() => {});
+          }
+        }
+      } catch (err) {
+        logger.error(`[VIEW TRACKING] Error incrementing post views for post ${id}:`, err);
+      }
+    }
+
+    // NOW: Use cache wrapper with aggregation pipeline to avoid N+1 queries
     const post = await cacheWrapper(cacheKey, async () => {
       // Use aggregation pipeline to fetch post with user and follow status in single query
       const posts = await Post.aggregate([
@@ -277,22 +350,40 @@ const getPostById = async (req, res) => {
               }
             },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
-            commentsCount: { $size: { $ifNull: ['$comments', []] } }
+            commentsCount: { $size: { $ifNull: ['$comments', []] } },
+            viewsCount: { $ifNull: ['$views', 0] } // Include views count
           }
         },
         {
           $project: {
-            commentUsers: 0 // Remove temporary field
+            commentUsers: 0, // Remove temporary field
+            views: 1, // Explicitly include views field
+            viewsCount: 1 // Explicitly include viewsCount field
           }
         }
       ]);
 
-      return posts[0] || null;
+      const result = posts[0] || null;
+      
+      // Ensure viewsCount is always present in the result
+      if (result) {
+        result.viewsCount = result.viewsCount !== undefined ? result.viewsCount : (result.views !== undefined ? result.views : 0);
+        result.views = result.views !== undefined ? result.views : 0;
+      }
+      
+      return result;
     }, CACHE_TTL.POST);
 
     if (!post) {
       return sendError(res, 'RES_3001', 'The requested post does not exist or has been deleted');
     }
+
+    // Use incremented views if we incremented earlier, otherwise use post viewsCount
+    const finalViewsCount = incrementedViews !== null ? incrementedViews : (post.viewsCount !== undefined ? post.viewsCount : (post.views !== undefined ? post.views : 0));
+    
+    const finalMsg = `[VIEW TRACKING] Post ${id} final response - viewsCount: ${finalViewsCount}, incrementedViews: ${incrementedViews}, post.viewsCount: ${post.viewsCount}, post.views: ${post.views}`;
+    logger.info(finalMsg);
+    console.log(finalMsg);
 
     // Generate optimized image URL with WebP and progressive loading
     let optimizedImageUrl = post.imageUrl;
@@ -332,6 +423,8 @@ const getPostById = async (req, res) => {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
+      viewsCount: finalViewsCount, // Always include views count
+      views: finalViewsCount, // Also include views field for consistency
       // likesCount and commentsCount already added by aggregation
       user: {
         ...post.user,
