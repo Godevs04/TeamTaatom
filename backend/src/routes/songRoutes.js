@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
-const { getSongs, getSongById, uploadSongFile, deleteSongById } = require('../controllers/songController');
+const { getSongs, getSongById, uploadSongFile, deleteSongById, toggleSongStatus } = require('../controllers/songController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { sendError } = require('../utils/errorCodes');
 
@@ -177,6 +177,37 @@ router.post('/upload',
  *         description: Song deleted successfully
  */
 router.delete('/:id', verifySuperAdminToken, deleteSongById);
+
+/**
+ * @swagger
+ * /api/v1/songs/{id}/toggle:
+ *   patch:
+ *     summary: Toggle song active/inactive status (SuperAdmin only)
+ *     tags: [Songs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - isActive
+ *             properties:
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Song status toggled successfully
+ */
+router.patch('/:id/toggle', verifySuperAdminToken, toggleSongStatus);
 
 module.exports = router;
 

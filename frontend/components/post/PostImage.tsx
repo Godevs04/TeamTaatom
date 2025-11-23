@@ -150,7 +150,7 @@ export default function PostImage({
       {/* Song Player Overlay - Outside TouchableOpacity so it's clickable */}
       {post.song?.songId && imageUri && !imageError && (
         <View style={styles.songPlayerContainer} pointerEvents="box-none">
-          <SongPlayer post={post} isVisible={true} autoPlay={false} />
+          <SongPlayer post={post} isVisible={true} autoPlay={false} showPlayPause={true} />
         </View>
       )}
     </View>

@@ -199,10 +199,47 @@ const deleteSongById = async (req, res) => {
   }
 };
 
+// @desc    Toggle song active/inactive status
+// @route   PATCH /api/v1/songs/:id/toggle
+// @access  SuperAdmin only
+const toggleSongStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    if (typeof isActive !== 'boolean') {
+      return sendError(res, 'VAL_2001', 'isActive must be a boolean value');
+    }
+
+    const song = await Song.findById(id);
+    if (!song) {
+      return sendError(res, 'SRV_6001', 'Song not found');
+    }
+
+    song.isActive = isActive;
+    await song.save();
+
+    logger.info(`Song ${id} status changed to ${isActive ? 'active' : 'inactive'}`);
+
+    return sendSuccess(res, 200, `Song ${isActive ? 'activated' : 'deactivated'} successfully`, {
+      song: {
+        _id: song._id,
+        title: song.title,
+        artist: song.artist,
+        isActive: song.isActive
+      }
+    });
+  } catch (error) {
+    logger.error('Toggle song status error:', error);
+    return sendError(res, 'SRV_6001', 'Error toggling song status');
+  }
+};
+
 module.exports = {
   getSongs,
   getSongById,
   uploadSongFile,
-  deleteSongById
+  deleteSongById,
+  toggleSongStatus
 };
 

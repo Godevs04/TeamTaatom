@@ -1624,12 +1624,100 @@ const getShorts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const shorts = await Post.find({ isActive: true, type: 'short' })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    // Use aggregation pipeline to populate song data efficiently
+    const shorts = await Post.aggregate([
+      {
+        $match: {
+          isActive: true,
+          type: 'short'
+        }
+      },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'user',
+          pipeline: [
+            { $project: { fullName: 1, profilePic: 1, followers: 1 } }
+          ]
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'comments.user',
+          foreignField: '_id',
+          as: 'commentUsers',
+          pipeline: [
+            { $project: { fullName: 1, profilePic: 1 } }
+          ]
+        }
+      },
+      {
+        $lookup: {
+          from: 'songs',
+          localField: 'song.songId',
+          foreignField: '_id',
+          as: 'songData',
+          pipeline: [
+            { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+          ]
+        }
+      },
+      {
+        $addFields: {
+          comments: {
+            $map: {
+              input: '$comments',
+              as: 'comment',
+              in: {
+                $mergeObjects: [
+                  '$$comment',
+                  {
+                    user: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$commentUsers',
+                            cond: { $eq: ['$$this._id', '$$comment.user'] }
+                          }
+                        },
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          song: {
+            $cond: {
+              if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+              then: {
+                songId: { $arrayElemAt: ['$songData', 0] },
+                startTime: '$song.startTime',
+                volume: '$song.volume'
+              },
+              else: null
+            }
+          },
+          likesCount: { $size: { $ifNull: ['$likes', []] } },
+          commentsCount: { $size: { $ifNull: ['$comments', []] } },
+          viewsCount: { $ifNull: ['$views', 0] }
+        }
+      },
+      {
+        $project: {
+          commentUsers: 0,
+          songData: 0
+        }
+      }
+    ]);
 
     // Add isLiked field if user is authenticated and include virtual fields
     const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
@@ -1637,20 +1725,25 @@ const getShorts = async (req, res) => {
       
       // Check if current user is following the post author
       if (req.user && short.user) {
-        const postAuthor = await User.findById(short.user);
-        if (postAuthor && postAuthor.followers) {
-          isFollowing = postAuthor.followers.some(follower => follower.toString() === req.user._id.toString());
+        if (short.user.followers && Array.isArray(short.user.followers)) {
+          isFollowing = short.user.followers.some(follower => 
+            (typeof follower === 'object' ? follower.toString() : follower) === req.user._id.toString()
+          );
         }
       }
       
       return {
-        ...short.toObject(),
-        mediaUrl: short.mediaUrl, // Include virtual field
-        isLiked: req.user ? short.likes.some(like => like.toString() === req.user._id.toString()) : false,
-        likesCount: short.likes.length,
-        commentsCount: short.comments.length,
+        ...short,
+        _id: short._id,
+        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
+        isLiked: req.user ? (short.likes || []).some(like => 
+          (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
+        ) : false,
+        likesCount: short.likesCount || 0,
+        commentsCount: short.commentsCount || 0,
+        viewsCount: short.viewsCount || 0,
         user: {
-          ...short.user.toObject(),
+          ...short.user,
           isFollowing
         }
       };
