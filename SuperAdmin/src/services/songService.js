@@ -1,4 +1,5 @@
 import api from './api';
+import logger from '../utils/logger';
 
 /**
  * Get all songs
@@ -24,7 +25,7 @@ export const getSongs = async (search = '', genre = '', page = 1, limit = 50, in
     // Backend returns: { success: true, message, songs, pagination }
     return response.data;
   } catch (error) {
-    console.error('Error fetching songs:', error);
+    logger.error('Error fetching songs:', error);
     throw error;
   }
 };
@@ -43,7 +44,7 @@ export const uploadSong = async (formData) => {
     });
     return response.data;
   } catch (error) {
-    console.error('Error uploading song:', error);
+    logger.error('Error uploading song:', error);
     throw error;
   }
 };
@@ -58,7 +59,7 @@ export const deleteSong = async (id) => {
     const response = await api.delete(`/api/v1/songs/${id}`);
     return response.data;
   } catch (error) {
-    console.error('Error deleting song:', error);
+    logger.error('Error deleting song:', error);
     throw error;
   }
 };
@@ -74,7 +75,7 @@ export const getSongById = async (id) => {
     // Backend returns: { success: true, message, song }
     return response.data.song;
   } catch (error) {
-    console.error('Error fetching song:', error);
+    logger.error('Error fetching song:', error);
     throw error;
   }
 };
@@ -90,7 +91,7 @@ export const toggleSongStatus = async (id, isActive) => {
     const response = await api.patch(`/api/v1/songs/${id}/toggle`, { isActive });
     return response.data;
   } catch (error) {
-    console.error('Error toggling song status:', error);
+    logger.error('Error toggling song status:', error);
     throw error;
   }
 };
@@ -106,7 +107,7 @@ export const updateSong = async (id, data) => {
     const response = await api.put(`/api/v1/songs/${id}`, data);
     return response.data;
   } catch (error) {
-    console.error('Error updating song:', error);
+    logger.error('Error updating song:', error);
     throw error;
   }
 };

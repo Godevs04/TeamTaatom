@@ -132,7 +132,7 @@ export default function HashtagDetailScreen() {
       />
       
       {/* Hashtag Info Section - Simplified */}
-      {hashtagData && (
+          {hashtagData && (
         <View style={[styles.infoSection, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
           <View style={[styles.hashtagIconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
             <Ionicons name="pricetag" size={20} color={theme.colors.primary} />

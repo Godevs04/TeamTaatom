@@ -3,6 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate } from '../utils/formatDate'
+import logger from '../utils/logger'
+import { handleError } from '../utils/errorCodes'
+import { handleModalClose } from '../utils/modalUtils'
+import { sanitizeText } from '../utils/sanitize'
 import { 
   Music, 
   Search, 
@@ -67,6 +71,11 @@ const Songs = () => {
     duration: ''
   })
 
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedGenre, sortField, sortOrder])
+
   useEffect(() => {
     loadSongs()
   }, [currentPage, searchQuery, selectedGenre, sortField, sortOrder])
@@ -80,14 +89,14 @@ const Songs = () => {
         setTotalPages(result.pagination?.totalPages || 1)
         setTotalSongs(result.pagination?.total || 0)
       } else {
-        console.error('Unexpected response structure:', result)
+        logger.error('Unexpected response structure:', result)
         setSongs([])
         setTotalPages(1)
         setTotalSongs(0)
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to load songs')
-      console.error('Error loading songs:', error)
+      handleError(error, toast, 'Failed to load songs')
+      logger.error('Error loading songs:', error)
       setSongs([])
       setTotalPages(1)
       setTotalSongs(0)
@@ -185,13 +194,13 @@ const Songs = () => {
 
       const response = await uploadSong(uploadFormData)
       toast.success(response.message || 'Song uploaded successfully')
-      setShowUploadModal(false)
-      setFormData({ title: '', artist: '', genre: 'General', duration: '', file: null })
+      handleModalClose(setShowUploadModal, null, () => {
+        setFormData({ title: '', artist: '', genre: 'General', duration: '', file: null })
+      })
       await loadSongs()
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.parsedError?.message || 'Failed to upload song'
-      toast.error(errorMessage)
-      console.error('Upload error:', error)
+      handleError(error, toast, 'Failed to upload song')
+      logger.error('Upload error:', error)
     } finally {
       setUploading(false)
     }
@@ -212,8 +221,8 @@ const Songs = () => {
       setSongToDelete(null)
       loadSongs()
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to delete song')
-      console.error('Delete error:', error)
+      handleError(error, toast, 'Failed to delete song')
+      logger.error('Delete error:', error)
     }
   }
 
@@ -224,8 +233,8 @@ const Songs = () => {
       toast.success(`Song ${newStatus ? 'activated' : 'deactivated'} successfully`)
       loadSongs()
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to toggle song status')
-      console.error('Toggle error:', error)
+      handleError(error, toast, 'Failed to toggle song status')
+      logger.error('Toggle error:', error)
     }
   }
 
@@ -249,8 +258,8 @@ const Songs = () => {
       setSelectedSongs([])
       loadSongs()
     } catch (error) {
-      toast.error('Failed to update song status')
-      console.error('Bulk toggle error:', error)
+      handleError(error, toast, 'Failed to update song status')
+      logger.error('Bulk toggle error:', error)
     }
   }
 
@@ -292,14 +301,13 @@ const Songs = () => {
 
       await updateSong(songToEdit._id, updateData)
       toast.success('Song updated successfully')
-      setShowEditModal(false)
-      setSongToEdit(null)
-      setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+      handleModalClose(setShowEditModal, setSongToEdit, () => {
+        setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+      })
       await loadSongs()
     } catch (error) {
-      const errorMessage = error.response?.data?.message || error.parsedError?.message || 'Failed to update song'
-      toast.error(errorMessage)
-      console.error('Update error:', error)
+      handleError(error, toast, 'Failed to update song')
+      logger.error('Update error:', error)
     } finally {
       setEditing(false)
     }
@@ -320,7 +328,7 @@ const Songs = () => {
       const audio = document.getElementById(`audio-${song._id}`)
       if (audio) {
         audio.play().catch(err => {
-          console.error('Error playing audio:', err)
+          logger.error('Error playing audio:', err)
           toast.error('Failed to play audio')
         })
       }
@@ -871,7 +879,7 @@ const Songs = () => {
                 <input
                   type="text"
                   value={formData.artist}
-                  onChange={(e) => setFormData({ ...formData, artist: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, artist: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Artist name"
                   required
@@ -902,7 +910,7 @@ const Songs = () => {
                 <input
                   type="number"
                   value={formData.duration}
-                  onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, duration: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Duration in seconds"
                   min="0"
@@ -940,8 +948,8 @@ const Songs = () => {
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)} className="max-w-md bg-white">
-        <ModalHeader onClose={() => setShowDeleteModal(false)}>
+      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setSongToDelete)} className="max-w-md bg-white">
+        <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setSongToDelete)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-100 rounded-lg">
               <AlertCircle className="w-5 h-5 text-red-600" />
@@ -967,7 +975,7 @@ const Songs = () => {
         <ModalFooter>
           <button
             type="button"
-            onClick={() => setShowDeleteModal(false)}
+            onClick={() => handleModalClose(setShowDeleteModal, setSongToDelete)}
             className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
           >
             Cancel
@@ -984,8 +992,12 @@ const Songs = () => {
       </Modal>
 
       {/* Edit Modal */}
-      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} className="max-w-2xl bg-white">
-        <ModalHeader onClose={() => setShowEditModal(false)}>
+      <Modal isOpen={showEditModal} onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
+        setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+      })} className="max-w-2xl bg-white">
+        <ModalHeader onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
+          setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+        })}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-100 rounded-lg">
               <Edit2 className="w-5 h-5 text-green-600" />
@@ -1003,7 +1015,7 @@ const Songs = () => {
                 <input
                   type="text"
                   value={editFormData.title}
-                  onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                  onChange={(e) => setEditFormData({ ...editFormData, title: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Song title"
                   required
@@ -1017,7 +1029,7 @@ const Songs = () => {
                 <input
                   type="text"
                   value={editFormData.artist}
-                  onChange={(e) => setEditFormData({ ...editFormData, artist: e.target.value })}
+                  onChange={(e) => setEditFormData({ ...editFormData, artist: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Artist name"
                   required
@@ -1030,7 +1042,7 @@ const Songs = () => {
                 <label className="block text-sm font-semibold text-gray-700">Genre</label>
                 <select
                   value={editFormData.genre}
-                  onChange={(e) => setEditFormData({ ...editFormData, genre: e.target.value })}
+                  onChange={(e) => setEditFormData({ ...editFormData, genre: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                 >
                   {genres.map((genre) => (
@@ -1048,7 +1060,7 @@ const Songs = () => {
                 <input
                   type="number"
                   value={editFormData.duration}
-                  onChange={(e) => setEditFormData({ ...editFormData, duration: e.target.value })}
+                  onChange={(e) => setEditFormData({ ...editFormData, duration: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Duration in seconds"
                   min="0"
@@ -1068,7 +1080,9 @@ const Songs = () => {
             <button
               type="button"
               onClick={() => {
-                setShowEditModal(false)
+                handleModalClose(setShowEditModal, setSongToEdit, () => {
+                  setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+                })
                 setSongToEdit(null)
                 setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
               }}
@@ -1098,8 +1112,8 @@ const Songs = () => {
       </Modal>
 
       {/* Preview Modal */}
-      <Modal isOpen={showPreviewModal} onClose={() => setShowPreviewModal(false)} className="max-w-lg bg-white">
-        <ModalHeader onClose={() => setShowPreviewModal(false)}>
+      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewSong)} className="max-w-lg bg-white">
+        <ModalHeader onClose={() => handleModalClose(setShowPreviewModal, setPreviewSong)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-100 rounded-lg">
               <Eye className="w-5 h-5 text-purple-600" />
@@ -1159,7 +1173,7 @@ const Songs = () => {
         <ModalFooter>
           <button
             type="button"
-            onClick={() => setShowPreviewModal(false)}
+            onClick={() => handleModalClose(setShowPreviewModal, setPreviewSong)}
             className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
           >
             Close

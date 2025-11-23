@@ -30,11 +30,11 @@ export default function PostCaption({ post }: PostCaptionProps) {
           >
             {post.user.fullName}{' '}
           </Text>
-          <HashtagMentionText
+      <HashtagMentionText
             text={post.caption}
             style={[styles.caption, { color: theme.colors.text }]}
             postId={post._id}
-          />
+      />
         </Text>
       </View>
       

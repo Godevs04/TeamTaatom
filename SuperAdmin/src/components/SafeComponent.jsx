@@ -1,4 +1,5 @@
 import React from 'react'
+import PropTypes from 'prop-types'
 
 const SafeComponent = ({ children, fallback = null }) => {
   try {
@@ -20,6 +21,11 @@ const SafeComponent = ({ children, fallback = null }) => {
       </div>
     )
   }
+}
+
+SafeComponent.propTypes = {
+  children: PropTypes.node.isRequired,
+  fallback: PropTypes.node
 }
 
 export default SafeComponent
