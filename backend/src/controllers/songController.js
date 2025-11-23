@@ -235,11 +235,75 @@ const toggleSongStatus = async (req, res) => {
   }
 };
 
+// @desc    Update song details
+// @route   PUT /api/v1/songs/:id
+// @access  SuperAdmin only
+const updateSong = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, artist, genre, duration } = req.body;
+
+    const song = await Song.findById(id);
+    if (!song) {
+      return sendError(res, 'SRV_6001', 'Song not found');
+    }
+
+    // Update fields if provided
+    if (title !== undefined) {
+      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
+        return sendError(res, 'VAL_2001', 'Title must be between 1 and 200 characters');
+      }
+      song.title = title.trim();
+    }
+
+    if (artist !== undefined) {
+      if (typeof artist !== 'string' || artist.trim().length === 0 || artist.length > 200) {
+        return sendError(res, 'VAL_2001', 'Artist must be between 1 and 200 characters');
+      }
+      song.artist = artist.trim();
+    }
+
+    if (genre !== undefined) {
+      if (typeof genre !== 'string' || genre.length > 50) {
+        return sendError(res, 'VAL_2001', 'Genre must be less than 50 characters');
+      }
+      song.genre = genre.trim();
+    }
+
+    if (duration !== undefined) {
+      const durationNum = parseInt(duration);
+      if (isNaN(durationNum) || durationNum < 0) {
+        return sendError(res, 'VAL_2001', 'Duration must be a positive number');
+      }
+      song.duration = durationNum;
+    }
+
+    await song.save();
+
+    logger.info(`Song ${id} updated successfully`);
+
+    return sendSuccess(res, 200, 'Song updated successfully', {
+      song: {
+        _id: song._id,
+        title: song.title,
+        artist: song.artist,
+        genre: song.genre,
+        duration: song.duration,
+        isActive: song.isActive
+      }
+    });
+  } catch (error) {
+    logger.error('Update song error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating song');
+  }
+};
+
 module.exports = {
   getSongs,
   getSongById,
   uploadSongFile,
   deleteSongById,
-  toggleSongStatus
+  toggleSongStatus,
+  updateSong
 };
 

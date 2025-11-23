@@ -122,6 +122,7 @@ const getPosts = async (req, res) => {
                 then: {
                   songId: { $arrayElemAt: ['$songData', 0] },
                   startTime: '$song.startTime',
+                  endTime: '$song.endTime',
                   volume: '$song.volume'
                 },
                 else: null
@@ -389,6 +390,7 @@ const getPostById = async (req, res) => {
                 then: {
                   songId: { $arrayElemAt: ['$songData', 0] },
                   startTime: '$song.startTime',
+                  endTime: '$song.endTime',
                   volume: '$song.volume'
                 },
                 else: null
@@ -506,7 +508,7 @@ const createPost = async (req, res) => {
       return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume } = req.body;
 
     // Upload all images to Cloudinary
     const imageUrls = [];
@@ -568,6 +570,7 @@ const createPost = async (req, res) => {
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
+        endTime: songEndTime ? parseFloat(songEndTime) : null,
         volume: parseFloat(songVolume) || 0.5
       } : undefined
     });
@@ -935,6 +938,7 @@ const getUserPosts = async (req, res) => {
                 then: {
                   songId: { $arrayElemAt: ['$songData', 0] },
                   startTime: '$song.startTime',
+                  endTime: '$song.endTime',
                   volume: '$song.volume'
                 },
                 else: null
@@ -1701,6 +1705,7 @@ const getShorts = async (req, res) => {
               then: {
                 songId: { $arrayElemAt: ['$songData', 0] },
                 startTime: '$song.startTime',
+                endTime: '$song.endTime',
                 volume: '$song.volume'
               },
               else: null
@@ -1830,6 +1835,18 @@ const createShort = async (req, res) => {
       }
     }
 
+    // Validate video duration (max 60 minutes = 3600 seconds)
+    const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+    if (cloudinaryResult.duration && cloudinaryResult.duration > MAX_VIDEO_DURATION) {
+      // Delete the uploaded video from Cloudinary
+      try {
+        await cloudinary.uploader.destroy(cloudinaryResult.public_id, { resource_type: 'video' });
+      } catch (deleteErr) {
+        logger.error('Error deleting video from Cloudinary:', deleteErr);
+      }
+      return sendError(res, 'FILE_4005', `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(cloudinaryResult.duration / 60)} minutes.`);
+    }
+
     // Parse tags if provided
     let parsedTags = [];
     if (tags) {
@@ -1877,6 +1894,7 @@ const createShort = async (req, res) => {
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
+        endTime: songEndTime ? parseFloat(songEndTime) : null,
         volume: parseFloat(songVolume) || 0.5
       } : undefined
     });

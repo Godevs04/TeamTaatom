@@ -29,7 +29,7 @@ import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { Video, ResizeMode } from "expo-av";
+import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -72,6 +72,8 @@ export default function PostScreen() {
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [songStartTime, setSongStartTime] = useState(0);
+  const [songEndTime, setSongEndTime] = useState(60);
   const [showSongSelector, setShowSongSelector] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
@@ -333,8 +335,21 @@ export default function PostScreen() {
       exif: true, // Preserve EXIF data including location
     });
       if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        
+        // Check video duration (max 60 minutes = 3600 seconds)
+        const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+        if (asset.duration && asset.duration > MAX_VIDEO_DURATION) {
+          Alert.alert(
+            'Video Too Long',
+            `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(asset.duration / 60)} minutes. Please select a shorter video.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        
         clearUploadState();
-        setSelectedVideo(result.assets[0].uri);
+        setSelectedVideo(asset.uri);
         setSelectedImages([]);
         setPostType('short');
         // Reset audio choice and show modal to ask user
@@ -343,7 +358,7 @@ export default function PostScreen() {
         setShowAudioChoiceModal(true);
         // Generate initial thumbnail
         try {
-          const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
+          const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
           setVideoThumbnail(uri);
         } catch (e) {
           logger.warn('Thumbnail generation failed', e);
@@ -460,11 +475,24 @@ export default function PostScreen() {
       exif: true, // Preserve EXIF data including location
     });
     if (!result.canceled && result.assets?.[0]) {
-      setSelectedVideo(result.assets[0].uri);
-        setSelectedImages([]);
+      const asset = result.assets[0];
+      
+      // Check video duration (max 60 minutes = 3600 seconds)
+      const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+      if (asset.duration && asset.duration > MAX_VIDEO_DURATION) {
+        Alert.alert(
+          'Video Too Long',
+          `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(asset.duration / 60)} minutes. Please record a shorter video.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      setSelectedVideo(asset.uri);
+      setSelectedImages([]);
       setPostType('short');
       try {
-        const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
+        const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
         setVideoThumbnail(uri);
       } catch (e) {
         logger.warn('Thumbnail generation failed', e);
@@ -622,7 +650,8 @@ export default function PostScreen() {
         latitude: location?.lat,
         longitude: location?.lng,
         songId: selectedSong?._id,
-        songStartTime: 0,
+        songStartTime: songStartTime,
+        songEndTime: songEndTime,
         songVolume: 0.5,
       }, (progress) => {
         // Calculate overall progress: 50% optimization (already done) + 50% upload
@@ -734,7 +763,8 @@ export default function PostScreen() {
         caption: values.caption,
         // Only send song data if user chose background music
         songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
-        songStartTime: audioChoice === 'background' && selectedSong ? 0 : undefined,
+        songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
+        songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
         songVolume: audioChoice === 'background' && selectedSong ? 0.5 : undefined,
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         address: values.placeName || address,
@@ -1525,11 +1555,21 @@ export default function PostScreen() {
             setAudioChoice(null);
           }
         }}
-        onSelect={(song) => {
+        onSelect={(song, startTime, endTime) => {
           setSelectedSong(song);
+          if (song && startTime !== undefined && endTime !== undefined) {
+            setSongStartTime(startTime);
+            setSongEndTime(endTime);
+          } else if (!song) {
+            setSongStartTime(0);
+            setSongEndTime(60);
+            setAudioChoice(null);
+          }
           setShowSongSelector(false);
         }}
         selectedSong={selectedSong}
+        selectedStartTime={songStartTime}
+        selectedEndTime={songEndTime}
       />
     </View>
   );
