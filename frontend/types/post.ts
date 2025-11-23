@@ -46,6 +46,7 @@ export interface PostType {
       thumbnailUrl?: string;
     };
     startTime?: number;
+    endTime?: number;
     volume?: number;
   };
 }

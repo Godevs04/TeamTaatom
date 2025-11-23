@@ -25,6 +25,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // Get song data from post
   const song = post.song?.songId;
   const startTime = post.song?.startTime || 0;
+  const endTime = post.song?.endTime || null;
   const volume = post.song?.volume || 0.5;
 
   // Debug: Log song data
@@ -131,9 +132,19 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         if (status.isLoaded) {
           setIsPlaying(status.isPlaying);
           setIsLoading(false);
-          if (status.didJustFinish && !status.isLooping) {
-            // Restart if looping
-            newSound.replayAsync().catch(() => {});
+          
+          // Handle 60-second loop if endTime is set
+          if (endTime && status.positionMillis >= endTime * 1000) {
+            // Loop back to startTime
+            newSound.setPositionAsync(startTime * 1000).catch(() => {});
+          } else if (status.didJustFinish && !status.isLooping) {
+            // If no endTime, restart from startTime
+            if (startTime > 0) {
+              newSound.setPositionAsync(startTime * 1000).catch(() => {});
+              newSound.playAsync().catch(() => {});
+            } else {
+              newSound.replayAsync().catch(() => {});
+            }
           }
         } else if (status.error) {
           console.error('Playback error:', status.error);
@@ -181,7 +192,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         console.error('Error loading song:', error);
       }
     }
-  }, [song?.s3Url, autoPlay, isMuted, volume, startTime]);
+  }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime]);
 
   // Auto-play when component becomes visible and autoPlay is true (for shorts)
   // For home page (showPlayPause=true), don't auto-play

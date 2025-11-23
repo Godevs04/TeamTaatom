@@ -29,7 +29,7 @@ import {
   Edit2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getSongs, uploadSong, deleteSong, toggleSongStatus } from '../services/songService'
+import { getSongs, uploadSong, deleteSong, toggleSongStatus, updateSong } from '../services/songService'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const Songs = () => {
@@ -44,8 +44,11 @@ const Songs = () => {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [songToDelete, setSongToDelete] = useState(null)
+  const [songToEdit, setSongToEdit] = useState(null)
   const [previewSong, setPreviewSong] = useState(null)
+  const [editing, setEditing] = useState(false)
   const [playingAudio, setPlayingAudio] = useState(null)
   const [sortField, setSortField] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
@@ -56,6 +59,12 @@ const Songs = () => {
     genre: 'General',
     duration: '',
     file: null
+  })
+  const [editFormData, setEditFormData] = useState({
+    title: '',
+    artist: '',
+    genre: 'General',
+    duration: ''
   })
 
   useEffect(() => {
@@ -248,6 +257,52 @@ const Songs = () => {
   const handlePreview = (song) => {
     setPreviewSong(song)
     setShowPreviewModal(true)
+  }
+
+  const handleEditClick = (song) => {
+    setSongToEdit(song)
+    setEditFormData({
+      title: song.title || '',
+      artist: song.artist || '',
+      genre: song.genre || 'General',
+      duration: song.duration ? song.duration.toString() : ''
+    })
+    setShowEditModal(true)
+  }
+
+  const handleUpdate = async (e) => {
+    e.preventDefault()
+    
+    if (!editFormData.title || !editFormData.artist) {
+      toast.error('Title and artist are required')
+      return
+    }
+
+    setEditing(true)
+    try {
+      const updateData = {
+        title: editFormData.title,
+        artist: editFormData.artist,
+        genre: editFormData.genre
+      }
+      
+      if (editFormData.duration) {
+        updateData.duration = parseInt(editFormData.duration)
+      }
+
+      await updateSong(songToEdit._id, updateData)
+      toast.success('Song updated successfully')
+      setShowEditModal(false)
+      setSongToEdit(null)
+      setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+      await loadSongs()
+    } catch (error) {
+      const errorMessage = error.response?.data?.message || error.parsedError?.message || 'Failed to update song'
+      toast.error(errorMessage)
+      console.error('Update error:', error)
+    } finally {
+      setEditing(false)
+    }
   }
 
   const handlePlayPause = (song) => {
@@ -684,6 +739,13 @@ const Songs = () => {
                               <Eye className="w-4 h-4 text-blue-600" />
                             </button>
                             <button
+                              onClick={() => handleEditClick(song)}
+                              className="p-2 hover:bg-green-100 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4 text-green-600" />
+                            </button>
+                            <button
                               onClick={() => handleDeleteClick(song)}
                               className="p-2 hover:bg-red-100 rounded-lg transition-colors"
                               title="Delete"
@@ -919,6 +981,120 @@ const Songs = () => {
             Delete Song
           </button>
         </ModalFooter>
+      </Modal>
+
+      {/* Edit Modal */}
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} className="max-w-2xl bg-white">
+        <ModalHeader onClose={() => setShowEditModal(false)}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <Edit2 className="w-5 h-5 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">Edit Song</h2>
+          </div>
+        </ModalHeader>
+        <form onSubmit={handleUpdate}>
+          <ModalContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.title}
+                  onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  placeholder="Song title"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  Artist <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.artist}
+                  onChange={(e) => setEditFormData({ ...editFormData, artist: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  placeholder="Artist name"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">Genre</label>
+                <select
+                  value={editFormData.genre}
+                  onChange={(e) => setEditFormData({ ...editFormData, genre: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                >
+                  {genres.map((genre) => (
+                    <option key={genre} value={genre}>
+                      {genre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-700">
+                  Duration (seconds) <span className="text-gray-400 text-xs">Optional</span>
+                </label>
+                <input
+                  type="number"
+                  value={editFormData.duration}
+                  onChange={(e) => setEditFormData({ ...editFormData, duration: e.target.value })}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  placeholder="Duration in seconds"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            {songToEdit && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <p className="text-sm text-blue-800">
+                  <span className="font-semibold">Note:</span> You can only edit song metadata. The audio file cannot be changed. To replace the audio file, delete this song and upload a new one.
+                </p>
+              </div>
+            )}
+          </ModalContent>
+          <ModalFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setShowEditModal(false)
+                setSongToEdit(null)
+                setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+              }}
+              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={editing}
+              className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {editing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  Updating...
+                </>
+              ) : (
+                <>
+                  <Edit2 className="w-5 h-5" />
+                  Update Song
+                </>
+              )}
+            </button>
+          </ModalFooter>
+        </form>
       </Modal>
 
       {/* Preview Modal */}

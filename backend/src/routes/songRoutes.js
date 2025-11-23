@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
-const { getSongs, getSongById, uploadSongFile, deleteSongById, toggleSongStatus } = require('../controllers/songController');
+const { getSongs, getSongById, uploadSongFile, deleteSongById, toggleSongStatus, updateSong } = require('../controllers/songController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { sendError } = require('../utils/errorCodes');
 
@@ -208,6 +208,75 @@ router.delete('/:id', verifySuperAdminToken, deleteSongById);
  *         description: Song status toggled successfully
  */
 router.patch('/:id/toggle', verifySuperAdminToken, toggleSongStatus);
+
+// Validation rules for song update
+const updateSongValidation = [
+  body('title')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Title must be between 1 and 200 characters'),
+  body('artist')
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Artist must be between 1 and 200 characters'),
+  body('duration')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Duration must be a positive number'),
+  body('genre')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Genre must be less than 50 characters')
+];
+
+/**
+ * @swagger
+ * /api/v1/songs/{id}:
+ *   put:
+ *     summary: Update song details (SuperAdmin only)
+ *     tags: [Songs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               artist:
+ *                 type: string
+ *               genre:
+ *                 type: string
+ *               duration:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Song updated successfully
+ */
+router.put('/:id', 
+  verifySuperAdminToken,
+  ...updateSongValidation,
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
+    }
+    next();
+  },
+  updateSong
+);
 
 module.exports = router;
 
