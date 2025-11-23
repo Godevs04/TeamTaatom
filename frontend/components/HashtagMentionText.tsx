@@ -1,13 +1,15 @@
-import React from 'react';
-import { Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useRouter } from 'expo-router';
+import { searchUsers } from '../services/profile';
 
 interface HashtagMentionTextProps {
   text: string;
   onHashtagPress?: (hashtag: string) => void;
   onMentionPress?: (username: string) => void;
   style?: any;
+  postId?: string; // Optional post ID for context
 }
 
 /**
@@ -19,9 +21,11 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
   onHashtagPress,
   onMentionPress,
   style,
+  postId,
 }) => {
   const { theme } = useTheme();
   const router = useRouter();
+  const [loadingMention, setLoadingMention] = useState<string | null>(null);
 
   const handleHashtagPress = (hashtag: string) => {
     if (onHashtagPress) {
@@ -31,11 +35,37 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
     }
   };
 
-  const handleMentionPress = (username: string) => {
+  const handleMentionPress = async (username: string) => {
     if (onMentionPress) {
       onMentionPress(username);
-    } else {
+      return;
+    }
+
+    try {
+      setLoadingMention(username);
+      // Search for user by username
+      const response = await searchUsers(username, 1, 1);
+      
+      if (response.users && response.users.length > 0) {
+        // Use the first result since searchUsers should already filter by username
+        const user = response.users[0];
+        
+        if (user && user._id) {
+          router.push(`/profile/${user._id}`);
+        } else {
+          // Fallback to search if user not found
+          router.push(`/search?q=${encodeURIComponent(username)}`);
+        }
+      } else {
+        // Fallback to search if no users found
+        router.push(`/search?q=${encodeURIComponent(username)}`);
+      }
+    } catch (error) {
+      console.error('Error searching for user:', error);
+      // Fallback to search on error
       router.push(`/search?q=${encodeURIComponent(username)}`);
+    } finally {
+      setLoadingMention(null);
     }
   };
 
@@ -101,15 +131,22 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
           );
         }
         if (part.type === 'mention' && part.value) {
+          const isLoading = loadingMention === part.value;
           return (
             <TouchableOpacity
               key={index}
               onPress={() => handleMentionPress(part.value!)}
               activeOpacity={0.7}
+              disabled={isLoading}
+              style={styles.mentionContainer}
             >
-              <Text style={[styles.mention, { color: theme.colors.primary }]}>
-                {part.text}
-              </Text>
+              {isLoading ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Text style={[styles.mention, { color: theme.colors.primary }]}>
+                  {part.text}
+                </Text>
+              )}
             </TouchableOpacity>
           );
         }
@@ -129,6 +166,12 @@ const styles = StyleSheet.create({
   },
   mention: {
     fontWeight: '600',
+  },
+  mentionContainer: {
+    minWidth: 20,
+    minHeight: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

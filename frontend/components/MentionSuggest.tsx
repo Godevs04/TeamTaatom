@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -55,19 +54,33 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
       return;
     }
 
-    // Extract text after @ (until space, newline, or end)
+    // Extract text after @ up to cursor position
     const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
-    const match = textAfterAt.match(/^([\w]*)/);
-    const mentionQuery = match ? match[1] : '';
-
-    // If there's a space or newline after @, don't show suggestions
-    if (textAfterAt.length > 0 && !match) {
+    
+    // Check if there's a space or newline immediately after @ (no mention being typed)
+    if (textAfterAt.length === 0) {
+      // Cursor is right after @, allow suggestions (will be empty query)
+      setCurrentMention('');
+    } else if (textAfterAt[0] === ' ' || textAfterAt[0] === '\n') {
+      // Space immediately after @ means mention is complete, don't show suggestions
       setSuggestions([]);
       setCurrentMention('');
       return;
+    } else {
+      // Check if there's a space or newline anywhere in textAfterAt (completed mention)
+      const spaceIndex = textAfterAt.search(/[\s\n]/);
+      if (spaceIndex !== -1) {
+        // There's a space/newline, meaning the mention is already completed
+        setSuggestions([]);
+        setCurrentMention('');
+        return;
+      }
+      
+      // Extract the mention query (word characters only)
+      const match = textAfterAt.match(/^([\w]*)/);
+      const mentionQuery = match ? match[1] : '';
+      setCurrentMention(mentionQuery);
     }
-
-    setCurrentMention(mentionQuery);
 
     // Clear previous timer
     if (debounceTimer.current) {
@@ -76,6 +89,24 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
 
     // Debounce search
     debounceTimer.current = setTimeout(async () => {
+      const textAfterAt = textBeforeCursor.substring(lastAtIndex + 1);
+      
+      // Check if mention is already completed (has space/newline)
+      if (textAfterAt.length > 0 && (textAfterAt[0] === ' ' || textAfterAt[0] === '\n')) {
+        setSuggestions([]);
+        return;
+      }
+      
+      const spaceIndex = textAfterAt.search(/[\s\n]/);
+      if (spaceIndex !== -1) {
+        // Mention is completed, don't show suggestions
+        setSuggestions([]);
+        return;
+      }
+      
+      const match = textAfterAt.match(/^([\w]*)/);
+      const mentionQuery = match ? match[1] : '';
+      
       if (mentionQuery.length >= 1) {
         // Search users for mention
         try {
@@ -123,13 +154,13 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
               Mentions
             </Text>
           </View>
-          <FlatList
-            data={suggestions}
-            keyExtractor={(item) => item._id}
-            renderItem={({ item }) => (
+          <View style={styles.list}>
+            {suggestions.map((item) => (
               <TouchableOpacity
+                key={item._id}
                 style={[styles.suggestionItem, { borderBottomColor: theme.colors.border }]}
                 onPress={() => handleSelectMention(item)}
+                activeOpacity={0.7}
               >
                 <Image
                   source={{ uri: item.profilePic || 'https://via.placeholder.com/40' }}
@@ -144,10 +175,8 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
                   </Text>
                 </View>
               </TouchableOpacity>
-            )}
-            style={styles.list}
-            keyboardShouldPersistTaps="handled"
-          />
+            ))}
+          </View>
         </>
       )}
     </View>
