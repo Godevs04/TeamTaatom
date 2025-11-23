@@ -1,12 +1,14 @@
+import logger from './logger';
+
 // Utility to set authentication token
 export const setAuthToken = (token) => {
   if (token) {
     localStorage.setItem('founder_token', token);
-    console.log('✅ Auth token set successfully');
-    console.log('Token:', token);
+    logger.debug('✅ Auth token set successfully');
+    logger.debug('Token:', token);
     return true;
   } else {
-    console.error('❌ No token provided');
+    logger.error('❌ No token provided');
     return false;
   }
 };
@@ -14,14 +16,14 @@ export const setAuthToken = (token) => {
 // Utility to check if token exists
 export const checkAuthToken = () => {
   const token = localStorage.getItem('founder_token');
-  console.log('Current token in localStorage:', token ? 'Present' : 'Not found');
+  logger.debug('Current token in localStorage:', token ? 'Present' : 'Not found');
   return !!token;
 };
 
 // Utility to clear token
 export const clearAuthToken = () => {
   localStorage.removeItem('founder_token');
-  console.log('🗑️ Auth token cleared');
+  logger.debug('🗑️ Auth token cleared');
 };
 
 // Test token for immediate use
@@ -31,7 +33,7 @@ export const TEST_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5
 export const autoSetToken = () => {
   if (!checkAuthToken()) {
     setAuthToken(TEST_TOKEN);
-    console.log('🚀 Auto-set test token for immediate access');
+    logger.debug('🚀 Auto-set test token for immediate access');
     return true;
   }
   return false;

@@ -8,6 +8,8 @@ import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { api } from '../services/api'
+import logger from '../utils/logger'
+import { handleError } from '../utils/errorCodes'
 
 const Reports = () => {
   const { reports, fetchReports, isConnected } = useRealTime()
@@ -33,6 +35,11 @@ const Reports = () => {
       setIsInitialLoad(false)
     }
   }, [reports])
+
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterStatus, typeFilter, priorityFilter, sortBy, sortOrder])
 
   // Fetch reports data on component mount and when filters change
   useEffect(() => {
@@ -61,8 +68,8 @@ const Reports = () => {
         
         await fetchReports(params)
       } catch (error) {
-        console.error('Error fetching reports:', error)
-        toast.error('Failed to fetch reports')
+        handleError(error, toast, 'Failed to fetch reports')
+        logger.error('Error fetching reports:', error)
       } finally {
         setLoading(false)
       }
@@ -71,13 +78,13 @@ const Reports = () => {
     fetchData()
   }, [fetchReports, currentPage, filterStatus, sortBy, sortOrder, typeFilter, priorityFilter])
 
-  // Handle search with debouncing
+  // Handle search with debouncing (standardized 500ms delay)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (searchTerm !== '') {
         setCurrentPage(1) // Reset to first page when searching
       }
-    }, 500)
+    }, 500) // Standardized debounce delay: 500ms
 
     return () => clearTimeout(timeoutId)
   }, [searchTerm])
@@ -119,13 +126,13 @@ const Reports = () => {
         
         await fetchReports(params)
       } catch (error) {
-        console.error('Refresh error:', error)
+        logger.error('Refresh error:', error)
       } finally {
         setLoading(false)
       }
     } catch (error) {
-      console.error('Report action error:', error)
-      toast.error(`Failed to ${action} report`)
+      logger.error('Report action error:', error)
+      handleError(error, toast, `Failed to ${action} report`)
     }
   }
   
@@ -223,8 +230,8 @@ const Reports = () => {
       setShowModal(false)
       setSelectedReport(null)
     } catch (error) {
-      console.error('Confirm action error:', error)
-      toast.error(`Failed to ${selectedReport.action} report`)
+      logger.error('Confirm action error:', error)
+      handleError(error, toast, `Failed to ${selectedReport.action} report`)
     }
   }
 
@@ -299,7 +306,8 @@ const Reports = () => {
       toast.success(`Exported ${reportsToExport.length} report(s) successfully`)
       setShowExportModal(false)
     } catch (error) {
-      console.error('Export error:', error)
+      handleError(error, toast, 'Failed to export reports')
+      logger.error('Export error:', error)
       toast.error('Failed to export reports')
     }
   }

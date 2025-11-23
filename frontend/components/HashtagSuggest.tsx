@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -54,19 +53,33 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
       return;
     }
 
-    // Extract text after # (until space, newline, or end)
+    // Extract text after # up to cursor position
     const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
-    const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
-    const hashtagQuery = match ? match[1] : '';
-
-    // If there's a space or newline after #, don't show suggestions
-    if (textAfterHash.length > 0 && !match) {
+    
+    // Check if there's a space or newline immediately after # (no hashtag being typed)
+    if (textAfterHash.length === 0) {
+      // Cursor is right after #, show trending hashtags
+      setCurrentHashtag('');
+    } else if (textAfterHash[0] === ' ' || textAfterHash[0] === '\n') {
+      // Space immediately after # means hashtag is complete, don't show suggestions
+      setSuggestions([]);
+      setCurrentHashtag('');
+      return;
+    } else {
+      // Check if there's a space or newline in the text after # (completed hashtag)
+      const spaceIndex = textAfterHash.search(/[\s\n]/);
+      if (spaceIndex !== -1) {
+        // There's a space/newline, meaning the hashtag is already completed
       setSuggestions([]);
       setCurrentHashtag('');
       return;
     }
 
+      // Extract the hashtag query (word characters and emojis)
+      const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
+      const hashtagQuery = match ? match[1] : '';
     setCurrentHashtag(hashtagQuery);
+    }
 
     // Clear previous timer
     if (debounceTimer.current) {
@@ -75,8 +88,26 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
 
     // Debounce search
     debounceTimer.current = setTimeout(async () => {
-      if (hashtagQuery.length === 0) {
-        // Show trending hashtags if no query
+      const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
+      
+      // Check if hashtag is already completed (has space/newline)
+      if (textAfterHash.length > 0 && (textAfterHash[0] === ' ' || textAfterHash[0] === '\n')) {
+        setSuggestions([]);
+        return;
+      }
+      
+      const spaceIndex = textAfterHash.search(/[\s\n]/);
+      if (spaceIndex !== -1) {
+        // Hashtag is completed, don't show suggestions
+        setSuggestions([]);
+        return;
+      }
+      
+      const match = textAfterHash.match(/^([\w\u{1F300}-\u{1F9FF}]*)/u);
+      const hashtagQuery = match ? match[1] : '';
+      
+      if (hashtagQuery.length === 0 && textAfterHash.length === 0) {
+        // Show trending hashtags if cursor is right after #
         try {
           setLoading(true);
           const trending = await getTrendingHashtags(10);
@@ -134,13 +165,13 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
               {currentHashtag.length === 0 ? 'Trending' : 'Suggestions'}
             </Text>
           </View>
-          <FlatList
-            data={suggestions}
-            keyExtractor={(item) => item.name}
-            renderItem={({ item }) => (
+          <View style={styles.list}>
+            {suggestions.map((item) => (
               <TouchableOpacity
+                key={item.name}
                 style={[styles.suggestionItem, { borderBottomColor: theme.colors.border }]}
                 onPress={() => handleSelectHashtag(item)}
+                activeOpacity={0.7}
               >
                 <Text style={[styles.hashtagText, { color: theme.colors.primary }]}>
                   #{item.name}
@@ -149,10 +180,8 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
                   {item.postCount} {item.postCount === 1 ? 'post' : 'posts'}
                 </Text>
               </TouchableOpacity>
-            )}
-            style={styles.list}
-            keyboardShouldPersistTaps="handled"
-          />
+            ))}
+          </View>
         </>
       )}
     </View>

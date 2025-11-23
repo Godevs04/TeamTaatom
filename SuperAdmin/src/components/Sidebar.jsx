@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useMemo } from 'react'
+import PropTypes from 'prop-types'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -14,6 +15,7 @@ import {
   Bell,
   Search,
   Database,
+  Music,
 } from 'lucide-react'
 
 const navItems = [
@@ -22,6 +24,7 @@ const navItems = [
   { name: 'Query Monitor', href: '/query-monitor', icon: Database, permission: null },
   { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
   { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
+  { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
   { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
   { name: 'Moderators', href: '/moderators', icon: Shield, permission: 'canManageModerators' },
   { name: 'Logs', href: '/logs', icon: FileText, permission: 'canViewLogs' },
@@ -32,7 +35,7 @@ const navItems = [
 const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {
   const { user } = useAuth()
 
-  const navigation = React.useMemo(() => {
+  const navigation = useMemo(() => {
     if (user?.role === 'founder') return navItems
     return navItems.filter(item => !item.permission || user?.permissions?.[item.permission])
   }, [user])
@@ -116,6 +119,12 @@ const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {
       </aside>
     </>
   )
+}
+
+Sidebar.propTypes = {
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
+  isMobile: PropTypes.bool
 }
 
 export default Sidebar

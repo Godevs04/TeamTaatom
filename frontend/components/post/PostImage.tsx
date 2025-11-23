@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
 import { loadImageWithFallback, generateBlurUpUrl, generateWebPUrl } from '../../utils/imageLoader';
 import { Platform } from 'react-native';
+import SongPlayer from '../SongPlayer';
 
 interface PostImageProps {
   post: PostType;
@@ -50,8 +51,8 @@ export default function PostImage({
   };
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.9}>
       <View style={styles.imageContainer}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={StyleSheet.absoluteFill}>
         {imageLoading && (
           <View style={styles.imageLoader}>
             <ActivityIndicator color={theme.colors.primary} size="large" />
@@ -125,6 +126,7 @@ export default function PostImage({
                 </View>
               </View>
             )}
+
           </View>
         ) : imageError ? (
           <View style={[styles.image, styles.imageError]}>
@@ -143,8 +145,15 @@ export default function PostImage({
             </TouchableOpacity>
           </View>
         ) : null}
+      </TouchableOpacity>
+
+      {/* Song Player Overlay - Outside TouchableOpacity so it's clickable */}
+      {post.song?.songId && imageUri && !imageError && (
+        <View style={styles.songPlayerContainer} pointerEvents="box-none">
+          <SongPlayer post={post} isVisible={true} autoPlay={false} showPlayPause={true} />
+        </View>
+      )}
       </View>
-    </TouchableOpacity>
   );
 }
 
@@ -251,6 +260,13 @@ const styles = StyleSheet.create({
   retryText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  songPlayerContainer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    zIndex: 10,
   },
 });
 

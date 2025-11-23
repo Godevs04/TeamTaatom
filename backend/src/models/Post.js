@@ -105,6 +105,27 @@ const postSchema = new mongoose.Schema({
   views: {
     type: Number,
     default: 0
+  },
+  song: {
+    songId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Song',
+      required: false
+    },
+    startTime: {
+      type: Number,
+      default: 0
+    },
+    endTime: {
+      type: Number,
+      default: null // null means play until end or 60 seconds from start
+    },
+    volume: {
+      type: Number,
+      default: 0.5,
+      min: 0,
+      max: 1
+    }
   }
 }, {
   timestamps: true

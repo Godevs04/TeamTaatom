@@ -9,6 +9,8 @@ import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { api } from '../services/api'
+import logger from '../utils/logger'
+import { handleError } from '../utils/errorCodes'
 
 const TravelContent = () => {
   const { posts, fetchPosts, isConnected } = useRealTime()
@@ -34,6 +36,11 @@ const TravelContent = () => {
       setIsInitialLoad(false)
     }
   }, [posts])
+
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterType, statusFilter, sortBy, sortOrder])
 
   // Fetch posts data on component mount and when filters change
   useEffect(() => {
@@ -63,8 +70,8 @@ const TravelContent = () => {
         
         await fetchPosts(fetchParams)
       } catch (error) {
-        console.error('Error fetching travel content:', error)
-        toast.error('Failed to fetch travel content')
+        handleError(error, toast, 'Failed to fetch travel content')
+        logger.error('Error fetching travel content:', error)
       } finally {
         setLoading(false)
       }
@@ -73,13 +80,13 @@ const TravelContent = () => {
     fetchData()
   }, [fetchPosts, currentPage, searchTerm, filterType, sortBy, sortOrder, statusFilter])
 
-  // Handle search with debouncing
+  // Handle search with debouncing (standardized 500ms delay)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (searchTerm !== '') {
         setCurrentPage(1) // Reset to first page when searching
       }
-    }, 500)
+    }, 500) // Standardized debounce delay: 500ms
 
     return () => clearTimeout(timeoutId)
   }, [searchTerm])
@@ -110,8 +117,8 @@ const TravelContent = () => {
         toast.success('Post deactivated successfully')
       }
     } catch (error) {
-      console.error('Content action error:', error)
-      toast.error(`Failed to ${action} content`)
+      logger.error('Content action error:', error)
+      handleError(error, toast, `Failed to ${action} content`)
     }
   }
 
@@ -120,7 +127,7 @@ const TravelContent = () => {
   
   // Debug: Log posts data
   useEffect(() => {
-    console.log('📊 Posts data:', {
+    logger.debug('📊 Posts data:', {
       posts,
       isArray: Array.isArray(posts),
       postsLength: posts?.length,
@@ -210,8 +217,8 @@ const TravelContent = () => {
       setShowModal(false)
       setSelectedContent(null)
     } catch (error) {
-      console.error('Action error:', error)
-      toast.error(`Failed to ${selectedContent.action} content`)
+      logger.error('Action error:', error)
+      handleError(error, toast, `Failed to ${selectedContent.action} content`)
     }
   }
   

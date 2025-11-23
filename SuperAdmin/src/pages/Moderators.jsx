@@ -13,6 +13,9 @@ import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { api } from '../services/api'
+import logger from '../utils/logger'
+import { handleError } from '../utils/errorCodes'
+import { sanitizeText } from '../utils/sanitize'
 
 const Moderators = () => {
   const { isConnected, user } = useRealTime()
@@ -167,12 +170,17 @@ const Moderators = () => {
         setTotalPages(Math.ceil(filtered.length / itemsPerPage))
       }
     } catch (error) {
-      console.error('Failed to fetch moderators:', error)
-      toast.error('Failed to fetch moderators')
+      logger.error('Failed to fetch moderators:', error)
+      handleError(error, toast, 'Failed to fetch moderators')
     } finally {
       setLoading(false)
     }
   }
+
+  // Reset to page 1 when filters change (except search which is handled separately)
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterRole, filterStatus, moreFilters])
 
   // Fetch on mount and when filters change
   useEffect(() => {
@@ -209,8 +217,8 @@ const Moderators = () => {
       toast.success(`Moderator ${!isActive ? 'activated' : 'deactivated'} successfully`)
       await fetchModerators()
     } catch (error) {
-      console.error('Failed to toggle status:', error)
-      toast.error('Failed to update status')
+      logger.error('Failed to toggle status:', error)
+      handleError(error, toast, 'Failed to update status')
     }
   }
 
@@ -230,8 +238,8 @@ const Moderators = () => {
       setShowModal(false)
       setSelectedModerator(null)
     } catch (error) {
-      console.error('Failed to perform action:', error)
-      toast.error(`Failed to ${action} moderator`)
+      logger.error('Failed to perform action:', error)
+      handleError(error, toast, `Failed to ${action} moderator`)
     }
   }
 
@@ -251,8 +259,8 @@ const Moderators = () => {
       setEditingPermissions(null)
       await fetchModerators()
     } catch (error) {
-      console.error('Failed to update permissions:', error)
-      toast.error('Failed to update permissions')
+      logger.error('Failed to update permissions:', error)
+      handleError(error, toast, 'Failed to update permissions')
     }
   }
 
@@ -272,8 +280,8 @@ const Moderators = () => {
       setShowBulkActions(false)
       await fetchModerators()
     } catch (error) {
-      console.error('Bulk action error:', error)
-      toast.error(`Failed to ${action} moderators`)
+      logger.error('Bulk action error:', error)
+      handleError(error, toast, `Failed to ${action} moderators`)
     }
   }
 
@@ -309,8 +317,8 @@ const Moderators = () => {
       })
       await fetchModerators()
     } catch (error) {
-      console.error('Failed to create moderator:', error)
-      toast.error(error.response?.data?.message || 'Failed to create moderator')
+      logger.error('Failed to create moderator:', error)
+      handleError(error, toast, 'Failed to create moderator')
     }
   }
 
@@ -977,7 +985,7 @@ const Moderators = () => {
                 type="email"
                 className="input w-full"
                 value={newModerator.email}
-                onChange={(e) => setNewModerator({ ...newModerator, email: e.target.value })}
+                onChange={(e) => setNewModerator({ ...newModerator, email: sanitizeText(e.target.value) })}
                 placeholder="Enter email address"
                 required
               />
