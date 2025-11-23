@@ -125,7 +125,7 @@ export const getPosts = async (page: number = 1, limit: number = 20): Promise<Po
       const rateLimitInfo = handleRateLimitError(error, 'getPosts');
       await sleep(500);
       try {
-        const retry = await api.get(`/posts?page=${page}&limit=${limit}`);
+        const retry = await api.get(`/api/v1/posts?page=${page}&limit=${limit}`);
         return retry.data;
       } catch (e: any) {
         throw new Error(rateLimitInfo.message);
@@ -477,7 +477,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     logger.debug('Response received:', responseData);
     return responseData;
   } catch (error: any) {
-    logger.error('createShort error:', error);
+    logger.error('createShort', error);
     throw new Error(error.message || 'Failed to create short');
   }
 };

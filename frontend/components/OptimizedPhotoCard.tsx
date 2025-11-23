@@ -35,6 +35,7 @@ import PostImage from './post/PostImage';
 import PostActions from './post/PostActions';
 import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
+import { createLogger } from '../utils/logger';
 
 interface PhotoCardProps {
   post: PostType;
@@ -52,6 +53,7 @@ function PhotoCard({
   showBookmark = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
+  const logger = createLogger('OptimizedPhotoCard');
   const { theme } = useTheme();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
@@ -69,6 +71,7 @@ function PhotoCard({
   const [editCaption, setEditCaption] = useState(post.caption || '');
   const [isMenuLoading, setIsMenuLoading] = useState(false);
   const [commentsDisabled, setCommentsDisabled] = useState((post as any).commentsDisabled || false);
+  const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
@@ -157,9 +160,7 @@ function PhotoCard({
           return; // State already matches, no update needed
         }
         
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Home page - WebSocket like update received:', data);
-        }
+        logger.debug('WebSocket like update received:', data);
         
         // Only update if the WebSocket data is more recent than our current state
         const currentTimestamp = Date.now();
@@ -168,9 +169,7 @@ function PhotoCard({
         
         // If the event is older than 5 seconds, it's likely stale data
         if (timeDiff > 5000) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log('Home page - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
-          }
+          logger.debug('Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
           return;
         }
         
@@ -293,7 +292,7 @@ function PhotoCard({
         
       } catch (error) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('PhotoCard: Image loading failed for post', post._id, error);
+          logger.error('Image loading failed', error, { postId: post._id });
         }
         setImageError(true);
         setImageLoading(false);
@@ -308,6 +307,14 @@ function PhotoCard({
       Alert.alert('Error', 'You must be signed in to like posts.');
       return;
     }
+
+    // Prevent duplicate actions
+    const actionKey = `like-${post._id}`;
+    if (actionLoading.has(actionKey)) {
+      return;
+    }
+
+    setActionLoading(prev => new Set(prev).add(actionKey));
 
     // Optimistic update - update UI immediately
     const previousLiked = isLiked;
@@ -355,8 +362,14 @@ function PhotoCard({
       // Revert optimistic update on error
       setIsLikedWithRef(previousLiked);
       setLikesCountWithRef(previousCount);
-      console.error('Error toggling like:', error);
+      logger.error('Error toggling like', error);
       Alert.alert('Error', 'Failed to update like status.');
+    } finally {
+      setActionLoading(prev => {
+        const next = new Set(prev);
+        next.delete(actionKey);
+        return next;
+      });
     }
   };
 
@@ -391,12 +404,12 @@ function PhotoCard({
             try {
               await FileSystem.deleteAsync(downloadResult.uri);
             } catch (cleanupError) {
-              console.warn('Failed to clean up temporary file:', cleanupError);
+              logger.warn('Failed to clean up temporary file', cleanupError);
             }
             return;
           }
         } catch (expoError) {
-          console.warn('Expo sharing failed, trying fallback:', expoError);
+          logger.warn('Expo sharing failed, trying fallback', expoError);
         }
       }
 
@@ -413,18 +426,29 @@ function PhotoCard({
         showCustomAlertMessage('Success', 'Post shared successfully!', 'success');
       } else if (result.action === Share.dismissedAction) {
         // User dismissed the share dialog
-        console.log('Share dialog dismissed');
+        logger.debug('Share dialog dismissed');
       }
     } catch (error) {
-      console.error('Error sharing post:', error);
+      logger.error('Error sharing post', error);
       showCustomAlertMessage('Error', 'Failed to share post. Please try again.', 'error');
     }
   };
 
   const handleSave = async () => {
+    // Prevent duplicate actions
+    const actionKey = `save-${post._id}`;
+    if (actionLoading.has(actionKey)) {
+      return;
+    }
+
+    setActionLoading(prev => new Set(prev).add(actionKey));
+
+    // Store previous state for revert
+    const previousSaveState = isSaved;
+    const newSaveState = !isSaved;
+
     try {
       // Toggle save state
-      const newSaveState = !isSaved;
       setIsSaved(newSaveState);
       
       // Persist to AsyncStorage for Saved tab
@@ -438,7 +462,7 @@ function PhotoCard({
         next = next.filter(id => id !== post._id);
       }
       await AsyncStorage.setItem(key, JSON.stringify(next));
-      console.log(newSaveState ? 'Post saved' : 'Post unsaved', post._id);
+      logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
       
       // Emit events to notify other pages
       savedEvents.emitChanged();
@@ -446,8 +470,16 @@ function PhotoCard({
         isBookmarked: newSaveState
       });
     } catch (error) {
-      console.error('Error saving post:', error);
+      logger.error('Error saving post', error);
+      // Revert on error
+      setIsSaved(previousSaveState);
       showCustomAlertMessage('Error', 'Failed to save post', 'error');
+    } finally {
+      setActionLoading(prev => {
+        const next = new Set(prev);
+        next.delete(actionKey);
+        return next;
+      });
     }
   };
 
@@ -512,7 +544,7 @@ function PhotoCard({
               showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
               if (onRefresh) onRefresh();
             } catch (error: any) {
-              console.error('Error deleting post:', error);
+              logger.error('Error deleting post', error);
               showCustomAlertMessage('Error', error.message || 'Failed to delete post.', 'error');
             } finally {
               setIsMenuLoading(false);
@@ -537,7 +569,7 @@ function PhotoCard({
         showCustomAlertMessage('Success', 'Post archived successfully!', 'success');
       }, 300);
     } catch (error: any) {
-      console.error('Error archiving post:', error);
+      logger.error('Error archiving post', error);
       setIsMenuLoading(false);
       setShowMenu(false);
       showCustomAlertMessage('Error', error.message || 'Failed to archive post.', 'error');
@@ -558,7 +590,7 @@ function PhotoCard({
         showCustomAlertMessage('Success', 'Post hidden successfully!', 'success');
       }, 300);
     } catch (error: any) {
-      console.error('Error hiding post:', error);
+      logger.error('Error hiding post', error);
       setIsMenuLoading(false);
       setShowMenu(false);
       showCustomAlertMessage('Error', error.message || 'Failed to hide post.', 'error');
@@ -576,7 +608,7 @@ function PhotoCard({
         'success'
       );
     } catch (error: any) {
-      console.error('Error toggling comments:', error);
+      logger.error('Error toggling comments', error);
       showCustomAlertMessage('Error', error.message || 'Failed to toggle comments.', 'error');
     } finally {
       setIsMenuLoading(false);
@@ -595,7 +627,7 @@ function PhotoCard({
       showCustomAlertMessage('Success', 'Post updated successfully!', 'success');
       if (onRefresh) onRefresh();
     } catch (error: any) {
-      console.error('Error updating post:', error);
+      logger.error('Error updating post', error);
       showCustomAlertMessage('Error', error.message || 'Failed to update post.', 'error');
     } finally {
       setIsMenuLoading(false);
@@ -668,6 +700,7 @@ function PhotoCard({
         onShare={handleShareClick}
         onSave={handleSave}
         showBookmark={showBookmark && currentUser && currentUser._id !== post.user._id}
+        isLoading={actionLoading.size > 0}
       />
 
       {/* Likes Count */}

@@ -103,7 +103,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     logger.debug('Profile update response:', response.data);
     return response.data;
   } catch (error: any) {
-    logger.error('Profile update error:', error.response?.data || error.message);
+    logger.error('updateProfile', error.response?.data || error.message || error);
     throw new Error(error.response?.data?.message || 'Failed to update profile');
   }
 };
@@ -144,7 +144,7 @@ export const updateExpoPushToken = async (userId: string, expoPushToken: string)
   try {
     await api.put(`/api/v1/profile/${userId}/push-token`, { expoPushToken });
   } catch (error: any) {
-    logger.error('Failed to update Expo push token:', error.response?.data || error.message);
+    logger.error('updateExpoPushToken', error.response?.data || error.message || error);
     throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
   }
 };
