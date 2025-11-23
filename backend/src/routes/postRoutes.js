@@ -87,7 +87,19 @@ const createPostValidation = [
   body('longitude')
     .optional()
     .isFloat({ min: -180, max: 180 })
-    .withMessage('Longitude must be between -180 and 180')
+    .withMessage('Longitude must be between -180 and 180'),
+  body('songId')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid song ID'),
+  body('songStartTime')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Song start time must be a positive number'),
+  body('songVolume')
+    .optional()
+    .isFloat({ min: 0, max: 1 })
+    .withMessage('Song volume must be between 0 and 1')
 ];
 
 const addCommentValidation = [

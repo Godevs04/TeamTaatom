@@ -18,6 +18,7 @@ import Settings from './pages/Settings'
 import FeatureFlags from './pages/FeatureFlags'
 import Profile from './pages/Profile'
 import TestPage from './pages/TestPage'
+import Songs from './pages/Songs'
 import { Toaster } from 'react-hot-toast'
 
 function App() {
@@ -69,6 +70,7 @@ function App() {
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/profile" element={<Profile />} />
                       <Route path="/feature-flags" element={<FeatureFlags />} />
+                      <Route path="/songs" element={<Songs />} />
                       <Route path="/test" element={<TestPage />} />
                     </Routes>
                   </Layout>
