@@ -79,3 +79,19 @@ export const getSongById = async (id) => {
   }
 };
 
+/**
+ * Toggle song active/inactive status
+ * @param {string} id - Song ID
+ * @param {boolean} isActive - New active status
+ * @returns {Promise} Updated song data
+ */
+export const toggleSongStatus = async (id, isActive) => {
+  try {
+    const response = await api.patch(`/api/v1/songs/${id}/toggle`, { isActive });
+    return response.data;
+  } catch (error) {
+    console.error('Error toggling song status:', error);
+    throw error;
+  }
+};
+

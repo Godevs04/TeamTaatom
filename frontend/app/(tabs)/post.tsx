@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Platform,
+  Modal,
 } from "react-native";
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
@@ -72,6 +73,8 @@ export default function PostScreen() {
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [showSongSelector, setShowSongSelector] = useState(false);
+  const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
+  const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
   const router = useRouter();
   const { theme } = useTheme();
   const { handleScroll } = useScrollToHideNav();
@@ -333,15 +336,19 @@ export default function PostScreen() {
         clearUploadState();
         setSelectedVideo(result.assets[0].uri);
         setSelectedImages([]);
-      setPostType('short');
-      // Generate initial thumbnail
-      try {
-        const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
-        setVideoThumbnail(uri);
-      } catch (e) {
-        logger.warn('Thumbnail generation failed', e);
-        setVideoThumbnail(null);
-      }
+        setPostType('short');
+        // Reset audio choice and show modal to ask user
+        setAudioChoice(null);
+        setSelectedSong(null);
+        setShowAudioChoiceModal(true);
+        // Generate initial thumbnail
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(result.assets[0].uri, { time: 1000 });
+          setVideoThumbnail(uri);
+        } catch (e) {
+          logger.warn('Thumbnail generation failed', e);
+          setVideoThumbnail(null);
+        }
       
       // Add a small delay to ensure MediaLibrary is updated with the selected video
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -725,13 +732,14 @@ export default function PostScreen() {
           name: 'thumbnail.jpg',
         } : undefined,
         caption: values.caption,
+        // Only send song data if user chose background music
+        songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
+        songStartTime: audioChoice === 'background' && selectedSong ? 0 : undefined,
+        songVolume: audioChoice === 'background' && selectedSong ? 0.5 : undefined,
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
-        songId: selectedSong?._id,
-        songStartTime: 0,
-        songVolume: 0.5,
       });
 
       logger.debug('Short created successfully:', response);
@@ -743,6 +751,7 @@ export default function PostScreen() {
             setSelectedVideo(null);
             setLocation(null);
             setSelectedSong(null);
+            setAudioChoice(null);
             // Update existing shorts state
             setHasExistingShorts(true);
             setAddress('');
@@ -1439,9 +1448,83 @@ export default function PostScreen() {
       />
 
       {/* Song Selector Modal */}
+      {/* Audio Choice Modal for Shorts */}
+      <Modal
+        visible={showAudioChoiceModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowAudioChoiceModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+              Choose Audio for Your Short
+            </Text>
+            <Text style={[styles.modalDescription, { color: theme.colors.textSecondary }]}>
+              Select how you want to handle audio for this video
+            </Text>
+            
+            <TouchableOpacity
+              style={[styles.audioChoiceButton, { backgroundColor: theme.colors.primary }]}
+              onPress={() => {
+                setAudioChoice('background');
+                setShowAudioChoiceModal(false);
+                setShowSongSelector(true);
+              }}
+            >
+              <Ionicons name="musical-notes" size={24} color="white" />
+              <View style={styles.audioChoiceTextContainer}>
+                <Text style={styles.audioChoiceTitle}>Background Music</Text>
+                <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="white" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.audioChoiceButton, { backgroundColor: theme.colors.border }]}
+              onPress={() => {
+                setAudioChoice('original');
+                setSelectedSong(null);
+                setShowAudioChoiceModal(false);
+              }}
+            >
+              <Ionicons name="volume-high" size={24} color={theme.colors.text} />
+              <View style={styles.audioChoiceTextContainer}>
+                <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
+                  Original Video Audio
+                </Text>
+                <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
+                  Keep the original sound from your video
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { borderColor: theme.colors.border }]}
+              onPress={() => {
+                setShowAudioChoiceModal(false);
+                setSelectedVideo(null);
+                setPostType('photo');
+              }}
+            >
+              <Text style={[styles.modalCancelText, { color: theme.colors.textSecondary }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <SongSelector
         visible={showSongSelector}
-        onClose={() => setShowSongSelector(false)}
+        onClose={() => {
+          setShowSongSelector(false);
+          // If user closes without selecting, reset audio choice
+          if (!selectedSong) {
+            setAudioChoice(null);
+          }
+        }}
         onSelect={(song) => {
           setSelectedSong(song);
           setShowSongSelector(false);
@@ -1454,4 +1537,67 @@ export default function PostScreen() {
 
 /* (Removed duplicate implementation of PostScreen and related duplicate code) */
 
-// styles removed, now handled inline with theme context
+const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    fontSize: 14,
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  audioChoiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  audioChoiceTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  audioChoiceTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 4,
+  },
+  audioChoiceSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  modalCancelButton: {
+    marginTop: 8,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
