@@ -67,7 +67,21 @@ const getPosts = async (req, res) => {
             ]
           }
         },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            user: {
+              $cond: {
+                if: { $eq: ['$user', null] },
+                then: {
+                  fullName: 'Unknown User',
+                  profilePic: ''
+                },
+                else: '$user'
+              }
+            }
+          }
+        },
         {
           $lookup: {
             from: 'users',
@@ -1650,7 +1664,22 @@ const getShorts = async (req, res) => {
           ]
         }
       },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          user: {
+            $cond: {
+              if: { $eq: ['$user', null] },
+              then: {
+                fullName: 'Unknown User',
+                profilePic: '',
+                followers: []
+              },
+              else: '$user'
+            }
+          }
+        }
+      },
       {
         $lookup: {
           from: 'users',

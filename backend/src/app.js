@@ -90,8 +90,8 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.10:8081',
-      'http://192.168.1.10:3000',
+      'http://192.168.1.11:8081',
+      'http://192.168.1.11:3000',
 
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
