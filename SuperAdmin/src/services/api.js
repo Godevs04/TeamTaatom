@@ -131,6 +131,18 @@ api.interceptors.response.use(
     return response
   },
   async (error) => {
+    // Skip logging for canceled requests (AbortController)
+    const isCanceled = error.code === 'ERR_CANCELED' || 
+                      error.message === 'canceled' || 
+                      error.message?.toLowerCase().includes('canceled') ||
+                      error.name === 'CanceledError' ||
+                      error.name === 'AbortError'
+    
+    if (isCanceled) {
+      // Silently ignore canceled requests - they're intentional
+      return Promise.reject(error)
+    }
+    
     const parsedError = parseError(error)
     logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
     

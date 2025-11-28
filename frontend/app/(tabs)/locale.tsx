@@ -24,11 +24,14 @@ import { useRouter } from 'expo-router';
 import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
+import { getLocales, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { useReducer, useMemo, useCallback, useRef } from 'react';
 import api from '../../services/api';
+import { savedEvents } from '../../utils/savedEvents';
+import { useFocusEffect } from 'expo-router';
 
 const logger = createLogger('LocaleScreen');
 
@@ -88,8 +91,10 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
 
 export default function LocaleScreen() {
   const { handleScroll } = useScrollToHideNav();
-  const [locations, setLocations] = useState<LocationData[]>([]);
-  const [savedLocations, setSavedLocations] = useState<any[]>([]);
+  const [savedLocales, setSavedLocales] = useState<Locale[]>([]);
+  const [adminLocales, setAdminLocales] = useState<Locale[]>([]);
+  const [filteredLocales, setFilteredLocales] = useState<Locale[]>([]);
+  const [loadingLocales, setLoadingLocales] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
@@ -103,17 +108,14 @@ export default function LocaleScreen() {
   const [loadingCountries, setLoadingCountries] = useState(false);
   const [loadingStates, setLoadingStates] = useState(false);
   const [filters, dispatchFilter] = useReducer(filterReducer, {
-    country: 'United Kingdom',
-    countryCode: 'GB',
+    country: '',
+    countryCode: '',
     stateProvince: '',
     stateCode: '',
     spotTypes: [],
     searchRadius: '',
   });
   
-  // Location caching
-  const CACHE_KEY = 'locations_cache';
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
   const { theme, mode } = useTheme();
   const router = useRouter();
 
@@ -128,27 +130,178 @@ export default function LocaleScreen() {
   ];
 
   useEffect(() => {
-    loadUserLocations();
     loadCountries();
-    loadSavedLocations();
+    loadSavedLocales();
+    loadAdminLocales();
   }, []);
 
+  const loadAdminLocales = async (forceRefresh = false) => {
+    try {
+      setLoadingLocales(true);
+      setLoading(true);
+      
+      // Build query parameters
+      const params: any = {
+        page: 1,
+        limit: 100,
+        includeInactive: false, // Only show active locales
+      };
+      
+      // Add search query if provided
+      if (searchQuery.trim()) {
+        params.search = searchQuery.trim();
+      }
+      
+      // Add country filter if provided
+      if (filters.countryCode && filters.countryCode !== 'all') {
+        params.countryCode = filters.countryCode;
+      }
+      
+      // Add spot type filter if provided
+      if (filters.spotTypes && filters.spotTypes.length > 0) {
+        params.spotType = filters.spotTypes[0]; // API supports single spot type
+      }
+      
+      const response = await getLocales(
+        params.search || '',
+        params.countryCode || '',
+        params.spotType || '',
+        params.page,
+        params.limit,
+        params.includeInactive
+      );
+      
+      if (response && response.locales) {
+        setAdminLocales(response.locales);
+        applyFilters(response.locales);
+      } else {
+        setAdminLocales([]);
+        setFilteredLocales([]);
+      }
+    } catch (error) {
+      logger.error('Failed to load admin locales', error);
+      setAdminLocales([]);
+      setFilteredLocales([]);
+    } finally {
+      setLoadingLocales(false);
+      setLoading(false);
+    }
+  };
+  
+  // Apply client-side filters (for spot types that API doesn't support)
+  const applyFilters = (locales: Locale[]) => {
+    let filtered = [...locales];
+    
+    // Filter by spot types (if multiple selected, show locales that match any)
+    if (filters.spotTypes && filters.spotTypes.length > 0) {
+      filtered = filtered.filter(locale => 
+        locale.spotTypes && locale.spotTypes.some(type => filters.spotTypes.includes(type))
+      );
+    }
+    
+    // Filter by search query (if not already filtered by API)
+    if (searchQuery.trim() && !searchQuery.includes(' ')) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(locale =>
+        locale.name.toLowerCase().includes(query) ||
+        locale.description?.toLowerCase().includes(query) ||
+        locale.countryCode.toLowerCase().includes(query)
+      );
+    }
+    
+    setFilteredLocales(filtered);
+  };
+  
+  // Update filtered locales when filters change
   useEffect(() => {
-    // Reload saved locations when tab changes
+    if (adminLocales.length > 0) {
+      applyFilters(adminLocales);
+    }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    // Reload saved locales when tab changes
     if (activeTab === 'saved') {
-      loadSavedLocations();
+      loadSavedLocales();
     }
   }, [activeTab]);
 
-  const loadSavedLocations = async () => {
+  // Listen for bookmark changes from detail page
+  useEffect(() => {
+    const unsubscribe = savedEvents.addListener(() => {
+      // Reload saved locales and refresh bookmark status
+      loadSavedLocales();
+      // Reload admin locales to update bookmark indicators
+      if (adminLocales.length > 0) {
+        loadAdminLocales(true);
+      }
+    });
+    return unsubscribe;
+  }, [adminLocales.length]);
+
+  // Refresh bookmark status when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadSavedLocales();
+      if (adminLocales.length > 0) {
+        // Refresh to update bookmark indicators
+        loadAdminLocales(true);
+      }
+    }, [adminLocales.length])
+  );
+
+  const loadSavedLocales = async () => {
     try {
-      const saved = await AsyncStorage.getItem('savedLocations');
-      const locations = saved ? JSON.parse(saved) : [];
-      setSavedLocations(locations);
+      const saved = await AsyncStorage.getItem('savedLocales');
+      const locales = saved ? JSON.parse(saved) : [];
+      setSavedLocales(locales);
     } catch (error) {
-      logger.error('Error loading saved locations', error);
-      setSavedLocations([]);
+      logger.error('Error loading saved locales', error);
+      setSavedLocales([]);
     }
+  };
+  
+  const saveLocale = async (locale: Locale) => {
+    try {
+      const saved = await AsyncStorage.getItem('savedLocales');
+      const locales: Locale[] = saved ? JSON.parse(saved) : [];
+      
+      // Check if already saved
+      if (locales.find(l => l._id === locale._id)) {
+        Alert.alert('Already Saved', 'This locale is already in your saved list');
+        return;
+      }
+      
+      locales.push(locale);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(locales));
+      setSavedLocales(locales);
+      // Emit event to sync with detail page
+      savedEvents.emitChanged();
+      Alert.alert('Saved', 'Locale saved successfully');
+    } catch (error) {
+      logger.error('Error saving locale', error);
+      Alert.alert('Error', 'Failed to save locale');
+    }
+  };
+  
+  const unsaveLocale = async (localeId: string) => {
+    try {
+      const saved = await AsyncStorage.getItem('savedLocales');
+      const locales: Locale[] = saved ? JSON.parse(saved) : [];
+      const filtered = locales.filter(l => l._id !== localeId);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(filtered));
+      setSavedLocales(filtered);
+      // Emit event to sync with detail page
+      savedEvents.emitChanged();
+      Alert.alert('Removed', 'Locale removed from saved list');
+    } catch (error) {
+      logger.error('Error unsaving locale', error);
+      Alert.alert('Error', 'Failed to remove locale');
+    }
+  };
+  
+  const isLocaleSaved = (localeId: string): boolean => {
+    return savedLocales.some(l => l._id === localeId);
   };
 
   const loadCountries = async () => {
@@ -200,63 +353,10 @@ export default function LocaleScreen() {
     setShowStateDropdown(false);
   };
 
-  const loadUserLocations = async (forceRefresh = false) => {
-    try {
-      setLoading(true);
-      const user = await getUserFromStorage();
-      if (!user) {
-        Alert.alert('Error', 'Please sign in to view your locations');
-        router.push('/(auth)/signin');
-        return;
-      }
-
-      // Check cache first
-      if (!forceRefresh) {
-        const cached = await AsyncStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < CACHE_DURATION) {
-            setLocations(data);
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // Fetch from API - get posts with locations
-      const response = await api.get(`/api/v1/posts?user=${user._id}&hasLocation=true`);
-      const postsWithLocations = response.data.posts || [];
-      
-      // Transform posts to location data format
-      const locationData: LocationData[] = postsWithLocations
-        .filter((post: any) => post.location && post.location.coordinates)
-        .map((post: any) => ({
-          latitude: post.location.coordinates.latitude,
-          longitude: post.location.coordinates.longitude,
-          address: post.location.address || 'Unknown Location',
-          date: post.createdAt,
-          postId: post._id,
-          imageUrl: post.imageUrl || post.images?.[0],
-        }));
-
-      setLocations(locationData);
-      
-      // Update cache
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({
-        data: locationData,
-        timestamp: Date.now()
-      }));
-    } catch (error: any) {
-      logger.error('Failed to fetch locations', error);
-      Alert.alert('Error', 'Failed to load locations');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadUserLocations();
+    await loadAdminLocales(true);
     setRefreshing(false);
   };
 
@@ -266,9 +366,20 @@ export default function LocaleScreen() {
 
   const handleSearch = () => {
     setShowFilterModal(false);
-    // Reload locations with filters applied
-    loadUserLocations(true);
+    // Reload locales with filters applied
+    loadAdminLocales(true);
   };
+  
+  // Handle search query changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (adminLocales.length > 0) {
+        loadAdminLocales(true);
+      }
+    }, 500); // Debounce search
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
 
   const renderFilterModal = () => (
     <Modal
@@ -489,265 +600,194 @@ export default function LocaleScreen() {
     </Modal>
   );
 
-  const renderLocationCard = useCallback(({ item, index }: { item: any; index: number }) => {
-    // All cards are wide cards now
+
+
+  const renderAdminLocaleCard = ({ locale, index }: { locale: Locale; index: number }) => {
     return (
       <TouchableOpacity 
         style={[
           styles.locationCard,
           styles.wideCard,
-          { marginLeft: 0 }
+          { marginBottom: 16 }
         ]}
-        onPress={async () => {
-          if (isGeocoding) return; // Prevent multiple clicks during geocoding
-          
-          setIsGeocoding(item.name);
-          
-          try {
-            logger.debug('Navigating to location detail:', item.name);
-            
-            // Get user ID for navigation
-            const user = await getUserFromStorage();
-            const userId = user?._id || 'current-user';
-            
-            // Convert location name to slug format
-            const locationSlug = item.name.toLowerCase().replace(/\s+/g, '-');
-            
-            // Navigate to location detail page first
-            router.push({
-              pathname: '/tripscore/countries/[country]/locations/[location]',
-              params: {
-                country: 'general',
-                location: locationSlug,
-                userId: userId,
-              }
-            });
-          } catch (error) {
-            logger.error('Error navigating to location', error);
-          } finally {
-            setIsGeocoding(null);
-          }
+        onPress={() => {
+          // Navigate to locale detail
+          router.push({
+            pathname: '/tripscore/countries/[country]/locations/[location]',
+            params: {
+              country: locale.countryCode.toLowerCase(),
+              location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+              userId: 'admin-locale',
+              imageUrl: locale.imageUrl,
+              latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
+              longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+              description: locale.description || '',
+              spotTypes: locale.spotTypes?.join(', ') || '',
+            }
+          });
         }}
       >
-        <Image 
-          source={{ uri: item.imageUrl || 'https://via.placeholder.com/400x300' }} 
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
-          style={styles.cardGradient}
-        />
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  }, [isGeocoding, router, theme]);
-
-  const renderCurrentLocationCard = (currentLocation: any) => {
-    // Use OpenStreetMap since Google Maps is failing
-    const mapUrl = `https://tile.openstreetmap.org/15/${Math.floor((currentLocation.longitude + 180) / 360 * Math.pow(2, 15))}/${Math.floor((1 - Math.log(Math.tan(currentLocation.latitude * Math.PI / 180) + 1 / Math.cos(currentLocation.latitude * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, 15))}.png`;
-    
-    logger.debug('Using OpenStreetMap URL:', mapUrl);
-    
-    return (
-      <TouchableOpacity 
-        style={[
-          styles.locationCard,
-          styles.halfCard,
-          { marginLeft: 0 }
-        ]}
-        onPress={async () => {
-          if (isGeocoding) return;
-          
-          setIsGeocoding('Current Location');
-          
-          try {
-            logger.debug('Navigating to current location detail:', currentLocation.address);
-            
-            // Get user ID for navigation
-            const user = await getUserFromStorage();
-            const userId = user?._id || 'current-user';
-            
-            // Convert location name to slug format
-            const locationSlug = currentLocation.address.toLowerCase().replace(/\s+/g, '-');
-            
-            // Navigate to location detail page first
-            router.push({
-              pathname: '/tripscore/countries/[country]/locations/[location]',
-              params: {
-                country: 'general',
-                location: locationSlug,
-                userId: userId,
-              }
-            });
-          } catch (error) {
-            logger.error('Error navigating to current location', error);
-          } finally {
-            setIsGeocoding(null);
-          }
-        }}
-      >
-        <Image
-          source={{ uri: mapUrl }}
-          style={styles.cardImage}
-          resizeMode="cover"
-          onError={(error) => {
-            logger.error('OpenStreetMap failed', error.nativeEvent.error);
-          }}
-
-          onLoad={() => {
-            logger.debug('OpenStreetMap loaded successfully');
-          }}
-        />
-        {/* Red marker overlay for location */}
-        <View style={styles.markerOverlay}>
-          <Ionicons name="location" size={20} color="red" />
-        </View>
-        {/* Fallback gradient if image fails - positioned behind the image */}
-        <LinearGradient
-          colors={['#D4EDDA', '#A8DADC']}
-          style={[styles.cardImage, { position: 'absolute', top: 0, left: 0, zIndex: -1 }]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View style={styles.mapPlaceholder}>
-            <Ionicons name="location" size={40} color="#2C5530" />
-            <Text style={styles.mapPlaceholderText}>Current Location</Text>
-          </View>
-        </LinearGradient>
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
-          style={styles.cardGradient}
-        />
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{currentLocation.address}</Text>
-        </View>
-        {isGeocoding === 'Current Location' && (
-          <View style={styles.loadingIndicator}>
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          </View>
+        {locale.imageUrl ? (
+          <Image 
+            source={{ uri: locale.imageUrl }} 
+            style={styles.cardImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <LinearGradient
+            colors={['#D4EDDA', '#A8DADC']}
+            style={styles.cardImage}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.mapPlaceholder}>
+              <Ionicons name="location" size={40} color="#2C5530" />
+            </View>
+          </LinearGradient>
         )}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          style={styles.cardGradient}
+        />
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle}>{locale.name}</Text>
+          <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
+            {locale.countryCode}
+          </Text>
+        </View>
       </TouchableOpacity>
     );
   };
 
-  // Memoize location cards
-  const memoizedLocationCards = useMemo(() => {
-    return locations.map((location, index) => ({
-      id: location.postId || `loc-${index}`,
-      name: location.address,
-      imageUrl: location.imageUrl,
-      latitude: location.latitude,
-      longitude: location.longitude,
-      date: location.date,
-    }));
-  }, [locations]);
-
-  const renderCustomLayout = useCallback(() => {
-    if (locations.length === 0) {
-      return renderEmptyState();
-    }
+  const renderAdminLocales = () => {
+    const localesToShow = filteredLocales.length > 0 ? filteredLocales : adminLocales;
     
-    return (
-      <View style={styles.listContainer}>
-        {memoizedLocationCards.map((item, index) => (
-          <View key={item.id}>
-            {renderLocationCard({ item, index })}
+    if (loadingLocales) {
+      return (
+        <View style={styles.adminLocalesSection}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Featured Locales</Text>
+          <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+        </View>
+      );
+    }
+
+    if (localesToShow.length === 0) {
+      return (
+        <View style={styles.adminLocalesSection}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Featured Locales</Text>
+          <View style={styles.emptyContainer}>
+            <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+            <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+              {searchQuery || filters.spotTypes.length > 0 || filters.countryCode
+                ? 'Try adjusting your search or filters'
+                : 'Check back later for exciting new destinations!'}
+            </Text>
           </View>
-        ))}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.adminLocalesSection}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Featured Locales</Text>
+        <View style={styles.localesList}>
+          {localesToShow.map((locale, index) => (
+            <View key={locale._id}>
+              {renderAdminLocaleCard({ locale, index })}
+            </View>
+          ))}
+        </View>
       </View>
     );
-  }, [memoizedLocationCards, locations.length]);
+  };
 
-  const renderSavedLocationCard = ({ item, index }: { item: any; index: number }) => {
+  const renderCustomLayout = useCallback(() => {
+    return (
+      <View style={{ paddingBottom: 30 }}>
+        {/* Admin-managed locales section */}
+        {renderAdminLocales()}
+      </View>
+    );
+  }, [filteredLocales, adminLocales, loadingLocales, theme, searchQuery, filters]);
+
+  const renderSavedLocaleCard = ({ locale, index }: { locale: Locale; index: number }) => {
     return (
       <TouchableOpacity 
         style={[
           styles.locationCard,
-          styles.halfCard,
-          { marginLeft: 0 }
+          styles.wideCard,
+          { marginBottom: 16 }
         ]}
-        onPress={async () => {
-          if (isGeocoding) return; // Prevent multiple clicks during geocoding
-          
-          setIsGeocoding(item.name);
-          
-          try {
-            logger.debug('Navigating to saved location detail:', item.name);
-            
-            // Get user ID for navigation
-            const user = await getUserFromStorage();
-            const userId = user?._id || 'current-user';
-            
-            // Convert location name to slug format
-            const locationSlug = item.name.toLowerCase().replace(/\s+/g, '-');
-            
-            // Navigate to location detail page first
-            router.push({
-              pathname: '/tripscore/countries/[country]/locations/[location]',
-              params: {
-                country: 'general',
-                location: locationSlug,
-                userId: userId,
-              }
-            });
-          } catch (error) {
-            logger.error('Error navigating to saved location', error);
-          } finally {
-            setIsGeocoding(null);
-          }
+        onPress={() => {
+          router.push({
+            pathname: '/tripscore/countries/[country]/locations/[location]',
+            params: {
+              country: locale.countryCode.toLowerCase(),
+              location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+              userId: 'admin-locale',
+              imageUrl: locale.imageUrl,
+              latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
+              longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+              description: locale.description || '',
+              spotTypes: locale.spotTypes?.join(', ') || '',
+            }
+          });
         }}
       >
-        <Image 
-          source={{ uri: item.imageUrl }} 
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
+        {locale.imageUrl ? (
+          <Image 
+            source={{ uri: locale.imageUrl }} 
+            style={styles.cardImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <LinearGradient
+            colors={['#D4EDDA', '#A8DADC']}
+            style={styles.cardImage}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.mapPlaceholder}>
+              <Ionicons name="location" size={40} color="#2C5530" />
+            </View>
+          </LinearGradient>
+        )}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.7)']}
           style={styles.cardGradient}
         />
+        <TouchableOpacity
+          style={styles.saveButton}
+          onPress={(e) => {
+            e.stopPropagation();
+            unsaveLocale(locale._id);
+          }}
+        >
+          <Ionicons 
+            name="bookmark" 
+            size={20} 
+            color="#FFD700" 
+          />
+        </TouchableOpacity>
         <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-        </View>
-        {/* Loading indicator for geocoding */}
-        {isGeocoding === item.name && (
-          <View style={styles.loadingIndicator}>
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          </View>
-        )}
-        {/* Saved indicator */}
-        <View style={styles.savedIndicator}>
-          <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+          <Text style={styles.cardTitle}>{locale.name}</Text>
+          {locale.description && (
+            <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]} numberOfLines={1}>
+              {locale.description}
+            </Text>
+          )}
         </View>
       </TouchableOpacity>
     );
   };
-
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
-      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locations Yet</Text>
-      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-        Start exploring and discover amazing places around the world
-      </Text>
-      <TouchableOpacity 
-        style={[styles.exploreButton, { backgroundColor: theme.colors.primary }]}
-        onPress={() => router.push('/(tabs)/home')}
-      >
-        <Text style={styles.exploreButtonText}>Start Exploring</Text>
-      </TouchableOpacity>
-    </View>
-  );
 
   const renderEmptySavedState = () => (
     <View style={styles.emptyContainer}>
       <Ionicons name="bookmark-outline" size={60} color={theme.colors.textSecondary} />
-      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Locations</Text>
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Locales</Text>
       <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-        Bookmark locations you love to find them here later
+        Bookmark featured locales you love to find them here later
       </Text>
     </View>
   );
@@ -854,10 +894,10 @@ export default function LocaleScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={savedLocations}
-          renderItem={renderSavedLocationCard}
-          keyExtractor={(item) => item.id || `saved-${item.slug || item.name}`}
-          ListEmptyComponent={savedLocations.length === 0 ? renderEmptySavedState() : null}
+          data={savedLocales}
+          renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
+          keyExtractor={(item) => item._id}
+          ListEmptyComponent={savedLocales.length === 0 ? renderEmptySavedState() : null}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={
@@ -865,15 +905,13 @@ export default function LocaleScreen() {
               refreshing={refreshing}
               onRefresh={async () => {
                 setRefreshing(true);
-                await loadSavedLocations();
+                await loadSavedLocales();
                 setRefreshing(false);
               }}
             />
           }
-          numColumns={2}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContainer}
-          columnWrapperStyle={styles.row}
+          contentContainerStyle={[styles.listContainer, { paddingHorizontal: 20, paddingTop: 20 }]}
         />
       )}
 
@@ -990,8 +1028,9 @@ const styles = StyleSheet.create({
     height: 180,
   },
   wideCard: {
-    width: width - 24,
-    height: 180,
+    width: width - 40,
+    height: 200,
+    alignSelf: 'center',
   },
   cardImage: {
     width: '100%',
@@ -1112,6 +1151,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999999',
     textAlign: 'center',
+  },
+  adminLocalesSection: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  localesList: {
+    flexDirection: 'column',
+    marginBottom: 16,
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    marginTop: 4,
+    opacity: 0.9,
   },
   // Filter Modal Styles
   filterModalContainer: {
@@ -1253,6 +1312,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  saveButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
   },
 });
 

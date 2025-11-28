@@ -1,0 +1,69 @@
+const mongoose = require('mongoose');
+
+const localeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Locale name is required'],
+    trim: true
+  },
+  country: {
+    type: String,
+    required: [true, 'Country is required'],
+    trim: true
+  },
+  countryCode: {
+    type: String,
+    required: [true, 'Country code is required'],
+    trim: true,
+    uppercase: true
+  },
+  stateProvince: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  stateCode: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  description: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  imageKey: {
+    type: String,
+    required: [true, 'S3 image key is required'],
+    unique: true
+  },
+  imageUrl: {
+    type: String,
+    required: [true, 'Image URL is required']
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SuperAdmin',
+    required: true
+  },
+  displayOrder: {
+    type: Number,
+    default: 0
+  }
+}, {
+  timestamps: true
+});
+
+// Indexes for search and filtering
+localeSchema.index({ isActive: 1, createdAt: -1 });
+localeSchema.index({ countryCode: 1 });
+localeSchema.index({ name: 1 }); // For faster regex searches
+localeSchema.index({ country: 1 }); // For faster regex searches
+localeSchema.index({ displayOrder: 1 });
+
+module.exports = mongoose.model('Locale', localeSchema);
+

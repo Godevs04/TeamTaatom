@@ -22,6 +22,7 @@ const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
 const hashtagRoutes = require('./routes/hashtagRoutes');
 const collectionRoutes = require('./routes/collectionRoutes');
 const songRoutes = require('./routes/songRoutes');
+const localeRoutes = require('./routes/localeRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -206,7 +207,8 @@ app.use((req, res, next) => {
       '/api/superadmin/login',
       '/api/superadmin/verify-2fa',
       '/api/superadmin/resend-2fa',
-      '/api/superadmin/create'
+      '/api/superadmin/create',
+      '/api/superadmin/csrf-token'
     ];
     
     // Check if path matches exactly or starts with any public auth path
@@ -266,6 +268,7 @@ app.use('/feature-flags', featureFlagsRoutes);
 app.use('/hashtags', hashtagRoutes);
 app.use('/collections', collectionRoutes);
 app.use('/api/v1/songs', songRoutes);
+app.use('/api/v1/locales', localeRoutes);
 
 // Swagger API Documentation (only in development)
 if (process.env.NODE_ENV === 'development') {

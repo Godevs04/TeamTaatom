@@ -9,12 +9,41 @@ class SocketService {
     this.reconnectAttempts = 0
     this.maxReconnectAttempts = 5
     this.reconnectDelay = 2000
+    this.isConnecting = false // Track if connection is in progress
   }
 
   async connect() {
+    // If already connected, return existing socket
     if (this.socket && this.socket.connected) {
       logger.debug('✅ Socket already connected')
       return this.socket
+    }
+
+    // If connection is already in progress, wait for it
+    if (this.isConnecting) {
+      logger.debug('⏳ Connection already in progress, waiting...')
+      // Wait for connection to complete or fail
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (!this.isConnecting) {
+            clearInterval(checkInterval)
+            resolve(this.socket)
+          }
+        }, 100)
+        // Timeout after 5 seconds
+        setTimeout(() => {
+          clearInterval(checkInterval)
+          resolve(this.socket)
+        }, 5000)
+      })
+    }
+
+    // If socket exists but not connected, clean it up first
+    if (this.socket && !this.socket.connected) {
+      logger.debug('🧹 Cleaning up existing socket before reconnecting...')
+      this.socket.removeAllListeners()
+      this.socket.disconnect()
+      this.socket = null
     }
 
     try {
@@ -26,31 +55,48 @@ class SocketService {
       }
 
       logger.debug('🔌 Attempting to connect socket...')
+      this.isConnecting = true
+      
+      // Create socket with autoConnect enabled to avoid race conditions
       this.socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
         path: '/socket.io/',
         transports: ['websocket', 'polling'], // Add polling as fallback
-        autoConnect: false,
+        autoConnect: true, // Enable autoConnect to prevent premature disconnection
         auth: { token },
         query: { auth: token },
         reconnection: true,
         reconnectionAttempts: this.maxReconnectAttempts,
         reconnectionDelay: this.reconnectDelay,
         reconnectionDelayMax: 10000,
-        forceNew: true,
+        forceNew: false, // Don't force new connection if one exists
         timeout: 20000,
       })
 
       this.setupEventHandlers()
-      this.socket.connect()
 
       // Don't throw error on connection failure, just log it
       this.socket.once('connect', () => {
         logger.debug('✅ Socket connection established')
+        this.isConnected = true
+        this.isConnecting = false
       })
 
       this.socket.once('connect_error', (error) => {
-        logger.warn('⚠️ Socket connection failed, will retry:', error.message)
+        this.isConnecting = false
+        // Only log if it's not a normal connection attempt or WebSocket closed error
+        if (error.message && 
+            !error.message.includes('xhr poll error') && 
+            !error.message.includes('WebSocket is closed')) {
+          logger.warn('⚠️ Socket connection failed, will retry:', error.message)
+        }
       })
+
+      // Set timeout to clear isConnecting flag
+      setTimeout(() => {
+        if (this.isConnecting) {
+          this.isConnecting = false
+        }
+      }, 10000)
 
       return this.socket
     } catch (error) {
@@ -60,6 +106,14 @@ class SocketService {
   }
 
   setupEventHandlers() {
+    // Remove existing handlers to prevent duplicates
+    this.socket.removeAllListeners('connect')
+    this.socket.removeAllListeners('disconnect')
+    this.socket.removeAllListeners('connect_error')
+    this.socket.removeAllListeners('reconnect')
+    this.socket.removeAllListeners('reconnect_error')
+    this.socket.removeAllListeners('reconnect_failed')
+
     this.socket.on('connect', () => {
       logger.debug('✅ Socket connected successfully')
       this.isConnected = true
@@ -68,13 +122,19 @@ class SocketService {
     })
 
     this.socket.on('disconnect', (reason) => {
-      logger.warn('⚠️ Socket disconnected:', reason)
+      // Only log if it's not a normal client disconnect
+      if (reason !== 'io client disconnect') {
+        logger.warn('⚠️ Socket disconnected:', reason)
+      }
       this.isConnected = false
       this.emit('disconnect', reason)
     })
 
     this.socket.on('connect_error', (error) => {
-      logger.error('❌ Socket connection error:', error.message)
+      // Don't log WebSocket closed errors as they're often transient
+      if (error.message && !error.message.includes('WebSocket is closed')) {
+        logger.error('❌ Socket connection error:', error.message)
+      }
       this.reconnectAttempts++
       this.emit('connect_error', error)
     })
@@ -155,9 +215,15 @@ class SocketService {
   disconnect() {
     if (this.socket) {
       logger.debug('🔌 Disconnecting socket...')
-      this.socket.disconnect()
+      // Remove all listeners before disconnecting to prevent errors
+      this.socket.removeAllListeners()
+      // Only disconnect if socket is actually connected or connecting
+      if (this.socket.connected || this.socket.connecting) {
+        this.socket.disconnect()
+      }
       this.socket = null
       this.isConnected = false
+      this.isConnecting = false
       this.listeners = {}
     }
   }
