@@ -167,6 +167,7 @@ export default function CurrentLocationMap() {
               center: { lat: ${lat}, lng: ${lng} },
               zoom: 15,
               mapTypeId: 'terrain',
+              language: 'en',
             });
             
             const marker = new google.maps.Marker({
@@ -193,7 +194,7 @@ export default function CurrentLocationMap() {
       </head>
       <body>
         <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&callback=initMap"></script>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&language=en&callback=initMap"></script>
       </body>
       </html>
     `;

@@ -72,6 +72,20 @@ export const parseError = (error) => {
     return { code, message, adminMessage };
   }
 
+  // Handle canceled requests (AbortController) - don't treat as error
+  if (error?.code === 'ERR_CANCELED' || 
+      error?.message?.toLowerCase().includes('canceled') || 
+      error?.message?.toLowerCase() === 'canceled' ||
+      error?.name === 'CanceledError' ||
+      error?.name === 'AbortError') {
+    // Return a special code that indicates cancellation (not an error)
+    return {
+      code: 'CANCELED',
+      message: 'Request canceled',
+      adminMessage: 'Request was canceled'
+    };
+  }
+
   // Handle network errors
   if (error?.message === 'Network Error' || error?.code === 'ERR_NETWORK') {
     return {

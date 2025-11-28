@@ -15,21 +15,33 @@ export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
   const { theme } = useTheme();
   const router = useRouter();
 
+  // Handle case where user might be undefined (from fallback user object)
+  const user = post.user || { 
+    _id: 'unknown', 
+    fullName: 'Unknown User', 
+    profilePic: 'https://via.placeholder.com/40' 
+  };
+
   return (
     <View style={styles.header}>
       <TouchableOpacity
         style={styles.userInfo}
-        onPress={() => router.push(`/profile/${post.user._id}`)}
+        onPress={() => {
+          if (user._id && user._id !== 'unknown') {
+            router.push(`/profile/${user._id}`);
+          }
+        }}
+        disabled={!user._id || user._id === 'unknown'}
       >
         <Image
           source={{
-            uri: post.user.profilePic || 'https://via.placeholder.com/40',
+            uri: user.profilePic || 'https://via.placeholder.com/40',
           }}
           style={styles.profilePic}
         />
         <View style={styles.userDetails}>
           <Text style={[styles.username, { color: theme.colors.text }]}>
-            {post.user.fullName}
+            {user.fullName || 'Unknown User'}
           </Text>
           <PostLocation post={post} />
         </View>
