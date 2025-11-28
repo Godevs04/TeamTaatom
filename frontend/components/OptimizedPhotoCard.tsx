@@ -62,6 +62,13 @@ function PhotoCard({
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  
+  // Handle case where user might be undefined (from fallback user object)
+  const postUser = post.user || { 
+    _id: 'unknown', 
+    fullName: 'Unknown User', 
+    profilePic: 'https://via.placeholder.com/40' 
+  };
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
@@ -415,7 +422,7 @@ function PhotoCard({
 
       // Fallback to React Native Share API
       const shareContent = {
-        title: `Post by ${post.user.fullName}`,
+        title: `Post by ${postUser.fullName || 'Unknown User'}`,
         message: post.caption ? `${post.caption}\n\n${post.imageUrl}` : post.imageUrl,
         url: post.imageUrl,
       };
@@ -524,7 +531,7 @@ function PhotoCard({
       return;
     }
 
-    if (currentUser._id !== post.user._id) {
+    if (currentUser._id !== postUser._id) {
       Alert.alert('Error', 'You can only delete your own posts.');
       return;
     }
@@ -699,7 +706,7 @@ function PhotoCard({
         onComment={handleOpenComments}
         onShare={handleShareClick}
         onSave={handleSave}
-        showBookmark={showBookmark && currentUser && currentUser._id !== post.user._id}
+        showBookmark={showBookmark && currentUser && currentUser._id !== postUser._id}
         isLoading={actionLoading.size > 0}
       />
 
@@ -728,7 +735,7 @@ function PhotoCard({
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               </View>
             )}
-            {currentUser && currentUser._id === post.user._id ? (
+            {currentUser && currentUser._id === postUser._id ? (
               // Own post options
               <>
                 <TouchableOpacity
@@ -867,10 +874,10 @@ function PhotoCard({
                     setShowMenu(false);
                     showCustomAlertMessage(
                       'Unfollow User',
-                      `Are you sure you want to unfollow ${post.user.fullName}? You won't see their posts in your feed anymore.`,
+                      `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
                       'warning',
                       () => {
-                        showCustomAlertMessage('Success', `You've unfollowed ${post.user.fullName}`, 'success');
+                        showCustomAlertMessage('Success', `You've unfollowed ${postUser.fullName || 'Unknown User'}`, 'success');
                       }
                     );
                   }}
