@@ -1,5 +1,5 @@
 const Locale = require('../models/Locale');
-const { uploadLocaleImage, deleteLocaleImage } = require('../config/s3');
+const { uploadLocaleImage, deleteLocaleImage } = require('../config/cloudinary');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -28,16 +28,22 @@ const getLocales = async (req, res) => {
     }
 
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode description imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
+    
+    // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to imageUrl
+    const mappedLocales = locales.map(locale => ({
+      ...locale,
+      imageUrl: locale.cloudinaryUrl || locale.imageUrl // Ensure imageUrl is populated for backward compatibility
+    }));
 
     const total = await Locale.countDocuments(query);
 
     return sendSuccess(res, 200, 'Locales fetched successfully', {
-      locales,
+      locales: mappedLocales,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
@@ -57,8 +63,13 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode description imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
       .lean();
+    
+    // Ensure backward compatibility
+    if (locale) {
+      locale.imageUrl = locale.cloudinaryUrl || locale.imageUrl;
+    }
 
     if (!locale) {
       return sendError(res, 'RES_3001', 'Locale not found');
@@ -102,20 +113,20 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
     }
 
-    // Check AWS configuration
-    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_S3_BUCKET_NAME) {
-      logger.error('AWS configuration missing');
-      return sendError(res, 'SRV_6002', 'AWS S3 is not configured. Please check environment variables.');
+    // Check Cloudinary configuration
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      logger.error('Cloudinary configuration missing');
+      return sendError(res, 'SRV_6002', 'Cloudinary is not configured. Please check environment variables.');
     }
 
-    logger.debug('Uploading to S3...');
-    // Upload to S3
-    const s3Result = await uploadLocaleImage(
+    logger.debug('Uploading to Cloudinary...');
+    // Upload to Cloudinary
+    const cloudinaryResult = await uploadLocaleImage(
       req.file.buffer,
       req.file.originalname,
       req.file.mimetype
     );
-    logger.debug('S3 upload successful:', { key: s3Result.key, url: s3Result.url });
+    logger.debug('Cloudinary upload successful:', { key: cloudinaryResult.key, url: cloudinaryResult.url });
 
     // Save to database
     const locale = new Locale({
@@ -125,8 +136,8 @@ const uploadLocale = async (req, res) => {
       stateProvince: stateProvince ? stateProvince.trim() : '',
       stateCode: stateCode ? stateCode.trim() : '',
       description: description ? description.trim() : '',
-      imageKey: s3Result.key,
-      imageUrl: s3Result.url,
+      cloudinaryKey: cloudinaryResult.key, // Store Cloudinary public_id
+      cloudinaryUrl: cloudinaryResult.url, // Store Cloudinary secure_url
       createdBy: req.superAdmin._id,
       displayOrder: parseInt(displayOrder) || 0,
       isActive: true // Explicitly set to active
@@ -136,8 +147,13 @@ const uploadLocale = async (req, res) => {
 
     // Return locale with all fields for frontend
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode description imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
       .lean();
+    
+    // Ensure backward compatibility
+    if (localeResponse) {
+      localeResponse.imageUrl = localeResponse.cloudinaryUrl || localeResponse.imageUrl;
+    }
 
     return sendSuccess(res, 201, 'Locale uploaded successfully', { locale: localeResponse });
   } catch (error) {
@@ -150,24 +166,16 @@ const uploadLocale = async (req, res) => {
     });
     
     // Provide more specific error messages
-    if (error.code === 'AccessControlListNotSupported') {
-      return sendError(res, 'SRV_6002', 'S3 bucket does not allow ACLs. The bucket must use "Bucket owner enforced" (ACLs disabled). Please check bucket settings and ensure upload code does not use ACL parameters.');
+    if (error.message?.includes('Invalid API key') || error.message?.includes('Invalid credentials')) {
+      return sendError(res, 'SRV_6002', 'Cloudinary credentials are invalid. Please check CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.');
     }
     
-    if (error.code === 'ENOENT' || error.message?.includes('NoSuchBucket')) {
-      return sendError(res, 'SRV_6002', 'S3 bucket configuration error. Please check AWS credentials and bucket name.');
+    if (error.message?.includes('Cloud name') || error.message?.includes('cloud_name')) {
+      return sendError(res, 'SRV_6002', 'Cloudinary cloud name is invalid. Please check CLOUDINARY_CLOUD_NAME.');
     }
     
-    if (error.code === 'InvalidAccessKeyId' || error.code === 'SignatureDoesNotMatch') {
-      return sendError(res, 'SRV_6002', 'AWS credentials are invalid. Please check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.');
-    }
-    
-    if (error.code === 'NoSuchBucket' || error.message?.includes('bucket')) {
-      return sendError(res, 'SRV_6002', `S3 bucket "${process.env.AWS_S3_BUCKET_NAME}" not found. Please check AWS_S3_BUCKET_NAME.`);
-    }
-    
-    if (error.message?.includes('AWS_CLOUDFRONT_URL')) {
-      return sendError(res, 'SRV_6002', 'CloudFront URL is required for private bucket access. Please set AWS_CLOUDFRONT_URL in environment variables.');
+    if (error.http_code === 401 || error.http_code === 403) {
+      return sendError(res, 'SRV_6002', 'Cloudinary authentication failed. Please verify your API credentials.');
     }
     
     return sendError(res, 'SRV_6001', error.message || 'Error uploading locale');
@@ -185,12 +193,15 @@ const deleteLocaleById = async (req, res) => {
       return sendError(res, 'RES_3001', 'Locale not found');
     }
 
-    // Delete from S3
+    // Delete from Cloudinary
     try {
-      await deleteLocaleImage(locale.imageKey);
-    } catch (s3Error) {
-      logger.error('Error deleting from S3:', s3Error);
-      // Continue with database deletion even if S3 deletion fails
+      const keyToDelete = locale.cloudinaryKey || locale.imageKey; // Use new field if available, fallback to legacy
+      if (keyToDelete) {
+        await deleteLocaleImage(keyToDelete);
+      }
+    } catch (cloudinaryError) {
+      logger.error('Error deleting from Cloudinary:', cloudinaryError);
+      // Continue with database deletion even if Cloudinary deletion fails
     }
 
     // Delete from database

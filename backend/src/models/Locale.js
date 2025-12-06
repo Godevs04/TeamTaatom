@@ -32,14 +32,23 @@ const localeSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  cloudinaryKey: {
+    type: String,
+    required: [true, 'Cloudinary key is required'],
+    unique: true
+  },
+  cloudinaryUrl: {
+    type: String,
+    required: [true, 'Cloudinary URL is required']
+  },
+  // Legacy fields for backward compatibility (deprecated, use cloudinaryKey/cloudinaryUrl)
   imageKey: {
     type: String,
-    required: [true, 'S3 image key is required'],
-    unique: true
+    sparse: true
   },
   imageUrl: {
     type: String,
-    required: [true, 'Image URL is required']
+    sparse: true
   },
   isActive: {
     type: Boolean,

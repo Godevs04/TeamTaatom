@@ -810,6 +810,7 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
   try {
     const { id } = req.params
     const User = require('../models/User')
+    const { cascadeDeleteUser } = require('../utils/cascadeDelete')
     
     const user = await User.findById(id)
     
@@ -825,6 +826,9 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
       req.get('User-Agent'),
       true
     )
+    
+    // Cascade delete all user-related data
+    await cascadeDeleteUser(id)
     
     // Soft delete by marking as inactive
     await User.findByIdAndUpdate(id, { isActive: false, deletedAt: new Date() })
