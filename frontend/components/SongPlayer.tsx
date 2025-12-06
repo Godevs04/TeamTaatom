@@ -97,8 +97,6 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       console.log('Attempting to load audio from:', audioUrl);
 
       // Load new sound with proper error handling
-      // Note: expo-av doesn't support custom headers in the source object
-      // CloudFront CORS must be configured on the server side
       const { sound: newSound } = await Audio.Sound.createAsync(
         { 
           uri: audioUrl,
@@ -154,11 +152,11 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           const errorMsg = typeof errorObj === 'string' ? errorObj : errorObj?.message || '';
           const errorCode = errorObj?.code;
           if (errorMsg.includes('-1102') || errorCode === -1102) {
-            console.error('Audio file not accessible. This may be a CloudFront CORS or access issue.');
+            console.error('Audio file not accessible.');
             console.error('Please check:');
-            console.error('1. CloudFront CORS configuration');
-            console.error('2. CloudFront OAC (Origin Access Control) settings');
-            console.error('3. The file exists at:', song.s3Url);
+            console.error('1. The file exists at:', song.s3Url);
+            console.error('2. Network connectivity');
+            console.error('3. File permissions');
           }
         }
       });
@@ -173,19 +171,12 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         console.error('❌ NSURLErrorDomain -1102: Audio file not accessible');
         console.error('This error typically means the audio file cannot be accessed from the app.');
         console.error('');
-        console.error('🔧 REQUIRED CLOUDFRONT CONFIGURATION:');
-        console.error('1. CloudFront Distribution must have CORS headers configured');
-        console.error('   - Add CORS policy to CloudFront response headers');
-        console.error('   - Allow Origin: * (or your app domain)');
-        console.error('   - Allow Methods: GET, HEAD, OPTIONS');
-        console.error('   - Allow Headers: Range, Accept, Content-Type');
-        console.error('');
-        console.error('2. If using private S3 bucket with OAC:');
-        console.error('   - Ensure CloudFront OAC is properly configured');
-        console.error('   - Verify CloudFront has permission to access S3 bucket');
-        console.error('');
-        console.error('3. Verify the file exists at the URL:');
+        console.error('🔧 TROUBLESHOOTING:');
+        console.error('1. Verify the file exists at the URL:');
         console.error('   URL:', song.s3Url);
+        console.error('');
+        console.error('2. Check network connectivity');
+        console.error('3. Verify file permissions');
         console.error('');
         console.error('💡 To test: Open the URL in a browser to see if it loads');
       } else {
