@@ -48,6 +48,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  profilePicStorageKey: {
+    type: String,
+    required: false
+  },
   followers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

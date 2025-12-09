@@ -542,7 +542,7 @@ const Songs = () => {
                 <button
                   onClick={() => {
                     // Bulk delete functionality
-                    toast.info('Bulk delete feature coming soon')
+                    toast('Bulk delete feature coming soon', { icon: 'ℹ️' })
                   }}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
                 >
@@ -967,7 +967,7 @@ const Songs = () => {
                 </p>
               )}
               <p className="text-gray-500 text-sm">
-                This action cannot be undone. The song will be permanently removed from S3 and the database.
+                This action cannot be undone. The song will be permanently removed from storage and the database.
               </p>
             </div>
           </div>

@@ -879,7 +879,7 @@ const Locales = () => {
                 </p>
               )}
               <p className="text-gray-500 text-sm">
-                This action cannot be undone. The locale image will be permanently removed from S3 and the database.
+                This action cannot be undone. The locale image will be permanently removed from storage and the database.
               </p>
             </div>
           </div>

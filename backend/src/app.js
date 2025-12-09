@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const Sentry = require('./instrument');
+const logger = require('./utils/logger');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -37,7 +38,19 @@ const app = express();
 // setupExpressErrorHandler will be called after routes are defined
 
 // Connect to MongoDB - store promise for server.js to await
-const dbConnectionPromise = connectDB();
+// Skip connection in test environment if already connected (to avoid conflicts)
+let dbConnectionPromise;
+if (process.env.NODE_ENV === 'test') {
+  const mongoose = require('mongoose');
+  if (mongoose.connection.readyState === 1) {
+    // Already connected (e.g., by test setup)
+    dbConnectionPromise = Promise.resolve();
+  } else {
+    dbConnectionPromise = connectDB();
+  }
+} else {
+  dbConnectionPromise = connectDB();
+}
 
 // Initialize query monitoring after DB connection is established
 dbConnectionPromise
@@ -341,7 +354,8 @@ app.use('*', (req, res) => {
 
 // Sentry Express error handler (must be BEFORE custom error handler)
 // This sets up Sentry's error handling middleware to capture errors first
-if (process.env.SENTRY_DSN) {
+// Skip in test environment to avoid warnings
+if (process.env.SENTRY_DSN && process.env.NODE_ENV !== 'test') {
   Sentry.setupExpressErrorHandler(app);
 }
 
