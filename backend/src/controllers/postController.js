@@ -6,6 +6,7 @@ const Notification = require('../models/Notification');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
 const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
+const { buildMediaKey, uploadObject, deleteObject, getDownloadUrl } = require('../services/storage');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
@@ -186,28 +187,28 @@ const getPosts = async (req, res) => {
     // Add isLiked field if user is authenticated and optimize image URLs
     const userId = req.user?._id?.toString();
     const postsWithLikeStatus = posts.map(post => {
-      // Generate optimized image URL with WebP format for better performance
+      // Use image URL as-is (new uploads use R2, legacy Cloudinary URLs are kept for backward compatibility)
+      // For legacy Cloudinary URLs, optionally optimize (but new R2 URLs don't need optimization)
       let optimizedImageUrl = post.imageUrl;
       if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+        // Legacy Cloudinary URL - optionally optimize for backward compatibility
         try {
-          // Extract public ID from Cloudinary URL
           const urlParts = post.imageUrl.split('/');
           const publicIdWithExtension = urlParts[urlParts.length - 1];
           const publicId = publicIdWithExtension.split('.')[0];
-          
-          // Generate optimized URL with WebP format and progressive loading
           optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
             width: 800,
             height: 800,
             quality: 'auto:good',
-            format: 'auto', // Cloudinary auto-detects WebP support
-            flags: 'progressive' // Progressive JPEG loading
+            format: 'auto',
+            flags: 'progressive'
           });
         } catch (error) {
-          logger.warn('Failed to optimize image URL:', error);
+          logger.warn('Failed to optimize Cloudinary URL:', error);
           // Keep original URL as fallback
         }
       }
+      // For new R2 URLs, use as-is (no optimization needed - URLs are already pre-signed)
 
       // Check if user liked this post (optimized)
       const isLiked = userId && post.likes 
@@ -555,19 +556,40 @@ const createPost = async (req, res) => {
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume } = req.body;
 
-    // Upload all images to Cloudinary
+    // Upload all images to Sevalla Object Storage
     const imageUrls = [];
-    const cloudinaryPublicIds = [];
+    const storageKeys = [];
     
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const cloudinaryResult = await uploadImage(file.buffer, {
-        folder: 'taatom/posts',
-        public_id: `post_${req.user._id}_${Date.now()}_${i}`
-      });
-      
-      imageUrls.push(cloudinaryResult.secure_url);
-      cloudinaryPublicIds.push(cloudinaryResult.public_id);
+    // Store storage keys in request for cleanup if post creation fails
+    req.storageKeys = storageKeys;
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const extension = file.originalname.split('.').pop() || 'jpg';
+        const storageKey = buildMediaKey({
+          type: 'post',
+          userId: req.user._id.toString(),
+          filename: file.originalname,
+          extension
+        });
+        
+        const uploadResult = await uploadObject(file.buffer, storageKey, file.mimetype);
+        imageUrls.push(uploadResult.url);
+        storageKeys.push(storageKey);
+      }
+    } catch (uploadError) {
+      // Clean up any successfully uploaded images if subsequent uploads fail
+      if (storageKeys.length > 0) {
+        await Promise.all(
+          storageKeys.map(key => 
+            deleteObject(key).catch(err => 
+              logger.error('Error cleaning up failed upload:', err)
+            )
+          )
+        );
+      }
+      throw uploadError;
     }
 
     // Parse tags if provided
@@ -601,7 +623,9 @@ const createPost = async (req, res) => {
       caption,
       imageUrl: imageUrls[0], // Keep first image as primary for backward compatibility
       images: imageUrls, // Store all images
-      cloudinaryPublicIds: cloudinaryPublicIds,
+      storageKey: storageKeys[0], // Primary storage key
+      storageKeys: storageKeys, // All storage keys
+      cloudinaryPublicIds: storageKeys, // Backward compatibility: use storageKeys as cloudinaryPublicIds
       tags: allHashtags,
       mentions: mentionUserIds,
       type: 'photo',
@@ -728,10 +752,16 @@ const createPost = async (req, res) => {
   } catch (error) {
     logger.error('Create post error:', error);
     
-    // Clean up uploaded image if post creation failed
-    if (req.cloudinaryResult) {
-      deleteImage(req.cloudinaryResult.public_id).catch(err => 
-        logger.error('Error deleting image after failed post creation:', err)
+    // Clean up uploaded images if post creation failed
+    // Note: Storage keys are stored in req.storageKeys if available
+    if (req.storageKeys && Array.isArray(req.storageKeys) && req.storageKeys.length > 0) {
+      const { deleteObject } = require('../services/storage');
+      await Promise.all(
+        req.storageKeys.map(key => 
+          deleteObject(key).catch(err => 
+            logger.error('Error deleting image after failed post creation:', err)
+          )
+        )
       );
     }
 
@@ -1871,46 +1901,26 @@ const createShort = async (req, res) => {
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
 
-    // Upload video to Cloudinary with async eager; fallback to upload_large for very big files
-    let cloudinaryResult;
+    // Upload video to Sevalla Object Storage
+    const extension = videoFile.originalname.split('.').pop() || 'mp4';
+    const videoStorageKey = buildMediaKey({
+      type: 'short',
+      userId: req.user._id.toString(),
+      filename: videoFile.originalname,
+      extension
+    });
+    
+    let videoUploadResult;
     try {
-      cloudinaryResult = await uploadImage(videoFile.buffer, {
-        folder: 'taatom/shorts',
-        resource_type: 'video',
-        public_id: `short_${req.user._id}_${Date.now()}`,
-        eager: [ { format: 'mp4', quality: 'auto', fetch_format: 'auto' } ],
-        eager_async: true,
-        chunk_size: 50 * 1024 * 1024,
-      });
-    } catch (streamErr) {
-      logger.error('Cloudinary upload_stream error:', streamErr);
-      try {
-        const dataUri = `data:${videoFile.mimetype};base64,${videoFile.buffer.toString('base64')}`;
-        cloudinaryResult = await cloudinary.uploader.upload_large(dataUri, {
-          folder: 'taatom/shorts',
-          resource_type: 'video',
-          public_id: `short_${req.user._id}_${Date.now()}`,
-          eager: [ { format: 'mp4', quality: 'auto', fetch_format: 'auto' } ],
-          eager_async: true,
-          chunk_size: 50 * 1024 * 1024,
-        });
-      } catch (largeErr) {
-        logger.error('Cloudinary upload_large error:', largeErr);
-        return sendError(res, 'FILE_4004', largeErr.message || 'Video is too large to process. Please try a smaller clip.');
-      }
+      videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+    } catch (uploadErr) {
+      logger.error('Storage upload error:', uploadErr);
+      return sendError(res, 'FILE_4004', uploadErr.message || 'Video upload failed. Please try again.');
     }
 
-    // Validate video duration (max 60 minutes = 3600 seconds)
-    const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
-    if (cloudinaryResult.duration && cloudinaryResult.duration > MAX_VIDEO_DURATION) {
-      // Delete the uploaded video from Cloudinary
-      try {
-        await cloudinary.uploader.destroy(cloudinaryResult.public_id, { resource_type: 'video' });
-      } catch (deleteErr) {
-        logger.error('Error deleting video from Cloudinary:', deleteErr);
-      }
-      return sendError(res, 'FILE_4005', `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(cloudinaryResult.duration / 60)} minutes.`);
-    }
+    // Note: Video duration validation would require video processing library
+    // For now, we'll skip duration validation during upload
+    // Duration can be validated client-side or via a background job
 
     // Parse tags if provided
     let parsedTags = [];
@@ -1928,25 +1938,37 @@ const createShort = async (req, res) => {
     const allHashtags = [...new Set([...parsedTags, ...extractedHashtags])];
 
     // Create short
-    // If user provided a custom image, upload and use its secure_url; else generate thumbnail URL
+    // If user provided a custom thumbnail image, upload it
     let thumbnailUrl = '';
+    let thumbnailStorageKey = null;
     if (imageFile) {
       try {
-        const imgRes = await uploadImage(imageFile.buffer, { folder: 'taatom/shorts', resource_type: 'image' });
-        thumbnailUrl = imgRes.secure_url;
+        const thumbExtension = imageFile.originalname.split('.').pop() || 'jpg';
+        thumbnailStorageKey = buildMediaKey({
+          type: 'short',
+          userId: req.user._id.toString(),
+          filename: `thumb_${imageFile.originalname}`,
+          extension: thumbExtension
+        });
+        const thumbResult = await uploadObject(imageFile.buffer, thumbnailStorageKey, imageFile.mimetype);
+        thumbnailUrl = thumbResult.url;
       } catch (imgErr) {
-        logger.error('Thumbnail image upload failed, falling back to generated thumbnail');
+        logger.error('Thumbnail image upload failed:', imgErr);
+        // Use video URL as fallback thumbnail
+        thumbnailUrl = videoUploadResult.url;
       }
+    } else {
+      // Use video URL as thumbnail if no custom thumbnail provided
+      thumbnailUrl = videoUploadResult.url;
     }
-    if (!thumbnailUrl) {
-      thumbnailUrl = getVideoThumbnailUrl(cloudinaryResult.public_id);
-    }
+    
     const short = new Post({
       user: req.user._id,
       caption,
       imageUrl: thumbnailUrl || '',
-      videoUrl: cloudinaryResult.secure_url, // Video URL goes here
-      cloudinaryPublicId: cloudinaryResult.public_id,
+      videoUrl: videoUploadResult.url, // Video URL goes here
+      storageKey: videoStorageKey, // Primary storage key for video
+      cloudinaryPublicId: videoStorageKey, // Backward compatibility
       tags: allHashtags,
       type: 'short',
       location: {
@@ -2021,8 +2043,8 @@ const createShort = async (req, res) => {
     logger.error('Create short error:', error);
     
     // Clean up uploaded video if short creation failed
-    if (cloudinaryResult) {
-      deleteImage(cloudinaryResult.public_id).catch(err => 
+    if (videoUploadResult && videoStorageKey) {
+      deleteObject(videoStorageKey).catch(err => 
         logger.error('Error deleting video after failed short creation:', err)
       );
     }

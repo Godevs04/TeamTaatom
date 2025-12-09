@@ -8,6 +8,7 @@ const Report = require('../models/Report');
 const Chat = require('../models/Chat');
 const Comment = require('../models/Comment');
 const { deleteImage } = require('../config/cloudinary');
+const { deleteObject } = require('../services/storage');
 const logger = require('./logger');
 
 /**
@@ -26,24 +27,42 @@ const cascadeDeletePost = async (postId, post = null) => {
       }
     }
 
-    // Delete Cloudinary images
-    if (post.cloudinaryPublicId) {
-      try {
-        await deleteImage(post.cloudinaryPublicId);
-        logger.debug(`Deleted Cloudinary image: ${post.cloudinaryPublicId}`);
-      } catch (error) {
-        logger.error(`Error deleting Cloudinary image ${post.cloudinaryPublicId}:`, error);
+    // Delete storage objects (Sevalla R2)
+    // Priority: storageKey/storageKeys > cloudinaryPublicId/cloudinaryPublicIds (backward compatibility)
+    const keysToDelete = [];
+    
+    if (post.storageKey) {
+      keysToDelete.push(post.storageKey);
+    }
+    if (post.storageKeys && post.storageKeys.length > 0) {
+      keysToDelete.push(...post.storageKeys);
+    }
+    // Backward compatibility: also try to delete old Cloudinary keys if storage keys don't exist
+    if (keysToDelete.length === 0) {
+      if (post.cloudinaryPublicId) {
+        keysToDelete.push(post.cloudinaryPublicId);
+      }
+      if (post.cloudinaryPublicIds && post.cloudinaryPublicIds.length > 0) {
+        keysToDelete.push(...post.cloudinaryPublicIds);
       }
     }
-
-    if (post.cloudinaryPublicIds && post.cloudinaryPublicIds.length > 0) {
+    
+    // Delete all storage objects
+    if (keysToDelete.length > 0) {
       await Promise.all(
-        post.cloudinaryPublicIds.map(async (publicId) => {
+        keysToDelete.map(async (key) => {
           try {
-            await deleteImage(publicId);
-            logger.debug(`Deleted Cloudinary image: ${publicId}`);
+            await deleteObject(key);
+            logger.debug(`Deleted storage object: ${key}`);
           } catch (error) {
-            logger.error(`Error deleting Cloudinary image ${publicId}:`, error);
+            logger.error(`Error deleting storage object ${key}:`, error);
+            // Try legacy Cloudinary delete as fallback
+            try {
+              await deleteImage(key);
+              logger.debug(`Deleted Cloudinary image (legacy): ${key}`);
+            } catch (cloudinaryError) {
+              logger.error(`Error deleting Cloudinary image (legacy) ${key}:`, cloudinaryError);
+            }
           }
         })
       );

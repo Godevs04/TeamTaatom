@@ -16,16 +16,24 @@ const songSchema = new mongoose.Schema({
     required: [true, 'Duration is required'],
     min: [0, 'Duration must be positive']
   },
+  // New storage fields for Sevalla Object Storage
+  storageKey: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true
+  },
   cloudinaryKey: {
     type: String,
-    required: [true, 'Cloudinary key is required'],
-    unique: true
+    required: false,
+    unique: true,
+    sparse: true
   },
   cloudinaryUrl: {
     type: String,
-    required: [true, 'Cloudinary URL is required']
+    required: false
   },
-  // Legacy fields for backward compatibility (deprecated, use cloudinaryKey/cloudinaryUrl)
+  // Legacy fields for backward compatibility (deprecated, use storageKey/cloudinaryKey)
   s3Key: {
     type: String,
     sparse: true
