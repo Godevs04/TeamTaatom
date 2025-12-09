@@ -1,9 +1,12 @@
 require('dotenv').config();
+
+// Initialize Sentry as early as possible (before any other imports)
+require('./instrument');
+
 const { app, dbConnectionPromise } = require('./app');
 const http = require('http');
 const { setupSocket } = require('./socket');
 const { initializeRedis, checkRedisHealth } = require('./utils/redisHealth');
-const { verifyS3Connection } = require('./config/s3');
 const logger = require('./utils/logger');
 
 // Initialize Redis connection
@@ -19,15 +22,6 @@ const logger = require('./utils/logger');
   } catch (error) {
     logger.warn('⚠️  Redis connection check failed:', error.message);
     logger.warn('   Background jobs require Redis. Install Redis or set ENABLE_BACKGROUND_JOBS=false');
-  }
-})();
-
-// Initialize AWS S3 connection
-(async () => {
-  try {
-    await verifyS3Connection();
-  } catch (error) {
-    logger.error('❌ AWS S3 initialization error:', error.message);
   }
 })();
 

@@ -16,8 +16,17 @@ export default function PostCaption({ post }: PostCaptionProps) {
 
   if (!post.caption) return null;
 
+  // Handle case where user might be undefined
+  const user = post.user || { 
+    _id: 'unknown', 
+    fullName: 'Unknown User', 
+    profilePic: 'https://via.placeholder.com/40' 
+  };
+
   const handleUserPress = () => {
-    router.push(`/profile/${post.user._id}`);
+    if (user._id && user._id !== 'unknown') {
+      router.push(`/profile/${user._id}`);
+    }
   };
 
   return (
@@ -28,7 +37,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
             onPress={handleUserPress}
             style={[styles.username, { color: theme.colors.text }]}
           >
-            {post.user.fullName}{' '}
+            {user.fullName || 'Unknown User'}{' '}
           </Text>
       <HashtagMentionText
             text={post.caption}

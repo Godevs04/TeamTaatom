@@ -1,5 +1,5 @@
 const Song = require('../models/Song');
-const { uploadSong, deleteSong } = require('../config/s3');
+const { uploadSong, deleteSong } = require('../config/cloudinary');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -27,16 +27,22 @@ const getSongs = async (req, res) => {
     }
 
     const songs = await Song.find(query)
-      .select('title artist duration s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
+    
+    // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to s3Url
+    const mappedSongs = songs.map(song => ({
+      ...song,
+      s3Url: song.cloudinaryUrl || song.s3Url // Ensure s3Url is populated for backward compatibility
+    }));
 
     const total = await Song.countDocuments(query);
 
     return sendSuccess(res, 200, 'Songs fetched successfully', {
-      songs,
+      songs: mappedSongs,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(total / limit),
@@ -56,8 +62,13 @@ const getSongs = async (req, res) => {
 const getSongById = async (req, res) => {
   try {
     const song = await Song.findById(req.params.id)
-      .select('title artist duration s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
       .lean();
+    
+    // Ensure backward compatibility
+    if (song) {
+      song.s3Url = song.cloudinaryUrl || song.s3Url;
+    }
 
     if (!song) {
       return sendError(res, 'RES_3001', 'Song not found');
@@ -101,20 +112,20 @@ const uploadSongFile = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid audio file format. Supported formats: MP3, WAV, M4A');
     }
 
-    // Check AWS configuration
-    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_S3_BUCKET_NAME) {
-      logger.error('AWS configuration missing');
-      return sendError(res, 'SRV_6002', 'AWS S3 is not configured. Please check environment variables.');
+    // Check Cloudinary configuration
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      logger.error('Cloudinary configuration missing');
+      return sendError(res, 'SRV_6002', 'Cloudinary is not configured. Please check environment variables.');
     }
 
-    logger.debug('Uploading to S3...');
-    // Upload to S3
-    const s3Result = await uploadSong(
+    logger.debug('Uploading to Cloudinary...');
+    // Upload to Cloudinary
+    const cloudinaryResult = await uploadSong(
       req.file.buffer,
       req.file.originalname,
       req.file.mimetype
     );
-    logger.debug('S3 upload successful:', { key: s3Result.key, url: s3Result.url });
+    logger.debug('Cloudinary upload successful:', { key: cloudinaryResult.key, url: cloudinaryResult.url });
 
     // Save to database
     const song = new Song({
@@ -122,8 +133,8 @@ const uploadSongFile = async (req, res) => {
       artist,
       duration: parseInt(duration) || 0,
       genre: genre || 'General',
-      s3Key: s3Result.key,
-      s3Url: s3Result.url,
+      cloudinaryKey: cloudinaryResult.key, // Store Cloudinary public_id
+      cloudinaryUrl: cloudinaryResult.url, // Store Cloudinary secure_url
       uploadedBy: req.superAdmin._id,
       isActive: true // Explicitly set to active
     });
@@ -132,8 +143,13 @@ const uploadSongFile = async (req, res) => {
 
     // Return song with all fields for frontend
     const songResponse = await Song.findById(song._id)
-      .select('title artist duration s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
       .lean();
+    
+    // Ensure backward compatibility
+    if (songResponse) {
+      songResponse.s3Url = songResponse.cloudinaryUrl || songResponse.s3Url;
+    }
 
     return sendSuccess(res, 201, 'Song uploaded successfully', { song: songResponse });
   } catch (error) {
@@ -146,24 +162,16 @@ const uploadSongFile = async (req, res) => {
     });
     
     // Provide more specific error messages
-    if (error.code === 'AccessControlListNotSupported') {
-      return sendError(res, 'SRV_6002', 'S3 bucket does not allow ACLs. The bucket must use "Bucket owner enforced" (ACLs disabled). Please check bucket settings and ensure upload code does not use ACL parameters.');
+    if (error.message?.includes('Invalid API key') || error.message?.includes('Invalid credentials')) {
+      return sendError(res, 'SRV_6002', 'Cloudinary credentials are invalid. Please check CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.');
     }
     
-    if (error.code === 'ENOENT' || error.message?.includes('NoSuchBucket')) {
-      return sendError(res, 'SRV_6002', 'S3 bucket configuration error. Please check AWS credentials and bucket name.');
+    if (error.message?.includes('Cloud name') || error.message?.includes('cloud_name')) {
+      return sendError(res, 'SRV_6002', 'Cloudinary cloud name is invalid. Please check CLOUDINARY_CLOUD_NAME.');
     }
     
-    if (error.code === 'InvalidAccessKeyId' || error.code === 'SignatureDoesNotMatch') {
-      return sendError(res, 'SRV_6002', 'AWS credentials are invalid. Please check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.');
-    }
-    
-    if (error.code === 'NoSuchBucket' || error.message?.includes('bucket')) {
-      return sendError(res, 'SRV_6002', `S3 bucket "${process.env.AWS_S3_BUCKET_NAME}" not found. Please check AWS_S3_BUCKET_NAME.`);
-    }
-    
-    if (error.message?.includes('AWS_CLOUDFRONT_URL')) {
-      return sendError(res, 'SRV_6002', 'CloudFront URL is required for private bucket access. Please set AWS_CLOUDFRONT_URL in environment variables.');
+    if (error.http_code === 401 || error.http_code === 403) {
+      return sendError(res, 'SRV_6002', 'Cloudinary authentication failed. Please verify your API credentials.');
     }
     
     return sendError(res, 'SRV_6001', error.message || 'Error uploading song');
@@ -181,12 +189,15 @@ const deleteSongById = async (req, res) => {
       return sendError(res, 'RES_3001', 'Song not found');
     }
 
-    // Delete from S3
+    // Delete from Cloudinary
     try {
-      await deleteSong(song.s3Key);
-    } catch (s3Error) {
-      logger.error('Error deleting from S3:', s3Error);
-      // Continue with database deletion even if S3 deletion fails
+      const keyToDelete = song.cloudinaryKey || song.s3Key; // Use new field if available, fallback to legacy
+      if (keyToDelete) {
+        await deleteSong(keyToDelete);
+      }
+    } catch (cloudinaryError) {
+      logger.error('Error deleting from Cloudinary:', cloudinaryError);
+      // Continue with database deletion even if Cloudinary deletion fails
     }
 
     // Delete from database

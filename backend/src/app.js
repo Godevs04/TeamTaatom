@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const Sentry = require('./instrument');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -22,6 +23,7 @@ const featureFlagsRoutes = require('./routes/featureFlagsRoutes');
 const hashtagRoutes = require('./routes/hashtagRoutes');
 const collectionRoutes = require('./routes/collectionRoutes');
 const songRoutes = require('./routes/songRoutes');
+const localeRoutes = require('./routes/localeRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -30,6 +32,9 @@ const { generateCSRF, verifyCSRF } = require('./middleware/csrfProtection');
 const { queryMonitor } = require('./middleware/queryMonitor');
 
 const app = express();
+
+// Note: Sentry Express integration is handled by expressIntegration() in instrument.js
+// setupExpressErrorHandler will be called after routes are defined
 
 // Connect to MongoDB - store promise for server.js to await
 const dbConnectionPromise = connectDB();
@@ -90,8 +95,8 @@ app.use(cors({
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
-      'http://192.168.1.10:8081',
-      'http://192.168.1.10:3000',
+      'http://x:8081',
+      'http://x:3000',
 
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
       /^http:\/\/localhost:\d+$/, // Allow any localhost port
@@ -206,7 +211,8 @@ app.use((req, res, next) => {
       '/api/superadmin/login',
       '/api/superadmin/verify-2fa',
       '/api/superadmin/resend-2fa',
-      '/api/superadmin/create'
+      '/api/superadmin/create',
+      '/api/superadmin/csrf-token'
     ];
     
     // Check if path matches exactly or starts with any public auth path
@@ -266,6 +272,7 @@ app.use('/feature-flags', featureFlagsRoutes);
 app.use('/hashtags', hashtagRoutes);
 app.use('/collections', collectionRoutes);
 app.use('/api/v1/songs', songRoutes);
+app.use('/api/v1/locales', localeRoutes);
 
 // Swagger API Documentation (only in development)
 if (process.env.NODE_ENV === 'development') {
@@ -332,7 +339,14 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
+// Sentry Express error handler (must be BEFORE custom error handler)
+// This sets up Sentry's error handling middleware to capture errors first
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
+// Global error handler (runs after Sentry captures the error)
+// This sends the response to the client
 app.use(errorHandler);
 
 // Export both app and dbConnectionPromise so server.js can wait for DB connection

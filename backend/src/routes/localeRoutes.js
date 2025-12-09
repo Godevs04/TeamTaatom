@@ -1,13 +1,13 @@
 const express = require('express');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
-const { getSongs, getSongById, uploadSongFile, deleteSongById, toggleSongStatus, updateSong } = require('../controllers/songController');
+const { getLocales, getLocaleById, uploadLocale, deleteLocaleById, toggleLocaleStatus, updateLocale } = require('../controllers/localeController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { sendError } = require('../utils/errorCodes');
 
 const router = express.Router();
 
-// Multer configuration for audio file uploads
+// Multer configuration for image file uploads
 // No file size limits - unlimited uploads
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -16,11 +16,11 @@ const upload = multer({
     // fileSize removed - unlimited file size
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a'];
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only audio files are allowed (MP3, WAV, M4A)'), false);
+      cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
     }
   }
 });
@@ -37,41 +37,55 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// Validation rules for song upload
-const uploadSongValidation = [
-  body('title')
+// Validation rules for locale upload
+const uploadLocaleValidation = [
+  body('name')
     .trim()
     .isLength({ min: 1, max: 200 })
-    .withMessage('Title must be between 1 and 200 characters'),
-  body('artist')
+    .withMessage('Name must be between 1 and 200 characters'),
+  body('country')
     .trim()
     .isLength({ min: 1, max: 200 })
-    .withMessage('Artist must be between 1 and 200 characters'),
-  body('duration')
+    .withMessage('Country must be between 1 and 200 characters'),
+  body('countryCode')
+    .trim()
+    .isLength({ min: 1, max: 10 })
+    .withMessage('Country code must be between 1 and 10 characters'),
+  body('stateProvince')
     .optional()
-    .isInt({ min: 0 })
-    .withMessage('Duration must be a positive number'),
-  body('genre')
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('State/Province must be less than 200 characters'),
+  body('stateCode')
     .optional()
     .trim()
     .isLength({ max: 50 })
-    .withMessage('Genre must be less than 50 characters')
+    .withMessage('State code must be less than 50 characters'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Description must be less than 1000 characters'),
+  body('displayOrder')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Display order must be a positive number')
 ];
 
 // Public routes
 /**
  * @swagger
- * /api/v1/songs:
+ * /api/v1/locales:
  *   get:
- *     summary: Get all active songs for selection
- *     tags: [Songs]
+ *     summary: Get all active locales
+ *     tags: [Locales]
  *     parameters:
  *       - in: query
  *         name: search
  *         schema:
  *           type: string
  *       - in: query
- *         name: genre
+ *         name: countryCode
  *         schema:
  *           type: string
  *       - in: query
@@ -84,16 +98,16 @@ const uploadSongValidation = [
  *           type: integer
  *     responses:
  *       200:
- *         description: List of active songs
+ *         description: List of active locales
  */
-router.get('/', getSongs);
+router.get('/', getLocales);
 
 /**
  * @swagger
- * /api/v1/songs/{id}:
+ * /api/v1/locales/{id}:
  *   get:
- *     summary: Get song by ID
- *     tags: [Songs]
+ *     summary: Get locale by ID
+ *     tags: [Locales]
  *     parameters:
  *       - in: path
  *         name: id
@@ -102,17 +116,17 @@ router.get('/', getSongs);
  *           type: string
  *     responses:
  *       200:
- *         description: Song details
+ *         description: Locale details
  */
-router.get('/:id', getSongById);
+router.get('/:id', getLocaleById);
 
 // Protected routes (SuperAdmin only)
 /**
  * @swagger
- * /api/v1/songs/upload:
+ * /api/v1/locales/upload:
  *   post:
- *     summary: Upload a new song (SuperAdmin only)
- *     tags: [Songs]
+ *     summary: Upload a new locale (SuperAdmin only)
+ *     tags: [Locales]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -122,31 +136,38 @@ router.get('/:id', getSongById);
  *           schema:
  *             type: object
  *             required:
- *               - song
- *               - title
- *               - artist
+ *               - image
+ *               - name
+ *               - country
+ *               - countryCode
  *             properties:
- *               song:
+ *               image:
  *                 type: string
  *                 format: binary
- *               title:
+ *               name:
  *                 type: string
- *               artist:
+ *               country:
  *                 type: string
- *               genre:
+ *               countryCode:
  *                 type: string
- *               duration:
+ *               stateProvince:
+ *                 type: string
+ *               stateCode:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               displayOrder:
  *                 type: number
  *     responses:
  *       201:
- *         description: Song uploaded successfully
+ *         description: Locale uploaded successfully
  */
 // Upload route with proper middleware order
 router.post('/upload', 
   verifySuperAdminToken, 
-  upload.single('song'), 
+  upload.single('image'), 
   handleMulterError,
-  ...uploadSongValidation,
+  ...uploadLocaleValidation,
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -154,15 +175,15 @@ router.post('/upload',
     }
     next();
   },
-  uploadSongFile
+  uploadLocale
 );
 
 /**
  * @swagger
- * /api/v1/songs/{id}:
+ * /api/v1/locales/{id}:
  *   delete:
- *     summary: Delete a song (SuperAdmin only)
- *     tags: [Songs]
+ *     summary: Delete a locale (SuperAdmin only)
+ *     tags: [Locales]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -173,16 +194,16 @@ router.post('/upload',
  *           type: string
  *     responses:
  *       200:
- *         description: Song deleted successfully
+ *         description: Locale deleted successfully
  */
-router.delete('/:id', verifySuperAdminToken, deleteSongById);
+router.delete('/:id', verifySuperAdminToken, deleteLocaleById);
 
 /**
  * @swagger
- * /api/v1/songs/{id}/toggle:
+ * /api/v1/locales/{id}/toggle:
  *   patch:
- *     summary: Toggle song active/inactive status (SuperAdmin only)
- *     tags: [Songs]
+ *     summary: Toggle locale active/inactive status (SuperAdmin only)
+ *     tags: [Locales]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -204,39 +225,54 @@ router.delete('/:id', verifySuperAdminToken, deleteSongById);
  *                 type: boolean
  *     responses:
  *       200:
- *         description: Song status toggled successfully
+ *         description: Locale status toggled successfully
  */
-router.patch('/:id/toggle', verifySuperAdminToken, toggleSongStatus);
+router.patch('/:id/toggle', verifySuperAdminToken, toggleLocaleStatus);
 
-// Validation rules for song update
-const updateSongValidation = [
-  body('title')
+// Validation rules for locale update
+const updateLocaleValidation = [
+  body('name')
     .optional()
     .trim()
     .isLength({ min: 1, max: 200 })
-    .withMessage('Title must be between 1 and 200 characters'),
-  body('artist')
+    .withMessage('Name must be between 1 and 200 characters'),
+  body('country')
     .optional()
     .trim()
     .isLength({ min: 1, max: 200 })
-    .withMessage('Artist must be between 1 and 200 characters'),
-  body('duration')
+    .withMessage('Country must be between 1 and 200 characters'),
+  body('countryCode')
     .optional()
-    .isInt({ min: 0 })
-    .withMessage('Duration must be a positive number'),
-  body('genre')
+    .trim()
+    .isLength({ min: 1, max: 10 })
+    .withMessage('Country code must be between 1 and 10 characters'),
+  body('stateProvince')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('State/Province must be less than 200 characters'),
+  body('stateCode')
     .optional()
     .trim()
     .isLength({ max: 50 })
-    .withMessage('Genre must be less than 50 characters')
+    .withMessage('State code must be less than 50 characters'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Description must be less than 1000 characters'),
+  body('displayOrder')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Display order must be a positive number')
 ];
 
 /**
  * @swagger
- * /api/v1/songs/{id}:
+ * /api/v1/locales/{id}:
  *   put:
- *     summary: Update song details (SuperAdmin only)
- *     tags: [Songs]
+ *     summary: Update locale details (SuperAdmin only)
+ *     tags: [Locales]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -252,21 +288,27 @@ const updateSongValidation = [
  *           schema:
  *             type: object
  *             properties:
- *               title:
+ *               name:
  *                 type: string
- *               artist:
+ *               country:
  *                 type: string
- *               genre:
+ *               countryCode:
  *                 type: string
- *               duration:
+ *               stateProvince:
+ *                 type: string
+ *               stateCode:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               displayOrder:
  *                 type: number
  *     responses:
  *       200:
- *         description: Song updated successfully
+ *         description: Locale updated successfully
  */
 router.put('/:id', 
   verifySuperAdminToken,
-  ...updateSongValidation,
+  ...updateLocaleValidation,
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -274,7 +316,7 @@ router.put('/:id',
     }
     next();
   },
-  updateSong
+  updateLocale
 );
 
 module.exports = router;

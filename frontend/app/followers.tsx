@@ -36,8 +36,8 @@ export default function FollowersFollowingList() {
     if (pageToFetch > 1) setLoadingMore(true);
     try {
       const endpoint = type === 'followers'
-        ? `/profile/${userId}/followers?page=${pageToFetch}&limit=${limit}`
-        : `/profile/${userId}/following?page=${pageToFetch}&limit=${limit}`;
+        ? `/api/v1/profile/${userId}/followers?page=${pageToFetch}&limit=${limit}`
+        : `/api/v1/profile/${userId}/following?page=${pageToFetch}&limit=${limit}`;
       const response = await api.get(endpoint);
       const newUsers = response.data.users || [];
       

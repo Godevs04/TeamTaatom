@@ -13,6 +13,7 @@ const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
+const { cascadeDeletePost } = require('../utils/cascadeDelete');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -67,7 +68,21 @@ const getPosts = async (req, res) => {
             ]
           }
         },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            user: {
+              $cond: {
+                if: { $eq: ['$user', null] },
+                then: {
+                  fullName: 'Unknown User',
+                  profilePic: ''
+                },
+                else: '$user'
+              }
+            }
+          }
+        },
         {
           $lookup: {
             from: 'users',
@@ -86,7 +101,22 @@ const getPosts = async (req, res) => {
             foreignField: '_id',
             as: 'songData',
             pipeline: [
-              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+              { 
+                $project: { 
+                  title: 1, 
+                  artist: 1, 
+                  duration: 1, 
+                  cloudinaryUrl: 1, 
+                  s3Url: 1, 
+                  thumbnailUrl: 1, 
+                  _id: 1 
+                } 
+              },
+              {
+                $addFields: {
+                  s3Url: { $ifNull: ['$cloudinaryUrl', '$s3Url'] } // Use cloudinaryUrl if available, fallback to s3Url
+                }
+              }
             ]
           }
         },
@@ -354,7 +384,22 @@ const getPostById = async (req, res) => {
             foreignField: '_id',
             as: 'songData',
             pipeline: [
-              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+              { 
+                $project: { 
+                  title: 1, 
+                  artist: 1, 
+                  duration: 1, 
+                  cloudinaryUrl: 1, 
+                  s3Url: 1, 
+                  thumbnailUrl: 1, 
+                  _id: 1 
+                } 
+              },
+              {
+                $addFields: {
+                  s3Url: { $ifNull: ['$cloudinaryUrl', '$s3Url'] } // Use cloudinaryUrl if available, fallback to s3Url
+                }
+              }
             ]
           }
         },
@@ -902,7 +947,22 @@ const getUserPosts = async (req, res) => {
             foreignField: '_id',
             as: 'songData',
             pipeline: [
-              { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+              { 
+                $project: { 
+                  title: 1, 
+                  artist: 1, 
+                  duration: 1, 
+                  cloudinaryUrl: 1, 
+                  s3Url: 1, 
+                  thumbnailUrl: 1, 
+                  _id: 1 
+                } 
+              },
+              {
+                $addFields: {
+                  s3Url: { $ifNull: ['$cloudinaryUrl', '$s3Url'] } // Use cloudinaryUrl if available, fallback to s3Url
+                }
+              }
             ]
           }
         },
@@ -1284,9 +1344,14 @@ const deleteComment = async (req, res) => {
 // @access  Private
 const deletePost = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).lean();
+    const post = await Post.findById(req.params.id);
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
+    }
+
+    // Check if user owns the post
+    if (post.user.toString() !== req.user._id.toString()) {
+      return sendError(res, 'AUTH_1006', 'You can only delete your own posts');
     }
 
     // Invalidate cache before deletion
@@ -1294,23 +1359,8 @@ const deletePost = async (req, res) => {
     await deleteCacheByPattern('posts:*');
     await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
-    // Check if user owns the post
-    if (post.user.toString() !== req.user._id.toString()) {
-      return sendError(res, 'AUTH_1006', 'You can only delete your own posts');
-    }
-
-    // Delete image from Cloudinary
-    try {
-      await deleteImage(post.cloudinaryPublicId);
-    } catch (cloudinaryError) {
-      logger.error('Error deleting image from Cloudinary:', cloudinaryError);
-      // Continue with post deletion even if image deletion fails
-    }
-
-    // Update user's total likes
-    await User.findByIdAndUpdate(post.user, { 
-      $inc: { totalLikes: -post.likes.length } 
-    });
+    // Cascade delete all related data
+    await cascadeDeletePost(post._id, post);
 
     // Soft delete (mark as inactive)
     post.isActive = false;
@@ -1650,7 +1700,22 @@ const getShorts = async (req, res) => {
           ]
         }
       },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          user: {
+            $cond: {
+              if: { $eq: ['$user', null] },
+              then: {
+                fullName: 'Unknown User',
+                profilePic: '',
+                followers: []
+              },
+              else: '$user'
+            }
+          }
+        }
+      },
       {
         $lookup: {
           from: 'users',

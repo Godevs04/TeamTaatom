@@ -1,8 +1,30 @@
 const logger = require('../utils/logger');
 const { sendError, ERROR_CODES } = require('../utils/errorCodes');
+const Sentry = require('../instrument');
 
-const errorHandler = (err, req, res, next) => {
+const errorHandler = async (err, req, res, next) => {
   logger.error('Error:', err);
+  
+  // Note: Sentry's setupExpressErrorHandler already captures the error
+  // We need to ensure it's flushed BEFORE sending response
+  if (Sentry && process.env.SENTRY_DSN) {
+    // Add context to the already-captured error
+    Sentry.setContext('error_details', {
+      errorCode: err.errorCode || 'SRV_6001',
+      path: req.path,
+      method: req.method,
+    });
+    
+    // CRITICAL: Flush Sentry BEFORE sending response (await to ensure it's sent)
+    try {
+      await Sentry.flush(5000);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('✅ Sentry error flushed successfully');
+      }
+    } catch (flushError) {
+      logger.error('Failed to flush Sentry:', flushError);
+    }
+  }
 
   let errorCode = 'SRV_6001'; // Default server error
   let customMessage = null;
@@ -92,6 +114,7 @@ const errorHandler = (err, req, res, next) => {
     }
   }
 
+  // Send response to client
   return sendError(res, errorCode, customMessage, details);
 };
 

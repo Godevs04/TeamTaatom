@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, Shield, ArrowLeft, CheckCircle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+import { sanitizeText } from '../utils/sanitize'
 
 const Login = () => {
   const [email, setEmail] = useState('')
@@ -143,7 +144,7 @@ const Login = () => {
                     className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                     placeholder="Email address"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => setEmail(sanitizeText(e.target.value))}
                   />
                 </div>
               </div>
@@ -164,7 +165,7 @@ const Login = () => {
                     className="appearance-none relative block w-full px-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                     placeholder="Password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(sanitizeText(e.target.value))}
                   />
                   <button
                     type="button"
