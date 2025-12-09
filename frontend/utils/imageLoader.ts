@@ -26,7 +26,8 @@ export const loadImageWithFallback = async (
     }
   }
 
-  // Strategy 2: Try optimized Cloudinary URL
+  // Strategy 2: Try optimized Cloudinary URL (backward compatibility for legacy URLs)
+  // Note: New uploads use Sevalla R2 storage URLs which don't need optimization
   if (imageUrl.includes('cloudinary.com')) {
     try {
       const optimizedUrl = generateOptimizedCloudinaryUrl(imageUrl);

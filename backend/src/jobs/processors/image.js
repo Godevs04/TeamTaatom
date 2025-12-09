@@ -1,29 +1,47 @@
-const cloudinary = require('cloudinary').v2;
 const logger = require('../../utils/logger');
+const { buildMediaKey, uploadObject, getDownloadUrl } = require('../../services/storage');
+const fetch = require('node-fetch');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Process image job
+/**
+ * Process image job - Migrated to Sevalla Object Storage
+ * 
+ * Note: This job processor downloads an image from a URL, processes it (if needed),
+ * and uploads it to Sevalla Object Storage.
+ * 
+ * For image transformations, consider using a client-side library like sharp
+ * before uploading, or implement a separate image processing service.
+ */
 const processImageJob = async (job) => {
   const { imageUrl, transformations, publicId } = job.data;
 
   try {
-    const options = {
-      transformation: transformations || [
-        { width: 1080, height: 1080, crop: 'limit', quality: 'auto' },
-      ],
-      folder: 'taatom',
-      ...(publicId && { public_id: publicId }),
+    // Download image from URL
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.statusText}`);
+    }
+    
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    
+    // Generate storage key
+    const extension = contentType.split('/')[1] || 'jpg';
+    const storageKey = buildMediaKey({
+      type: 'post',
+      filename: publicId || `processed_${Date.now()}`,
+      extension
+    });
+    
+    // Upload to Sevalla Object Storage
+    const uploadResult = await uploadObject(imageBuffer, storageKey, contentType);
+    
+    logger.info(`Image processed and uploaded successfully: ${storageKey}`);
+    return { 
+      success: true, 
+      url: uploadResult.url, 
+      publicId: storageKey,
+      storageKey: storageKey
     };
-
-    const result = await cloudinary.uploader.upload(imageUrl, options);
-    logger.info(`Image processed successfully: ${result.public_id}`);
-    return { success: true, url: result.secure_url, publicId: result.public_id };
   } catch (error) {
     logger.error('Error processing image:', error);
     throw error;

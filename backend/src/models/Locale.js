@@ -32,16 +32,24 @@ const localeSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  // New storage fields for Sevalla Object Storage
+  storageKey: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true
+  },
   cloudinaryKey: {
     type: String,
-    required: [true, 'Cloudinary key is required'],
-    unique: true
+    required: false,
+    unique: true,
+    sparse: true
   },
   cloudinaryUrl: {
     type: String,
-    required: [true, 'Cloudinary URL is required']
+    required: false
   },
-  // Legacy fields for backward compatibility (deprecated, use cloudinaryKey/cloudinaryUrl)
+  // Legacy fields for backward compatibility (deprecated, use storageKey/cloudinaryKey)
   imageKey: {
     type: String,
     sparse: true

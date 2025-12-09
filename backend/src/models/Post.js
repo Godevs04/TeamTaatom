@@ -50,6 +50,14 @@ const postSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  // New storage fields for Sevalla Object Storage
+  storageKey: {
+    type: String,
+    required: false
+  },
+  storageKeys: [{
+    type: String
+  }],
   images: [{
     type: String
   }],

@@ -27,6 +27,14 @@ const {
   getRecentEvents,
   getUserRetention
 } = require('../controllers/analyticsAdminController')
+const {
+  getTripScoreStats,
+  getTopUsersByTripScore,
+  getSuspiciousVisits,
+  getTrustTimeline,
+  getContinentBreakdown,
+  getDetailedLocations
+} = require('../controllers/tripScoreAnalyticsController')
 
 // Alias for clarity
 const authenticateSuperAdmin = verifySuperAdminToken
@@ -1440,6 +1448,203 @@ router.get('/analytics/features', getTopFeatures)
 router.get('/analytics/dropoffs', getDropOffPoints)
 router.get('/analytics/events', getRecentEvents)
 router.get('/analytics/retention', getUserRetention)
+
+// TripScore Analytics endpoints
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/stats:
+ *   get:
+ *     summary: Get TripScore overall statistics
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: TripScore statistics
+ */
+router.get('/tripscore/stats', checkPermission('canViewAnalytics'), getTripScoreStats)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/top-users:
+ *   get:
+ *     summary: Get top users by TripScore
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Top users by TripScore
+ */
+router.get('/tripscore/top-users', checkPermission('canViewAnalytics'), getTopUsersByTripScore)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/suspicious-visits:
+ *   get:
+ *     summary: Get suspicious visits
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Suspicious visits list
+ */
+router.get('/tripscore/suspicious-visits', checkPermission('canViewAnalytics'), getSuspiciousVisits)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/trust-timeline:
+ *   get:
+ *     summary: Get trust level breakdown over time
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: groupBy
+ *         schema:
+ *           type: string
+ *           enum: [hour, day, week, month]
+ *           default: day
+ *     responses:
+ *       200:
+ *         description: Trust timeline data
+ */
+router.get('/tripscore/trust-timeline', checkPermission('canViewAnalytics'), getTrustTimeline)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/continents:
+ *   get:
+ *     summary: Get continent breakdown
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *     responses:
+ *       200:
+ *         description: Continent breakdown
+ */
+router.get('/tripscore/continents', checkPermission('canViewAnalytics'), getContinentBreakdown)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/locations:
+ *   get:
+ *     summary: Get detailed locations breakdown
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Start date for filtering
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: End date for filtering
+ *       - in: query
+ *         name: groupBy
+ *         schema:
+ *           type: string
+ *           enum: [location, user, country, state]
+ *           default: location
+ *         description: Group by location, user, country, or state
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 100
+ *         description: Number of results per page
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *     responses:
+ *       200:
+ *         description: Detailed locations fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.get('/tripscore/locations', checkPermission('canViewAnalytics'), getDetailedLocations)
 
 // Feature flags management
 /**
