@@ -16,16 +16,24 @@ const songSchema = new mongoose.Schema({
     required: [true, 'Duration is required'],
     min: [0, 'Duration must be positive']
   },
+  cloudinaryKey: {
+    type: String,
+    required: [true, 'Cloudinary key is required'],
+    unique: true
+  },
+  cloudinaryUrl: {
+    type: String,
+    required: [true, 'Cloudinary URL is required']
+  },
+  // Legacy fields for backward compatibility (deprecated, use cloudinaryKey/cloudinaryUrl)
   s3Key: {
     type: String,
-    required: [true, 'S3 key is required'],
-    unique: true
+    sparse: true
   },
   s3Url: {
     type: String,
-    required: [true, 'CloudFront URL is required']
+    sparse: true
   },
-  // Note: s3Url stores CloudFront URL for private bucket access via OAC
   thumbnailUrl: {
     type: String,
     default: ''

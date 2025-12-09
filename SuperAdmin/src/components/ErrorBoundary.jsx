@@ -1,5 +1,6 @@
 import React from 'react'
 import PropTypes from 'prop-types'
+import * as Sentry from '@sentry/react'
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -12,6 +13,17 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+    // Send error to Sentry if initialized
+    if (import.meta.env.VITE_SENTRY_DSN) {
+      Sentry.captureException(error, {
+        contexts: {
+          react: {
+            componentStack: errorInfo.componentStack,
+          },
+        },
+      })
+    }
+    
     // Use dynamic import to avoid circular dependencies
     import('../utils/logger').then(({ default: logger }) => {
       logger.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)

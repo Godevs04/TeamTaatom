@@ -4,6 +4,7 @@ const SuperAdmin = require('../models/SuperAdmin')
 const SystemSettings = require('../models/SystemSettings')
 const logger = require('../utils/logger')
 const { sendError, sendSuccess } = require('../utils/errorCodes')
+const { generateCSRF } = require('../middleware/csrfProtection')
 const {
   verifySuperAdminToken,
   checkPermission,
@@ -31,6 +32,47 @@ const {
 const authenticateSuperAdmin = verifySuperAdminToken
 
 // Public routes (no authentication required)
+
+/**
+ * @swagger
+ * /api/superadmin/csrf-token:
+ *   get:
+ *     summary: Get CSRF token for SuperAdmin requests
+ *     tags: [SuperAdmin]
+ *     responses:
+ *       200:
+ *         description: CSRF token generated and returned
+ *         headers:
+ *           X-CSRF-Token:
+ *             description: CSRF token in response header
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ */
+router.get('/csrf-token', generateCSRF, (req, res) => {
+  try {
+    // Get token from response header (set by generateCSRF middleware)
+    const token = res.getHeader('X-CSRF-Token') || req.cookies['csrf-token']
+    
+    if (token) {
+      return sendSuccess(res, 200, 'CSRF token generated successfully', {
+        csrfToken: token
+      })
+    } else {
+      return sendError(res, 'SRV_6001', 'Failed to generate CSRF token')
+    }
+  } catch (error) {
+    logger.error('CSRF token generation error:', error)
+    return sendError(res, 'SRV_6001', 'Failed to generate CSRF token')
+  }
+})
+
 /**
  * @swagger
  * /api/v1/superadmin/login:
@@ -768,6 +810,7 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
   try {
     const { id } = req.params
     const User = require('../models/User')
+    const { cascadeDeleteUser } = require('../utils/cascadeDelete')
     
     const user = await User.findById(id)
     
@@ -783,6 +826,9 @@ router.delete('/users/:id', checkPermission('canManageUsers'), async (req, res) 
       req.get('User-Agent'),
       true
     )
+    
+    // Cascade delete all user-related data
+    await cascadeDeleteUser(id)
     
     // Soft delete by marking as inactive
     await User.findByIdAndUpdate(id, { isActive: false, deletedAt: new Date() })

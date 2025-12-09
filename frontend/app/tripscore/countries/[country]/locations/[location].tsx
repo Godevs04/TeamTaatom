@@ -8,8 +8,9 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Image,
+  Alert,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +18,8 @@ import api from '../../../../../services/api';
 import { calculateDistance, geocodeAddress } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Locale } from '../../../../../services/locale';
+import { savedEvents } from '../../../../../utils/savedEvents';
 
 interface LocationDetail {
   name: string;
@@ -42,13 +45,16 @@ export default function LocationDetailScreen() {
   const [distance, setDistance] = useState<number | null>(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [localeData, setLocaleData] = useState<Locale | null>(null);
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes } = useLocalSearchParams();
 
-  // Check if coming from locale flow (general) or tripscore flow
+  // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
+  const userIdParam = Array.isArray(userId) ? userId[0] : userId;
   const isFromLocaleFlow = countryParam === 'general';
+  const isAdminLocale = userIdParam === 'admin-locale';
 
   useEffect(() => {
     loadLocationData();
@@ -56,18 +62,161 @@ export default function LocationDetailScreen() {
   }, []);
 
   useEffect(() => {
-    if (data?.name) {
+    if ((data?.name || localeData) && (isAdminLocale ? localeData : data)) {
       checkBookmarkStatus();
     }
-  }, [data?.name]);
+  }, [data?.name, localeData, isAdminLocale]);
+
+  // Listen for bookmark changes from other screens
+  useEffect(() => {
+    const unsubscribe = savedEvents.addListener(() => {
+      // Refresh bookmark status when saved locales change
+      checkBookmarkStatus();
+    });
+    return unsubscribe;
+  }, []);
+
+  // Refresh bookmark status when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      checkBookmarkStatus();
+    }, [localeData, data?.name])
+  );
+
+  // Calculate distance when coordinates are available
+  useEffect(() => {
+    if (data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
+      const lat = data.coordinates.latitude;
+      const lng = data.coordinates.longitude;
+      // Only calculate if coordinates are valid (not 0 or undefined) and distance hasn't been calculated yet
+      if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng) && distance === null) {
+        console.log('useEffect: Triggering distance calculation with coordinates:', { lat, lng });
+        calculateDistanceAsync(lat, lng);
+      }
+    }
+  }, [data?.coordinates?.latitude, data?.coordinates?.longitude]);
+
+  // Helper functions - defined before use
+  const getLocationImage = (locationName: string) => {
+    // Generate dynamic Unsplash image URL based on location name
+    const encodedLocation = encodeURIComponent(locationName);
+    return `https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop&q=80&auto=format&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80`;
+  };
+
+  const generateLocationDescription = async (locationName: string, caption: string) => {
+    // For general locations (from map), generate dynamic description
+    if (caption) {
+      return `${locationName} is a beautiful destination where you've shared "${caption}". This location offers unique attractions and natural beauty that makes it a memorable place to visit.`;
+    }
+    
+    // Dynamic description based on location name
+    return `${locationName} is a beautiful destination with unique attractions and natural beauty that makes it a memorable place to visit. Explore the local culture, landmarks, and experiences that make this location special.`;
+  };
+
+  const getLocationCoordinates = (locationName: string) => {
+    console.log('Looking up coordinates for:', locationName);
+    
+    // Simple coordinate mapping for common locations
+    const coordinates: { [key: string]: { latitude: number; longitude: number } } = {
+      'bangalore': { latitude: 12.9716, longitude: 77.5946 },
+      'mumbai': { latitude: 19.0760, longitude: 72.8777 },
+      'delhi': { latitude: 28.7041, longitude: 77.1025 },
+      'hyderabad': { latitude: 17.3850, longitude: 78.4867 },
+      'chennai': { latitude: 13.0827, longitude: 80.2707 },
+      'kolkata': { latitude: 22.5726, longitude: 88.3639 },
+      'pune': { latitude: 18.5204, longitude: 73.8567 },
+      'ahmedabad': { latitude: 23.0225, longitude: 72.5714 },
+      'jaipur': { latitude: 26.9124, longitude: 75.7873 },
+      'lucknow': { latitude: 26.8467, longitude: 80.9462 },
+      'bristol': { latitude: 51.4545, longitude: -2.5879 },
+      'london': { latitude: 51.5074, longitude: -0.1278 },
+      'paris': { latitude: 48.8566, longitude: 2.3522 },
+      'new york': { latitude: 40.7128, longitude: -74.0060 },
+      'san francisco': { latitude: 37.7749, longitude: -122.4194 },
+      'los angeles': { latitude: 34.0522, longitude: -118.2437 },
+      'tokyo': { latitude: 35.6762, longitude: 139.6503 },
+      'sydney': { latitude: -33.8688, longitude: 151.2093 },
+      'melbourne': { latitude: -37.8136, longitude: 144.9631 },
+      'singapore': { latitude: 1.3521, longitude: 103.8198 },
+      'dubai': { latitude: 25.2048, longitude: 55.2708 },
+      'ooty': { latitude: 11.4102, longitude: 76.6950 },
+      'mysore': { latitude: 12.2958, longitude: 76.6394 },
+    };
+    
+    const normalizedName = locationName.toLowerCase().trim();
+    console.log('Normalized location name:', normalizedName);
+    
+    const foundCoords = coordinates[normalizedName];
+    if (foundCoords) {
+      console.log('Found coordinates:', foundCoords);
+      return foundCoords;
+    } else {
+      console.log('No coordinates found, using fallback');
+      // Generate random coordinates around Bangalore for unknown locations
+      const randomLat = 12.9716 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
+      const randomLng = 77.5946 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
+      const randomCoords = { latitude: randomLat, longitude: randomLng };
+      console.log('Generated random coordinates:', randomCoords);
+      return randomCoords;
+    }
+  };
+
+  const calculateDistanceAsync = async (targetLat: number, targetLng: number) => {
+    try {
+      console.log('Starting distance calculation with coordinates:', { targetLat, targetLng });
+      
+      // Validate coordinates
+      if (!targetLat || !targetLng || isNaN(targetLat) || isNaN(targetLng) || targetLat === 0 || targetLng === 0) {
+        console.log('Invalid coordinates provided:', { targetLat, targetLng });
+        setDistance(null);
+        return;
+      }
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('Location permission status:', status);
+      
+      if (status === 'granted') {
+        const currentLocation = await Location.getCurrentPositionAsync({});
+        console.log('Current location:', currentLocation.coords);
+        
+        if (currentLocation && currentLocation.coords) {
+          const calculatedDistance = calculateDistance(
+            currentLocation.coords.latitude,
+            currentLocation.coords.longitude,
+            targetLat,
+            targetLng
+          );
+          console.log('Distance calculated successfully:', calculatedDistance, 'km');
+          setDistance(calculatedDistance);
+        } else {
+          console.log('Failed to get current location coordinates');
+          setDistance(null);
+        }
+      } else {
+        console.log('Location permission denied');
+        setDistance(null);
+      }
+    } catch (error) {
+      console.error('Error calculating distance:', error);
+      setDistance(null);
+    }
+  };
 
   const checkBookmarkStatus = async () => {
     try {
-      const savedLocations = await AsyncStorage.getItem('savedLocations');
-      const saved = savedLocations ? JSON.parse(savedLocations) : [];
-      const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
-      const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
-      setIsBookmarked(saved.some((loc: any) => loc.slug === locationSlug || loc.name === locationName));
+      if (isAdminLocale && localeData) {
+        // Check saved locales for admin locales
+        const savedLocales = await AsyncStorage.getItem('savedLocales');
+        const saved = savedLocales ? JSON.parse(savedLocales) : [];
+        setIsBookmarked(saved.some((loc: Locale) => loc._id === localeData._id));
+      } else {
+        // Check saved locations for regular locations
+        const savedLocations = await AsyncStorage.getItem('savedLocations');
+        const saved = savedLocations ? JSON.parse(savedLocations) : [];
+        const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
+        setIsBookmarked(saved.some((loc: any) => loc.slug === locationSlug || loc.name === locationName));
+      }
     } catch (error) {
       console.error('Error checking bookmark status:', error);
     }
@@ -76,36 +225,61 @@ export default function LocationDetailScreen() {
   const handleBookmark = async () => {
     try {
       setBookmarkLoading(true);
-      const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
-      const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
       
-      const savedLocations = await AsyncStorage.getItem('savedLocations');
-      const saved = savedLocations ? JSON.parse(savedLocations) : [];
-      
-      const locationData = {
-        id: `loc-${Date.now()}`,
-        name: locationName.toUpperCase(),
-        slug: locationSlug,
-        imageUrl: data?.imageUrl || getLocationImage(locationName),
-        type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
-        description: data?.description || `${locationName} is a beautiful destination`,
-        savedDate: new Date().toISOString(),
-        coordinates: data?.coordinates,
-      };
-
-      if (isBookmarked) {
-        // Remove bookmark
-        const updated = saved.filter((loc: any) => loc.slug !== locationSlug && loc.name !== locationName);
-        await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
-        setIsBookmarked(false);
+      if (isAdminLocale && localeData) {
+        // Handle admin locale bookmarking
+        const savedLocales = await AsyncStorage.getItem('savedLocales');
+        const locales: Locale[] = savedLocales ? JSON.parse(savedLocales) : [];
+        
+        if (isBookmarked) {
+          // Remove bookmark
+          const updated = locales.filter((loc: Locale) => loc._id !== localeData._id);
+          await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
+          setIsBookmarked(false);
+          // Emit event to sync with list page
+          savedEvents.emitChanged();
+        } else {
+          // Add bookmark
+          const updated = [...locales, localeData];
+          await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
+          setIsBookmarked(true);
+          // Emit event to sync with list page
+          savedEvents.emitChanged();
+        }
       } else {
-        // Add bookmark
-        const updated = [...saved, locationData];
-        await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
-        setIsBookmarked(true);
+        // Handle regular location bookmarking
+        const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
+        
+        const savedLocations = await AsyncStorage.getItem('savedLocations');
+        const saved = savedLocations ? JSON.parse(savedLocations) : [];
+        
+        const locationData = {
+          id: `loc-${Date.now()}`,
+          name: locationName.toUpperCase(),
+          slug: locationSlug,
+          imageUrl: data?.imageUrl || getLocationImage(locationName),
+          type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
+          description: data?.description || `${locationName} is a beautiful destination`,
+          savedDate: new Date().toISOString(),
+          coordinates: data?.coordinates,
+        };
+
+        if (isBookmarked) {
+          // Remove bookmark
+          const updated = saved.filter((loc: any) => loc.slug !== locationSlug && loc.name !== locationName);
+          await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+          setIsBookmarked(false);
+        } else {
+          // Add bookmark
+          const updated = [...saved, locationData];
+          await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+          setIsBookmarked(true);
+        }
       }
     } catch (error) {
       console.error('Error bookmarking location:', error);
+      Alert.alert('Error', 'Failed to save location');
     } finally {
       setBookmarkLoading(false);
     }
@@ -120,6 +294,113 @@ export default function LocationDetailScreen() {
       // Convert slugs back to proper names for API
       const countryName = countryParam.replace(/-/g, ' ');
       const locationName = locationParam.replace(/-/g, ' ');
+      
+      // Check if this is an admin locale
+      if (isAdminLocale) {
+        // Handle admin locale - use params passed from navigation
+        const localeImageUrl = Array.isArray(imageUrl) ? imageUrl[0] : imageUrl;
+        const localeLatStr = Array.isArray(latitude) ? latitude[0] : latitude;
+        const localeLngStr = Array.isArray(longitude) ? longitude[0] : longitude;
+        
+        // Parse coordinates, handling empty strings and invalid values
+        let localeLat: number | undefined = undefined;
+        let localeLng: number | undefined = undefined;
+        
+        if (localeLatStr && localeLatStr !== '' && localeLatStr !== '0' && localeLatStr !== 'undefined') {
+          const parsed = parseFloat(localeLatStr);
+          if (!isNaN(parsed) && parsed !== 0) {
+            localeLat = parsed;
+          }
+        }
+        
+        if (localeLngStr && localeLngStr !== '' && localeLngStr !== '0' && localeLngStr !== 'undefined') {
+          const parsed = parseFloat(localeLngStr);
+          if (!isNaN(parsed) && parsed !== 0) {
+            localeLng = parsed;
+          }
+        }
+        
+        const localeDesc = Array.isArray(description) ? description[0] : description || '';
+        const localeSpotTypes = spotTypes ? (Array.isArray(spotTypes) ? spotTypes[0] : spotTypes).split(', ') : [];
+        
+        console.log('Admin locale params:', {
+          localeImageUrl,
+          localeLat,
+          localeLng,
+          localeLatStr,
+          localeLngStr,
+          locationName
+        });
+        
+        // If coordinates are missing, try to get them from location name
+        let finalLat = localeLat;
+        let finalLng = localeLng;
+        
+        if ((!finalLat || !finalLng || finalLat === 0 || finalLng === 0) && locationName) {
+          const coords = getLocationCoordinates(locationName);
+          if (coords && coords.latitude && coords.longitude && coords.latitude !== 0 && coords.longitude !== 0) {
+            finalLat = coords.latitude;
+            finalLng = coords.longitude;
+            console.log('Using coordinates from location name lookup:', { finalLat, finalLng });
+          } else {
+            // Try geocoding as last resort
+            try {
+              const geocodedCoords = await geocodeAddress(locationName);
+              if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude) {
+                finalLat = geocodedCoords.latitude;
+                finalLng = geocodedCoords.longitude;
+                console.log('Using geocoded coordinates:', { finalLat, finalLng });
+              }
+            } catch (geocodeError) {
+              console.error('Geocoding failed:', geocodeError);
+            }
+          }
+        }
+        
+        // Create locale object
+        const locale: Locale = {
+          _id: `admin-${locationName.toLowerCase().replace(/\s+/g, '-')}`,
+          name: locationName,
+          countryCode: countryParam.toUpperCase(),
+          imageUrl: localeImageUrl || getLocationImage(locationName),
+          description: localeDesc,
+          spotTypes: localeSpotTypes,
+          latitude: finalLat,
+          longitude: finalLng,
+          isActive: true,
+          createdAt: new Date().toISOString(),
+        };
+        
+        setLocaleData(locale);
+        
+        // Set data for display
+        const coordinates = finalLat && finalLng ? { latitude: finalLat, longitude: finalLng } : undefined;
+        console.log('Setting data with coordinates:', { finalLat, finalLng, coordinates });
+        
+        setData({
+          name: locationName,
+          score: 1,
+          date: new Date().toISOString(),
+          caption: `Visit ${locationName}`,
+          category: {
+            fromYou: 'Drivable',
+            typeOfSpot: localeSpotTypes[0] || 'Natural'
+          },
+          description: localeDesc || `${locationName} is a beautiful destination with unique attractions and natural beauty.`,
+          imageUrl: localeImageUrl || getLocationImage(locationName),
+          coordinates: coordinates
+        });
+        
+        setLoading(false);
+        
+        // Calculate distance immediately if coordinates are available
+        if (coordinates && coordinates.latitude && coordinates.longitude) {
+          console.log('Immediately calculating distance with coordinates:', coordinates);
+          calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
+        }
+        
+        return;
+      }
       
       // Check if this is a general location (from map) or a TripScore location
       if (countryParam === 'general') {
@@ -150,79 +431,47 @@ export default function LocationDetailScreen() {
         });
       } else {
         // This is a TripScore location, fetch from API
-        const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
-        const locations = response.data.locations;
-        
-        // Find the specific location
-        const foundLocation = locations.find((loc: any) => 
-          loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
-        );
-        
-        if (foundLocation) {
-          // Get coordinates for the location
-          const locationCoords = getLocationCoordinates(foundLocation.name);
-          let finalCoords = locationCoords;
+        // Only fetch if userId is not 'admin-locale'
+        if (userIdParam && userIdParam !== 'admin-locale') {
+          try {
+            const response = await api.get(`/api/v1/profile/${userIdParam}/tripscore/countries/${countryName}`);
+            const locations = response.data.locations;
           
-          // Try geocoding if coordinates seem like fallback
-          if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
-            const geocodedCoords = await geocodeAddress(foundLocation.name);
-            if (geocodedCoords) {
-              finalCoords = geocodedCoords;
+            // Find the specific location
+            const foundLocation = locations.find((loc: any) => 
+              loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
+            );
+            
+            if (foundLocation) {
+              // Get coordinates for the location
+              const locationCoords = getLocationCoordinates(foundLocation.name);
+              let finalCoords = locationCoords;
+              
+              // Try geocoding if coordinates seem like fallback
+              if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
+                const geocodedCoords = await geocodeAddress(foundLocation.name);
+                if (geocodedCoords) {
+                  finalCoords = geocodedCoords;
+                }
+              }
+              
+              setData({
+                ...foundLocation,
+                description: await generateLocationDescription(foundLocation.name, foundLocation.caption),
+                coordinates: finalCoords || foundLocation.coordinates
+              });
             }
+          } catch (apiError) {
+            console.error('Error fetching TripScore location:', apiError);
+            // Fall through to use fallback data
           }
-          
-          setData({
-            ...foundLocation,
-            description: generateLocationDescription(foundLocation.name, foundLocation.caption),
-            coordinates: finalCoords || foundLocation.coordinates
-          });
         }
       }
       
-      // Calculate distance from current location (runs for all locations)
-      try {
-        console.log('Starting distance calculation for location:', locationName);
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        console.log('Location permission status:', status);
-        if (status === 'granted') {
-          const currentLocation = await Location.getCurrentPositionAsync({});
-          console.log('Current location:', currentLocation.coords);
-          // Use dynamic coordinates based on location name
-          let locationCoords = getLocationCoordinates(locationName);
-          console.log('Location coordinates:', locationCoords);
-          
-          // If coordinates are random (unknown location), try geocoding
-          if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
-            console.log('Trying geocoding for unknown location:', locationName);
-            const geocodedCoords = await geocodeAddress(locationName);
-            if (geocodedCoords) {
-              locationCoords = geocodedCoords;
-              console.log('Geocoded coordinates:', locationCoords);
-            }
-          }
-          
-          if (locationCoords) {
-            const calculatedDistance = calculateDistance(
-              currentLocation.coords.latitude,
-              currentLocation.coords.longitude,
-              locationCoords.latitude,
-              locationCoords.longitude
-            );
-            setDistance(calculatedDistance);
-            console.log('Distance calculated:', calculatedDistance, 'km');
-          } else {
-            console.log('No coordinates found for location:', locationName);
-            setDistance(8.5); // Fallback distance
-          }
-        } else {
-          console.log('Location permission denied');
-          // Set a mock distance for testing
-          setDistance(8.5);
-        }
-      } catch (error) {
-        console.error('Error calculating distance:', error);
-        // Set a mock distance for testing
-        setDistance(8.5);
+      // Calculate distance from current location (runs for all locations that haven't calculated yet)
+      if (!isAdminLocale && data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
+        // Calculate distance asynchronously after data is set
+        calculateDistanceAsync(data.coordinates.latitude, data.coordinates.longitude);
       }
     } catch (error) {
       console.error('Error loading location data:', error);
@@ -247,79 +496,6 @@ export default function LocationDetailScreen() {
       });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const generateLocationDescription = async (locationName: string, caption: string) => {
-    // For general locations (from map), generate dynamic description
-    if (caption) {
-      return `${locationName} is a beautiful destination where you've shared "${caption}". This location offers unique attractions and natural beauty that makes it a memorable place to visit.`;
-    }
-    
-    // Dynamic description based on location name
-    return `${locationName} is a beautiful destination with unique attractions and natural beauty that makes it a memorable place to visit. Explore the local culture, landmarks, and experiences that make this location special.`;
-  };
-
-  const getLocationImage = (locationName: string) => {
-    // Generate dynamic Unsplash image URL based on location name
-    const encodedLocation = encodeURIComponent(locationName);
-    return `https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop&q=80&auto=format&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80`;
-  };
-
-  const getLocationCoordinates = (locationName: string) => {
-    console.log('Looking up coordinates for:', locationName);
-    
-    // Simple coordinate mapping for common locations
-    const coordinates: { [key: string]: { latitude: number; longitude: number } } = {
-      'bangalore': { latitude: 12.9716, longitude: 77.5946 },
-      'mumbai': { latitude: 19.0760, longitude: 72.8777 },
-      'delhi': { latitude: 28.7041, longitude: 77.1025 },
-      'hyderabad': { latitude: 17.3850, longitude: 78.4867 },
-      'chennai': { latitude: 13.0827, longitude: 80.2707 },
-      'kolkata': { latitude: 22.5726, longitude: 88.3639 },
-      'pune': { latitude: 18.5204, longitude: 73.8567 },
-      'ahmedabad': { latitude: 23.0225, longitude: 72.5714 },
-      'jaipur': { latitude: 26.9124, longitude: 75.7873 },
-      'lucknow': { latitude: 26.8467, longitude: 80.9462 },
-      'bristol': { latitude: 51.4545, longitude: -2.5879 },
-      'london': { latitude: 51.5074, longitude: -0.1278 },
-      'paris': { latitude: 48.8566, longitude: 2.3522 },
-      'new york': { latitude: 40.7128, longitude: -74.0060 },
-      'san francisco': { latitude: 37.7749, longitude: -122.4194 },
-      'los angeles': { latitude: 34.0522, longitude: -118.2437 },
-      'tokyo': { latitude: 35.6762, longitude: 139.6503 },
-      'sydney': { latitude: -33.8688, longitude: 151.2093 },
-      'melbourne': { latitude: -37.8136, longitude: 144.9631 },
-      'singapore': { latitude: 1.3521, longitude: 103.8198 },
-      'dubai': { latitude: 25.2048, longitude: 55.2708 },
-      'b.village': { latitude: 12.9716, longitude: 77.5946 },
-      'lake point': { latitude: 12.9716, longitude: 77.5946 }, // Same as Bangalore for now
-      'hsr layout': { latitude: 12.9115, longitude: 77.6444 },
-      'koramangala': { latitude: 12.9352, longitude: 77.6245 },
-      'indiranagar': { latitude: 12.9719, longitude: 77.6412 },
-      'whitefield': { latitude: 12.9698, longitude: 77.7500 },
-      'electronic city': { latitude: 12.8456, longitude: 77.6603 },
-      'marathahalli': { latitude: 12.9612, longitude: 77.7000 },
-      'jayanagar': { latitude: 12.9308, longitude: 77.5838 },
-      'malleshwaram': { latitude: 12.9991, longitude: 77.5678 },
-      'rajajinagar': { latitude: 12.9784, longitude: 77.5610 },
-    };
-    
-    const normalizedName = locationName.toLowerCase().trim();
-    console.log('Normalized location name:', normalizedName);
-    
-    const foundCoords = coordinates[normalizedName];
-    if (foundCoords) {
-      console.log('Found coordinates:', foundCoords);
-      return foundCoords;
-    } else {
-      console.log('No coordinates found, using fallback');
-      // Generate random coordinates around Bangalore for unknown locations
-      const randomLat = 12.9716 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
-      const randomLng = 77.5946 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
-      const randomCoords = { latitude: randomLat, longitude: randomLng };
-      console.log('Generated random coordinates:', randomCoords);
-      return randomCoords;
     }
   };
 
@@ -350,7 +526,6 @@ export default function LocationDetailScreen() {
           {displayLocationName}
         </Text>
         <View style={styles.headerRight}>
-          {isFromLocaleFlow && (
           <TouchableOpacity
             style={styles.bookmarkButton}
             onPress={handleBookmark}
@@ -366,7 +541,6 @@ export default function LocationDetailScreen() {
               />
             )}
           </TouchableOpacity>
-          )}
           <TouchableOpacity
             style={styles.closeButton}
             onPress={() => router.back()}
@@ -383,7 +557,11 @@ export default function LocationDetailScreen() {
             {/* Hero Image Section */}
             <View style={styles.heroSection}>
               <Image
-                source={{ uri: getLocationImage(data.name) }}
+                source={{ 
+                  uri: isAdminLocale && localeData?.imageUrl 
+                    ? localeData.imageUrl 
+                    : (data?.imageUrl || getLocationImage(data?.name || '')) 
+                }}
                 style={styles.heroImage}
                 resizeMode="cover"
               />
@@ -429,7 +607,9 @@ export default function LocationDetailScreen() {
                   <Ionicons name="leaf" size={22} color="#4CAF50" />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
                 </View>
-                <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Natural</Text>
+                <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
+                  {localeData?.spotTypes?.[0] || data?.category?.typeOfSpot || 'Natural'}
+                </Text>
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>outdoor destination</Text>
               </View>
             </View>

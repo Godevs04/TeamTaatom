@@ -21,6 +21,40 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
+import * as Sentry from '@sentry/react-native';
+
+// Initialize Sentry with environment variables
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN;
+
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+
+    // Adds more context data to events (IP address, cookies, user, etc.)
+    // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+    sendDefaultPii: true,
+
+    // Enable Logs
+    enableLogs: true,
+
+    // Configure Session Replay
+    replaysSessionSampleRate: process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE 
+      ? parseFloat(process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE) 
+      : 0.1,
+    replaysOnErrorSampleRate: process.env.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE
+      ? parseFloat(process.env.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE)
+      : 1,
+    integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+
+    // Environment configuration
+    environment: process.env.EXPO_PUBLIC_ENV || process.env.NODE_ENV || 'development',
+
+    // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+    // spotlight: __DEV__,
+  });
+} else {
+  console.warn('Sentry DSN not found. Sentry error tracking is disabled.');
+}
 
 
 // Keep the splash screen visible while we fetch resources
@@ -349,7 +383,7 @@ function RootLayoutInner() {
   );
 }
 
-export default function RootLayout() {
+export default Sentry.wrap(function RootLayout() {
   return (
     <ErrorBoundary level="global" showDetails={process.env.NODE_ENV === 'development'}>
       <GestureHandlerRootView style={{ flex: 1 }}>
@@ -367,7 +401,7 @@ export default function RootLayout() {
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
-}
+});
 
 const styles = StyleSheet.create({
   rootContainer: {

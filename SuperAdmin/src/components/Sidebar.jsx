@@ -25,6 +25,7 @@ const navItems = [
   { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
   { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },
   { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
+  { name: 'Locales', href: '/locales', icon: MapPin, permission: 'canManageContent' },
   { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
   { name: 'Moderators', href: '/moderators', icon: Shield, permission: 'canManageModerators' },
   { name: 'Logs', href: '/logs', icon: FileText, permission: 'canViewLogs' },

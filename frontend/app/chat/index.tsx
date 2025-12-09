@@ -1118,7 +1118,7 @@ export default function ChatModal() {
           setConversations(uniqueChats);
           // Optionally fetch following users as before
           if (myUserId) {
-            api.get(`/profile/${myUserId}/following`)
+            api.get(`/api/v1/profile/${myUserId}/following`)
               .then(followRes => setUsers(followRes.data.users || []))
               .catch(() => setUsers([]))
               .finally(() => setLoading(false));

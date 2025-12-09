@@ -48,13 +48,23 @@ const ERROR_CODES = {
 
 /**
  * Create a standardized error response
- * @param {string} errorCode - Error code from ERROR_CODES
+ * @param {string} errorCode - Error code from ERROR_CODES (key or code string like 'VAL_2001')
  * @param {string} customMessage - Optional custom message to override default
  * @param {object} details - Optional additional error details
  * @returns {object} Standardized error response object
  */
 const createError = (errorCode, customMessage = null, details = {}) => {
-  const error = ERROR_CODES[errorCode];
+  // First try to find by key (e.g., 'VALIDATION_FAILED')
+  let error = ERROR_CODES[errorCode];
+  
+  // If not found by key, try to find by code string (e.g., 'VAL_2001')
+  if (!error) {
+    const errorEntry = Object.values(ERROR_CODES).find(entry => entry.code === errorCode);
+    if (errorEntry) {
+      error = errorEntry;
+    }
+  }
+  
   if (!error) {
     // Fallback to generic server error if code not found
     return {

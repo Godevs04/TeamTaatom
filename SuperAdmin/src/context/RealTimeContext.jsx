@@ -49,7 +49,13 @@ export const RealTimeProvider = ({ children }) => {
         setLastUpdate(new Date())
       }
     } catch (error) {
-      if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+      // Skip logging for canceled requests
+      const isCanceled = error.name === 'CanceledError' || 
+                        error.name === 'AbortError' ||
+                        error.code === 'ERR_CANCELED' ||
+                        error.message === 'canceled' ||
+                        error.parsedError?.code === 'CANCELED'
+      if (!isCanceled) {
         logger.error('Failed to fetch dashboard data:', error)
       }
     }
@@ -419,7 +425,8 @@ export const RealTimeProvider = ({ children }) => {
         })
         socketHandlersRef.current = {}
       }
-      socketService.disconnect()
+      // Don't disconnect socket here - let it stay connected for other components
+      // The socket service will handle cleanup when user logs out
     }
   }, [])
 
