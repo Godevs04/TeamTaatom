@@ -646,6 +646,23 @@ const createPost = async (req, res) => {
 
     await post.save();
 
+    // Create TripVisit for TripScore v2 (non-blocking)
+    try {
+      const { createTripVisitFromPost } = require('../services/tripVisitService');
+      const metadata = {
+        source: req.body.source || 'manual_only', // Can be passed from frontend
+        hasExifGps: req.body.hasExifGps === 'true' || req.body.hasExifGps === true,
+        takenAt: req.body.takenAt ? new Date(req.body.takenAt) : null,
+        fromCamera: req.body.fromCamera === 'true' || req.body.fromCamera === true
+      };
+      await createTripVisitFromPost(post, metadata).catch(err => 
+        logger.warn('Failed to create TripVisit for post:', err)
+      );
+    } catch (tripVisitError) {
+      logger.warn('TripVisit creation failed (non-critical):', tripVisitError);
+      // Don't fail post creation if TripVisit fails
+    }
+
     // Increment song usage count if song is attached
     if (songId) {
       try {
@@ -1987,6 +2004,23 @@ const createShort = async (req, res) => {
     });
 
     await short.save();
+
+    // Create TripVisit for TripScore v2 (non-blocking)
+    try {
+      const { createTripVisitFromShort } = require('../services/tripVisitService');
+      const metadata = {
+        source: req.body.source || 'manual_only',
+        hasExifGps: req.body.hasExifGps === 'true' || req.body.hasExifGps === true,
+        takenAt: req.body.takenAt ? new Date(req.body.takenAt) : null,
+        fromCamera: req.body.fromCamera === 'true' || req.body.fromCamera === true
+      };
+      await createTripVisitFromShort(short, metadata).catch(err => 
+        logger.warn('Failed to create TripVisit for short:', err)
+      );
+    } catch (tripVisitError) {
+      logger.warn('TripVisit creation failed (non-critical):', tripVisitError);
+      // Don't fail short creation if TripVisit fails
+    }
 
     // Increment song usage count if song is attached
     if (songId) {
