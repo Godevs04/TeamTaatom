@@ -59,6 +59,12 @@ export default function PostScreen() {
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [address, setAddress] = useState<string>("");
+  const [locationMetadata, setLocationMetadata] = useState<{
+    hasExifGps?: boolean;
+    takenAt?: Date | null;
+    rawSource?: 'exif' | 'asset' | 'manual' | 'none';
+  } | null>(null);
+  const [isFromCameraFlow, setIsFromCameraFlow] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     current: number;
@@ -175,7 +181,11 @@ export default function PostScreen() {
             text: 'Restore',
             onPress: () => {
               if (draft.selectedImages) setSelectedImages(draft.selectedImages);
-              if (draft.selectedVideo) setSelectedVideo(draft.selectedVideo);
+              if (draft.selectedVideo && draft.selectedVideo.trim()) {
+                setSelectedVideo(draft.selectedVideo);
+              } else {
+                setSelectedVideo(null);
+              }
               if (draft.location) setLocation(draft.location);
               if (draft.address) setAddress(draft.address);
               if (draft.postType) setPostType(draft.postType);
@@ -301,9 +311,26 @@ export default function PostScreen() {
           if (locationResult.address) {
             setAddress(locationResult.address);
           }
-          logger.debug('Location extraction result: Found');
+          // Store metadata for TripScore v2
+          setLocationMetadata({
+            hasExifGps: locationResult.hasExifGps,
+            takenAt: locationResult.takenAt || null,
+            rawSource: locationResult.rawSource
+          });
+          setIsFromCameraFlow(false); // Gallery selection
+          logger.debug('Location extraction result: Found', {
+            hasExifGps: locationResult.hasExifGps,
+            rawSource: locationResult.rawSource,
+            takenAt: locationResult.takenAt
+          });
         } else {
           logger.debug('Location extraction result: Not found, falling back to device location');
+          setLocationMetadata({
+            hasExifGps: false,
+            takenAt: null,
+            rawSource: 'none'
+          });
+          setIsFromCameraFlow(false);
           await getLocation();
         }
       }
@@ -338,32 +365,57 @@ export default function PostScreen() {
         const asset = result.assets[0];
         
         // Check video duration (max 60 minutes = 3600 seconds)
-        const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
-        if (asset.duration && asset.duration > MAX_VIDEO_DURATION) {
-          Alert.alert(
-            'Video Too Long',
-            `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(asset.duration / 60)} minutes. Please select a shorter video.`,
-            [{ text: 'OK' }]
-          );
-          return;
+        // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
+        if (asset.duration) {
+          const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+          // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
+          // For example: 9 seconds = 9000ms, which is > 100, so we convert
+          const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
+          
+          // Log for debugging
+          logger.debug('Video duration check:', {
+            rawDuration: asset.duration,
+            durationInSeconds: durationInSeconds,
+            isMilliseconds: asset.duration > 100
+          });
+          
+          if (durationInSeconds > MAX_VIDEO_DURATION) {
+            const minutes = Math.floor(durationInSeconds / 60);
+            const seconds = Math.floor(durationInSeconds % 60);
+            Alert.alert(
+              'Video Too Long',
+              `Video duration exceeds the maximum limit of 60 minutes. Your video is ${minutes}:${seconds.toString().padStart(2, '0')} (${minutes} minutes ${seconds} seconds). Please select a shorter video.`,
+              [{ text: 'OK' }]
+            );
+            return;
+          }
         }
         
         clearUploadState();
-        setSelectedVideo(asset.uri);
-        setSelectedImages([]);
-      setPostType('short');
-        // Reset audio choice and show modal to ask user
-        setAudioChoice(null);
-        setSelectedSong(null);
-        setShowAudioChoiceModal(true);
-      // Generate initial thumbnail
-      try {
-          const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
-        setVideoThumbnail(uri);
-      } catch (e) {
-        logger.warn('Thumbnail generation failed', e);
-        setVideoThumbnail(null);
-      }
+        // Ensure URI is not empty before setting
+        if (asset.uri && asset.uri.trim()) {
+          setSelectedVideo(asset.uri);
+          setSelectedImages([]);
+          setPostType('short');
+          // Reset audio choice and show modal to ask user
+          setAudioChoice(null);
+          setSelectedSong(null);
+          setShowAudioChoiceModal(true);
+          // Generate initial thumbnail
+          try {
+            const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
+            if (uri && uri.trim()) {
+              setVideoThumbnail(uri);
+            } else {
+              setVideoThumbnail(null);
+            }
+          } catch (e) {
+            logger.warn('Thumbnail generation failed', e);
+            setVideoThumbnail(null);
+          }
+        } else {
+          Alert.alert('Error', 'Invalid video file selected. Please try again.');
+        }
       
       // Add a small delay to ensure MediaLibrary is updated with the selected video
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -379,7 +431,26 @@ export default function PostScreen() {
         if (locationResult.address) {
           setAddress(locationResult.address);
         }
+        // Store location metadata for TripScore v2
+        setLocationMetadata({
+          hasExifGps: locationResult.hasExifGps,
+          takenAt: locationResult.takenAt || null,
+          rawSource: locationResult.rawSource
+        });
+        setIsFromCameraFlow(false); // Gallery selection
+        logger.debug('Location extraction result for video: Found', {
+          hasExifGps: locationResult.hasExifGps,
+          rawSource: locationResult.rawSource,
+          takenAt: locationResult.takenAt
+        });
       } else {
+        logger.debug('Location extraction result for video: Not found, falling back to device location');
+        setLocationMetadata({
+          hasExifGps: false,
+          takenAt: null,
+          rawSource: 'none'
+        });
+        setIsFromCameraFlow(false);
         await getLocation();
       }
     }
@@ -478,25 +549,50 @@ export default function PostScreen() {
       const asset = result.assets[0];
       
       // Check video duration (max 60 minutes = 3600 seconds)
-      const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
-      if (asset.duration && asset.duration > MAX_VIDEO_DURATION) {
-        Alert.alert(
-          'Video Too Long',
-          `Video duration exceeds the maximum limit of 60 minutes. Your video is ${Math.round(asset.duration / 60)} minutes. Please record a shorter video.`,
-          [{ text: 'OK' }]
-        );
-        return;
+      // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
+      if (asset.duration) {
+        const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+        // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
+        // For example: 9 seconds = 9000ms, which is > 100, so we convert
+        const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
+        
+        // Log for debugging
+        logger.debug('Video duration check:', {
+          rawDuration: asset.duration,
+          durationInSeconds: durationInSeconds,
+          isMilliseconds: asset.duration > 100
+        });
+        
+        if (durationInSeconds > MAX_VIDEO_DURATION) {
+          const minutes = Math.floor(durationInSeconds / 60);
+          const seconds = Math.floor(durationInSeconds % 60);
+          Alert.alert(
+            'Video Too Long',
+            `Video duration exceeds the maximum limit of 60 minutes. Your video is ${minutes}:${seconds.toString().padStart(2, '0')} (${minutes} minutes ${seconds} seconds). Please record a shorter video.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
       }
       
-      setSelectedVideo(asset.uri);
+      // Ensure URI is not empty before setting
+      if (asset.uri && asset.uri.trim()) {
+        setSelectedVideo(asset.uri);
         setSelectedImages([]);
-      setPostType('short');
-      try {
-        const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
-        setVideoThumbnail(uri);
-      } catch (e) {
-        logger.warn('Thumbnail generation failed', e);
-        setVideoThumbnail(null);
+        setPostType('short');
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
+          if (uri && uri.trim()) {
+            setVideoThumbnail(uri);
+          } else {
+            setVideoThumbnail(null);
+          }
+        } catch (e) {
+          logger.warn('Thumbnail generation failed', e);
+          setVideoThumbnail(null);
+        }
+      } else {
+        Alert.alert('Error', 'Invalid video file captured. Please try again.');
       }
       
       // Add a small delay to ensure MediaLibrary is updated with the captured video
@@ -513,7 +609,26 @@ export default function PostScreen() {
         if (locationResult.address) {
           setAddress(locationResult.address);
         }
+        // Store location metadata for TripScore v2
+        setLocationMetadata({
+          hasExifGps: locationResult.hasExifGps,
+          takenAt: locationResult.takenAt || null,
+          rawSource: locationResult.rawSource
+        });
+        setIsFromCameraFlow(true); // Camera capture
+        logger.debug('Location extraction result for camera video: Found', {
+          hasExifGps: locationResult.hasExifGps,
+          rawSource: locationResult.rawSource,
+          takenAt: locationResult.takenAt
+        });
       } else {
+        logger.debug('Location extraction result for camera video: Not found, falling back to device location');
+        setLocationMetadata({
+          hasExifGps: false,
+          takenAt: null,
+          rawSource: 'none'
+        });
+        setIsFromCameraFlow(true); // Camera capture
         await getLocation();
       }
     }
@@ -643,12 +758,32 @@ export default function PostScreen() {
       const totalImages = imagesData.length;
       let uploadedCount = 0;
 
+      // Determine source for TripScore v2
+      // NEW RULE: hasExifGps is true for both EXIF GPS and assetInfo.location
+      // Both are treated as verified GPS evidence (medium trust)
+      let source: 'taatom_camera_live' | 'gallery_exif' | 'gallery_no_exif' | 'manual_only' = 'manual_only';
+      if (isFromCameraFlow) {
+        source = 'taatom_camera_live';
+      } else if (locationMetadata?.hasExifGps) {
+        // hasExifGps is true for both EXIF GPS and assetInfo.location
+        source = 'gallery_exif';
+      } else if (locationMetadata && location?.lat && location?.lng) {
+        // Location exists but not from verified GPS (e.g., manually added)
+        source = 'gallery_no_exif';
+      } else {
+        source = 'manual_only';
+      }
+
       const response = await createPostWithProgress({
         images: imagesData,
         caption: values.comment,
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+        hasExifGps: locationMetadata?.hasExifGps || false,
+        takenAt: locationMetadata?.takenAt || undefined,
+        source: source,
+        fromCamera: isFromCameraFlow,
         songId: selectedSong?._id,
         songStartTime: songStartTime,
         songEndTime: songEndTime,
@@ -714,7 +849,7 @@ export default function PostScreen() {
     logger.debug('selectedVideo:', selectedVideo);
     logger.debug('user:', user);
     
-    if (!selectedVideo) {
+    if (!selectedVideo || !selectedVideo.trim()) {
       Alert.alert("Error", "Please select a video first.");
       return;
     }
@@ -736,6 +871,22 @@ export default function PostScreen() {
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `video/${match[1]}` : 'video/mp4';
 
+      // Determine source for TripScore v2 (same logic as posts)
+      // NEW RULE: hasExifGps is true for both EXIF GPS and assetInfo.location
+      // Both are treated as verified GPS evidence (medium trust)
+      let source: 'taatom_camera_live' | 'gallery_exif' | 'gallery_no_exif' | 'manual_only' = 'manual_only';
+      if (isFromCameraFlow) {
+        source = 'taatom_camera_live';
+      } else if (locationMetadata?.hasExifGps) {
+        // hasExifGps is true for both EXIF GPS and assetInfo.location
+        source = 'gallery_exif';
+      } else if (locationMetadata && location?.lat && location?.lng) {
+        // Location exists but not from verified GPS (e.g., manually added)
+        source = 'gallery_no_exif';
+      } else {
+        source = 'manual_only';
+      }
+
       logger.debug('Sending data to createShort:', {
         video: {
           uri: selectedVideo,
@@ -747,6 +898,9 @@ export default function PostScreen() {
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+        hasExifGps: locationMetadata?.hasExifGps,
+        source: source,
+        fromCamera: isFromCameraFlow,
       });
 
       const response = await createShort({
@@ -770,6 +924,10 @@ export default function PostScreen() {
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
+        hasExifGps: locationMetadata?.hasExifGps || false,
+        takenAt: locationMetadata?.takenAt || undefined,
+        source: source,
+        fromCamera: isFromCameraFlow,
       });
 
       logger.debug('Short created successfully:', response);
@@ -1146,7 +1304,7 @@ export default function PostScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-            ) : selectedVideo ? (
+            ) : selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
                 <View style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
@@ -1159,7 +1317,7 @@ export default function PostScreen() {
                 </View>
                 {/* Thumbnail preview below */}
                 <View style={{ marginTop: theme.spacing.sm }}>
-                  {videoThumbnail ? (
+                  {videoThumbnail && videoThumbnail.trim() ? (
                     <Image source={{ uri: videoThumbnail }} style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
                   ) : (
                     <View style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
@@ -1176,8 +1334,10 @@ export default function PostScreen() {
                         return;
                       }
                       const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [9, 16], quality: 0.9 });
-                      if (!pick.canceled && pick.assets?.[0]) {
+                      if (!pick.canceled && pick.assets?.[0] && pick.assets[0].uri && pick.assets[0].uri.trim()) {
                         setVideoThumbnail(pick.assets[0].uri);
+                      } else {
+                        setVideoThumbnail(null);
                       }
                     }}
                     style={{ position: 'absolute', right: theme.spacing.sm, bottom: theme.spacing.sm, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderRadius: theme.borderRadius.md, opacity: 0.9 }}
@@ -1372,12 +1532,32 @@ export default function PostScreen() {
                           </View>
                         )}
                       </View>
-                    <View style={{ marginBottom: theme.spacing.lg }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
-                        <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
-                        <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
-                      </View>
+                      <View style={{ marginBottom: theme.spacing.lg }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                        </View>
+                        {location && (
+                          <View style={{ 
+                            backgroundColor: theme.colors.primary + '10', 
+                            borderRadius: theme.borderRadius.md, 
+                            padding: theme.spacing.sm, 
+                            marginBottom: theme.spacing.sm,
+                            flexDirection: 'row',
+                            alignItems: 'flex-start'
+                          }}>
+                            <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs, marginTop: 2 }} />
+                            <Text style={{ 
+                              color: theme.colors.textSecondary, 
+                              fontSize: theme.typography.small.fontSize,
+                              flex: 1,
+                              lineHeight: 18
+                            }}>
+                              Use original camera photos (not WhatsApp/downloaded images) with location enabled so Taatom can verify your trip and count it in TripScore.
+                            </Text>
+                          </View>
+                        )}
                       <TextInput
                         style={{ 
                           backgroundColor: theme.colors.surfaceSecondary, 
@@ -1403,6 +1583,26 @@ export default function PostScreen() {
                       <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: theme.colors.surfaceSecondary, borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.md }}>
                         <Ionicons name="location" size={16} color={theme.colors.textSecondary} />
                         <Text style={{ color: theme.colors.textSecondary, fontSize: theme.typography.body.fontSize, marginLeft: theme.spacing.xs, flex: 1 }}>{address}</Text>
+                      </View>
+                    )}
+                    {location && (
+                      <View style={{ 
+                        backgroundColor: theme.colors.primary + '10', 
+                        borderRadius: theme.borderRadius.md, 
+                        padding: theme.spacing.sm, 
+                        marginBottom: theme.spacing.md,
+                        flexDirection: 'row',
+                        alignItems: 'flex-start'
+                      }}>
+                        <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs, marginTop: 2 }} />
+                        <Text style={{ 
+                          color: theme.colors.textSecondary, 
+                          fontSize: theme.typography.small.fontSize,
+                          flex: 1,
+                          lineHeight: 18
+                        }}>
+                          Use original camera photos (not WhatsApp/downloaded images) with location enabled so Taatom can verify your trip and count it in TripScore.
+                        </Text>
                       </View>
                     )}
                     {uploadError && (

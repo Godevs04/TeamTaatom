@@ -360,7 +360,7 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
                   <button 
                     onClick={() => {
                       setShowProfileMenu(false)
-                      toast.info('Help & Support coming soon')
+                      toast('Help & Support coming soon', { icon: 'ℹ️' })
                     }}
                     className="w-full flex items-center space-x-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >

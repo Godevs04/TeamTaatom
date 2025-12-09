@@ -9,6 +9,7 @@ const Chat = require('../models/Chat');
 const Comment = require('../models/Comment');
 const { deleteImage } = require('../config/cloudinary');
 const { deleteObject } = require('../services/storage');
+const { deleteTripVisitForContent } = require('../services/tripVisitService');
 const logger = require('./logger');
 
 /**

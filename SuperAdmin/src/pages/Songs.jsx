@@ -542,7 +542,7 @@ const Songs = () => {
                 <button
                   onClick={() => {
                     // Bulk delete functionality
-                    toast.info('Bulk delete feature coming soon')
+                    toast('Bulk delete feature coming soon', { icon: 'ℹ️' })
                   }}
                   className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
                 >
