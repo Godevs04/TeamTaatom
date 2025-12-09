@@ -610,8 +610,8 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* TripScore Section - Always show if tripScore exists */}
-        {profileData?.tripScore && (
+        {/* TripScore Section - Always show (even if score is 0) */}
+        {profileData && (
           <Pressable 
             style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
@@ -625,12 +625,17 @@ export default function ProfileScreen() {
             <View style={styles.tripScoreContent}>
               <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
                 <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
-                  {profileData.tripScore?.totalScore || 0}
+                  {profileData.tripScore?.totalScore ?? 0}
                 </Text>
                 <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
                   Total TripScore
                 </Text>
               </View>
+              {(!profileData.tripScore || profileData.tripScore.totalScore === 0) && (
+                <Text style={[styles.tripScoreHint, { color: profileTheme.textSecondary, marginTop: 8, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 }]}>
+                  Start traveling and posting with locations to build your TripScore!
+                </Text>
+              )}
             </View>
           </Pressable>
         )}
@@ -1115,6 +1120,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.8,
   },
+  tripScoreHint: {
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
   
   // Location Card
   locationCard: {
@@ -1334,5 +1345,39 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.3,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 0,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalText: {
+    fontSize: 16,
+    lineHeight: 24,
   },
 });

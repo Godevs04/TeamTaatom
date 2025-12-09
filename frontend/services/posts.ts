@@ -23,6 +23,10 @@ export interface CreatePostData {
   address?: string;
   latitude?: number;
   longitude?: number;
+  hasExifGps?: boolean;      // true if location came from EXIF GPS
+  takenAt?: Date;            // capture date from EXIF or asset metadata
+  source?: 'taatom_camera_live' | 'gallery_exif' | 'gallery_no_exif' | 'manual_only';
+  fromCamera?: boolean;      // true if taken via in-app camera
   songId?: string;
   songStartTime?: number;
   songEndTime?: number;
@@ -45,6 +49,10 @@ export interface CreateShortData {
   address?: string;
   latitude?: number;
   longitude?: number;
+  hasExifGps?: boolean;      // true if location came from EXIF GPS
+  takenAt?: Date;            // capture date from EXIF or asset metadata
+  source?: 'taatom_camera_live' | 'gallery_exif' | 'gallery_no_exif' | 'manual_only';
+  fromCamera?: boolean;      // true if recorded via in-app camera
   songId?: string;
   songStartTime?: number;
   songEndTime?: number;
@@ -165,6 +173,21 @@ export const createPostWithProgress = async (
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    
+    // Add location metadata for TripScore v2
+    if (data.hasExifGps !== undefined) {
+      formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
+    }
+    if (data.takenAt) {
+      formData.append('takenAt', data.takenAt.toISOString());
+    }
+    if (data.source) {
+      formData.append('source', data.source);
+    }
+    if (data.fromCamera !== undefined) {
+      formData.append('fromCamera', data.fromCamera ? 'true' : 'false');
+    }
+    
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
@@ -218,6 +241,21 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    
+    // Add location metadata for TripScore v2
+    if (data.hasExifGps !== undefined) {
+      formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
+    }
+    if (data.takenAt) {
+      formData.append('takenAt', data.takenAt.toISOString());
+    }
+    if (data.source) {
+      formData.append('source', data.source);
+    }
+    if (data.fromCamera !== undefined) {
+      formData.append('fromCamera', data.fromCamera ? 'true' : 'false');
+    }
+    
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());

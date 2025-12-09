@@ -3,13 +3,16 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache } = require('../utils/cache');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
+const TripVisit = require('../models/TripVisit');
+const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -83,27 +86,20 @@ const getProfile = async (req, res) => {
         date: post.createdAt
       }));
 
-    // Calculate TripScore based on unique locations (optimized aggregation)
-    const postsWithLocations = await Post.aggregate([
-      {
-        $match: {
-          user: new mongoose.Types.ObjectId(id),
-          isActive: true,
-          'location.coordinates.latitude': { $ne: 0 },
-          'location.coordinates.longitude': { $ne: 0 }
-        }
-      },
-      {
-        $project: {
-          location: 1,
-          likes: 1,
-          createdAt: 1
-        }
-      },
-      { $limit: 1000 } // Limit for performance
-    ]);
+    // Calculate TripScore v2 based on TripVisit (unique, trusted visits)
+    // Only TripVisits with trustLevel in ['high','medium'] contribute to TripScore.
+    // Low/unverified/suspicious visits are excluded from scoring.
+    const trustedVisits = await TripVisit.find({
+      user: id,
+      isActive: true,
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS }
+    })
+    .select('lat lng continent country address uploadedAt')
+    .lean()
+    .limit(1000); // Limit for performance
 
-    // Group posts by continent/country for TripScore
+    // Group visits by continent/country for TripScore v2
+    // TripScore v2 counts unique places visited, not raw post count
     const tripScoreData = {
       totalScore: 0,
       continents: {},
@@ -111,39 +107,34 @@ const getProfile = async (req, res) => {
       areas: []
     };
 
-    // Track all locations (count every post with valid location)
-    const allLocations = [];
+    // Track unique locations (deduplicate by lat/lng)
+    const uniqueLocations = new Set();
 
-    // Process posts to calculate TripScore (all posts with locations count towards trip score)
-    postsWithLocations.forEach(post => {
-      if (post.location && post.location.coordinates) {
-        // Try to get continent from address, fallback to coordinates
-        let continent = getContinentFromLocation(post.location.address);
-        if (continent === 'Unknown') {
-          continent = getContinentFromCoordinates(
-            post.location.coordinates.latitude,
-            post.location.coordinates.longitude
-          );
-        }
+    // Process visits to calculate TripScore (unique places only)
+    trustedVisits.forEach(visit => {
+      const locationKey = `${visit.lat},${visit.lng}`;
+      
+      // Only count each unique location once
+      if (!uniqueLocations.has(locationKey)) {
+        uniqueLocations.add(locationKey);
         
-        const address = post.location.address;
-        const continentKey = continent.toUpperCase();
+        const continentKey = visit.continent || 'Unknown';
 
-        // Add to continent score (count all posts with valid locations)
+        // Add to continent score (unique locations only)
         if (!tripScoreData.continents[continentKey]) {
           tripScoreData.continents[continentKey] = 0;
         }
         tripScoreData.continents[continentKey] += 1;
 
-        // Add to total score (every post with valid location counts)
+        // Add to total score (unique places visited)
         tripScoreData.totalScore += 1;
 
-        // Add to areas list with likes count
+        // Add to areas list
         tripScoreData.areas.push({
-          address: address || 'Unknown Location',
+          address: visit.address || 'Unknown Location',
           continent: continentKey,
-          likes: post.likes ? post.likes.length : 0,
-          date: post.createdAt
+          likes: 0, // Likes are post-specific, not visit-specific
+          date: visit.uploadedAt
         });
       }
     });
@@ -212,8 +203,9 @@ const getProfile = async (req, res) => {
       }
     }
 
-    // Only return tripScore if there's actually a score (meaning user has posted locations)
-    const tripScore = canViewProfile && tripScoreData.totalScore > 0 ? tripScoreData : null;
+    // Always return tripScore structure (even if 0) so frontend can display it
+    // Only hide tripScore if user can't view profile
+    const tripScore = canViewProfile ? tripScoreData : null;
 
     // user is already a lean object, so we can spread it directly
     // Calculate followers/following counts (they are populated objects)
@@ -275,65 +267,102 @@ const updateProfile = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const user = await User.findById(id).lean();
+    const user = await User.findById(id);
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
     const { fullName, bio } = req.body;
     let profilePicUrl = user.profilePic;
+    let profilePicStorageKey = user.profilePicStorageKey; // Track storage key separately
 
     // Handle profile picture upload
     if (req.file) {
       try {
-        // Delete old profile picture if it exists
+        // Delete old profile picture if it exists (try storage key first, then legacy Cloudinary)
         if (user.profilePic) {
-          const publicId = user.profilePic.split('/').pop().split('.')[0];
-          await deleteImage(`taatom/profiles/${publicId}`).catch(err => 
-            logger.error('Error deleting old profile picture:', err)
-          );
+          // Try to extract storage key from URL or use legacy Cloudinary deletion
+          const oldKey = user.profilePicStorageKey || user.profilePic.split('/').pop();
+          if (oldKey) {
+            await deleteObject(oldKey).catch(async (err) => {
+              logger.debug('Storage delete failed, trying Cloudinary:', err);
+              // Fallback to Cloudinary delete for legacy images
+              await deleteImage(`taatom/profiles/${oldKey.split('.')[0]}`).catch(deleteErr => 
+                logger.error('Error deleting old profile picture:', deleteErr)
+              );
+            });
+          }
         }
 
-        // Upload new profile picture
-        const cloudinaryResult = await uploadImage(req.file.buffer, {
-          folder: 'taatom/profiles',
-          public_id: `profile_${user._id}_${Date.now()}`,
-          transformation: [
-            { width: 400, height: 400, crop: 'fill', gravity: 'face' }
-          ]
+        // Upload new profile picture to Sevalla Object Storage
+        const extension = req.file.originalname.split('.').pop() || 'jpg';
+        profilePicStorageKey = buildMediaKey({
+          type: 'profile',
+          userId: user._id.toString(),
+          filename: req.file.originalname,
+          extension
         });
 
-        profilePicUrl = cloudinaryResult.secure_url;
+        const uploadResult = await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
+        profilePicUrl = uploadResult.url;
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
-        return sendError(res, 'FILE_4004', 'Error uploading profile picture');
+        logger.error('Upload error details:', {
+          message: uploadError.message,
+          code: uploadError.code,
+          name: uploadError.name,
+          stack: uploadError.stack
+        });
+        return sendError(res, 'FILE_4004', uploadError.message || 'Error uploading profile picture');
       }
     }
 
     // Update user
+    const updateData = {
+      ...(fullName && { fullName }),
+      ...(bio !== undefined && { bio }),
+      ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
+    };
+    
+    // Add profilePicStorageKey if it was set during upload
+    if (profilePicStorageKey && profilePicStorageKey !== user.profilePicStorageKey) {
+      updateData.profilePicStorageKey = profilePicStorageKey;
+    }
+    
     const updatedUser = await User.findByIdAndUpdate(
       id,
-      {
-        ...(fullName && { fullName }),
-        ...(bio !== undefined && { bio }),
-        ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
-      },
+      updateData,
       { new: true, runValidators: true }
     ).select('-password -otp -otpExpires').lean();
 
-    // Invalidate cache
-    await deleteCache(CacheKeys.user(id));
-    await deleteCacheByPattern('search:*');
+    // Invalidate cache (non-blocking - don't fail if cache fails)
+    try {
+      await deleteCache(CacheKeys.user(id));
+      await deleteCacheByPattern('search:*').catch(err => 
+        logger.warn('Failed to delete cache pattern:', err)
+      );
+    } catch (cacheError) {
+      logger.warn('Cache invalidation failed (non-critical):', cacheError);
+      // Continue execution - cache failure shouldn't block profile update
+    }
 
-    // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(id);
-      const audience = [id, ...followers];
-      nsp.emitInvalidateProfile(id);
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitEvent('profile:updated', audience, { userId: id });
+    // Emit socket events (non-blocking - don't fail if socket fails)
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        const followers = await getFollowers(id).catch(err => {
+          logger.warn('Failed to get followers for socket event:', err);
+          return [];
+        });
+        const audience = [id, ...followers];
+        nsp.emitInvalidateProfile(id);
+        nsp.emitInvalidateFeed(audience);
+        nsp.emitEvent('profile:updated', audience, { userId: id });
+      }
+    } catch (socketError) {
+      logger.warn('Socket event emission failed (non-critical):', socketError);
+      // Continue execution - socket failure shouldn't block profile update
     }
 
     return sendSuccess(res, 200, 'Profile updated successfully', {
@@ -341,7 +370,40 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     logger.error('Update profile error:', error);
-    return sendError(res, 'SRV_6001', 'Error updating profile');
+    logger.error('Update profile error details:', {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+      userId: req.params.id,
+      body: req.body,
+      hasFile: !!req.file
+    });
+    
+    // Provide more specific error messages
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors || {}).map(err => err.message);
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors });
+    }
+    
+    if (error.name === 'CastError' || error.message?.includes('Cast to ObjectId')) {
+      return sendError(res, 'RES_3001', 'Invalid user ID format');
+    }
+    
+    if (error.message?.includes('duplicate key') || error.code === 11000) {
+      return sendError(res, 'VAL_2001', 'A user with this information already exists');
+    }
+    
+    if (error.message?.includes('storage') || error.message?.includes('upload')) {
+      return sendError(res, 'FILE_4004', error.message || 'Error uploading profile picture');
+    }
+    
+    // Return generic error with more context in development
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Error updating profile: ${error.message}` 
+      : 'Error updating profile';
+    
+    return sendError(res, 'SRV_6001', errorMessage);
   }
 };
 
@@ -1032,33 +1094,31 @@ const getTripScoreContinents = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get all posts with location data (all posts with locations count towards trip score)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
+    // Get trusted visits (TripScore v2 - unique places only)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS }
     })
-    .select('location likes createdAt')
-    .lean();
+    .select('lat lng continent country address takenAt uploadedAt')
+    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
+    .lean()
+    .limit(1000);
 
-    // Calculate continent scores and distances based on all locations
+    // Calculate continent scores and distances based on unique visits
     const continentScores = {};
-    const continentLocations = {}; // Store locations per continent for distance calculation
+    const continentLocations = {}; // Store unique locations per continent for distance calculation
+    const uniqueLocationKeys = new Set(); // Track unique locations globally
     let totalScore = 0;
 
-    postsWithLocations.forEach(post => {
-      if (post.location && post.location.coordinates) {
-        // Try to get continent from address, fallback to coordinates
-        let continent = getContinentFromLocation(post.location.address);
-        if (continent === 'Unknown') {
-          continent = getContinentFromCoordinates(
-            post.location.coordinates.latitude,
-            post.location.coordinates.longitude
-          );
-        }
+    trustedVisits.forEach(visit => {
+      const locationKey = `${visit.lat},${visit.lng}`;
+      
+      // Only count each unique location once (TripScore v2 deduplication)
+      if (!uniqueLocationKeys.has(locationKey)) {
+        uniqueLocationKeys.add(locationKey);
         
-        const continentKey = continent.toUpperCase(); // Convert to uppercase format
+        const continentKey = visit.continent || 'Unknown';
         
         // Initialize continent scores and location arrays if needed
         if (!continentScores[continentKey]) {
@@ -1066,15 +1126,15 @@ const getTripScoreContinents = async (req, res) => {
           continentLocations[continentKey] = [];
         }
         
-        // Count every post with valid location
+        // Count unique places visited
         continentScores[continentKey] += 1;
         totalScore += 1;
         
         // Store location for distance calculation per continent
         continentLocations[continentKey].push({
-          latitude: post.location.coordinates.latitude,
-          longitude: post.location.coordinates.longitude,
-          createdAt: post.createdAt
+          latitude: visit.lat,
+          longitude: visit.lng,
+          createdAt: visit.takenAt || visit.uploadedAt
         });
       }
     });
@@ -1136,41 +1196,36 @@ const getTripScoreCountries = async (req, res) => {
 
     const continentName = continent.toUpperCase();
     
-    // Get posts for this continent (all posts with locations count)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
+    // Get trusted visits for this continent (TripScore v2 - unique places only)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      continent: continentName
     })
-    .select('location likes createdAt')
+    .select('lat lng country address')
     .lean();
 
-    // Filter posts by continent and calculate country scores based on all locations
+    // Filter visits by continent and calculate country scores based on unique places
     const countryScores = {};
+    const uniqueLocationKeys = new Set(); // Track unique locations
     let continentScore = 0;
 
-    postsWithLocations.forEach(post => {
-      if (post.location && post.location.coordinates) {
-        // Try to get continent from address, fallback to coordinates
-        let continentFromPost = getContinentFromLocation(post.location.address);
-        if (continentFromPost === 'Unknown') {
-          continentFromPost = getContinentFromCoordinates(
-            post.location.coordinates.latitude,
-            post.location.coordinates.longitude
-          );
-        }
+    trustedVisits.forEach(visit => {
+      const locationKey = `${visit.lat},${visit.lng}`;
+      
+      // Only count each unique location once
+      if (!uniqueLocationKeys.has(locationKey)) {
+        uniqueLocationKeys.add(locationKey);
         
-        if (continentFromPost.toUpperCase() === continentName) {
-          const country = getCountryFromLocation(post.location.address);
-          
-          // Count all posts with valid locations
-          if (!countryScores[country]) {
-            countryScores[country] = 0;
-          }
-          countryScores[country] += 1; // Count all posts
-          continentScore += 1;
+        const country = visit.country || 'Unknown';
+        
+        // Count unique places visited
+        if (!countryScores[country]) {
+          countryScores[country] = 0;
         }
+        countryScores[country] += 1;
+        continentScore += 1;
       }
     });
 
@@ -1209,66 +1264,62 @@ const getTripScoreCountryDetails = async (req, res) => {
     const { id } = req.params;
     const { country } = req.params;
 
-    // Get all posts with locations for the user (all posts with locations count)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
+    // Get trusted visits for this country (TripScore v2 - unique places only)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
-    .select('location likes createdAt caption')
+    .select('lat lng address takenAt uploadedAt')
+    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
     .lean();
 
-    // Filter posts by country and calculate locations (show unique in list, count all in score)
+    // Filter visits by country and calculate locations (unique places only)
     const locations = [];
-    const uniqueLocations = new Set(); // Track unique locations for display
+    const uniqueLocations = new Set(); // Track unique locations
     let countryScore = 0;
     let totalDistance = 0;
     let previousLocation = null;
 
-    postsWithLocations.forEach(post => {
-      if (post.location && post.location.address && post.location.coordinates) {
-        const countryFromPost = getCountryFromLocation(post.location.address);
-        if (countryFromPost.toLowerCase() === country.toLowerCase()) {
-          // Count all posts (for score)
-          countryScore += 1;
-          
-          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
-          
-          // Only show unique locations in the list (avoid duplicates)
-          if (!uniqueLocations.has(locationKey)) {
-            uniqueLocations.add(locationKey);
-            
-            locations.push({
-              name: post.location.address,
-              score: 1, // Display count
-              date: post.createdAt,
-              caption: post.caption,
-              category: getLocationCategory(post.caption, post.location.address),
-              coordinates: {
-                latitude: post.location?.coordinates?.latitude,
-                longitude: post.location?.coordinates?.longitude
-              }
-            });
-
-            // Calculate distance if there's a previous location
-            if (previousLocation) {
-              const distance = calculateDistance(
-                previousLocation.latitude,
-                previousLocation.longitude,
-                post.location.coordinates.latitude,
-                post.location.coordinates.longitude
-              );
-              totalDistance += distance;
-            }
-
-            // Update previous location
-            previousLocation = {
-              latitude: post.location.coordinates.latitude,
-              longitude: post.location.coordinates.longitude
-            };
+    trustedVisits.forEach(visit => {
+      const locationKey = `${visit.lat},${visit.lng}`;
+      
+      // Only count/show each unique location once
+      if (!uniqueLocations.has(locationKey)) {
+        uniqueLocations.add(locationKey);
+        
+        // Count unique places visited
+        countryScore += 1;
+        
+        locations.push({
+          name: visit.address || 'Unknown Location',
+          score: 1, // Each unique location counts as 1
+          date: visit.takenAt || visit.uploadedAt,
+          caption: '', // Caption is post-specific, not visit-specific
+          category: { fromYou: 'Unknown', typeOfSpot: 'Unknown' }, // Category detection would need post data
+          coordinates: {
+            latitude: visit.lat,
+            longitude: visit.lng
           }
+        });
+
+        // Calculate distance if there's a previous location
+        if (previousLocation) {
+          const distance = calculateDistance(
+            previousLocation.latitude,
+            previousLocation.longitude,
+            visit.lat,
+            visit.lng
+          );
+          totalDistance += distance;
         }
+
+        // Update previous location
+        previousLocation = {
+          latitude: visit.lat,
+          longitude: visit.lng
+        };
       }
     });
 
@@ -1295,43 +1346,38 @@ const getTripScoreLocations = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get posts for this country (all posts with locations count)
-    const postsWithLocations = await Post.find({ 
-      user: id, 
+    // Get trusted visits for this country (TripScore v2 - unique places only)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
-    .select('location likes createdAt caption')
+    .select('lat lng address takenAt uploadedAt')
     .lean();
 
-    // Filter posts by country
+    // Filter visits by country (unique places only)
     const locations = [];
     const uniqueLocations = new Set();
     let countryScore = 0;
 
-    postsWithLocations.forEach(post => {
-      if (post.location && post.location.address && post.location.coordinates) {
-        const countryFromPost = getCountryFromLocation(post.location.address);
-        if (countryFromPost.toLowerCase() === country.toLowerCase()) {
-          // Count all posts (for score)
-          countryScore += 1;
-          
-          const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
-          
-          // Only show unique locations in the list
-          if (!uniqueLocations.has(locationKey)) {
-            uniqueLocations.add(locationKey);
-            
-            locations.push({
-              name: post.location.address,
-              score: 1,
-              date: post.createdAt,
-              caption: post.caption,
-              category: getLocationCategory(post.caption, post.location.address)
-            });
-          }
-        }
+    trustedVisits.forEach(visit => {
+      const locationKey = `${visit.lat},${visit.lng}`;
+      
+      // Only count/show each unique location once
+      if (!uniqueLocations.has(locationKey)) {
+        uniqueLocations.add(locationKey);
+        
+        // Count unique places visited
+        countryScore += 1;
+        
+        locations.push({
+          name: visit.address || 'Unknown Location',
+          score: 1, // Each unique location counts as 1
+          date: visit.takenAt || visit.uploadedAt,
+          caption: '', // Caption is post-specific, not visit-specific
+          category: { fromYou: 'Unknown', typeOfSpot: 'Unknown' } // Category detection would need post data
+        });
       }
     });
 
