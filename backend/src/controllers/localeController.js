@@ -1,5 +1,6 @@
 const Locale = require('../models/Locale');
 const { uploadLocaleImage, deleteLocaleImage } = require('../config/cloudinary');
+const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -113,20 +114,23 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
     }
 
-    // Check Cloudinary configuration
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      logger.error('Cloudinary configuration missing');
-      return sendError(res, 'SRV_6002', 'Cloudinary is not configured. Please check environment variables.');
+    // Check storage configuration
+    if (!process.env.SEVALLA_STORAGE_BUCKET || !process.env.SEVALLA_STORAGE_ENDPOINT) {
+      logger.error('Sevalla storage configuration missing');
+      return sendError(res, 'SRV_6002', 'Storage is not configured. Please check environment variables.');
     }
 
-    logger.debug('Uploading to Cloudinary...');
-    // Upload to Cloudinary
-    const cloudinaryResult = await uploadLocaleImage(
-      req.file.buffer,
-      req.file.originalname,
-      req.file.mimetype
-    );
-    logger.debug('Cloudinary upload successful:', { key: cloudinaryResult.key, url: cloudinaryResult.url });
+    logger.debug('Uploading to Sevalla Object Storage...');
+    // Upload to Sevalla Object Storage
+    const extension = req.file.originalname.split('.').pop() || 'jpg';
+    const storageKey = buildMediaKey({
+      type: 'locale',
+      filename: req.file.originalname,
+      extension
+    });
+    
+    const uploadResult = await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
+    logger.debug('Storage upload successful:', { key: storageKey, url: uploadResult.url });
 
     // Validate displayOrder - check for conflicts
     const requestedOrder = parseInt(displayOrder) || 0;
@@ -149,8 +153,9 @@ const uploadLocale = async (req, res) => {
       stateProvince: stateProvince ? stateProvince.trim() : '',
       stateCode: stateCode ? stateCode.trim() : '',
       description: description ? description.trim() : '',
-      cloudinaryKey: cloudinaryResult.key, // Store Cloudinary public_id
-      cloudinaryUrl: cloudinaryResult.url, // Store Cloudinary secure_url
+      storageKey: storageKey, // Store storage key
+      cloudinaryKey: storageKey, // Backward compatibility
+      cloudinaryUrl: uploadResult.url, // Store URL
       createdBy: req.superAdmin._id,
       displayOrder: requestedOrder,
       isActive: true // Explicitly set to active
@@ -179,16 +184,20 @@ const uploadLocale = async (req, res) => {
     });
     
     // Provide more specific error messages
-    if (error.message?.includes('Invalid API key') || error.message?.includes('Invalid credentials')) {
-      return sendError(res, 'SRV_6002', 'Cloudinary credentials are invalid. Please check CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.');
+    if (error.message?.includes('Invalid') || error.message?.includes('credentials')) {
+      return sendError(res, 'SRV_6002', 'Storage credentials are invalid. Please check SEVALLA_STORAGE_ACCESS_KEY and SEVALLA_STORAGE_SECRET_KEY.');
     }
     
-    if (error.message?.includes('Cloud name') || error.message?.includes('cloud_name')) {
-      return sendError(res, 'SRV_6002', 'Cloudinary cloud name is invalid. Please check CLOUDINARY_CLOUD_NAME.');
+    if (error.message?.includes('endpoint') || error.message?.includes('ENOTFOUND')) {
+      return sendError(res, 'SRV_6002', 'Storage endpoint is invalid or unreachable. Please check SEVALLA_STORAGE_ENDPOINT.');
     }
     
-    if (error.http_code === 401 || error.http_code === 403) {
-      return sendError(res, 'SRV_6002', 'Cloudinary authentication failed. Please verify your API credentials.');
+    if (error.name === 'NoSuchBucket' || error.message?.includes('bucket')) {
+      return sendError(res, 'SRV_6002', 'Storage bucket not found. Please check SEVALLA_STORAGE_BUCKET.');
+    }
+    
+    if (error.message?.includes('expiration') || error.message?.includes('presigned')) {
+      return sendError(res, 'SRV_6002', 'Invalid URL expiration. Presigned URLs must expire within 7 days.');
     }
     
     return sendError(res, 'SRV_6001', error.message || 'Error uploading locale');
@@ -206,15 +215,24 @@ const deleteLocaleById = async (req, res) => {
       return sendError(res, 'RES_3001', 'Locale not found');
     }
 
-    // Delete from Cloudinary
+    // Delete from storage (Sevalla R2)
     try {
-      const keyToDelete = locale.cloudinaryKey || locale.imageKey; // Use new field if available, fallback to legacy
+      const keyToDelete = locale.storageKey || locale.cloudinaryKey || locale.imageKey; // Priority: storageKey > cloudinaryKey > imageKey
       if (keyToDelete) {
-        await deleteLocaleImage(keyToDelete);
+        await deleteObject(keyToDelete);
       }
-    } catch (cloudinaryError) {
-      logger.error('Error deleting from Cloudinary:', cloudinaryError);
-      // Continue with database deletion even if Cloudinary deletion fails
+    } catch (storageError) {
+      logger.error('Error deleting from storage:', storageError);
+      // Try legacy Cloudinary delete as fallback
+      try {
+        const legacyKey = locale.cloudinaryKey || locale.imageKey;
+        if (legacyKey) {
+          await deleteLocaleImage(legacyKey);
+        }
+      } catch (cloudinaryError) {
+        logger.error('Error deleting from Cloudinary (legacy):', cloudinaryError);
+      }
+      // Continue with database deletion even if storage deletion fails
     }
 
     // Delete from database
