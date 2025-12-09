@@ -129,6 +129,14 @@
           "color": "#ffffff",
           "defaultChannel": "default"
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "taatom-mobile",
+          "organization": "godevs"
+        }
       ]
     ],
     "extra": {

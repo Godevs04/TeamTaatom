@@ -889,7 +889,7 @@ function PhotoCard({
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.menuItem]}
+                  style={[styles.menuItem, { borderBottomWidth: 0 }]}
                   onPress={() => {
                     setShowMenu(false);
                     handleShare();
@@ -902,7 +902,7 @@ function PhotoCard({
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.menuItem]}
+                  style={[styles.menuItem, { borderBottomWidth: 0 }]}
                   onPress={() => {
                     setShowMenu(false);
                     setShowAddToCollectionModal(true);
@@ -916,7 +916,6 @@ function PhotoCard({
                 </TouchableOpacity>
               </>
             )}
-            <View style={styles.menuDivider} />
             <TouchableOpacity
               style={styles.menuCancelItem}
               onPress={() => !isMenuLoading && setShowMenu(false)}

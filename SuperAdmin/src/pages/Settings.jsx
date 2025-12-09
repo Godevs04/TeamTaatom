@@ -5,11 +5,12 @@ import {
   Settings as SettingsIcon, Shield, Lock, Bell, Database, 
   Cloud, Mail, Download, Upload, RefreshCw, Key, Trash2,
   Eye, EyeOff, Save, AlertTriangle, CheckCircle, Info, X,
-  Clock
+  Clock, Bug
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { handleError } from '../utils/errorCodes'
+import * as Sentry from '@sentry/react'
 
 const Settings = () => {
   const { isConnected } = useRealTime()
@@ -293,6 +294,18 @@ const Settings = () => {
               <p className="text-gray-600 text-lg">Founder control and system configuration</p>
             </div>
             <div className="flex space-x-3">
+              {/* Sentry Test Button - Development Only */}
+              {import.meta.env.DEV && (
+                <button
+                  onClick={() => {
+                    throw new Error('This is your first error!')
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white rounded-xl font-semibold shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2"
+                >
+                  <Bug className="w-4 h-4" />
+                  <span>Break the world</span>
+                </button>
+              )}
               <button
                 onClick={handleImportSettings}
                 className="px-4 py-2.5 bg-white hover:bg-gray-50 text-gray-700 rounded-xl font-semibold shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2 border border-gray-200"
