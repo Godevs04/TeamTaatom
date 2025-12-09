@@ -11,11 +11,12 @@ const {
 const router = express.Router();
 
 // Multer configuration for video uploads
+// No file size limits - unlimited uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB per file
+    // fileSize removed - unlimited file size
   },
   fileFilter: (req, file, cb) => {
     const isVideo = file.fieldname === 'video' && file.mimetype.startsWith('video/');

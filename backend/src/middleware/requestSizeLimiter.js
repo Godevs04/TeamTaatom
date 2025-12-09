@@ -10,7 +10,7 @@ const REQUEST_SIZE_LIMITS = {
     json: 1 * 1024 * 1024, // 1MB
     urlencoded: 1 * 1024 * 1024, // 1MB
     text: 100 * 1024, // 100KB
-    multipart: 10 * 1024 * 1024, // 10MB for multipart (default)
+    multipart: Infinity, // Unlimited for multipart (default - no file size limit)
   },
   // Auth endpoints (smaller limits)
   auth: {
@@ -18,17 +18,17 @@ const REQUEST_SIZE_LIMITS = {
     urlencoded: 50 * 1024, // 50KB
     multipart: 5 * 1024 * 1024, // 5MB for profile picture uploads
   },
-  // Post creation (allow much larger for high-quality images)
+  // Post creation (unlimited file size)
   post: {
     json: 10 * 1024, // 10KB (caption only, images handled separately)
     urlencoded: 10 * 1024,
-    multipart: 50 * 1024 * 1024, // 50MB for high-quality image uploads (supports multiple images)
+    multipart: Infinity, // Unlimited for image uploads
   },
-  // Shorts creation (allow even larger for videos)
+  // Shorts creation (unlimited file size)
   shorts: {
     json: 10 * 1024, // 10KB
     urlencoded: 10 * 1024,
-    multipart: 100 * 1024 * 1024, // 100MB for video uploads
+    multipart: Infinity, // Unlimited for video uploads
   },
   // Comment endpoints
   comment: {
@@ -36,11 +36,11 @@ const REQUEST_SIZE_LIMITS = {
     urlencoded: 5 * 1024,
     multipart: 5 * 1024 * 1024, // 5MB for image comments
   },
-  // Profile updates
+  // Profile updates (unlimited file size)
   profile: {
     json: 50 * 1024, // 50KB
     urlencoded: 50 * 1024,
-    multipart: 10 * 1024 * 1024, // 10MB for profile picture uploads
+    multipart: Infinity, // Unlimited for profile picture uploads
   },
   // Settings
   settings: {
@@ -48,11 +48,17 @@ const REQUEST_SIZE_LIMITS = {
     urlencoded: 100 * 1024,
     multipart: 5 * 1024 * 1024, // 5MB
   },
-  // Songs upload (allow larger for audio files)
+  // Songs upload (unlimited file size)
   songs: {
     json: 10 * 1024, // 10KB
     urlencoded: 10 * 1024,
-    multipart: 20 * 1024 * 1024, // 20MB for audio file uploads
+    multipart: Infinity, // Unlimited for audio file uploads
+  },
+  // Locales upload (unlimited file size)
+  locales: {
+    json: 10 * 1024, // 10KB
+    urlencoded: 10 * 1024,
+    multipart: Infinity, // Unlimited for locale image uploads
   },
 };
 
@@ -65,6 +71,8 @@ const getSizeLimit = (path, contentType) => {
   
   if (path.includes('/auth/') || path.includes('/signin') || path.includes('/signup')) {
     endpointType = 'auth';
+  } else if (path.includes('/locales')) {
+    endpointType = 'locales';
   } else if (path.includes('/songs')) {
     endpointType = 'songs';
   } else if (path.includes('/shorts')) {
@@ -107,7 +115,8 @@ const requestSizeLimiter = (req, res, next) => {
   const limit = getSizeLimit(req.path, contentType);
 
   // Check content-length header first (fast check)
-  if (contentLength > limit) {
+  // Skip check if limit is Infinity (unlimited)
+  if (limit !== Infinity && contentLength > limit) {
     logger.warn('Request size limit exceeded', {
       path: req.path,
       contentLength,
