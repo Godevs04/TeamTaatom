@@ -1,4 +1,8 @@
 require('dotenv').config();
+
+// Initialize Sentry as early as possible (before any other imports)
+require('./instrument');
+
 const { app, dbConnectionPromise } = require('./app');
 const http = require('http');
 const { setupSocket } = require('./socket');

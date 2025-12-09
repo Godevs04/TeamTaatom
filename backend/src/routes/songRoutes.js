@@ -8,11 +8,12 @@ const { sendError } = require('../utils/errorCodes');
 const router = express.Router();
 
 // Multer configuration for audio file uploads
+// No file size limits - unlimited uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 20 * 1024 * 1024, // 20MB
+    // fileSize removed - unlimited file size
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a'];
@@ -27,9 +28,7 @@ const upload = multer({
 // Error handler for multer
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return sendError(res, 'FILE_4002', 'File size exceeds 20MB limit');
-    }
+    // File size limit errors removed - unlimited uploads
     return sendError(res, 'FILE_4001', 'File upload error: ' + err.message);
   }
   if (err) {

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const Sentry = require('./instrument');
 
 // Import database connection
 const connectDB = require('./config/db');
@@ -31,6 +32,9 @@ const { generateCSRF, verifyCSRF } = require('./middleware/csrfProtection');
 const { queryMonitor } = require('./middleware/queryMonitor');
 
 const app = express();
+
+// Note: Sentry Express integration is handled by expressIntegration() in instrument.js
+// setupExpressErrorHandler will be called after routes are defined
 
 // Connect to MongoDB - store promise for server.js to await
 const dbConnectionPromise = connectDB();
@@ -335,7 +339,14 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
+// Sentry Express error handler (must be BEFORE custom error handler)
+// This sets up Sentry's error handling middleware to capture errors first
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
+// Global error handler (runs after Sentry captures the error)
+// This sends the response to the client
 app.use(errorHandler);
 
 // Export both app and dbConnectionPromise so server.js can wait for DB connection

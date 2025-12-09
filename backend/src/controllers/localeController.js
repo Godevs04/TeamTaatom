@@ -128,6 +128,19 @@ const uploadLocale = async (req, res) => {
     );
     logger.debug('Cloudinary upload successful:', { key: cloudinaryResult.key, url: cloudinaryResult.url });
 
+    // Validate displayOrder - check for conflicts
+    const requestedOrder = parseInt(displayOrder) || 0;
+    if (requestedOrder > 0) {
+      const existingLocale = await Locale.findOne({ 
+        displayOrder: requestedOrder, 
+        isActive: true 
+      });
+      
+      if (existingLocale) {
+        return sendError(res, 'VAL_2001', `Display order ${requestedOrder} is already assigned to another locale. Please choose a different order.`);
+      }
+    }
+
     // Save to database
     const locale = new Locale({
       name: name.trim(),
@@ -139,7 +152,7 @@ const uploadLocale = async (req, res) => {
       cloudinaryKey: cloudinaryResult.key, // Store Cloudinary public_id
       cloudinaryUrl: cloudinaryResult.url, // Store Cloudinary secure_url
       createdBy: req.superAdmin._id,
-      displayOrder: parseInt(displayOrder) || 0,
+      displayOrder: requestedOrder,
       isActive: true // Explicitly set to active
     });
 
@@ -263,6 +276,21 @@ const updateLocale = async (req, res) => {
       return sendError(res, 'SRV_6001', 'Locale not found');
     }
 
+    // Preserve cloudinaryUrl and cloudinaryKey - these are required and should not be changed during update
+    // If they don't exist, populate from legacy fields for backward compatibility
+    if (!locale.cloudinaryUrl && locale.imageUrl) {
+      locale.cloudinaryUrl = locale.imageUrl;
+    }
+    if (!locale.cloudinaryKey && locale.imageKey) {
+      locale.cloudinaryKey = locale.imageKey;
+    }
+
+    // Ensure cloudinaryUrl and cloudinaryKey are set (required fields)
+    if (!locale.cloudinaryUrl || !locale.cloudinaryKey) {
+      logger.error(`Locale ${id} is missing cloudinaryUrl or cloudinaryKey`);
+      return sendError(res, 'SRV_6001', 'Locale is missing required image data. Please contact support.');
+    }
+
     // Update fields if provided
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
@@ -305,7 +333,27 @@ const updateLocale = async (req, res) => {
       if (isNaN(orderNum) || orderNum < 0) {
         return sendError(res, 'VAL_2001', 'Display order must be a positive number');
       }
+      
+      // Check if another locale already has this displayOrder
+      const existingLocale = await Locale.findOne({ 
+        displayOrder: orderNum, 
+        _id: { $ne: id },
+        isActive: true 
+      });
+      
+      if (existingLocale) {
+        return sendError(res, 'VAL_2001', `Display order ${orderNum} is already assigned to another locale. Please choose a different order.`);
+      }
+      
       locale.displayOrder = orderNum;
+    }
+
+    // Also update legacy fields for backward compatibility
+    if (locale.cloudinaryUrl && !locale.imageUrl) {
+      locale.imageUrl = locale.cloudinaryUrl;
+    }
+    if (locale.cloudinaryKey && !locale.imageKey) {
+      locale.imageKey = locale.cloudinaryKey;
     }
 
     await locale.save();

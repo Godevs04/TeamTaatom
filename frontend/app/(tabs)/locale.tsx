@@ -209,6 +209,19 @@ export default function LocaleScreen() {
       );
     }
     
+    // Sort by displayOrder (ascending), then by createdAt (descending) to maintain backend order
+    filtered.sort((a, b) => {
+      const orderA = a.displayOrder ?? 0;
+      const orderB = b.displayOrder ?? 0;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      // If displayOrder is the same, sort by createdAt (newest first)
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+    
     setFilteredLocales(filtered);
   };
   
