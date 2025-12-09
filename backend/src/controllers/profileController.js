@@ -3,12 +3,13 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache } = require('../utils/cache');
+const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
 
 // @desc    Get user profile
@@ -275,65 +276,102 @@ const updateProfile = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const user = await User.findById(id).lean();
+    const user = await User.findById(id);
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
     const { fullName, bio } = req.body;
     let profilePicUrl = user.profilePic;
+    let profilePicStorageKey = user.profilePicStorageKey; // Track storage key separately
 
     // Handle profile picture upload
     if (req.file) {
       try {
-        // Delete old profile picture if it exists
+        // Delete old profile picture if it exists (try storage key first, then legacy Cloudinary)
         if (user.profilePic) {
-          const publicId = user.profilePic.split('/').pop().split('.')[0];
-          await deleteImage(`taatom/profiles/${publicId}`).catch(err => 
-            logger.error('Error deleting old profile picture:', err)
-          );
+          // Try to extract storage key from URL or use legacy Cloudinary deletion
+          const oldKey = user.profilePicStorageKey || user.profilePic.split('/').pop();
+          if (oldKey) {
+            await deleteObject(oldKey).catch(async (err) => {
+              logger.debug('Storage delete failed, trying Cloudinary:', err);
+              // Fallback to Cloudinary delete for legacy images
+              await deleteImage(`taatom/profiles/${oldKey.split('.')[0]}`).catch(deleteErr => 
+                logger.error('Error deleting old profile picture:', deleteErr)
+              );
+            });
+          }
         }
 
-        // Upload new profile picture
-        const cloudinaryResult = await uploadImage(req.file.buffer, {
-          folder: 'taatom/profiles',
-          public_id: `profile_${user._id}_${Date.now()}`,
-          transformation: [
-            { width: 400, height: 400, crop: 'fill', gravity: 'face' }
-          ]
+        // Upload new profile picture to Sevalla Object Storage
+        const extension = req.file.originalname.split('.').pop() || 'jpg';
+        profilePicStorageKey = buildMediaKey({
+          type: 'profile',
+          userId: user._id.toString(),
+          filename: req.file.originalname,
+          extension
         });
 
-        profilePicUrl = cloudinaryResult.secure_url;
+        const uploadResult = await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
+        profilePicUrl = uploadResult.url;
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
-        return sendError(res, 'FILE_4004', 'Error uploading profile picture');
+        logger.error('Upload error details:', {
+          message: uploadError.message,
+          code: uploadError.code,
+          name: uploadError.name,
+          stack: uploadError.stack
+        });
+        return sendError(res, 'FILE_4004', uploadError.message || 'Error uploading profile picture');
       }
     }
 
     // Update user
+    const updateData = {
+      ...(fullName && { fullName }),
+      ...(bio !== undefined && { bio }),
+      ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
+    };
+    
+    // Add profilePicStorageKey if it was set during upload
+    if (profilePicStorageKey && profilePicStorageKey !== user.profilePicStorageKey) {
+      updateData.profilePicStorageKey = profilePicStorageKey;
+    }
+    
     const updatedUser = await User.findByIdAndUpdate(
       id,
-      {
-        ...(fullName && { fullName }),
-        ...(bio !== undefined && { bio }),
-        ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
-      },
+      updateData,
       { new: true, runValidators: true }
     ).select('-password -otp -otpExpires').lean();
 
-    // Invalidate cache
-    await deleteCache(CacheKeys.user(id));
-    await deleteCacheByPattern('search:*');
+    // Invalidate cache (non-blocking - don't fail if cache fails)
+    try {
+      await deleteCache(CacheKeys.user(id));
+      await deleteCacheByPattern('search:*').catch(err => 
+        logger.warn('Failed to delete cache pattern:', err)
+      );
+    } catch (cacheError) {
+      logger.warn('Cache invalidation failed (non-critical):', cacheError);
+      // Continue execution - cache failure shouldn't block profile update
+    }
 
-    // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(id);
-      const audience = [id, ...followers];
-      nsp.emitInvalidateProfile(id);
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitEvent('profile:updated', audience, { userId: id });
+    // Emit socket events (non-blocking - don't fail if socket fails)
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        const followers = await getFollowers(id).catch(err => {
+          logger.warn('Failed to get followers for socket event:', err);
+          return [];
+        });
+        const audience = [id, ...followers];
+        nsp.emitInvalidateProfile(id);
+        nsp.emitInvalidateFeed(audience);
+        nsp.emitEvent('profile:updated', audience, { userId: id });
+      }
+    } catch (socketError) {
+      logger.warn('Socket event emission failed (non-critical):', socketError);
+      // Continue execution - socket failure shouldn't block profile update
     }
 
     return sendSuccess(res, 200, 'Profile updated successfully', {
@@ -341,7 +379,40 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     logger.error('Update profile error:', error);
-    return sendError(res, 'SRV_6001', 'Error updating profile');
+    logger.error('Update profile error details:', {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+      userId: req.params.id,
+      body: req.body,
+      hasFile: !!req.file
+    });
+    
+    // Provide more specific error messages
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors || {}).map(err => err.message);
+      return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors });
+    }
+    
+    if (error.name === 'CastError' || error.message?.includes('Cast to ObjectId')) {
+      return sendError(res, 'RES_3001', 'Invalid user ID format');
+    }
+    
+    if (error.message?.includes('duplicate key') || error.code === 11000) {
+      return sendError(res, 'VAL_2001', 'A user with this information already exists');
+    }
+    
+    if (error.message?.includes('storage') || error.message?.includes('upload')) {
+      return sendError(res, 'FILE_4004', error.message || 'Error uploading profile picture');
+    }
+    
+    // Return generic error with more context in development
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Error updating profile: ${error.message}` 
+      : 'Error updating profile';
+    
+    return sendError(res, 'SRV_6001', errorMessage);
   }
 };
 
