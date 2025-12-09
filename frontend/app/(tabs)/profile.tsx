@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,7 +7,10 @@ import {
   TouchableOpacity, 
   Image, 
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Pressable,
+  Animated,
+  useColorScheme
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -78,8 +81,39 @@ export default function ProfileScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
+  
+  // Theme-aware colors for profile - MUST be called before any conditional returns
+  const colorScheme = useColorScheme();
+  // Improved dark mode detection - use theme mode if available, otherwise check background color
+  const isDark = mode === 'dark' || (mode === 'auto' && colorScheme === 'dark') || theme.colors.background === '#000000' || theme.colors.background === '#111114';
+  
+  const profileTheme = useMemo(() => {
+    if (isDark) {
+      return {
+        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
+        cardBg: '#111827',
+        cardBorder: 'rgba(255, 255, 255, 0.1)',
+        textPrimary: '#F9FAFB',
+        textSecondary: '#9CA3AF',
+        accent: '#60A5FA',
+        statCardBg: 'rgba(96, 165, 250, 0.1)',
+        statCardBorder: 'rgba(96, 165, 250, 0.2)',
+      };
+    } else {
+      return {
+        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
+        cardBg: '#FFFFFF',
+        cardBorder: 'rgba(0, 0, 0, 0.08)',
+        textPrimary: '#111827',
+        textSecondary: '#6B7280',
+        accent: '#2563EB',
+        statCardBg: 'rgba(37, 99, 235, 0.08)',
+        statCardBorder: 'rgba(37, 99, 235, 0.15)',
+      };
+    }
+  }, [isDark]);
 
   const loadUnreadCount = useCallback(async () => {
     try {
@@ -194,15 +228,53 @@ export default function ProfileScreen() {
         );
         
         const items: PostType[] = [];
-        allResults.forEach(batchResults => {
-          batchResults.forEach(r => {
+        const failedIds: string[] = [];
+        
+        allResults.forEach((batchResults, batchIndex) => {
+          batchResults.forEach((r, itemIndex) => {
             if (r.status === 'fulfilled') {
               const val: any = (r as any).value;
               const item = val.post || val;
-              if (item) items.push(item);
+              if (item) {
+                items.push(item);
+              } else {
+                // Post not found in response
+                const id = batches[batchIndex][itemIndex];
+                failedIds.push(id);
+              }
+            } else {
+              // Post fetch failed (deleted or doesn't exist)
+              const id = batches[batchIndex][itemIndex];
+              failedIds.push(id);
+              // Silently handle - don't log every failed post to avoid spam
             }
           });
         });
+        
+        // Clean up AsyncStorage by removing deleted post IDs
+        if (failedIds.length > 0) {
+          try {
+            const savedShorts = await AsyncStorage.getItem('savedShorts');
+            const savedPosts = await AsyncStorage.getItem('savedPosts');
+            const shortsArr: string[] = savedShorts ? JSON.parse(savedShorts) : [];
+            const postsArr: string[] = savedPosts ? JSON.parse(savedPosts) : [];
+            
+            // Remove failed IDs from both arrays
+            const cleanedShorts = shortsArr.filter(id => !failedIds.includes(id));
+            const cleanedPosts = postsArr.filter(id => !failedIds.includes(id));
+            
+            // Update AsyncStorage with cleaned arrays
+            await AsyncStorage.setItem('savedShorts', JSON.stringify(cleanedShorts));
+            await AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts));
+            
+            // Update savedIds state to reflect cleaned list
+            setSavedIds([...cleanedPosts, ...cleanedShorts]);
+            
+            logger.debug(`Cleaned up ${failedIds.length} deleted posts from saved items`);
+          } catch (cleanupError) {
+            logger.error('Error cleaning up deleted posts from AsyncStorage', cleanupError);
+          }
+        }
         
         setSavedItems(items);
       } catch (e) {
@@ -342,52 +414,89 @@ export default function ProfileScreen() {
     );
   }
 
+  // Animation for stat cards with enhanced glass effect
+  const StatCard = ({ 
+    icon, 
+    value, 
+    label, 
+    onPress, 
+    iconName 
+  }: { 
+    icon: string; 
+    value: number; 
+    label: string; 
+    onPress?: () => void; 
+    iconName: keyof typeof Ionicons.glyphMap;
+  }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    
+    const handlePressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.97,
+        useNativeDriver: true,
+      }).start();
+    };
+    
+    const handlePressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    // Refined pill-like glass effect for stat cards
+    const cardBgColor = isDark 
+      ? 'rgba(17, 24, 39, 0.9)' // Dark glass - more refined
+      : 'rgba(255, 255, 255, 0.9)'; // Light glass - clean white
+    
+    const borderColor = isDark 
+      ? 'rgba(148, 163, 184, 0.3)' 
+      : 'rgba(148, 163, 184, 0.2)';
+    
+    const CardContent = (
+      <Animated.View 
+        style={[
+          styles.statCard, 
+          { 
+            backgroundColor: cardBgColor,
+            borderColor: borderColor,
+            shadowColor: theme.colors.shadow,
+            transform: [{ scale: scaleAnim }]
+          }
+        ]}
+      >
+        <View style={[styles.statIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+          <Ionicons name={iconName} size={18} color={profileTheme.accent} />
+        </View>
+        <Text style={[styles.statValue, { color: profileTheme.textPrimary }]} numberOfLines={1}>
+          {value}
+        </Text>
+        <Text style={[styles.statLabel, { color: profileTheme.textSecondary }]} numberOfLines={1}>
+          {label.toUpperCase()}
+        </Text>
+      </Animated.View>
+    );
+
+    if (onPress) {
+      return (
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+        >
+          {CardContent}
+        </Pressable>
+      );
+    }
+    return CardContent;
+  };
+
   return (
     <ErrorBoundary level="route">
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      {/* Enhanced Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.headerContent}>
-          <View style={styles.headerLeft} />
-          <View style={styles.headerRight}>
-            <TouchableOpacity
-              style={[styles.notificationButton, { backgroundColor: theme.colors.surface, shadowColor: theme.colors.shadow }]}
-              onPress={() => router.push('/notifications')}
-            >
-              <Ionicons
-                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                size={22}
-                color={theme.colors.text}
-              />
-              {unreadCount > 0 && (
-                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                  <Text style={[styles.badgeText, { color: theme.colors.surface }]}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <KebabMenu
-              items={[
-                {
-                  label: 'Settings',
-                  icon: 'settings-outline',
-                  onPress: () => router.push('/settings'),
-                },
-                {
-                  label: 'Sign Out',
-                  icon: 'log-out-outline',
-                  onPress: handleSignOut,
-                  destructive: true,
-                },
-              ]}
-            />
-          </View>
-        </View>
-      </View>
-      
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -400,182 +509,229 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Profile Header - Screenshot Style */}
+        {/* Modern Hero Header - Now Inside ScrollView */}
         <ExpoLinearGradient
-          colors={[theme.colors.primary + '20', theme.colors.background]}
+          colors={profileTheme.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
-          style={styles.profileHeaderGradient}
+          style={styles.heroHeader}
         >
-          <View style={styles.profileHeader}>
-            {/* Profile Picture */}
-            <View style={styles.profilePictureWrapper}>
-              <View style={styles.profilePictureContainer}>
-                <Image
-                  source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={[styles.profilePicture, { borderColor: theme.colors.surface, shadowColor: theme.colors.shadow }]}
+          <View style={styles.heroHeaderContent}>
+            {/* Top Actions */}
+            <View style={styles.topActions}>
+              <View style={styles.topActionsLeft} />
+              <View style={styles.topActionsRight}>
+                <Pressable
+                  style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                  onPress={() => router.push('/notifications')}
+                >
+                  <Ionicons
+                    name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                    size={20}
+                    color={profileTheme.textPrimary}
+                  />
+                  {unreadCount > 0 && (
+                    <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                      <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+                <KebabMenu
+                  items={[
+                    {
+                      label: 'Settings',
+                      icon: 'settings-outline',
+                      onPress: () => router.push('/settings'),
+                    },
+                    {
+                      label: 'Sign Out',
+                      icon: 'log-out-outline',
+                      onPress: handleSignOut,
+                      destructive: true,
+                    },
+                  ]}
                 />
               </View>
             </View>
 
-            {/* Name */}
-            <Text style={[styles.profileName, { color: theme.colors.text }]}>{profileData.fullName}</Text>
-            
-            {/* Member Since */}
-            {profileData.createdAt && (
-              <Text style={[styles.memberSince, { color: theme.colors.textSecondary }]}>
-                Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </Text>
-            )}
-
-            {/* Stats Cards with Icons */}
-            <View style={styles.statsRow}>
-              <View style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}>
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="flame" size={20} color={theme.colors.primary} />
+            {/* Profile Card */}
+            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95', shadowColor: theme.colors.shadow }]}>
+              {/* Avatar with Ring */}
+              <View style={styles.avatarContainer}>
+                <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
+                  <Image
+                    source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                    style={[styles.avatar, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                  />
                 </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.postsCount || 0}</Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
               </View>
-              <TouchableOpacity 
-                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
-                onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="trophy" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.followersCount || 0}</Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
-                onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>{profileData?.followingCount || 0}</Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
-              </TouchableOpacity>
+
+              {/* Name */}
+              <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
+              
+              {/* Member Since */}
+              {profileData.createdAt && (
+                <Text style={[styles.memberSince, { color: profileTheme.textSecondary }]}>
+                  Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                </Text>
+              )}
+
+              {/* Badge */}
+              <View style={[styles.badge, { backgroundColor: profileTheme.accent + '20', borderColor: profileTheme.accent + '30' }]}>
+                <Ionicons name="airplane" size={12} color={profileTheme.accent} />
+                <Text style={[styles.badgeText, { color: profileTheme.accent }]}>Explorer</Text>
+              </View>
             </View>
           </View>
         </ExpoLinearGradient>
+        {/* Stats Row - Premium Cards */}
+        <View style={styles.statsContainer}>
+          <StatCard 
+            icon="flame" 
+            value={profileData?.postsCount || 0} 
+            label="Posts"
+            iconName="flame"
+          />
+          <StatCard 
+            icon="trophy" 
+            value={profileData?.followersCount || 0} 
+            label="Followers"
+            onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
+            iconName="trophy"
+          />
+          <StatCard 
+            icon="people" 
+            value={profileData?.followingCount || 0} 
+            label="Following"
+            onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
+            iconName="people"
+          />
+        </View>
 
-        {/* TripScore Section */}
-        {profileData?.tripScore && profileData.locations && profileData.locations.length > 0 && (
-          <TouchableOpacity 
-            style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
+        {/* TripScore Section - Always show if tripScore exists */}
+        {profileData?.tripScore && (
+          <Pressable 
+            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
             onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-            activeOpacity={0.8}
           >
             <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                <Ionicons name="trophy" size={22} color={theme.colors.primary} />
+              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                <Ionicons name="trophy" size={22} color={profileTheme.accent} />
               </View>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
             </View>
             <View style={styles.tripScoreContent}>
-              <View style={[styles.tripScoreCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary + '30', borderWidth: 1 }]}>
-                <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
+              <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
+                <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
                   {profileData.tripScore?.totalScore || 0}
                 </Text>
-                <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
                   Total TripScore
                 </Text>
               </View>
             </View>
-          </TouchableOpacity>
+          </Pressable>
         )}
 
-        {/* Locations Section */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}> 
-          <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-              <Ionicons name="globe" size={22} color={theme.colors.primary} />
+        {/* My Location Card - Premium Design */}
+        <Pressable 
+          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+          onPress={() => {
+            if (profileData?.locations && profileData.locations.length > 0) {
+              // Navigate to locations view if available
+            }
+          }}
+        >
+          <View style={styles.locationCardHeader}>
+            <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+              <Ionicons name="globe" size={24} color={profileTheme.accent} />
             </View>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-              {profileData?.locations && profileData.locations.length > 0 ? 'Posted Locations' : 'My Location'}
+            <View style={styles.locationTextContainer}>
+              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
+              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
+                {profileData?.locations && profileData.locations.length > 0 
+                  ? `${profileData.locations.length} locations visited`
+                  : 'Add your home base'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+          </View>
+          <View style={styles.locationGlobeContainer}>
+            {profileData?.locations && profileData.locations.length > 0 ? (
+              <RotatingGlobe 
+                locations={profileData.locations} 
+                size={140} 
+              />
+            ) : (
+              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
+              </View>
+            )}
+          </View>
+        </Pressable>
+
+        {/* Collections Tile */}
+        <Pressable 
+          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+          onPress={() => router.push('/collections')}
+        >
+          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+            <Ionicons name="albums" size={22} color={profileTheme.accent} />
+          </View>
+          <View style={styles.tileTextContainer}>
+            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Collections</Text>
+            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
+              Organise your trips and posts
             </Text>
           </View>
-          <View style={styles.globeContainer}>
-            <RotatingGlobe 
-              locations={profileData?.locations || []} 
-              size={120} 
-            />
-          </View>
-        </View>
+          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+        </Pressable>
 
-        {/* Collections Section */}
-        <TouchableOpacity 
-          style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
-          onPress={() => router.push('/collections')}
-          activeOpacity={0.7}
-        >
-          <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-              <Ionicons name="albums" size={22} color={theme.colors.primary} />
-            </View>
-            <View style={styles.sectionTextContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Collections</Text>
-              <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
-                Organize your posts into collections
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </View>
-        </TouchableOpacity>
-
-        {/* Activity Feed Section */}
-        <TouchableOpacity 
-          style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
+        {/* Activity Feed Tile */}
+        <Pressable 
+          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => router.push('/activity')}
-          activeOpacity={0.7}
         >
-          <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-              <Ionicons name="pulse" size={22} color={theme.colors.primary} />
-            </View>
-            <View style={styles.sectionTextContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Activity Feed</Text>
-              <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
-                See what your friends are up to
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+            <Ionicons name="pulse" size={22} color={profileTheme.accent} />
           </View>
-        </TouchableOpacity>
+          <View style={styles.tileTextContainer}>
+            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Activity Feed</Text>
+            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
+              See what your friends are up to
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+        </Pressable>
 
-        {/* Posts/Shorts/Saved Tabs */}
-        <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}> 
-          <View style={[styles.tabsRow, { backgroundColor: theme.colors.background }]}>
+        {/* Posts/Shorts/Saved Tabs - Pill Style */}
+        <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}> 
+          <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
             {(['posts','shorts','saved'] as const).map(tab => (
-              <TouchableOpacity 
+              <Pressable 
                 key={tab} 
                 style={[
-                  styles.tabButton, 
+                  styles.pillTab, 
                   activeTab===tab 
-                    ? [styles.activeTabButton, { backgroundColor: theme.colors.primary }]
-                    : { backgroundColor: theme.colors.background }
+                    ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
+                    : { backgroundColor: 'transparent' }
                 ]} 
                 onPress={() => setActiveTab(tab)}
-                activeOpacity={0.7}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons 
-                    name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                    size={18} 
-                    color={activeTab===tab ? theme.colors.surface : theme.colors.textSecondary} 
-                  />
-                  <Text style={[
-                    styles.tabText, 
-                    { color: activeTab===tab ? theme.colors.surface : theme.colors.textSecondary }
-                  ]}>
-                    {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                <Ionicons 
+                  name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
+                  size={18} 
+                  color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                />
+                <Text style={[
+                  styles.pillTabText, 
+                  { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
+                ]}>
+                  {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                </Text>
+              </Pressable>
             ))}
           </View>
           
@@ -584,24 +740,31 @@ export default function ProfileScreen() {
               posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {posts.map((post) => (
-                    <TouchableOpacity 
+                    <Pressable 
                       key={post._id} 
-                      style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
+                      style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                       onLongPress={() => handleDeletePost(post._id, false)}
                       onPress={() => router.push(`/post/${post._id}`)}
-                      activeOpacity={0.8}
                     >
                       <Image source={{ uri: post.imageUrl }} style={styles.thumbnailImage} />
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
-                    <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No posts yet</Text>
-                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Start sharing your adventures!</Text>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    Start sharing your memories from your latest trip
+                  </Text>
+                  <Pressable
+                    style={[styles.createPostButton, { backgroundColor: profileTheme.accent + '15', borderColor: profileTheme.accent + '30' }]}
+                    onPress={() => router.push('/(tabs)/post')}
+                  >
+                    <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Post</Text>
+                  </Pressable>
                 </View>
               )
             )}
@@ -612,41 +775,47 @@ export default function ProfileScreen() {
                     const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
                     if (!uri) {
                       return (
-                        <TouchableOpacity 
+                        <Pressable 
                           key={s._id} 
-                          style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
-                          activeOpacity={0.8}
                         >
-                          <View style={[styles.placeholderThumbnail, { backgroundColor: theme.colors.background + '80' }]}>
-                            <Ionicons name="videocam-outline" size={32} color={theme.colors.textSecondary} />
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
                           </View>
-                        </TouchableOpacity>
+                        </Pressable>
                       );
                     }
                     return (
-                      <TouchableOpacity 
+                      <Pressable 
                         key={s._id} 
-                        style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
                         onPress={() => router.push(`/post/${s._id}`)}
-                        activeOpacity={0.8}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
-                        <View style={[styles.playIconOverlay, { backgroundColor: theme.colors.overlay || 'rgba(0,0,0,0.5)' }]}>
-                          <Ionicons name="play" size={24} color={theme.colors.surface} />
+                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="play" size={24} color="#FFFFFF" />
                         </View>
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
-                    <Ionicons name="videocam-outline" size={48} color={theme.colors.textSecondary} />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No shorts yet</Text>
-                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Create your first short video!</Text>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    Create your first short video to share your adventures
+                  </Text>
+                  <Pressable
+                    style={[styles.createPostButton, { backgroundColor: profileTheme.accent + '15', borderColor: profileTheme.accent + '30' }]}
+                    onPress={() => router.push('/(tabs)/post')}
+                  >
+                    <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Short</Text>
+                  </Pressable>
                 </View>
               )
             )}
@@ -654,26 +823,27 @@ export default function ProfileScreen() {
               savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {savedItems.map((item) => (
-                    <TouchableOpacity 
+                    <Pressable 
                       key={item._id} 
-                      style={[styles.postThumbnail, { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow }]}
+                      style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                       onPress={() => router.push(`/post/${item._id}`)}
-                      activeOpacity={0.8}
                     >
                       <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
-                      <View style={[styles.bookmarkOverlay, { backgroundColor: theme.colors.overlay || 'rgba(0,0,0,0.5)' }]}>
-                        <Ionicons name="bookmark" size={16} color={theme.colors.surface} />
+                      <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                        <Ionicons name="bookmark" size={16} color="#FFFFFF" />
                       </View>
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.background }]}>
-                    <Ionicons name="bookmark-outline" size={48} color={theme.colors.textSecondary} />
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="bookmark-outline" size={56} color={profileTheme.accent} />
                   </View>
-                  <Text style={[styles.emptyText, { color: theme.colors.text }]}>No saved items</Text>
-                  <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>Save posts you love to view later</Text>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved items</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    Save posts you love to view later
+                  </Text>
                 </View>
               )
             )}
@@ -699,51 +869,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 16,
-  },
-  notificationButton: {
-    padding: 10,
-    borderRadius: 20,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    position: 'relative',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 20,
   },
   loadingContainer: {
     flex: 1,
@@ -771,61 +901,131 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  // Profile Header - Screenshot Style
-  profileHeaderGradient: {
-    paddingTop: 32,
+  // Hero Header
+  heroHeader: {
+    paddingTop: 60,
     paddingBottom: 32,
     paddingHorizontal: 20,
-    alignItems: 'center',
   },
-  profileHeader: {
+  heroHeaderContent: {
     width: '100%',
+  },
+  topActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 24,
   },
-  profilePictureWrapper: {
-    marginBottom: 20,
+  topActionsLeft: {
+    flex: 1,
   },
-  profilePictureContainer: {
-    position: 'relative',
-    width: 120,
-    height: 120,
+  topActionsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
-  profilePicture: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    shadowOffset: { width: 0, height: 4 },
+  headerActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    position: 'relative',
   },
-  profileName: {
-    fontSize: 24,
+  notificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    fontSize: 10,
     fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  memberSince: {
-    fontSize: 14,
-    marginBottom: 24,
     textAlign: 'center',
   },
   
-  // Stats Row - Screenshot Style
-  statsRow: {
+  // Profile Card
+  profileCard: {
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  avatarContainer: {
+    marginBottom: 16,
+  },
+  avatarRing: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 3,
+  },
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  profileName: {
+    fontSize: 28,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  memberSince: {
+    fontSize: 14,
+    marginBottom: 12,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  
+  // Stats Container - Uniform pill-like cards
+  statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: 8,
-    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    gap: 12,
   },
   statCard: {
     flex: 1,
-    borderRadius: 16,
+    width: '100%',
+    height: 110,
+    borderRadius: 20,
     paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -833,46 +1033,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     marginBottom: 4,
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
   statLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    textTransform: 'capitalize',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textAlign: 'center',
   },
   
-  // Section Cards - Unified Style
+  // Section Cards
   sectionCard: {
     marginHorizontal: 16,
     marginBottom: 12,
     padding: 20,
-    borderRadius: 16,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -880,6 +1083,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     flex: 1,
+    letterSpacing: 0.2,
   },
   sectionTextContainer: {
     flex: 1,
@@ -889,29 +1093,115 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
-  globeContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
   tripScoreContent: {
     alignItems: 'center',
+    marginTop: 4,
   },
   tripScoreCard: {
-    paddingVertical: 20,
-    paddingHorizontal: 32,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 16,
     alignItems: 'center',
+    minWidth: 120,
   },
   tripScoreNumber: {
-    fontSize: 42,
+    fontSize: 28,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
   tripScoreLabel: {
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+  },
+  
+  // Location Card
+  locationCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 20,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+  },
+  locationCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  locationIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationTextContainer: {
+    flex: 1,
+  },
+  locationTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  locationSubtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  locationGlobeContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  emptyGlobeContainer: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Settings Tiles
+  settingsTile: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    minHeight: 64,
+  },
+  tileIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tileTextContainer: {
+    flex: 1,
+  },
+  tileTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 0.1,
+  },
+  tileSubtitle: {
+    fontSize: 13,
+    fontWeight: '400',
+    lineHeight: 18,
   },
   
   // Posts Container
@@ -919,32 +1209,39 @@ const styles = StyleSheet.create({
     margin: 16,
     marginTop: 8,
     padding: 20,
-    borderRadius: 16,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
   },
-  tabsRow: {
+  pillTabsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 4,
+    gap: 4,
   },
-  tabButton: {
+  pillTab: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
   },
-  activeTabButton: {
+  activePillTab: {
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  tabText: {
+  pillTabText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   
   // Content Area
@@ -1003,23 +1300,39 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingVertical: 60,
+    paddingHorizontal: 20,
   },
   emptyIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: 0.2,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 15,
     textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+    fontWeight: '400',
+  },
+  createPostButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
+  createPostButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
 });

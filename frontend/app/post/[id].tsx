@@ -106,7 +106,15 @@ export default function PostDetail() {
         
         setIsLiked(correctIsLiked);
         setLikesCount(correctLikesCount);
-        setIsFollowing(response.post?.user?.isFollowing || false);
+        
+        // Handle case where user might be undefined
+        const postUser = response.post?.user || { 
+          _id: 'unknown', 
+          fullName: 'Unknown User', 
+          profilePic: 'https://via.placeholder.com/40' 
+        };
+        
+        setIsFollowing(postUser?.isFollowing || false);
         
         // Update views count from response
         const postViewsCount = response.post?.viewsCount || 0;
@@ -117,7 +125,7 @@ export default function PostDetail() {
         if (response.post?._id) {
           try {
             trackPostView(response.post._id, {
-              author_id: response.post.user?._id,
+              author_id: postUser?._id && postUser._id !== 'unknown' ? postUser._id : undefined,
               has_location: !!response.post.location,
             });
           } catch (analyticsError) {
@@ -130,8 +138,8 @@ export default function PostDetail() {
         setComments(response.post?.comments || []);
         
         // Load related posts
-        if (response.post?.user?._id) {
-          await loadRelatedPosts(response.post.user._id);
+        if (postUser?._id && postUser._id !== 'unknown') {
+          await loadRelatedPosts(postUser._id);
         }
         
         // Load saved state from AsyncStorage
@@ -651,7 +659,7 @@ export default function PostDetail() {
                 />
               )}
             </TouchableOpacity>
-            {currentUser && currentUser._id !== post?.user._id && (
+            {currentUser && post?.user && currentUser._id !== post.user._id && (
               <TouchableOpacity 
                 style={[styles.floatingButton, { backgroundColor: theme.colors.surface }]}
                 onPress={handleBookmark}
@@ -675,26 +683,35 @@ export default function PostDetail() {
         <View style={styles.detailsContainer}>
           {/* User Info with Enhanced Design */}
           <View style={styles.userSection}>
-            <View style={styles.profileContainer}>
-              <Image
-                source={{ uri: post.user.profilePic || 'https://via.placeholder.com/40' }}
-                style={styles.profilePic}
-              />
-              <View style={[styles.onlineIndicator, { backgroundColor: '#4CAF50' }]} />
-            </View>
-            <View style={styles.userInfo}>
-              <Text style={[styles.username, { color: theme.colors.text }]}>
-                {post.user.fullName}
-              </Text>
-              <Text style={[styles.timestamp, { color: theme.colors.textSecondary }]}>
-                {new Date(post.createdAt).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric'
-                })}
-              </Text>
-            </View>
-            {currentUser && currentUser._id !== post.user._id && (
+            {(() => {
+              // Handle case where user might be undefined
+              const postUser = post.user || { 
+                _id: 'unknown', 
+                fullName: 'Unknown User', 
+                profilePic: 'https://via.placeholder.com/40' 
+              };
+              return (
+                <>
+                  <View style={styles.profileContainer}>
+                    <Image
+                      source={{ uri: postUser.profilePic || 'https://via.placeholder.com/40' }}
+                      style={styles.profilePic}
+                    />
+                    <View style={[styles.onlineIndicator, { backgroundColor: '#4CAF50' }]} />
+                  </View>
+                  <View style={styles.userInfo}>
+                    <Text style={[styles.username, { color: theme.colors.text }]}>
+                      {postUser.fullName || 'Unknown User'}
+                    </Text>
+                    <Text style={[styles.timestamp, { color: theme.colors.textSecondary }]}>
+                      {new Date(post.createdAt).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </Text>
+                  </View>
+                  {currentUser && currentUser._id !== postUser._id && postUser._id !== 'unknown' && (
               <TouchableOpacity 
                 style={[
                   styles.followButton, 
@@ -718,7 +735,10 @@ export default function PostDetail() {
                   </Text>
                 )}
               </TouchableOpacity>
-            )}
+                  )}
+                </>
+              );
+            })()}
           </View>
 
           {/* Enhanced Caption */}

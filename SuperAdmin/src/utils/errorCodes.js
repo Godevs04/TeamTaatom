@@ -66,10 +66,50 @@ export const parseError = (error) => {
   // Handle Axios errors
   if (error?.response?.data?.error?.code) {
     const code = error.response.data.error.code;
-    const message = error.response.data.error.message || ERROR_CODES[code]?.message || 'An error occurred';
-    const adminMessage = getErrorMessage(code, message);
+    // Get the message from the API response
+    const apiMessage = error.response.data.error.message;
+    
+    // Check if API provides a specific message (not null/undefined/empty)
+    const hasApiMessage = apiMessage && typeof apiMessage === 'string' && apiMessage.trim().length > 0;
+    
+    // CRITICAL: If API provides a specific message, ALWAYS use it for adminMessage
+    // Only fall back to generic message if API message is missing
+    let adminMessage;
+    if (hasApiMessage) {
+      adminMessage = apiMessage.trim();
+    } else {
+      // Only use generic message if API didn't provide one
+      adminMessage = getErrorMessage(code, 'An error occurred');
+    }
+    
+    const message = hasApiMessage ? apiMessage.trim() : (ERROR_CODES[code]?.message || 'An error occurred');
+    
+    // Debug logging to see what we're getting
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[parseError] Extracted:', {
+        code,
+        apiMessage,
+        hasApiMessage,
+        adminMessage,
+        errorResponse: error.response?.data
+      });
+    }
     
     return { code, message, adminMessage };
+  }
+
+  // Handle canceled requests (AbortController) - don't treat as error
+  if (error?.code === 'ERR_CANCELED' || 
+      error?.message?.toLowerCase().includes('canceled') || 
+      error?.message?.toLowerCase() === 'canceled' ||
+      error?.name === 'CanceledError' ||
+      error?.name === 'AbortError') {
+    // Return a special code that indicates cancellation (not an error)
+    return {
+      code: 'CANCELED',
+      message: 'Request canceled',
+      adminMessage: 'Request was canceled'
+    };
   }
 
   // Handle network errors
@@ -122,8 +162,33 @@ export const createError = (code, message, adminMessage) => {
  * @returns {object} Parsed error object
  */
 export const handleError = (error, toast, fallbackMessage = 'An unexpected error occurred') => {
-  const parsedError = parseError(error);
-  const message = parsedError.adminMessage || fallbackMessage;
+  // Use already-parsed error from interceptor if available, otherwise parse it
+  let parsedError = error?.parsedError;
+  if (!parsedError) {
+    parsedError = parseError(error);
+  }
+  
+  // CRITICAL: Check if we can get the API message directly from the error response
+  // This ensures we always use the specific API message if available
+  const directApiMessage = error?.response?.data?.error?.message;
+  const hasDirectApiMessage = directApiMessage && typeof directApiMessage === 'string' && directApiMessage.trim().length > 0;
+  
+  // Prioritize: 1. Direct API message, 2. Parsed adminMessage, 3. Fallback
+  const message = hasDirectApiMessage 
+    ? directApiMessage.trim() 
+    : (parsedError?.adminMessage || fallbackMessage);
+  
+  // Debug logging (can be removed later)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[handleError] Error object:', {
+      hasParsedError: !!error?.parsedError,
+      parsedErrorAdminMessage: parsedError?.adminMessage,
+      directApiMessage: directApiMessage,
+      hasDirectApiMessage: hasDirectApiMessage,
+      finalMessage: message,
+      errorResponse: error?.response?.data
+    });
+  }
   
   if (toast) {
     toast.error(message);

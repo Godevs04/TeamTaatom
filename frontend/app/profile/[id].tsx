@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions } from 'react-native';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +17,7 @@ const { width } = Dimensions.get('window');
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -26,12 +26,122 @@ export default function UserProfileScreen() {
   const [followLoading, setFollowLoading] = useState(false);
   const [followRequestSent, setFollowRequestSent] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  // Ref to track if we're in the middle of a follow/unfollow action
+  const isFollowActionInProgress = useRef(false);
+  // Ref to store the last API response for follow state - this is the source of truth
+  const lastFollowApiResponse = useRef<{ isFollowing: boolean; followRequestSent: boolean } | null>(null);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
   });
+
+  // Theme-aware colors for profile - MUST be called before any conditional returns
+  const colorScheme = useColorScheme();
+  // Improved dark mode detection - use theme mode if available, otherwise check background color
+  const isDark = mode === 'dark' || (mode === 'auto' && colorScheme === 'dark') || theme.colors.background === '#000000' || theme.colors.background === '#111114';
+  
+  const profileTheme = useMemo(() => {
+    if (isDark) {
+      return {
+        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
+        cardBg: '#111827',
+        cardBorder: 'rgba(255, 255, 255, 0.1)',
+        textPrimary: '#F9FAFB',
+        textSecondary: '#9CA3AF',
+        accent: '#60A5FA',
+        statCardBg: 'rgba(96, 165, 250, 0.1)',
+        statCardBorder: 'rgba(96, 165, 250, 0.2)',
+      };
+    } else {
+      return {
+        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
+        cardBg: '#FFFFFF',
+        cardBorder: 'rgba(0, 0, 0, 0.08)',
+        textPrimary: '#111827',
+        textSecondary: '#6B7280',
+        accent: '#2563EB',
+        statCardBg: 'rgba(37, 99, 235, 0.08)',
+        statCardBorder: 'rgba(37, 99, 235, 0.15)',
+      };
+    }
+  }, [isDark]);
+
+  // Animation for stat cards with enhanced glass effect
+  const StatCard = ({ 
+    iconName,
+    value, 
+    label, 
+    onPress 
+  }: { 
+    iconName: keyof typeof Ionicons.glyphMap;
+    value: number | string; 
+    label: string; 
+    onPress?: () => void;
+  }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    
+    const handlePressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.97,
+        useNativeDriver: true,
+      }).start();
+    };
+    
+    const handlePressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    // Refined pill-like glass effect for stat cards
+    const cardBgColor = isDark 
+      ? 'rgba(17, 24, 39, 0.9)' // Dark glass - more refined
+      : 'rgba(255, 255, 255, 0.9)'; // Light glass - clean white
+    
+    const borderColor = isDark 
+      ? 'rgba(148, 163, 184, 0.3)' 
+      : 'rgba(148, 163, 184, 0.2)';
+    
+    const CardContent = (
+      <Animated.View 
+        style={[
+          styles.statCard, 
+          { 
+            backgroundColor: cardBgColor,
+            borderColor: borderColor,
+            shadowColor: theme.colors.shadow,
+            transform: [{ scale: scaleAnim }]
+          }
+        ]}
+      >
+        <View style={[styles.statIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+          <Ionicons name={iconName} size={18} color={profileTheme.accent} />
+        </View>
+        <Text style={[styles.statValue, { color: profileTheme.textPrimary }]} numberOfLines={1}>
+          {value}
+        </Text>
+        <Text style={[styles.statLabel, { color: profileTheme.textSecondary }]} numberOfLines={1}>
+          {label.toUpperCase()}
+        </Text>
+      </Animated.View>
+    );
+
+    if (onPress) {
+      return (
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+        >
+          {CardContent}
+        </Pressable>
+      );
+    }
+    return CardContent;
+  };
   // Remove selectedPost and modal logic
 
   // Use expoConfig for SDK 49+, fallback to manifest for older
@@ -65,7 +175,10 @@ export default function UserProfileScreen() {
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/api/v1/profile/${id}`);
+      // Add cache-busting parameter if we have a stored follow response
+      // This ensures we get fresh data instead of cached stale data (304 responses)
+      const cacheBuster = lastFollowApiResponse.current ? `?t=${Date.now()}` : '';
+      const res = await api.get(`/api/v1/profile/${id}${cacheBuster}`);
       let userProfile = res.data.profile;
       
       // If posts are not included, fetch them
@@ -94,20 +207,41 @@ export default function UserProfileScreen() {
         userProfile.posts = allPosts;
       }
       setProfile(userProfile);
-      setIsFollowing(userProfile.followers?.some((u: any) => u._id === currentUser?._id));
+      
+      // CRITICAL: Use isFollowing directly from API response - backend calculates this correctly
+      // The backend returns isFollowing in the profile response, so we should trust it
+      const apiIsFollowing = Boolean(userProfile.isFollowing);
+      const apiFollowRequestSent = Boolean(userProfile.followRequestSent);
+      
+      // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
+      // This prevents cached/stale profile data from overriding the correct follow state
+      // The stored response is the definitive source of truth after a follow/unfollow action
+      if (lastFollowApiResponse.current) {
+        // We have a stored response from a follow action - this takes priority over profile fetch
+        setIsFollowing(lastFollowApiResponse.current.isFollowing);
+        setFollowRequestSent(lastFollowApiResponse.current.followRequestSent);
+        // Don't clear the ref here - let it expire naturally after the timeout
+      } else if (!isFollowActionInProgress.current) {
+        // No stored response and not in the middle of an action - use fresh API response
+        setIsFollowing(apiIsFollowing);
+        setFollowRequestSent(apiFollowRequestSent);
+      }
+      // If in the middle of an action but no stored response yet, preserve current state
     } catch (e) {
       console.error('Error fetching profile:', e);
       showError('Failed to load user profile');
     } finally {
       setLoading(false);
     }
-  }, [id, currentUser]);
+  }, [id, currentUser, followLoading]);
 
   useEffect(() => {
     setProfile(null);
     setLoading(true);
     setIsFollowing(false);
     setShowWorldMap(false);
+    // Clear the stored API response when profile ID changes
+    lastFollowApiResponse.current = null;
   }, [id]);
 
   useEffect(() => {
@@ -121,6 +255,12 @@ export default function UserProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Only clear stored API response if we're not in the middle of a follow action
+      // This prevents clearing the correct state right after a follow/unfollow
+      if (!isFollowActionInProgress.current) {
+        lastFollowApiResponse.current = null;
+      }
+      isFollowActionInProgress.current = false;
       if (currentUser) fetchProfile();
     }, [fetchProfile, currentUser])
   );
@@ -128,11 +268,15 @@ export default function UserProfileScreen() {
   const handleFollow = async () => {
     if (!profile) return;
     
+    // Mark that a follow action is in progress
+    isFollowActionInProgress.current = true;
+    
     // Optimistic update - update UI immediately
     const previousFollowing = isFollowing;
     const previousRequestSent = followRequestSent;
     const newFollowing = !isFollowing;
     
+    // Update UI immediately for better UX
     setIsFollowing(newFollowing);
     if (!newFollowing) {
       setFollowRequestSent(false);
@@ -140,23 +284,62 @@ export default function UserProfileScreen() {
     
     setFollowLoading(true);
     try {
-      const res = await api.post(`/profile/${profile._id}/follow`);
-      setIsFollowing(res.data.isFollowing);
-      setFollowRequestSent(res.data.followRequestSent || false);
-      await fetchProfile(); // Re-fetch profile and posts after follow/unfollow
+      const res = await api.post(`/api/v1/profile/${profile._id}/follow`);
       
-      // Show success message
-      if (res.data.isFollowing) {
+      // CRITICAL: Get the state from API response - this is the source of truth
+      const apiIsFollowing = Boolean(res.data.isFollowing);
+      const apiFollowRequestSent = Boolean(res.data.followRequestSent);
+      const newFollowersCount = res.data.followersCount;
+      const newFollowingCount = res.data.followingCount;
+      
+      // Store API response in ref - this is the definitive source of truth
+      lastFollowApiResponse.current = {
+        isFollowing: apiIsFollowing,
+        followRequestSent: apiFollowRequestSent
+      };
+      
+      // Update state immediately and synchronously from API response
+      // Force immediate update - use direct assignment to ensure React sees the change
+      setIsFollowing(apiIsFollowing);
+      setFollowRequestSent(apiFollowRequestSent);
+      
+      // Update followers/following counts in profile immediately
+      setProfile((prevProfile: any) => {
+        const updated: any = { ...prevProfile };
+        if (typeof newFollowersCount === 'number') {
+          updated.followersCount = newFollowersCount;
+        }
+        if (typeof newFollowingCount === 'number') {
+          updated.followingCount = newFollowingCount;
+        }
+        return updated;
+      });
+      
+      // Force a microtask delay to ensure state updates are flushed
+      // This ensures React processes the state updates before any other code runs
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // Show success message after state is updated
+      if (apiIsFollowing) {
         showSuccess('You are now following this user!');
-      } else if (res.data.followRequestSent) {
+      } else if (apiFollowRequestSent) {
         showSuccess('Follow request sent!');
       } else {
         showSuccess('You have unfollowed this user.');
       }
+      
+      // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
+      // Cached responses (304) can return stale isFollowing state, so we need to protect against that
+      // Clear the ref after enough time has passed for cache to be invalidated
+      setTimeout(() => {
+        lastFollowApiResponse.current = null;
+      }, 5000); // Increased to 5 seconds to prevent cache override
+      
     } catch (e: any) {
       // Revert optimistic update on error
       setIsFollowing(previousFollowing);
       setFollowRequestSent(previousRequestSent);
+      lastFollowApiResponse.current = null; // Clear ref on error
       
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
@@ -174,6 +357,8 @@ export default function UserProfileScreen() {
       }
     } finally {
       setFollowLoading(false);
+      // Mark that follow action is complete
+      isFollowActionInProgress.current = false;
     }
   };
 
@@ -192,191 +377,183 @@ export default function UserProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { backgroundColor: theme.colors.background }]}
       >
-        {/* Profile Header - Gradient Style with Back Button */}
+        {/* Modern Hero Header */}
         <ExpoLinearGradient
-          colors={[theme.colors.primary + '20', theme.colors.background]}
+          colors={profileTheme.headerGradient}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
-          style={styles.profileHeaderGradient}
+          style={styles.heroHeader}
         >
-          {/* Back Button - Positioned at Top */}
-          <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: theme.colors.surface + 'F0', shadowColor: theme.colors.shadow }]}>
-              <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileHeader}>
-            {/* Profile Picture */}
-            <View style={styles.profilePictureWrapper}>
-              <View style={styles.profilePictureContainer}>
-                <Image
-                  source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={[styles.profilePicture, { borderColor: theme.colors.surface, shadowColor: theme.colors.shadow }]}
-                />
-              </View>
+          <View style={styles.heroHeaderContent}>
+            {/* Top Actions with Back Button */}
+            <View style={styles.topActions}>
+              <Pressable
+                onPress={() => router.back()}
+                style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+              >
+                <Ionicons name="arrow-back" size={20} color={profileTheme.textPrimary} />
+              </Pressable>
+              <View style={styles.topActionsRight} />
             </View>
 
-            {/* Name */}
-            <Text style={[styles.profileName, { color: theme.colors.text }]}>{profile.fullName}</Text>
-            
-            {/* Bio */}
-            {profile.bio && (
-              <View style={styles.bioContainer}>
-                <BioDisplay bio={profile.bio || ''} />
+            {/* Profile Card */}
+            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95', shadowColor: theme.colors.shadow }]}>
+              {/* Avatar with Ring */}
+              <View style={styles.avatarContainer}>
+                <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
+                  <Image
+                    source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                    style={[styles.avatar, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                  />
+                </View>
               </View>
-            )}
 
-            {/* Stats Cards with Icons */}
-            <View style={styles.statsRow}>
-              <TouchableOpacity 
-                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
-                onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="trophy" size={20} color={theme.colors.primary} />
+              {/* Name */}
+              <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profile.fullName}</Text>
+              
+              {/* Bio */}
+              {profile.bio && (
+                <View style={styles.bioContainer}>
+                  <BioDisplay bio={profile.bio || ''} />
                 </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {typeof profile.followers === 'number' ? profile.followers : Array.isArray(profile.followers) ? profile.followers.length : 0}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Followers</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}
-                onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {typeof profile.following === 'number' ? profile.following : Array.isArray(profile.following) ? profile.following.length : 0}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Following</Text>
-              </TouchableOpacity>
-              <View style={[styles.statCard, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary, shadowColor: theme.colors.shadow }]}>
-                <View style={[styles.statIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="location" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Locations</Text>
-              </View>
-            </View>
+              )}
 
-            {/* Action Buttons */}
-            {currentUser && currentUser._id !== profile._id && (
-              <View style={styles.actionButtonsContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    { shadowColor: theme.colors.shadow },
-                    isFollowing 
-                      ? [styles.followingButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary }]
-                      : [styles.followButton, { backgroundColor: theme.colors.primary }]
-                  ]}
-                  onPress={handleFollow}
-                  disabled={followLoading}
-                >
-                  {followLoading ? (
-                    <ActivityIndicator size="small" color={isFollowing ? theme.colors.primary : theme.colors.surface} />
-                  ) : (
-                    <Text style={[
-                      styles.actionButtonText,
-                      { color: isFollowing ? theme.colors.primary : theme.colors.surface }
-                    ]}>
-                      {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-                
-                {isFollowing && (
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.messageButton, { backgroundColor: theme.colors.primary }]}
-                    onPress={() => router.push(`/chat?userId=${profile._id}`)}
+              {/* Action Buttons */}
+              {currentUser && currentUser._id !== profile._id && (
+                <View style={styles.actionButtonsContainer}>
+                  <Pressable
+                    style={[
+                      styles.actionButton,
+                      { shadowColor: theme.colors.shadow },
+                      isFollowing 
+                        ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
+                        : [styles.followButton, { backgroundColor: profileTheme.accent }]
+                    ]}
+                    onPress={handleFollow}
+                    disabled={followLoading}
                   >
-                    <Ionicons name="chatbubble-outline" size={18} color={theme.colors.surface} style={{ marginRight: 6 }} />
-                    <Text style={[styles.actionButtonText, { color: theme.colors.surface }]}>Message</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
+                    {followLoading ? (
+                      <ActivityIndicator size="small" color={isFollowing ? profileTheme.accent : '#FFFFFF'} />
+                    ) : (
+                      <Text style={[
+                        styles.actionButtonText,
+                        { color: isFollowing ? profileTheme.accent : '#FFFFFF' }
+                      ]}>
+                        {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                      </Text>
+                    )}
+                  </Pressable>
+                  
+                  {isFollowing && (
+                    <Pressable
+                      style={[styles.actionButton, styles.messageButton, { backgroundColor: profileTheme.accent }]}
+                      onPress={() => router.push(`/chat?userId=${profile._id}`)}
+                    >
+                      <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                      <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>Message</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+            </View>
           </View>
         </ExpoLinearGradient>
 
-        {/* TripScore Section */}
-        {profile.tripScore && profile.locations && profile.locations.length > 0 && profile.canViewLocations && (
-          <TouchableOpacity 
-            style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}
+        {/* Stats Row - Uniform Pill-like Cards */}
+        <View style={styles.statsContainer}>
+          <StatCard 
+            iconName="trophy"
+            value={profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0)}
+            label="Followers"
+            onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
+          />
+          <StatCard 
+            iconName="people"
+            value={profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0)}
+            label="Following"
+            onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
+          />
+          <StatCard 
+            iconName="location"
+            value={(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
+            label="Locations"
+          />
+        </View>
+
+        {/* TripScore Section - Compact */}
+        {profile.tripScore && profile.canViewLocations && (
+          <Pressable 
+            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
             onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
-            activeOpacity={0.8}
           >
             <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                <Ionicons name="trophy" size={22} color={theme.colors.primary} />
+              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                <Ionicons name="trophy" size={22} color={profileTheme.accent} />
               </View>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>TripScore</Text>
+              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
             </View>
             <View style={styles.tripScoreContent}>
-              <View style={[styles.tripScoreCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary + '30', borderWidth: 1 }]}>
-                <Text style={[styles.tripScoreNumber, { color: theme.colors.primary }]}>
-                  {profile.tripScore.totalScore}
+              <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
+                <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
+                  {profile.tripScore.totalScore || 0}
                 </Text>
-                <Text style={[styles.tripScoreLabel, { color: theme.colors.textSecondary }]}>
+                <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
                   Total TripScore
                 </Text>
               </View>
             </View>
-          </TouchableOpacity>
+          </Pressable>
         )}
 
-        {/* Locations Section */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}>
-          <View style={styles.sectionHeader}>
-            <View style={[styles.sectionIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-              <Ionicons name="globe" size={22} color={theme.colors.primary} />
+        {/* My Location Card - Premium Design */}
+        <Pressable 
+          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+          onPress={() => {
+            if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+              setShowWorldMap(true);
+            }
+          }}
+        >
+          <View style={styles.locationCardHeader}>
+            <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+              <Ionicons name="globe" size={24} color={profileTheme.accent} />
             </View>
-            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Posted Locations</Text>
+            <View style={styles.locationTextContainer}>
+              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>Posted Locations</Text>
+              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
+                {profile.canViewLocations && profile.locations && profile.locations.length > 0
+                  ? `${profile.locations.length} locations visited`
+                  : profile.canViewLocations 
+                    ? 'No locations yet'
+                    : profile.profileVisibility === 'followers' 
+                    ? 'Follow to view posted locations'
+                    : profile.profileVisibility === 'private'
+                    ? 'Follow request pending to view locations'
+                    : 'Follow to view posted locations'}
+              </Text>
+            </View>
+            {profile.canViewLocations && profile.locations && profile.locations.length > 0 && (
+              <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+            )}
           </View>
-          {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
-            <TouchableOpacity 
-              onPress={() => setShowWorldMap(true)} 
-              style={styles.globeContainer}
-              activeOpacity={0.8}
-            >
+          <View style={styles.locationGlobeContainer}>
+            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
               <RotatingGlobe 
-                locations={profile.locations || []} 
-                size={120} 
+                locations={profile.locations} 
+                size={140} 
               />
-              <Text style={[styles.locationsCount, { color: theme.colors.textSecondary }]}>
-                {profile.locations.length} locations visited
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.emptyLocationsContainer}>
-              <View style={styles.emptyIconContainer}>
-                <Ionicons name="globe-outline" size={48} color={theme.colors.textSecondary} />
+            ) : (
+              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
               </View>
-              <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                {profile.canViewLocations 
-                  ? 'No locations yet'
-                  : profile.profileVisibility === 'followers' 
-                  ? 'Follow to view posted locations'
-                  : profile.profileVisibility === 'private'
-                  ? 'Follow request pending to view locations'
-                  : 'Follow to view posted locations'
-                }
-              </Text>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        </Pressable>
 
         {/* Recent Posts Section */}
         {profile.canViewPosts && (
-          <View style={[styles.postsContainer, { backgroundColor: theme.colors.surface, shadowColor: theme.colors.shadow, borderColor: theme.colors.border }]}>
-            <Text style={[styles.postsSectionTitle, { color: theme.colors.text }]}>Recent Posts</Text>
+          <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+            <Text style={[styles.postsSectionTitle, { color: profileTheme.textPrimary }]}>Recent Posts</Text>
             {profile.posts && profile.posts.length > 0 ? (
               <View style={styles.postsGrid}>
                 {((profile.posts || [])
@@ -387,40 +564,41 @@ export default function UserProfileScreen() {
                     return dateB - dateA;
                   })
                   .map((item: any, index: number) => (
-                  <TouchableOpacity
+                  <Pressable
                     key={item._id}
-                      style={[
-                        styles.postThumbnail,
-                        { backgroundColor: theme.colors.background, shadowColor: theme.colors.shadow },
-                        (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
-                      ]}
+                    style={[
+                      styles.postThumbnail,
+                      { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                      (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                    ]}
                     onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
-                    activeOpacity={0.8}
                   >
                     <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
-                  </TouchableOpacity>
+                  </Pressable>
                   ))
                 )}
               </View>
             ) : (
               <View style={styles.emptyState}>
-                <View style={styles.emptyIconContainer}>
-                  <Ionicons name="camera-outline" size={48} color={theme.colors.textSecondary} />
+                <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                  <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
                 </View>
-                <Text style={[styles.emptyText, { color: theme.colors.text }]}>No posts yet</Text>
-                <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>This user hasn't shared any posts yet</Text>
+                <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
+                <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                  This user hasn't shared any posts yet
+                </Text>
               </View>
             )}
           </View>
         )}
 
         {!profile.canViewPosts && (
-          <View style={[styles.sectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, shadowColor: theme.colors.shadow }]}>
+          <View style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
             <View style={styles.emptyState}>
-              <View style={styles.emptyIconContainer}>
-                <Ionicons name="lock-closed-outline" size={48} color={theme.colors.textSecondary} />
+              <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                <Ionicons name="lock-closed-outline" size={56} color={profileTheme.accent} />
               </View>
-              <Text style={[styles.emptyText, { color: theme.colors.text }]}>
+              <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>
                 {profile.profileVisibility === 'followers' 
                   ? 'Follow to view posts'
                   : profile.profileVisibility === 'private'
@@ -470,84 +648,102 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    paddingBottom: 20,
   },
   
-  // Header Styles
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // Hero Header
+  heroHeader: {
+    paddingTop: 60,
+    paddingBottom: 32,
     paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 10,
+  },
+  heroHeaderContent: {
     width: '100%',
+  },
+  topActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  topActionsRight: {
+    flex: 1,
   },
   backButton: {
-    padding: 10,
+    width: 40,
+    height: 40,
     borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-
-  // Profile Header - Gradient Style
-  profileHeaderGradient: {
-    paddingTop: 0,
-    paddingBottom: 36,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    marginBottom: 16,
-    minHeight: 380,
-  },
-  profileHeader: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  profilePictureWrapper: {
-    marginBottom: 20,
-  },
-  profilePictureContainer: {
-    position: 'relative',
-    width: 120,
-    height: 120,
-  },
-  profilePicture: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
   },
+
+  // Profile Card
+  profileCard: {
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  avatarContainer: {
+    marginBottom: 16,
+  },
+  avatarRing: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 3,
+  },
+  avatar: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
   profileName: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     marginBottom: 12,
     textAlign: 'center',
+    letterSpacing: 0.3,
   },
   bioContainer: {
-    marginBottom: 24,
-    paddingHorizontal: 20,
+    marginBottom: 16,
+    paddingHorizontal: 8,
     width: '100%',
   },
   
-  // Stats Row - Screenshot Style
-  statsRow: {
+  // Stats Container - Uniform pill-like cards
+  statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    paddingHorizontal: 8,
-    gap: 8,
-    marginBottom: 24,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    gap: 12,
   },
   statCard: {
     flex: 1,
-    borderRadius: 16,
+    width: '100%',
+    height: 110,
+    borderRadius: 20,
     paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
@@ -555,22 +751,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
     marginBottom: 4,
+    letterSpacing: 0.3,
+    textAlign: 'center',
   },
   statLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    textTransform: 'capitalize',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textAlign: 'center',
   },
 
   // Action Buttons
@@ -579,55 +778,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
     gap: 12,
-    paddingHorizontal: 20,
+    marginTop: 8,
   },
   actionButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 12,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
-    maxWidth: 200,
+    maxWidth: 180,
   },
   followButton: {
   },
   followingButton: {
-    borderWidth: 2,
+    borderWidth: 1.5,
+    backgroundColor: 'transparent',
   },
   messageButton: {
   },
   actionButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
+    letterSpacing: 0.3,
   },
 
-  // Section Cards - Unified Style
+  // Section Cards
   sectionCard: {
     marginHorizontal: 16,
     marginBottom: 12,
     padding: 20,
-    borderRadius: 16,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -635,40 +836,79 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     flex: 1,
-  },
-  globeContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  locationsCount: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  emptyLocationsContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
+    letterSpacing: 0.2,
   },
   tripScoreContent: {
     alignItems: 'center',
+    marginTop: 4,
   },
   tripScoreCard: {
-    paddingVertical: 20,
-    paddingHorizontal: 32,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 16,
     alignItems: 'center',
+    minWidth: 120,
   },
   tripScoreNumber: {
-    fontSize: 42,
+    fontSize: 28,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
   tripScoreLabel: {
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+  },
+  
+  // Location Card
+  locationCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 20,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+  },
+  locationCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  locationIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationTextContainer: {
+    flex: 1,
+  },
+  locationTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  locationSubtitle: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  locationGlobeContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  emptyGlobeContainer: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Posts Container
@@ -676,11 +916,11 @@ const styles = StyleSheet.create({
     margin: 16,
     marginTop: 8,
     padding: 20,
-    borderRadius: 16,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
     marginBottom: 24,
   },
@@ -688,24 +928,24 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 16,
+    letterSpacing: 0.2,
   },
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     width: '100%',
   },
   postThumbnail: {
-    width: '31.5%', // Use percentage for reliable 3-column layout
+    width: '31%',
     aspectRatio: 1,
-    marginRight: '1.75%', // 1.75% margin between items
-    marginBottom: 8,
-    borderRadius: 12,
+    marginBottom: 12,
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 6,
   },
   postThumbnailLastInRow: {
     marginRight: 0,
@@ -718,24 +958,28 @@ const styles = StyleSheet.create({
   // Empty State
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
+    paddingHorizontal: 20,
   },
   emptyIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   emptyText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: 0.2,
   },
   emptySubtext: {
-    fontSize: 14,
+    fontSize: 15,
     textAlign: 'center',
+    lineHeight: 22,
+    fontWeight: '400',
   },
 });
