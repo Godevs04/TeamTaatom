@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
@@ -6,7 +6,7 @@ import { formatDate, getStatusColor } from '../utils/formatDate'
 import { 
   Search, Plus, Edit, Trash2, Shield, UserCheck, UserX, RefreshCw, Eye, 
   Filter, MoreVertical, ToggleLeft, ToggleRight, Ban, CheckCircle, XCircle,
-  Save, X, Power, Settings2, TrendingUp, Activity
+  Save, X, Power, Settings2, TrendingUp, Activity, AlertTriangle, Clock, Info
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useRealTime } from '../context/RealTimeContext'
@@ -37,6 +37,9 @@ const Moderators = () => {
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [editingPermissions, setEditingPermissions] = useState(null)
   const [tempPermissions, setTempPermissions] = useState({})
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false)
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null) // { moderatorId, action, previousState }
   const [moreFilters, setMoreFilters] = useState({
     permission: 'all',
     activityRange: 'all', // last 7 days, 30 days, all time
@@ -44,6 +47,14 @@ const Moderators = () => {
     sortBy: 'createdAt',
     sortOrder: 'desc'
   })
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const updatingModeratorsRef = useRef(new Set()) // Track moderators being updated
+  const moderatorStateCacheRef = useRef(new Map()) // Cache previous states for rollback
+  const cachedModeratorsRef = useRef(null)
   
   const [newModerator, setNewModerator] = useState({
     fullName: '',
@@ -60,9 +71,70 @@ const Moderators = () => {
     }
   })
 
-  // Fetch moderators data
-  const fetchModerators = async () => {
-    setLoading(true)
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      updatingModeratorsRef.current.clear()
+      moderatorStateCacheRef.current.clear()
+    }
+  }, [])
+
+  // Get permission summary (allowed modules, read-only modules)
+  const getPermissionSummary = useCallback((permissions) => {
+    if (!permissions) return { allowed: [], readOnly: [] }
+    
+    const permissionMap = {
+      canManageUsers: 'Users',
+      canManageContent: 'Content',
+      canManageReports: 'Reports',
+      canManageModerators: 'Moderators',
+      canViewLogs: 'Logs',
+      canManageSettings: 'Settings',
+      canViewAnalytics: 'Analytics'
+    }
+    
+    const allowed = []
+    const readOnly = []
+    
+    // For now, all permissions are considered "allowed" (read-only logic would need backend support)
+    Object.entries(permissions).forEach(([key, enabled]) => {
+      if (enabled && permissionMap[key]) {
+        allowed.push(permissionMap[key])
+      }
+    })
+    
+    return { allowed, readOnly }
+  }, [])
+
+  // Fetch moderators data with caching and request deduplication
+  const fetchModerators = useCallback(async () => {
+    // Prevent duplicate concurrent calls
+    if (isFetchingRef.current) {
+      logger.debug('Moderators fetch already in progress, skipping duplicate call')
+      return
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    abortControllerRef.current = new AbortController()
+    isFetchingRef.current = true
+
+    // Show cached data immediately if available
+    if (cachedModeratorsRef.current && isMountedRef.current) {
+      setModeratorsList(cachedModeratorsRef.current)
+    }
+
+    if (isMountedRef.current) {
+      setLoading(true)
+    }
+
     try {
       const params = {
         page: currentPage,
@@ -73,8 +145,17 @@ const Moderators = () => {
         params.search = searchTerm
       }
       
-      const response = await api.get('/api/superadmin/moderators', { params })
+      const response = await api.get('/api/superadmin/moderators', { 
+        params,
+        signal: abortControllerRef.current.signal
+      })
       
+      if (abortControllerRef.current?.signal?.aborted) {
+        return
+      }
+
+      if (!isMountedRef.current) return
+
       if (response.data.success) {
         let filtered = response.data.moderators
         
@@ -168,122 +249,403 @@ const Moderators = () => {
         setModeratorsList(filtered)
         setTotal(filtered.length)
         setTotalPages(Math.ceil(filtered.length / itemsPerPage))
+        cachedModeratorsRef.current = filtered
       }
     } catch (error) {
+      if (abortControllerRef.current?.signal?.aborted || error.name === 'AbortError' || error.name === 'CanceledError') {
+        return
+      }
+      
+      if (!isMountedRef.current) return
+
       logger.error('Failed to fetch moderators:', error)
-      handleError(error, toast, 'Failed to fetch moderators')
+      
+      // Show cached data if available (partial failure handling)
+      if (cachedModeratorsRef.current) {
+        setModeratorsList(cachedModeratorsRef.current)
+        toast.error('Failed to fetch moderators. Showing cached data.', { duration: 3000 })
+      } else {
+        handleError(error, toast, 'Failed to fetch moderators')
+      }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+      isFetchingRef.current = false
     }
-  }
+  }, [currentPage, itemsPerPage, searchTerm, filterRole, filterStatus, moreFilters])
 
   // Reset to page 1 when filters change (except search which is handled separately)
   useEffect(() => {
-    setCurrentPage(1)
+    if (isMountedRef.current) {
+      setCurrentPage(1)
+    }
   }, [filterRole, filterStatus, moreFilters])
 
   // Fetch on mount and when filters change
   useEffect(() => {
-    fetchModerators()
-  }, [currentPage, itemsPerPage, filterRole, filterStatus, moreFilters])
+    if (isMountedRef.current) {
+      fetchModerators()
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [fetchModerators])
 
   // Search debouncing
   useEffect(() => {
+    if (!isMountedRef.current) return
+    
     const timeoutId = setTimeout(() => {
-      if (searchTerm !== '') {
-        setCurrentPage(1)
+      if (isMountedRef.current) {
+        if (searchTerm !== '') {
+          setCurrentPage(1)
+        }
+        fetchModerators()
       }
-      fetchModerators()
     }, 500)
 
     return () => clearTimeout(timeoutId)
-  }, [searchTerm])
+  }, [searchTerm, fetchModerators])
 
   const handleRefresh = async () => {
     await fetchModerators()
     toast.success('Moderators refreshed successfully')
   }
 
-  const handleModeratorActionClick = (moderator, action) => {
-    setSelectedModerator({ ...moderator, action })
-    setShowModal(true)
-  }
+  const handleModeratorActionClick = useCallback((moderator, action) => {
+    if (action === 'remove') {
+      setSelectedModerator({ ...moderator, action })
+      setShowRemoveConfirm(true)
+    } else {
+      setSelectedModerator({ ...moderator, action })
+      setShowModal(true)
+    }
+  }, [])
 
-  const handleToggleActive = async (moderator, isActive) => {
+  const handleToggleActive = useCallback(async (moderator, isActive) => {
+    // Prevent duplicate toggles
+    if (updatingModeratorsRef.current.has(moderator._id)) {
+      logger.debug('Moderator toggle already in progress:', moderator._id)
+      return
+    }
+
+    // Show confirmation for disabling
+    if (isActive) {
+      const confirmed = window.confirm(
+        `⚠️ Disable Moderator\n\n` +
+        `You are about to disable "${moderator.email}".\n\n` +
+        `This will revoke their access to the admin panel until reactivated.\n\n` +
+        `Are you sure you want to proceed?`
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
+    // Store previous state for rollback
+    const previousState = {
+      isActive: moderator.isActive
+    }
+    moderatorStateCacheRef.current.set(moderator._id, previousState)
+
+    // Optimistic update
+    updatingModeratorsRef.current.add(moderator._id)
+    setModeratorsList(prev => prev.map(m => 
+      m._id === moderator._id 
+        ? { ...m, isActive: !isActive }
+        : m
+    ))
+
     try {
-      await api.patch(`/api/superadmin/moderators/${moderator._id}`, {
+      const response = await api.patch(`/api/superadmin/moderators/${moderator._id}`, {
         isActive: !isActive
       })
-      toast.success(`Moderator ${!isActive ? 'activated' : 'deactivated'} successfully`)
-      await fetchModerators()
-    } catch (error) {
-      logger.error('Failed to toggle status:', error)
-      handleError(error, toast, 'Failed to update status')
-    }
-  }
+      
+      if (!isMountedRef.current) return
 
-  const handleModeratorAction = async (moderatorId, action) => {
+      if (response.data.success) {
+        // Update with server response to ensure sync
+        setModeratorsList(prev => prev.map(m => 
+          m._id === moderator._id 
+            ? { 
+                ...m, 
+                isActive: response.data.moderator?.isActive ?? !isActive,
+                updatedBy: response.data.moderator?.updatedBy?.email || user?.email || 'Unknown',
+                updatedAt: response.data.moderator?.updatedAt || new Date().toISOString()
+              }
+            : m
+        ))
+        
+        toast.success(`Moderator ${!isActive ? 'activated' : 'deactivated'} successfully`)
+        moderatorStateCacheRef.current.delete(moderator._id)
+        // Refresh to ensure sync
+        await fetchModerators()
+      }
+    } catch (error) {
+      if (!isMountedRef.current) return
+
+      logger.error('Failed to toggle status:', error)
+      
+      // Rollback on error
+      setModeratorsList(prev => prev.map(m => 
+        m._id === moderator._id 
+          ? { ...m, ...previousState }
+          : m
+      ))
+      
+      handleError(error, toast, 'Failed to update status')
+      moderatorStateCacheRef.current.delete(moderator._id)
+    } finally {
+      if (isMountedRef.current) {
+        updatingModeratorsRef.current.delete(moderator._id)
+      }
+    }
+  }, [user, fetchModerators])
+
+  const handleModeratorAction = useCallback(async (moderatorId, action) => {
+    if (!isMountedRef.current) return
+
+    // Store previous state for rollback
+    const moderator = moderatorsList.find(m => m._id === moderatorId)
+    if (!moderator) return
+
+    const previousState = { ...moderator }
+    moderatorStateCacheRef.current.set(moderatorId, previousState)
+
+    // Optimistic update for edit
+    if (action === 'edit') {
+      setModeratorsList(prev => prev.map(m => 
+        m._id === moderatorId 
+          ? { ...m, role: selectedModerator.role, isActive: selectedModerator.isActive }
+          : m
+      ))
+    } else if (action === 'remove') {
+      // Optimistic removal
+      setModeratorsList(prev => prev.filter(m => m._id !== moderatorId))
+    }
+
     try {
       if (action === 'remove') {
         await api.delete(`/api/superadmin/moderators/${moderatorId}`)
-        toast.success('Moderator removed successfully')
+        if (isMountedRef.current) {
+          toast.success('Moderator removed successfully')
+        }
       } else if (action === 'edit') {
-        await api.patch(`/api/superadmin/moderators/${moderatorId}`, {
+        const response = await api.patch(`/api/superadmin/moderators/${moderatorId}`, {
           role: selectedModerator.role,
           isActive: selectedModerator.isActive
         })
+        
+        if (!isMountedRef.current) return
+
+        if (response.data.success) {
+          // Update with server response
+          setModeratorsList(prev => prev.map(m => 
+            m._id === moderatorId 
+              ? { 
+                  ...m, 
+                  role: response.data.moderator?.role || selectedModerator.role,
+                  isActive: response.data.moderator?.isActive ?? selectedModerator.isActive,
+                  updatedBy: response.data.moderator?.updatedBy?.email || user?.email || 'Unknown',
+                  updatedAt: response.data.moderator?.updatedAt || new Date().toISOString()
+                }
+              : m
+          ))
+        }
         toast.success('Moderator updated successfully')
       }
-      await fetchModerators()
-      setShowModal(false)
-      setSelectedModerator(null)
+      
+      if (isMountedRef.current) {
+        await fetchModerators()
+        setShowModal(false)
+        setSelectedModerator(null)
+        setShowRemoveConfirm(false)
+        moderatorStateCacheRef.current.delete(moderatorId)
+      }
     } catch (error) {
-      logger.error('Failed to perform action:', error)
-      handleError(error, toast, `Failed to ${action} moderator`)
-    }
-  }
+      if (!isMountedRef.current) return
 
-  const handleOpenEditPermissions = (moderator) => {
+      logger.error('Failed to perform action:', error)
+      
+      // Rollback on error
+      if (action === 'remove') {
+        setModeratorsList(prev => [...prev, previousState])
+      } else {
+        setModeratorsList(prev => prev.map(m => 
+          m._id === moderatorId 
+            ? previousState
+            : m
+        ))
+      }
+      
+      handleError(error, toast, `Failed to ${action} moderator`)
+      moderatorStateCacheRef.current.delete(moderatorId)
+    }
+  }, [moderatorsList, selectedModerator, user, fetchModerators])
+
+  const handleOpenEditPermissions = useCallback((moderator) => {
+    if (!isMountedRef.current) return
     setEditingPermissions(moderator)
     setTempPermissions(moderator.permissions || {})
     setShowEditPermissionsModal(true)
-  }
+  }, [])
 
-  const handleSavePermissions = async () => {
+  const handleSavePermissions = useCallback(async () => {
+    if (!editingPermissions || !isMountedRef.current) return
+
+    // Prevent duplicate updates
+    if (updatingModeratorsRef.current.has(editingPermissions._id)) {
+      logger.debug('Permissions update already in progress:', editingPermissions._id)
+      return
+    }
+
+    // Store previous state for rollback
+    const previousState = {
+      permissions: editingPermissions.permissions
+    }
+    moderatorStateCacheRef.current.set(editingPermissions._id, previousState)
+
+    // Optimistic update
+    updatingModeratorsRef.current.add(editingPermissions._id)
+    setModeratorsList(prev => prev.map(m => 
+      m._id === editingPermissions._id 
+        ? { ...m, permissions: tempPermissions }
+        : m
+    ))
+
     try {
-      await api.patch(`/api/superadmin/moderators/${editingPermissions._id}`, {
+      const response = await api.patch(`/api/superadmin/moderators/${editingPermissions._id}`, {
         permissions: tempPermissions
       })
-      toast.success('Permissions updated successfully')
-      setShowEditPermissionsModal(false)
-      setEditingPermissions(null)
-      await fetchModerators()
-    } catch (error) {
-      logger.error('Failed to update permissions:', error)
-      handleError(error, toast, 'Failed to update permissions')
-    }
-  }
+      
+      if (!isMountedRef.current) return
 
-  const handleBulkAction = async (action) => {
-    try {
-      for (const moderatorId of selectedModerators) {
-        if (action === 'activate') {
-          await api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: true })
-        } else if (action === 'deactivate') {
-          await api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: false })
-        } else if (action === 'remove') {
-          await api.delete(`/api/superadmin/moderators/${moderatorId}`)
-        }
+      if (response.data.success) {
+        // Update with server response
+        setModeratorsList(prev => prev.map(m => 
+          m._id === editingPermissions._id 
+            ? { 
+                ...m, 
+                permissions: response.data.moderator?.permissions || tempPermissions,
+                updatedBy: response.data.moderator?.updatedBy?.email || user?.email || 'Unknown',
+                updatedAt: response.data.moderator?.updatedAt || new Date().toISOString()
+              }
+            : m
+        ))
+        
+        toast.success('Permissions updated successfully')
+        setShowEditPermissionsModal(false)
+        setEditingPermissions(null)
+        moderatorStateCacheRef.current.delete(editingPermissions._id)
+        // Refresh to ensure sync
+        await fetchModerators()
       }
+    } catch (error) {
+      if (!isMountedRef.current) return
+
+      logger.error('Failed to update permissions:', error)
+      
+      // Rollback on error
+      setModeratorsList(prev => prev.map(m => 
+        m._id === editingPermissions._id 
+          ? { ...m, ...previousState }
+          : m
+      ))
+      
+      handleError(error, toast, 'Failed to update permissions')
+      moderatorStateCacheRef.current.delete(editingPermissions._id)
+    } finally {
+      if (isMountedRef.current) {
+        updatingModeratorsRef.current.delete(editingPermissions._id)
+      }
+    }
+  }, [editingPermissions, tempPermissions, user, fetchModerators])
+
+  const handleBulkAction = useCallback(async (action) => {
+    if (!isMountedRef.current) return
+
+    // Show confirmation for destructive actions
+    if (action === 'remove' || action === 'deactivate') {
+      const actionText = action === 'remove' ? 'remove' : 'deactivate'
+      const confirmed = window.confirm(
+        `⚠️ Bulk ${actionText.charAt(0).toUpperCase() + actionText.slice(1)}\n\n` +
+        `You are about to ${actionText} ${selectedModerators.length} moderator(s).\n\n` +
+        `${action === 'remove' 
+          ? 'This will revoke all moderator privileges and remove access to the admin panel.'
+          : 'This will revoke access to the admin panel until reactivated.'
+        }\n\n` +
+        `Are you sure you want to proceed?`
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
+    // Store previous states for rollback
+    const previousStates = new Map()
+    selectedModerators.forEach(id => {
+      const moderator = moderatorsList.find(m => m._id === id)
+      if (moderator) {
+        previousStates.set(id, { ...moderator })
+      }
+    })
+
+    // Optimistic updates
+    if (action === 'activate' || action === 'deactivate') {
+      const newIsActive = action === 'activate'
+      setModeratorsList(prev => prev.map(m => 
+        selectedModerators.includes(m._id)
+          ? { ...m, isActive: newIsActive }
+          : m
+      ))
+    } else if (action === 'remove') {
+      setModeratorsList(prev => prev.filter(m => !selectedModerators.includes(m._id)))
+    }
+
+    try {
+      const promises = selectedModerators.map(async (moderatorId) => {
+        if (action === 'activate') {
+          return api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: true })
+        } else if (action === 'deactivate') {
+          return api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: false })
+        } else if (action === 'remove') {
+          return api.delete(`/api/superadmin/moderators/${moderatorId}`)
+        }
+      })
+
+      await Promise.all(promises)
+
+      if (!isMountedRef.current) return
+
       toast.success(`Bulk ${action} completed successfully`)
       setSelectedModerators([])
       setShowBulkActions(false)
       await fetchModerators()
     } catch (error) {
+      if (!isMountedRef.current) return
+
       logger.error('Bulk action error:', error)
+      
+      // Rollback on error
+      if (action === 'remove') {
+        setModeratorsList(prev => {
+          const restored = Array.from(previousStates.values())
+          return [...prev, ...restored]
+        })
+      } else {
+        setModeratorsList(prev => prev.map(m => {
+          const previous = previousStates.get(m._id)
+          return previous ? previous : m
+        }))
+      }
+      
       handleError(error, toast, `Failed to ${action} moderators`)
     }
-  }
+  }, [selectedModerators, moderatorsList, fetchModerators])
 
   const handleCreateModerator = async () => {
     try {
@@ -322,35 +684,33 @@ const Moderators = () => {
     }
   }
 
-  const handleConfirmAction = async () => {
-    if (selectedModerator) {
+  const handleConfirmAction = useCallback(async () => {
+    if (!isMountedRef.current || !selectedModerator) return
+    
+    if (selectedModerator.action === 'view') {
+      setShowModal(false)
+      setSelectedModerator(null)
+    } else if (selectedModerator.action === 'edit') {
       await handleModeratorAction(selectedModerator._id, selectedModerator.action)
     }
-  }
+  }, [selectedModerator, handleModeratorAction])
 
-  const handleSelectModerator = (moderatorId) => {
+  const handleSelectModerator = useCallback((moderatorId) => {
+    if (!isMountedRef.current) return
     setSelectedModerators(prev => 
       prev.includes(moderatorId) 
         ? prev.filter(id => id !== moderatorId)
         : [...prev, moderatorId]
     )
-  }
+  }, [])
 
-  const handleSelectAll = () => {
-    if (selectedModerators.length === moderatorsList.length) {
-      setSelectedModerators([])
-    } else {
-      setSelectedModerators(moderatorsList.map(m => m._id))
-    }
-  }
-
-  const getRoleColor = (role) => {
+  const getRoleColor = useCallback((role) => {
     switch (role) {
       case 'admin': return 'text-purple-600 bg-purple-100'
       case 'moderator': return 'text-blue-600 bg-blue-100'
       default: return 'text-gray-600 bg-gray-100'
     }
-  }
+  }, [])
 
   const permissions = [
     { id: 'canManageUsers', label: 'Manage Users', icon: UserCheck },
@@ -361,15 +721,164 @@ const Moderators = () => {
     { id: 'canManageSettings', label: 'Manage Settings', icon: Settings2 },
   ]
 
-  // Pagination
+  // Pagination - defined before useCallback that depends on it
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
-  const currentModerators = moderatorsList.slice(startIndex, endIndex)
+  const currentModerators = useMemo(() => moderatorsList.slice(startIndex, endIndex), [moderatorsList, startIndex, endIndex])
 
-  const activeCount = moderatorsList.filter(m => m.isActive).length
-  const inactiveCount = moderatorsList.filter(m => !m.isActive).length
-  const adminCount = moderatorsList.filter(m => m.role === 'admin').length
-  const moderatorCount = moderatorsList.filter(m => m.role === 'moderator').length
+  const handleSelectAll = useCallback(() => {
+    if (!isMountedRef.current) return
+    if (selectedModerators.length === currentModerators.length) {
+      setSelectedModerators([])
+    } else {
+      setSelectedModerators(currentModerators.map(m => m._id))
+    }
+  }, [selectedModerators.length, currentModerators])
+
+  // Memoized ModeratorRow component for performance
+  const ModeratorRow = memo(({ moderator, onToggleActive, onView, onEditPermissions, onRemove, onSelect, isSelected, getPermissionSummary, getRoleColor, permissions, formatDate, user, isUpdating }) => {
+    const permSummary = getPermissionSummary(moderator.permissions)
+    const hasReadOnlyAccess = permSummary.readOnly.length > 0
+    
+    return (
+      <TableRow key={moderator._id}>
+        <TableCell>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onSelect(moderator._id)}
+            className="rounded border-gray-300"
+            disabled={isUpdating}
+          />
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+              <span className="text-white font-bold text-sm">
+                {(moderator.profile?.firstName?.[0] || moderator.email?.[0] || 'M').toUpperCase()}
+              </span>
+            </div>
+            <div>
+              <div className="font-medium text-gray-900">
+                {moderator.profile?.firstName && moderator.profile?.lastName
+                  ? `${moderator.profile.firstName} ${moderator.profile.lastName}`
+                  : moderator.email
+                }
+              </div>
+              <div className="text-sm text-gray-500">{moderator.email}</div>
+            </div>
+          </div>
+        </TableCell>
+        <TableCell>
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRoleColor(moderator.role)}`}>
+            {moderator.role.charAt(0).toUpperCase() + moderator.role.slice(1)}
+          </span>
+        </TableCell>
+        <TableCell>
+          <div className="space-y-1">
+            {/* Permission summary */}
+            <div className="flex flex-wrap gap-1">
+              {permSummary.allowed.slice(0, 2).map((module, idx) => (
+                <span key={idx} className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                  {module}
+                </span>
+              ))}
+              {permSummary.allowed.length > 2 && (
+                <span className="text-xs text-gray-500">
+                  +{permSummary.allowed.length - 2}
+                </span>
+              )}
+            </div>
+            {/* Read-only indicator */}
+            {hasReadOnlyAccess && (
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <Info className="w-3 h-3" />
+                <span>Read-only: {permSummary.readOnly.join(', ')}</span>
+              </div>
+            )}
+            {/* Action attribution */}
+            {moderator.updatedBy && moderator.updatedAt && (
+              <div className="flex items-center gap-1 text-xs text-gray-400 mt-1">
+                <Clock className="w-3 h-3" />
+                <span>Last: {formatDate(moderator.updatedAt)} by {moderator.updatedBy}</span>
+              </div>
+            )}
+          </div>
+        </TableCell>
+        <TableCell>
+          <button
+            onClick={() => onToggleActive(moderator, moderator.isActive)}
+            disabled={isUpdating}
+            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+              isUpdating
+                ? 'opacity-50 cursor-not-allowed'
+                : moderator.isActive
+                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+            title={isUpdating ? 'Updating...' : moderator.isActive ? 'Click to deactivate' : 'Click to activate'}
+          >
+            {isUpdating ? (
+              <>
+                <RefreshCw className="w-2 h-2 mr-2 animate-spin" />
+                Updating...
+              </>
+            ) : moderator.isActive ? (
+              <>
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                Active
+              </>
+            ) : (
+              <>
+                <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                Inactive
+              </>
+            )}
+          </button>
+        </TableCell>
+        <TableCell>
+          <span className="text-sm text-gray-600">
+            {moderator.lastLogin ? formatDate(moderator.lastLogin) : 'Never'}
+          </span>
+        </TableCell>
+        <TableCell>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => onView(moderator)}
+              disabled={isUpdating}
+              className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="View Details"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onEditPermissions(moderator)}
+              disabled={isUpdating}
+              className="p-2 text-gray-400 hover:bg-purple-50 hover:text-purple-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title={hasReadOnlyAccess ? 'Read-only access: Some permissions cannot be modified' : 'Edit Permissions'}
+            >
+              <Edit className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onRemove(moderator)}
+              disabled={isUpdating}
+              className="p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title={isUpdating ? 'Updating...' : 'Remove Moderator'}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </TableCell>
+      </TableRow>
+    )
+  })
+
+  ModeratorRow.displayName = 'ModeratorRow'
+
+  const activeCount = useMemo(() => moderatorsList.filter(m => m.isActive).length, [moderatorsList])
+  const inactiveCount = useMemo(() => moderatorsList.filter(m => !m.isActive).length, [moderatorsList])
+  const adminCount = useMemo(() => moderatorsList.filter(m => m.role === 'admin').length, [moderatorsList])
+  const moderatorCount = useMemo(() => moderatorsList.filter(m => m.role === 'moderator').length, [moderatorsList])
 
   return (
     <SafeComponent>
@@ -722,112 +1231,22 @@ const Moderators = () => {
               </TableHeader>
               <TableBody>
                 {currentModerators.map((moderator) => (
-                  <TableRow key={moderator._id}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedModerators.includes(moderator._id)}
-                        onChange={() => handleSelectModerator(moderator._id)}
-                        className="rounded border-gray-300"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
-                          <span className="text-white font-bold text-sm">
-                            {(moderator.profile?.firstName?.[0] || moderator.email?.[0] || 'M').toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">
-                            {moderator.profile?.firstName && moderator.profile?.lastName
-                              ? `${moderator.profile.firstName} ${moderator.profile.lastName}`
-                              : moderator.email
-                            }
-                          </div>
-                          <div className="text-sm text-gray-500">{moderator.email}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRoleColor(moderator.role)}`}>
-                        {moderator.role.charAt(0).toUpperCase() + moderator.role.slice(1)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(moderator.permissions || {})
-                          .filter(([_, enabled]) => enabled)
-                          .slice(0, 2)
-                          .map(([key]) => {
-                            const perm = permissions.find(p => p.id === key)
-                            return (
-                              <span key={key} className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                                {perm?.label || key}
-                              </span>
-                            )
-                          })}
-                        {Object.entries(moderator.permissions || {}).filter(([_, enabled]) => enabled).length > 2 && (
-                          <span className="text-xs text-gray-500">
-                            +{Object.entries(moderator.permissions || {}).filter(([_, enabled]) => enabled).length - 2}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        onClick={() => handleToggleActive(moderator, moderator.isActive)}
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                          moderator.isActive
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={moderator.isActive ? 'Click to deactivate' : 'Click to activate'}
-                      >
-                        {moderator.isActive ? (
-                          <>
-                            <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                            Active
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
-                            Inactive
-                          </>
-                        )}
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-gray-600">
-                        {moderator.lastLogin ? formatDate(moderator.lastLogin) : 'Never'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleModeratorActionClick(moderator, 'view')}
-                          className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenEditPermissions(moderator)}
-                          className="p-2 text-gray-400 hover:bg-purple-50 hover:text-purple-600 rounded-lg transition-colors"
-                          title="Edit Permissions"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleModeratorActionClick(moderator, 'remove')}
-                          className="p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
-                          title="Remove"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  <ModeratorRow
+                    key={moderator._id}
+                    moderator={moderator}
+                    onToggleActive={handleToggleActive}
+                    onView={(m) => handleModeratorActionClick(m, 'view')}
+                    onEditPermissions={handleOpenEditPermissions}
+                    onRemove={(m) => handleModeratorActionClick(m, 'remove')}
+                    onSelect={handleSelectModerator}
+                    isSelected={selectedModerators.includes(moderator._id)}
+                    getPermissionSummary={getPermissionSummary}
+                    getRoleColor={getRoleColor}
+                    permissions={permissions}
+                    formatDate={formatDate}
+                    user={user}
+                    isUpdating={updatingModeratorsRef.current.has(moderator._id)}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -1064,12 +1483,69 @@ const Moderators = () => {
         </ModalFooter>
       </Modal>
 
+      {/* Remove Confirmation Modal */}
+      <Modal isOpen={showRemoveConfirm} onClose={() => {
+        setShowRemoveConfirm(false)
+        setSelectedModerator(null)
+      }}>
+        <ModalHeader onClose={() => {
+          setShowRemoveConfirm(false)
+          setSelectedModerator(null)
+        }}>
+          Remove Moderator
+        </ModalHeader>
+        <ModalContent>
+          <div className="space-y-4">
+            <div className="flex items-center space-x-3 text-yellow-600">
+              <AlertTriangle className="w-6 h-6" />
+              <p className="font-semibold">Warning: This action cannot be undone</p>
+            </div>
+            <p className="text-gray-700">
+              You are about to remove <strong>{selectedModerator?.email}</strong> from the moderator team.
+            </p>
+            <div className="bg-red-50 border border-red-200 rounded-md p-4">
+              <p className="text-sm text-red-800 font-medium mb-2">Impact:</p>
+              <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+                <li>All moderator privileges will be revoked immediately</li>
+                <li>Access to the admin panel will be removed</li>
+                <li>This moderator will no longer be able to perform any admin actions</li>
+                <li>Their account will remain but without admin access</li>
+              </ul>
+            </div>
+            <p className="text-sm text-gray-600">
+              Are you sure you want to proceed?
+            </p>
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            onClick={() => {
+              setShowRemoveConfirm(false)
+              setSelectedModerator(null)
+            }}
+            className="btn btn-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={async () => {
+              if (selectedModerator) {
+                await handleModeratorAction(selectedModerator._id, 'remove')
+              }
+            }}
+            className="btn btn-destructive"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Remove Moderator
+          </button>
+        </ModalFooter>
+      </Modal>
+
       {/* Action Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}>
         <ModalHeader onClose={() => setShowModal(false)}>
           {selectedModerator?.action === 'view' && 'Moderator Details'}
           {selectedModerator?.action === 'edit' && 'Edit Moderator'}
-          {selectedModerator?.action === 'remove' && 'Remove Moderator'}
         </ModalHeader>
         <ModalContent>
           {selectedModerator?.action === 'view' && (
@@ -1124,33 +1600,52 @@ const Moderators = () => {
                     </div>
                   ))}
                 </div>
+                {/* Permission summary */}
+                {(() => {
+                  const summary = getPermissionSummary(selectedModerator.permissions)
+                  return (
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="text-xs text-gray-600 space-y-1">
+                        {summary.allowed.length > 0 && (
+                          <div>
+                            <span className="font-medium">Allowed modules:</span> {summary.allowed.join(', ')}
+                          </div>
+                        )}
+                        {summary.readOnly.length > 0 && (
+                          <div>
+                            <span className="font-medium">Read-only modules:</span> {summary.readOnly.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+                {/* Action attribution */}
+                {selectedModerator.updatedBy && selectedModerator.updatedAt && (
+                  <div className="mt-3 pt-3 border-t flex items-center gap-2 text-xs text-gray-500">
+                    <Clock className="w-4 h-4" />
+                    <span>Last updated: {formatDate(selectedModerator.updatedAt)} by {selectedModerator.updatedBy}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
-          {(selectedModerator?.action === 'edit' || selectedModerator?.action === 'remove') && (
+          {selectedModerator?.action === 'edit' && (
             <div className="space-y-4">
-              <p className="text-gray-600">
-                Are you sure you want to {selectedModerator.action} {selectedModerator.email}?
-              </p>
-              {selectedModerator.action === 'edit' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-                  <select
-                    className="input w-full"
-                    value={selectedModerator.role}
-                    onChange={(e) => setSelectedModerator({ ...selectedModerator, role: e.target.value })}
-                  >
-                    <option value="moderator">Moderator</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              )}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-                <p className="text-sm text-yellow-800">
-                  {selectedModerator.action === 'remove' 
-                    ? 'This will revoke all moderator privileges and remove access to the admin panel.'
-                    : 'This will allow you to modify the moderator\'s role and permissions.'
-                  }
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  className="input w-full"
+                  value={selectedModerator.role}
+                  onChange={(e) => setSelectedModerator({ ...selectedModerator, role: e.target.value })}
+                >
+                  <option value="moderator">Moderator</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <p className="text-sm text-blue-800">
+                  This will allow you to modify the moderator's role and permissions.
                 </p>
               </div>
             </div>
@@ -1165,11 +1660,10 @@ const Moderators = () => {
           </button>
           <button
             onClick={handleConfirmAction}
-            className={`btn ${selectedModerator?.action === 'remove' ? 'btn-destructive' : 'btn-primary'}`}
+            className="btn btn-primary"
           >
             {selectedModerator?.action === 'view' && 'Close'}
             {selectedModerator?.action === 'edit' && 'Save Changes'}
-            {selectedModerator?.action === 'remove' && 'Remove Moderator'}
           </button>
         </ModalFooter>
       </Modal>
