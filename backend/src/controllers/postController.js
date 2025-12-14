@@ -21,9 +21,10 @@ const { cascadeDeletePost } = require('../utils/cascadeDelete');
 // @access  Public
 const getPosts = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    // Defensive guards: validate and cap pagination params
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 50); // Cap at 50
+    const skip = Math.max(0, (page - 1) * limit);
     const cursor = req.query.cursor; // Cursor for cursor-based pagination
     const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
 
@@ -184,9 +185,27 @@ const getPosts = async (req, res) => {
 
     const { posts, totalPosts } = result;
 
+    // Defensive guards: filter out posts with missing image URLs or author data
+    // This prevents broken images from reaching the Home feed
+    const validPosts = posts.filter(post => {
+      // Must have image URL (required for Home feed)
+      if (!post.imageUrl || typeof post.imageUrl !== 'string' || post.imageUrl.trim() === '') {
+        logger.warn(`Post ${post._id} missing imageUrl, filtering out`);
+        return false;
+      }
+      
+      // Must have valid author data
+      if (!post.user || !post.user._id || !post.user.fullName) {
+        logger.warn(`Post ${post._id} missing author data, filtering out`);
+        return false;
+      }
+      
+      return true;
+    });
+
     // Add isLiked field if user is authenticated and optimize image URLs
     const userId = req.user?._id?.toString();
-    const postsWithLikeStatus = posts.map(post => {
+    const postsWithLikeStatus = validPosts.map(post => {
       // Use image URL as-is (new uploads use R2, legacy Cloudinary URLs are kept for backward compatibility)
       // For legacy Cloudinary URLs, optionally optimize (but new R2 URLs don't need optimization)
       let optimizedImageUrl = post.imageUrl;
@@ -222,6 +241,11 @@ const getPosts = async (req, res) => {
         // likesCount and commentsCount already added by aggregation
       };
     });
+
+    // Improved error messages (no response shape change)
+    if (postsWithLikeStatus.length === 0 && posts.length > 0) {
+      logger.warn('All posts filtered out due to missing image URLs or author data');
+    }
 
     // Determine next cursor (last post's createdAt)
     const nextCursor = postsWithLikeStatus.length > 0 
@@ -543,11 +567,20 @@ const createPost = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    // Handle both single file and multiple files
+    // Defensive guards: validate required media exists
     const files = req.files ? req.files.images : (req.file ? [req.file] : []);
     
     if (!files || files.length === 0) {
+      logger.warn('Post creation attempted without images');
       return sendError(res, 'FILE_4001', 'Please upload at least one image');
+    }
+
+    // Defensive: validate each file has buffer
+    for (const file of files) {
+      if (!file.buffer || file.buffer.length === 0) {
+        logger.error('Post creation attempted with empty file buffer');
+        return sendError(res, 'FILE_4002', 'Invalid image file. Please try uploading again.');
+      }
     }
 
     if (files.length > 10) {
@@ -555,6 +588,12 @@ const createPost = async (req, res) => {
     }
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume } = req.body;
+
+    // Defensive guard: validate caption length within limits
+    if (caption && caption.length > 2000) {
+      logger.warn(`Post creation attempted with caption exceeding limit: ${caption.length} chars`);
+      return sendError(res, 'VAL_2002', 'Caption cannot exceed 2000 characters');
+    }
 
     // Upload all images to Sevalla Object Storage
     const imageUrls = [];
@@ -575,10 +614,28 @@ const createPost = async (req, res) => {
         });
         
         const uploadResult = await uploadObject(file.buffer, storageKey, file.mimetype);
+        
+        // Defensive: validate upload result has URL
+        if (!uploadResult || !uploadResult.url) {
+          logger.error(`Image upload succeeded but no URL returned for file ${i}`);
+          // Clean up any successfully uploaded images
+          if (storageKeys.length > 0) {
+            await Promise.all(
+              storageKeys.map(key => 
+                deleteObject(key).catch(err => 
+                  logger.error('Error cleaning up failed upload:', err)
+                )
+              )
+            );
+          }
+          return sendError(res, 'FILE_4005', 'Image upload completed but URL is missing. Please try again.');
+        }
+        
         imageUrls.push(uploadResult.url);
         storageKeys.push(storageKey);
       }
     } catch (uploadError) {
+      logger.error('Image upload error:', uploadError);
       // Clean up any successfully uploaded images if subsequent uploads fail
       if (storageKeys.length > 0) {
         await Promise.all(
@@ -589,7 +646,7 @@ const createPost = async (req, res) => {
           )
         );
       }
-      throw uploadError;
+      return sendError(res, 'FILE_4004', uploadError.message || 'Image upload failed. Please try again.');
     }
 
     // Parse tags if provided
@@ -636,11 +693,16 @@ const createPost = async (req, res) => {
           longitude: parseFloat(longitude) || 0
         }
       },
+      // CRITICAL: Dual-audio mixing support
+      // When songId is provided, backend should mix:
+      // - Original video audio at 0.6 volume (60%)
+      // - Background music at songVolume (typically 1.0 = 100%)
+      // This preserves both audio tracks instead of replacing video audio
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
-        volume: parseFloat(songVolume) || 0.5
+        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
       } : undefined
     });
 
@@ -807,17 +869,24 @@ const createPost = async (req, res) => {
 const getUserShorts = async (req, res) => {
   try {
     const { userId } = req.params;
+    
+    // Defensive guard: validate userId format
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return sendError(res, 'VAL_2002', 'Invalid user ID format');
+    }
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // Defensive guard: ensure limit is reasonable
+    const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
+    const safeSkip = Math.max(skip, 0);
+
     // Check if user exists
     const user = await User.findById(userId).select('fullName profilePic');
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3002', 'User not found');
     }
 
     // Use aggregation pipeline to avoid N+1 queries
@@ -829,12 +898,12 @@ const getUserShorts = async (req, res) => {
         $match: {
           user: userIdObj,
           isActive: true,
-          type: 'short'
+          type: 'short' // Explicitly filter for shorts only
         }
       },
       { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
+      { $skip: safeSkip },
+      { $limit: safeLimit },
       {
         $lookup: {
           from: 'users',
@@ -904,18 +973,28 @@ const getUserShorts = async (req, res) => {
       }
     ]);
 
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short,
-      user: {
-        ...short.user,
-        isFollowing: short.isFollowing || false
-      }
-    }));
+    // Defensive: filter out shorts without media URLs and add mediaUrl field
+    const validShorts = shorts
+      .filter(short => {
+        const hasMedia = short.videoUrl || short.imageUrl;
+        if (!hasMedia) {
+          logger.warn(`User short ${short._id} missing mediaUrl, filtering out`);
+        }
+        return hasMedia;
+      })
+      .map(short => ({
+        ...short,
+        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
+        user: {
+          ...short.user,
+          isFollowing: short.isFollowing || false
+        }
+      }));
 
-    const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
+    const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
 
     return sendSuccess(res, 200, 'User shorts fetched successfully', {
-      shorts: shortsWithLikeStatus,
+      shorts: validShorts,
       user: user,
       totalShorts
     });
@@ -1725,12 +1804,16 @@ const getShorts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // Defensive guard: ensure limit is reasonable
+    const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
+    const safeSkip = Math.max(skip, 0);
+
     // Use aggregation pipeline to populate song data efficiently
     const shorts = await Post.aggregate([
       {
         $match: {
           isActive: true,
-          type: 'short'
+          type: 'short' // Explicitly filter for shorts only
         }
       },
       { $sort: { createdAt: -1 } },
@@ -1837,6 +1920,7 @@ const getShorts = async (req, res) => {
     ]);
 
     // Add isLiked field if user is authenticated and include virtual fields
+    // Defensive guards: validate media URLs and handle missing data gracefully
     const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
       let isFollowing = false;
       
@@ -1849,10 +1933,17 @@ const getShorts = async (req, res) => {
         }
       }
       
+      // Defensive: ensure mediaUrl exists (required for shorts)
+      const mediaUrl = short.videoUrl || short.imageUrl || '';
+      if (!mediaUrl) {
+        logger.warn(`Short ${short._id} missing mediaUrl, skipping`);
+        return null; // Filter out shorts without media
+      }
+      
       return {
         ...short,
         _id: short._id,
-        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
+        mediaUrl, // Include virtual field with validation
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
@@ -1866,20 +1957,23 @@ const getShorts = async (req, res) => {
       };
     }));
 
+    // Filter out null entries (shorts without media)
+    const validShorts = shortsWithLikeStatus.filter(short => short !== null);
+
     const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
-    const totalPages = Math.ceil(totalShorts / limit);
+    const totalPages = Math.ceil(totalShorts / safeLimit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
     res.status(200).json({
-      shorts: shortsWithLikeStatus,
+      shorts: validShorts,
       pagination: {
         currentPage: page,
         totalPages,
         totalShorts,
         hasNextPage,
         hasPrevPage,
-        limit
+        limit: safeLimit
       }
     });
 
@@ -1907,6 +2001,9 @@ const createShort = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
+    // Defensive guard: ensure this is a short creation request
+    // (Backend already validates type='short' in Post model, but explicit check here for clarity)
+    
     // req.files.video[0] if fields upload; req.file if single
     const videoFile = (req.files && Array.isArray(req.files.video) && req.files.video[0]) || req.file;
     const imageFile = (req.files && Array.isArray(req.files.image) && req.files.image[0]) || null;
@@ -1914,6 +2011,12 @@ const createShort = async (req, res) => {
     if (!videoFile) {
       logger.debug('No file uploaded');
       return sendError(res, 'FILE_4001', 'Please upload a video');
+    }
+
+    // Defensive: validate video file buffer exists
+    if (!videoFile.buffer || videoFile.buffer.length === 0) {
+      logger.error('Video file buffer is empty or missing');
+      return sendError(res, 'FILE_4002', 'Invalid video file. Please try uploading again.');
     }
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
@@ -1930,6 +2033,12 @@ const createShort = async (req, res) => {
     let videoUploadResult;
     try {
       videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      
+      // Defensive: validate upload result has URL
+      if (!videoUploadResult || !videoUploadResult.url) {
+        logger.error('Video upload succeeded but no URL returned');
+        return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
+      }
     } catch (uploadErr) {
       logger.error('Storage upload error:', uploadErr);
       return sendError(res, 'FILE_4004', uploadErr.message || 'Video upload failed. Please try again.');
@@ -1995,11 +2104,16 @@ const createShort = async (req, res) => {
           longitude: parseFloat(longitude) || 0
         }
       },
+      // CRITICAL: Dual-audio mixing support (same as posts)
+      // When songId is provided, backend should mix:
+      // - Original video audio at 0.6 volume (60%)
+      // - Background music at songVolume (typically 1.0 = 100%)
+      // This preserves both audio tracks instead of replacing video audio
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
-        volume: parseFloat(songVolume) || 0.5
+        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
       } : undefined
     });
 

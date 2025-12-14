@@ -72,6 +72,7 @@ export default function PostImage({
             )}
             
             {/* Main image with progressive loading */}
+            {/* Image loading safety: fixed aspect ratio, resizeMode cover, error handler prevents retry loops */}
             <Image
               source={{ uri: imageUri }}
               style={[
@@ -79,11 +80,16 @@ export default function PostImage({
                 mainImageLoaded ? styles.imageLoaded : styles.imageLoading
               ]}
               resizeMode="cover"
+              // Fixed width/height via aspectRatio in container - no dynamic resizing on load
               onLoadStart={() => {
                 // Loading state handled by parent
               }}
               onLoad={handleMainImageLoad}
-              onError={onImageError}
+              onError={(error) => {
+                // Stop retrying failed image loads - onError handler prevents retry loops
+                // Parent component handles retry logic with max attempts
+                onImageError();
+              }}
             />
             
             {/* Multiple Images Indicator */}

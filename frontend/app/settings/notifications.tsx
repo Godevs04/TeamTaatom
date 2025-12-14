@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -10,16 +10,18 @@ import {
   Switch
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
-import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
+import { useSettings } from '../../context/SettingsContext';
 import CustomAlert, { CustomAlertButton } from '../../components/CustomAlert';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('NotificationsSettings');
 
 export default function NotificationsSettingsScreen() {
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
+  // Settings State Single Source of Truth: Use SettingsContext
+  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -27,6 +29,13 @@ export default function NotificationsSettingsScreen() {
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
     buttons: [{ text: 'OK' }] as CustomAlertButton[],
   });
+  
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
+  // Toggle Interaction Safety: Per-toggle guards to prevent multiple API calls
+  const updatingKeysRef = useRef<Set<string>>(new Set());
+  
   const router = useRouter();
   const { theme } = useTheme();
 
@@ -43,60 +52,96 @@ export default function NotificationsSettingsScreen() {
     showAlert(message, title || 'Success', 'success');
   };
 
+  // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
-    loadSettings();
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      const settingsData = await getSettings();
-      setSettings(settingsData.settings);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load notification settings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateSetting = async (key: string, value: any) => {
-    if (!settings) return;
-    
-    setUpdating(true);
-    try {
-      const updatedSettings = {
-        ...settings.notifications,
-        [key]: value
+  // Navigation & Lifecycle Safety: Refresh settings on focus
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      refreshSettings();
+      return () => {
+        // Screen blurred - cleanup
       };
-      
-      const response = await updateSettingCategory('notifications', updatedSettings);
-      setSettings(response.settings);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update setting');
-    } finally {
-      setUpdating(false);
-    }
-  };
+    }, [refreshSettings])
+  );
 
-  const toggleAllNotifications = (value: boolean) => {
+  // Toggle Interaction Safety: Wrapper with per-toggle guard
+  const handleUpdateSetting = useCallback(async (key: string, value: any) => {
     if (!settings) return;
     
-    const updatedSettings = {
-      pushNotifications: value,
-      emailNotifications: value,
-      likesNotifications: value,
-      commentsNotifications: value,
-      followsNotifications: value,
-      messagesNotifications: value
-    };
+    // Prevent re-entry while API call is in-flight
+    if (updatingKeysRef.current.has(key)) {
+      logger.debug(`Update already in progress for ${key}, skipping`);
+      return;
+    }
     
-    updateSettingCategory('notifications', updatedSettings).then(response => {
-      setSettings(response.settings);
-    }).catch(error => {
-      Alert.alert('Error', 'Failed to update settings');
-    });
-  };
+    updatingKeysRef.current.add(key);
+    
+    try {
+      await updateSetting('notifications', key, value);
+      // Success feedback handled by context
+    } catch (error: any) {
+      if (isMountedRef.current) {
+        logger.error(`Failed to update setting ${key}`, error);
+        Alert.alert('Error', 'Failed to update setting');
+      }
+    } finally {
+      updatingKeysRef.current.delete(key);
+    }
+  }, [settings, updateSetting]);
 
-  if (loading) {
+  // Toggle Interaction Safety: Handle bulk toggle with guards
+  const toggleAllNotifications = useCallback(async (value: boolean) => {
+    if (!settings) return;
+    
+    const key = 'allNotifications';
+    if (updatingKeysRef.current.has(key)) {
+      logger.debug('Bulk notification update already in progress, skipping');
+      return;
+    }
+    
+    updatingKeysRef.current.add(key);
+    
+    try {
+      // Update all notification settings in parallel
+      await Promise.all([
+        updateSetting('notifications', 'pushNotifications', value),
+        updateSetting('notifications', 'emailNotifications', value),
+        updateSetting('notifications', 'likesNotifications', value),
+        updateSetting('notifications', 'commentsNotifications', value),
+        updateSetting('notifications', 'followsNotifications', value),
+        updateSetting('notifications', 'messagesNotifications', value)
+      ]);
+    } catch (error: any) {
+      if (isMountedRef.current) {
+        logger.error('Failed to update all notifications', error);
+        Alert.alert('Error', 'Failed to update settings');
+      }
+    } finally {
+      updatingKeysRef.current.delete(key);
+    }
+  }, [settings, updateSetting]);
+
+  // Screen Load Performance: Memoize loading state and derived values
+  const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);
+  
+  const allNotificationsEnabled = useMemo(() => {
+    if (!settings?.notifications) return false;
+    return settings.notifications.pushNotifications && 
+           settings.notifications.emailNotifications &&
+           settings.notifications.likesNotifications &&
+           settings.notifications.commentsNotifications &&
+           settings.notifications.followsNotifications &&
+           settings.notifications.messagesNotifications;
+  }, [settings?.notifications]);
+
+  if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Notifications" />
@@ -106,13 +151,6 @@ export default function NotificationsSettingsScreen() {
       </View>
     );
   }
-
-  const allNotificationsEnabled = settings?.notifications?.pushNotifications && 
-                                 settings?.notifications?.emailNotifications &&
-                                 settings?.notifications?.likesNotifications &&
-                                 settings?.notifications?.commentsNotifications &&
-                                 settings?.notifications?.followsNotifications &&
-                                 settings?.notifications?.messagesNotifications;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -144,7 +182,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={allNotificationsEnabled || false}
               onValueChange={toggleAllNotifications}
-              disabled={updating}
+              disabled={updatingKeysRef.current.has('allNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={allNotificationsEnabled ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -171,8 +209,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.pushNotifications || false}
-              onValueChange={(value) => updateSetting('pushNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('pushNotifications', value)}
+              disabled={updatingKeysRef.current.has('pushNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.pushNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -192,8 +230,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.emailNotifications || false}
-              onValueChange={(value) => updateSetting('emailNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('emailNotifications', value)}
+              disabled={updatingKeysRef.current.has('emailNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.emailNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -220,8 +258,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.likesNotifications || false}
-              onValueChange={(value) => updateSetting('likesNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('likesNotifications', value)}
+              disabled={updatingKeysRef.current.has('likesNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.likesNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -241,8 +279,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.commentsNotifications || false}
-              onValueChange={(value) => updateSetting('commentsNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('commentsNotifications', value)}
+              disabled={updatingKeysRef.current.has('commentsNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.commentsNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -262,8 +300,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.followsNotifications || false}
-              onValueChange={(value) => updateSetting('followsNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('followsNotifications', value)}
+              disabled={updatingKeysRef.current.has('followsNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.followsNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -283,8 +321,8 @@ export default function NotificationsSettingsScreen() {
             </View>
             <Switch
               value={settings?.notifications?.messagesNotifications || false}
-              onValueChange={(value) => updateSetting('messagesNotifications', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('messagesNotifications', value)}
+              disabled={updatingKeysRef.current.has('messagesNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.messagesNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
