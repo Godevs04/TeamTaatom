@@ -106,7 +106,7 @@ const Analytics = () => {
 
   const handleExport = () => {
     // Export functionality can be added later
-    toast.info('Export functionality coming soon')
+    toast('Export functionality coming soon', { icon: 'ℹ️' })
   }
 
   // Transform time series data for charts
