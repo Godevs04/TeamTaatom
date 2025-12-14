@@ -21,9 +21,10 @@ const { cascadeDeletePost } = require('../utils/cascadeDelete');
 // @access  Public
 const getPosts = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    // Defensive guards: validate and cap pagination params
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 50); // Cap at 50
+    const skip = Math.max(0, (page - 1) * limit);
     const cursor = req.query.cursor; // Cursor for cursor-based pagination
     const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
 
@@ -184,9 +185,27 @@ const getPosts = async (req, res) => {
 
     const { posts, totalPosts } = result;
 
+    // Defensive guards: filter out posts with missing image URLs or author data
+    // This prevents broken images from reaching the Home feed
+    const validPosts = posts.filter(post => {
+      // Must have image URL (required for Home feed)
+      if (!post.imageUrl || typeof post.imageUrl !== 'string' || post.imageUrl.trim() === '') {
+        logger.warn(`Post ${post._id} missing imageUrl, filtering out`);
+        return false;
+      }
+      
+      // Must have valid author data
+      if (!post.user || !post.user._id || !post.user.fullName) {
+        logger.warn(`Post ${post._id} missing author data, filtering out`);
+        return false;
+      }
+      
+      return true;
+    });
+
     // Add isLiked field if user is authenticated and optimize image URLs
     const userId = req.user?._id?.toString();
-    const postsWithLikeStatus = posts.map(post => {
+    const postsWithLikeStatus = validPosts.map(post => {
       // Use image URL as-is (new uploads use R2, legacy Cloudinary URLs are kept for backward compatibility)
       // For legacy Cloudinary URLs, optionally optimize (but new R2 URLs don't need optimization)
       let optimizedImageUrl = post.imageUrl;
@@ -222,6 +241,11 @@ const getPosts = async (req, res) => {
         // likesCount and commentsCount already added by aggregation
       };
     });
+
+    // Improved error messages (no response shape change)
+    if (postsWithLikeStatus.length === 0 && posts.length > 0) {
+      logger.warn('All posts filtered out due to missing image URLs or author data');
+    }
 
     // Determine next cursor (last post's createdAt)
     const nextCursor = postsWithLikeStatus.length > 0 
