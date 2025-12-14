@@ -689,7 +689,11 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     
     const total = await User.countDocuments(query)
     
-    // Add additional user metrics
+    // Add additional user metrics including TripScore and report counts
+    const Report = require('../models/Report')
+    const TripVisit = require('../models/TripVisit')
+    const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig')
+    
     const usersWithMetrics = await Promise.all(users.map(async (user) => {
       try {
         const userPosts = await Post.countDocuments({ user: user._id })
@@ -703,13 +707,56 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
         // Get followers count
         const followersCount = await User.findById(user._id).select('followers')
         
+        // Calculate TripScore (unique trusted places)
+        const trustedVisits = await TripVisit.find({
+          user: user._id,
+          trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+          isActive: true
+        }).lean()
+        
+        // Get unique places (deduplicated by rounded coordinates)
+        const uniquePlaces = new Set()
+        trustedVisits.forEach(visit => {
+          if (visit.latitude && visit.longitude) {
+            const key = `${Math.round(visit.latitude * 100) / 100}_${Math.round(visit.longitude * 100) / 100}`
+            uniquePlaces.add(key)
+          }
+        })
+        const tripScore = uniquePlaces.size
+        
+        // Get report counts (reports against this user's content)
+        const reportCount = await Report.countDocuments({
+          reportedUser: user._id,
+          status: { $in: ['pending', 'under_review'] }
+        })
+        
+        // Get high-priority reports (critical priority or multiple reports)
+        const highPriorityReports = await Report.countDocuments({
+          reportedUser: user._id,
+          priority: 'critical',
+          status: { $in: ['pending', 'under_review'] }
+        })
+        
+        // Determine risk level
+        let riskLevel = 'low'
+        if (tripScore === 0 && reportCount > 0) {
+          riskLevel = 'medium'
+        } else if (reportCount >= 5 || highPriorityReports > 0) {
+          riskLevel = 'high'
+        } else if (tripScore === 0 && userPosts > 10) {
+          riskLevel = 'medium' // User has posts but no TripScore (suspicious)
+        }
+        
         return {
           ...user.toObject(),
           metrics: {
             totalPosts: userPosts,
             totalLikes: userLikesResult[0]?.totalLikes || 0,
             totalFollowers: followersCount?.followers?.length || 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
+            tripScore,
+            reportCount,
+            riskLevel
           }
         }
       } catch (error) {
@@ -720,7 +767,10 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
             totalPosts: 0,
             totalLikes: 0,
             totalFollowers: 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
+            tripScore: 0,
+            reportCount: 0,
+            riskLevel: 'low'
           }
         }
       }
