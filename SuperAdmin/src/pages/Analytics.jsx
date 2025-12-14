@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { LineChartComponent, AreaChartComponent, BarChartComponent, PieChartComponent } from '../components/Charts/index.jsx'
-import { Calendar, Download, Filter, RefreshCw, TrendingUp, TrendingDown, Users, Eye, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react'
+import { Calendar, Download, Filter, RefreshCw, TrendingUp, Users, Eye, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getAnalyticsSummary,
@@ -15,7 +15,6 @@ import {
 import logger from '../utils/logger'
 
 const Analytics = () => {
-  // Data state
   const [summary, setSummary] = useState(null)
   const [timeSeries, setTimeSeries] = useState([])
   const [eventBreakdown, setEventBreakdown] = useState([])
@@ -24,7 +23,6 @@ const Analytics = () => {
   const [recentEvents, setRecentEvents] = useState([])
   const [retention, setRetention] = useState([])
   
-  // UI state
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
   const [selectedChart, setSelectedChart] = useState('timeseries')
   const [selectedEventType, setSelectedEventType] = useState('')
@@ -32,36 +30,9 @@ const Analytics = () => {
   const [loading, setLoading] = useState(false)
   const [eventsPage, setEventsPage] = useState(1)
   const [eventsSearch, setEventsSearch] = useState('')
-  
-  // Stability & performance refs
-  const isMountedRef = useRef(true)
-  const abortControllerRef = useRef(null)
-  const isFetchingRef = useRef(false)
-  const periodDebounceTimerRef = useRef(null)
-  
-  // Period-aware cache: store data per period
-  const cacheRef = useRef(new Map())
-  
-  // Previous period data for comparison
-  const previousPeriodDataRef = useRef(null)
-  
-  // Error state per data type (for partial failure handling)
-  const dataErrorsRef = useRef({
-    summary: false,
-    timeSeries: false,
-    eventBreakdown: false,
-    topFeatures: false,
-    dropOffs: false,
-    recentEvents: false,
-    retention: false
-  })
-  
-  // Export state
-  const [isExportReady, setIsExportReady] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
 
   // Calculate date range from period
-  const getDateRange = useCallback((period) => {
+  const getDateRange = (period) => {
     const end = new Date()
     let start
     
@@ -83,481 +54,97 @@ const Analytics = () => {
     }
     
     return { start: start.toISOString(), end: end.toISOString() }
-  }, [])
-  
-  // Get previous period for comparison
-  const getPreviousPeriodRange = useCallback((period) => {
-    const { start, end } = getDateRange(period)
-    const periodDuration = new Date(end).getTime() - new Date(start).getTime()
-    const prevEnd = new Date(start)
-    const prevStart = new Date(prevEnd.getTime() - periodDuration)
-    
-    return { start: prevStart.toISOString(), end: prevEnd.toISOString() }
-  }, [getDateRange])
-  
-  // Calculate delta percentage for comparison
-  const calculateDelta = useCallback((current, previous) => {
-    if (!previous || previous === 0) return null
-    const delta = ((current - previous) / previous) * 100
-    return {
-      value: Math.abs(delta).toFixed(1),
-      direction: delta >= 0 ? 'up' : 'down',
-      significant: Math.abs(delta) >= 5 // Show badge if change >= 5%
-    }
-  }, [])
+  }
 
-  // Fetch all analytics data with caching and partial failure handling
-  const fetchAllData = useCallback(async (period = selectedPeriod, forceRefresh = false) => {
-    // Prevent duplicate concurrent calls
-    if (isFetchingRef.current && !forceRefresh) {
-      logger.debug('Analytics fetch already in progress, skipping duplicate call')
-      return
-    }
-    
-    // Check cache first (if not forcing refresh)
-    const cacheKey = `${period}-${selectedEventType}-${selectedPlatform}`
-    const cachedData = cacheRef.current.get(cacheKey)
-    
-    if (cachedData && !forceRefresh) {
-      logger.debug('Using cached analytics data for period:', period)
-      // Show cached data immediately
-      if (isMountedRef.current) {
-        setSummary(cachedData.summary)
-        setTimeSeries(cachedData.timeSeries || [])
-        setEventBreakdown(cachedData.eventBreakdown || [])
-        setTopFeatures(cachedData.topFeatures || [])
-        setDropOffs(cachedData.dropOffs || [])
-        setRecentEvents(cachedData.recentEvents || [])
-        setRetention(cachedData.retention || [])
-        setIsExportReady(true)
-        // Clear errors when showing cached data
-        dataErrorsRef.current = {
-          summary: false,
-          timeSeries: false,
-          eventBreakdown: false,
-          topFeatures: false,
-          dropOffs: false,
-          recentEvents: false,
-          retention: false
-        }
-      }
-      
-      // Revalidate in background (don't block UI)
-      setTimeout(() => {
-        if (isMountedRef.current) {
-          fetchAllData(period, true) // Force refresh
-        }
-      }, 100)
-      return
-    }
-    
-    // Cancel previous request if still pending
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    
-    // Create new abort controller
-    abortControllerRef.current = new AbortController()
-    isFetchingRef.current = true
-    
-    if (isMountedRef.current) {
-      setLoading(true)
-    }
-    
-    // Store previous period data for comparison
-    if (summary) {
-      previousPeriodDataRef.current = {
-        summary,
-        period: selectedPeriod
-      }
-    }
-    
+  // Fetch all analytics data
+  const fetchAllData = async () => {
+    setLoading(true)
     try {
-      const { start, end } = getDateRange(period)
+      const { start, end } = getDateRange(selectedPeriod)
       
-      // Fetch all data with individual error handling for partial failures
-      const fetchPromises = [
-        getAnalyticsSummary(start, end).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setSummary(data.summary)
-              dataErrorsRef.current.summary = false
-            }
-            return { type: 'summary', data: data.summary }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch summary:', error)
-              dataErrorsRef.current.summary = true
-            }
-            return { type: 'summary', data: null, error: true }
-          }
-        ),
-        getTimeSeriesData({ 
-          startDate: start, 
-          endDate: end, 
-          eventType: selectedEventType || undefined, 
-          platform: selectedPlatform || undefined 
-        }).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setTimeSeries(data.timeSeries || [])
-              dataErrorsRef.current.timeSeries = false
-            }
-            return { type: 'timeSeries', data: data.timeSeries || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch time series:', error)
-              dataErrorsRef.current.timeSeries = true
-            }
-            return { type: 'timeSeries', data: [], error: true }
-          }
-        ),
-        getEventBreakdown({ startDate: start, endDate: end }).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setEventBreakdown(data.breakdown || [])
-              dataErrorsRef.current.eventBreakdown = false
-            }
-            return { type: 'eventBreakdown', data: data.breakdown || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch event breakdown:', error)
-              dataErrorsRef.current.eventBreakdown = true
-            }
-            return { type: 'eventBreakdown', data: [], error: true }
-          }
-        ),
-        getTopFeatures({ startDate: start, endDate: end }).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setTopFeatures(data.features || [])
-              dataErrorsRef.current.topFeatures = false
-            }
-            return { type: 'topFeatures', data: data.features || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch top features:', error)
-              dataErrorsRef.current.topFeatures = true
-            }
-            return { type: 'topFeatures', data: [], error: true }
-          }
-        ),
-        getDropOffPoints({ startDate: start, endDate: end }).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setDropOffs(data.dropOffs || [])
-              dataErrorsRef.current.dropOffs = false
-            }
-            return { type: 'dropOffs', data: data.dropOffs || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch drop-offs:', error)
-              dataErrorsRef.current.dropOffs = true
-            }
-            return { type: 'dropOffs', data: [], error: true }
-          }
-        ),
-        getRecentEvents({ 
-          page: eventsPage, 
-          limit: 50, 
-          eventType: selectedEventType || undefined, 
-          platform: selectedPlatform || undefined, 
-          startDate: start, 
-          endDate: end, 
-          search: eventsSearch || undefined 
-        }).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setRecentEvents(data.events || [])
-              dataErrorsRef.current.recentEvents = false
-            }
-            return { type: 'recentEvents', data: data.events || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch recent events:', error)
-              dataErrorsRef.current.recentEvents = true
-            }
-            return { type: 'recentEvents', data: [], error: true }
-          }
-        ),
-        getUserRetention(start, end).then(
-          (data) => {
-            if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-              setRetention(data.retention || [])
-              dataErrorsRef.current.retention = false
-            }
-            return { type: 'retention', data: data.retention || [] }
-          },
-          (error) => {
-            if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-              logger.error('Failed to fetch retention:', error)
-              dataErrorsRef.current.retention = true
-            }
-            return { type: 'retention', data: [], error: true }
-          }
-        )
-      ]
+      const [
+        summaryData,
+        timeSeriesData,
+        breakdownData,
+        featuresData,
+        dropOffsData,
+        eventsData,
+        retentionData
+      ] = await Promise.all([
+        getAnalyticsSummary(start, end),
+        getTimeSeriesData({ startDate: start, endDate: end, eventType: selectedEventType || undefined, platform: selectedPlatform || undefined }),
+        getEventBreakdown({ startDate: start, endDate: end }),
+        getTopFeatures({ startDate: start, endDate: end }),
+        getDropOffPoints({ startDate: start, endDate: end }),
+        getRecentEvents({ page: eventsPage, limit: 50, eventType: selectedEventType || undefined, platform: selectedPlatform || undefined, startDate: start, endDate: end, search: eventsSearch || undefined }),
+        getUserRetention(start, end)
+      ])
       
-      const results = await Promise.allSettled(fetchPromises)
-      
-      // Cache successful data
-      if (!abortControllerRef.current?.signal?.aborted && isMountedRef.current) {
-        // Extract data from results
-        const getResultData = (type) => {
-          const result = results.find(r => r.status === 'fulfilled' && r.value?.type === type)
-          return result?.value?.data || null
-        }
-        
-        const cacheData = {
-          summary: getResultData('summary') || summary,
-          timeSeries: getResultData('timeSeries') || timeSeries,
-          eventBreakdown: getResultData('eventBreakdown') || eventBreakdown,
-          topFeatures: getResultData('topFeatures') || topFeatures,
-          dropOffs: getResultData('dropOffs') || dropOffs,
-          recentEvents: getResultData('recentEvents') || recentEvents,
-          retention: getResultData('retention') || retention,
-          timestamp: Date.now()
-        }
-        
-        cacheRef.current.set(cacheKey, cacheData)
-        
-        // Mark export as ready if we have at least summary data
-        setIsExportReady(!!cacheData.summary)
-      }
-      
+      setSummary(summaryData.summary)
+      setTimeSeries(timeSeriesData.timeSeries || [])
+      setEventBreakdown(breakdownData.breakdown || [])
+      setTopFeatures(featuresData.features || [])
+      setDropOffs(dropOffsData.dropOffs || [])
+      setRecentEvents(eventsData.events || [])
+      setRetention(retentionData.retention || [])
     } catch (error) {
-      if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
-        logger.error('Failed to fetch analytics data:', error)
-        if (isMountedRef.current) {
-          toast.error('Failed to fetch some analytics data. Some charts may be unavailable.')
-        }
-      }
+      logger.error('Failed to fetch analytics data:', error)
+      toast.error('Failed to fetch analytics data')
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false)
-        isFetchingRef.current = false
-      }
+      setLoading(false)
     }
-  }, [selectedPeriod, selectedEventType, selectedPlatform, eventsPage, eventsSearch, getDateRange])
+  }
 
-  // Debounced period change handler
-  const handlePeriodChange = useCallback((newPeriod) => {
-    // Clear existing debounce timer
-    if (periodDebounceTimerRef.current) {
-      clearTimeout(periodDebounceTimerRef.current)
-    }
-    
-    // Cancel in-flight request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    
-    // Debounce period change (350ms)
-    periodDebounceTimerRef.current = setTimeout(() => {
-      if (isMountedRef.current) {
-        setSelectedPeriod(newPeriod)
-      }
-    }, 350)
-  }, [])
-  
-  // Initial fetch on mount
   useEffect(() => {
-    if (!isMountedRef.current) return
-    
-    fetchAllData(selectedPeriod, false)
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
-  
-  // Fetch data when period changes (after debounce)
-  useEffect(() => {
-    if (!isMountedRef.current) return
-    
-    fetchAllData(selectedPeriod, false)
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPeriod])
-  
-  // Fetch data when filters/search change (immediate, no debounce)
-  useEffect(() => {
-    if (!isMountedRef.current) return
-    
-    fetchAllData(selectedPeriod, false)
-    
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventType, selectedPlatform, eventsPage, eventsSearch])
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    isMountedRef.current = true
-    
-    return () => {
-      isMountedRef.current = false
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
-      if (periodDebounceTimerRef.current) {
-        clearTimeout(periodDebounceTimerRef.current)
-      }
-      isFetchingRef.current = false
-    }
-  }, [])
+    fetchAllData()
+  }, [selectedPeriod, selectedEventType, selectedPlatform, eventsPage, eventsSearch])
 
-  const handleRefresh = useCallback(async () => {
-    if (isFetchingRef.current) return
-    
-    await fetchAllData(selectedPeriod, true) // Force refresh
-    if (isMountedRef.current) {
-      toast.success('Analytics data refreshed successfully')
-    }
-  }, [selectedPeriod, fetchAllData])
-  
-  const handleExport = useCallback(() => {
-    if (!isExportReady || isExporting) {
-      toast('Please wait for data to load', { icon: 'ℹ️' })
-      return
-    }
-    
-    setIsExporting(true)
-    
-    try {
-      // Prepare export data
-      const exportData = {
-        period: selectedPeriod,
-        summary,
-        timeSeries,
-        eventBreakdown,
-        topFeatures,
-        dropOffs,
-        recentEvents,
-        retention,
-        exportedAt: new Date().toISOString()
-      }
-      
-      // Convert to CSV format (simple implementation)
-      const csvRows = []
-      csvRows.push('Metric,Value')
-      csvRows.push(`Period,${selectedPeriod}`)
-      csvRows.push(`DAU,${summary?.dau || 0}`)
-      csvRows.push(`MAU,${summary?.mau || 0}`)
-      csvRows.push(`Post Views,${summary?.postViews || 0}`)
-      csvRows.push(`Total Events,${summary?.totalEvents || 0}`)
-      csvRows.push(`Engagement Rate,${summary?.engagementRate?.toFixed(2) || 0}%`)
-      csvRows.push(`Total Posts,${summary?.totalPosts || 0}`)
-      csvRows.push(`Crashes,${summary?.crashCount || 0}`)
-      
-      const csvContent = csvRows.join('\n')
-      const blob = new Blob([csvContent], { type: 'text/csv' })
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `analytics-${selectedPeriod}-${new Date().toISOString().split('T')[0]}.csv`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
-      
-      toast.success('Analytics data exported successfully')
-    } catch (error) {
-      logger.error('Export failed:', error)
-      toast.error('Failed to export analytics data')
-    } finally {
-      if (isMountedRef.current) {
-        setIsExporting(false)
-      }
-    }
-  }, [isExportReady, isExporting, selectedPeriod, summary, timeSeries, eventBreakdown, topFeatures, dropOffs, recentEvents, retention])
+  const handleRefresh = async () => {
+    await fetchAllData()
+    toast.success('Analytics data refreshed successfully')
+  }
 
-  // Memoized chart data transformations
-  const timeSeriesChartData = useMemo(() => {
-    return timeSeries.map(item => ({
-      name: item.date,
-      events: item.totalEvents,
-      users: item.uniqueUsers
-    }))
-  }, [timeSeries])
+  const handleExport = () => {
+    // Export functionality can be added later
+    toast('Export functionality coming soon', { icon: 'ℹ️' })
+  }
 
-  const breakdownChartData = useMemo(() => {
-    return eventBreakdown.slice(0, 10).map(item => ({
-      name: item.name,
-      value: item.count,
-      users: item.uniqueUsers
-    }))
-  }, [eventBreakdown])
+  // Transform time series data for charts
+  const timeSeriesChartData = timeSeries.map(item => ({
+    name: item.date,
+    events: item.totalEvents,
+    users: item.uniqueUsers
+  }))
 
-  const featuresChartData = useMemo(() => {
-    return topFeatures.map(item => ({
-      name: item.featureName,
-      usage: item.usageCount,
-      users: item.uniqueUsers
-    }))
-  }, [topFeatures])
+  // Transform event breakdown for pie chart
+  const breakdownChartData = eventBreakdown.slice(0, 10).map(item => ({
+    name: item.name,
+    value: item.count,
+    users: item.uniqueUsers
+  }))
 
-  const dropOffsChartData = useMemo(() => {
-    return dropOffs.map(item => ({
-      name: item.step,
-      count: item.dropOffCount,
-      users: item.affectedUsers
-    }))
-  }, [dropOffs])
+  // Transform top features for bar chart
+  const featuresChartData = topFeatures.map(item => ({
+    name: item.featureName,
+    usage: item.usageCount,
+    users: item.uniqueUsers
+  }))
 
-  const retentionChartData = useMemo(() => {
-    return retention.map(item => ({
-      day: item.cohortDate,
-      day1: parseFloat(item.day1Retention),
-      day7: parseFloat(item.day7Retention),
-      day14: parseFloat(item.day14Retention),
-      day30: parseFloat(item.day30Retention)
-    }))
-  }, [retention])
-  
-  // Calculate comparison deltas for KPIs
-  const comparisonDeltas = useMemo(() => {
-    if (!summary || !previousPeriodDataRef.current?.summary) {
-      return {
-        dau: null,
-        mau: null,
-        postViews: null,
-        totalEvents: null,
-        engagementRate: null,
-        totalPosts: null,
-        crashCount: null
-      }
-    }
-    
-    const prev = previousPeriodDataRef.current.summary
-    
-    return {
-      dau: calculateDelta(summary.dau || 0, prev.dau || 0),
-      mau: calculateDelta(summary.mau || 0, prev.mau || 0),
-      postViews: calculateDelta(summary.postViews || 0, prev.postViews || 0),
-      totalEvents: calculateDelta(summary.totalEvents || 0, prev.totalEvents || 0),
-      engagementRate: calculateDelta(summary.engagementRate || 0, prev.engagementRate || 0),
-      totalPosts: calculateDelta(summary.totalPosts || 0, prev.totalPosts || 0),
-      crashCount: calculateDelta(summary.crashCount || 0, prev.crashCount || 0)
-    }
-  }, [summary, calculateDelta])
+  // Transform drop-offs for bar chart
+  const dropOffsChartData = dropOffs.map(item => ({
+    name: item.step,
+    count: item.dropOffCount,
+    users: item.affectedUsers
+  }))
+
+  // Transform retention data
+  const retentionChartData = retention.map(item => ({
+    day: item.cohortDate,
+    day1: parseFloat(item.day1Retention),
+    day7: parseFloat(item.day7Retention),
+    day14: parseFloat(item.day14Retention),
+    day30: parseFloat(item.day30Retention)
+  }))
 
   return (
     <div className="space-y-6">
@@ -573,7 +160,7 @@ const Analytics = () => {
           <select
             className="input min-w-[160px]"
             value={selectedPeriod}
-            onChange={(e) => handlePeriodChange(e.target.value)}
+            onChange={(e) => setSelectedPeriod(e.target.value)}
           >
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
@@ -582,7 +169,7 @@ const Analytics = () => {
           </select>
           <button 
             onClick={handleRefresh}
-            disabled={loading || isFetchingRef.current}
+            disabled={loading}
             className="btn btn-secondary"
           >
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -590,12 +177,10 @@ const Analytics = () => {
           </button>
           <button 
             onClick={handleExport}
-            disabled={!isExportReady || isExporting}
-            className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            title={!isExportReady ? 'Preparing data...' : isExporting ? 'Exporting...' : 'Export analytics data'}
+            className="btn btn-primary"
           >
-            <Download className={`w-4 h-4 mr-2 ${isExporting ? 'animate-pulse' : ''}`} />
-            {isExporting ? 'Exporting...' : 'Export Data'}
+            <Download className="w-4 h-4 mr-2" />
+            Export Data
           </button>
         </div>
       </div>
@@ -604,39 +189,18 @@ const Analytics = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Users className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="ml-4">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-600">Daily Active Users</p>
-                    {dataErrorsRef.current.summary && (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" title="Data may be unavailable" />
-                    )}
-                  </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {summary?.dau || 0}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-500">
-                      Monthly: {summary?.mau || 0}
-                    </p>
-                    {comparisonDeltas.dau?.significant && (
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        comparisonDeltas.dau.direction === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
-                        {comparisonDeltas.dau.direction === 'up' ? (
-                          <ArrowUp className="w-3 h-3" />
-                        ) : (
-                          <ArrowDown className="w-3 h-3" />
-                        )}
-                        {comparisonDeltas.dau.value}%
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="flex items-center">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Users className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Daily Active Users</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {summary?.dau || 0}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Monthly: {summary?.mau || 0}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -644,39 +208,18 @@ const Analytics = () => {
         
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Eye className="w-6 h-6 text-green-600" />
-                </div>
-                <div className="ml-4">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-600">Post Views</p>
-                    {dataErrorsRef.current.summary && (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" title="Data may be unavailable" />
-                    )}
-                  </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {summary?.postViews?.toLocaleString() || 0}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-500">
-                      Total Events: {summary?.totalEvents?.toLocaleString() || 0}
-                    </p>
-                    {comparisonDeltas.postViews?.significant && (
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        comparisonDeltas.postViews.direction === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
-                        {comparisonDeltas.postViews.direction === 'up' ? (
-                          <ArrowUp className="w-3 h-3" />
-                        ) : (
-                          <ArrowDown className="w-3 h-3" />
-                        )}
-                        {comparisonDeltas.postViews.value}%
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="flex items-center">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <Eye className="w-6 h-6 text-green-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Post Views</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {summary?.postViews?.toLocaleString() || 0}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Total Events: {summary?.totalEvents?.toLocaleString() || 0}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -684,39 +227,18 @@ const Analytics = () => {
         
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <TrendingUp className="w-6 h-6 text-purple-600" />
-                </div>
-                <div className="ml-4">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
-                    {dataErrorsRef.current.summary && (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" title="Data may be unavailable" />
-                    )}
-                  </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {summary?.engagementRate?.toFixed(1) || 0}%
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-500">
-                      Total Posts: {summary?.totalPosts?.toLocaleString() || 0}
-                    </p>
-                    {comparisonDeltas.engagementRate?.significant && (
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        comparisonDeltas.engagementRate.direction === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
-                        {comparisonDeltas.engagementRate.direction === 'up' ? (
-                          <ArrowUp className="w-3 h-3" />
-                        ) : (
-                          <ArrowDown className="w-3 h-3" />
-                        )}
-                        {comparisonDeltas.engagementRate.value}%
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="flex items-center">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <TrendingUp className="w-6 h-6 text-purple-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {summary?.engagementRate?.toFixed(1) || 0}%
+                </p>
+                <p className="text-xs text-gray-500">
+                  Total Posts: {summary?.totalPosts?.toLocaleString() || 0}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -724,39 +246,18 @@ const Analytics = () => {
         
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
-                </div>
-                <div className="ml-4">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-600">Crashes</p>
-                    {dataErrorsRef.current.summary && (
-                      <AlertTriangle className="w-4 h-4 text-amber-500" title="Data may be unavailable" />
-                    )}
-                  </div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {summary?.crashCount || 0}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-gray-500">
-                      Unresolved errors
-                    </p>
-                    {comparisonDeltas.crashCount?.significant && (
-                      <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        comparisonDeltas.crashCount.direction === 'up' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                      }`}>
-                        {comparisonDeltas.crashCount.direction === 'up' ? (
-                          <ArrowUp className="w-3 h-3" />
-                        ) : (
-                          <ArrowDown className="w-3 h-3" />
-                        )}
-                        {comparisonDeltas.crashCount.value}%
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="flex items-center">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Crashes</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {summary?.crashCount || 0}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Unresolved errors
+                </p>
               </div>
             </div>
           </CardContent>
@@ -874,89 +375,24 @@ const Analytics = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Lazy-load charts only when selected */}
-              {selectedChart === 'timeseries' && (
-                <div className="relative">
-                  {dataErrorsRef.current.timeSeries && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" title="Time series data unavailable" />
-                    </div>
-                  )}
-                  {timeSeriesChartData.length > 0 ? (
-                    <LineChartComponent data={timeSeriesChartData} dataKey="events" name="Events" />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-500">
-                      {loading ? 'Loading time series data...' : 'No time series data available'}
-                    </div>
-                  )}
-                </div>
+              {selectedChart === 'timeseries' && timeSeriesChartData.length > 0 && (
+                <LineChartComponent data={timeSeriesChartData} dataKey="events" name="Events" />
               )}
-              
-              {selectedChart === 'breakdown' && (
-                <div className="relative">
-                  {dataErrorsRef.current.eventBreakdown && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" title="Event breakdown data unavailable" />
-                    </div>
-                  )}
-                  {breakdownChartData.length > 0 ? (
-                    <PieChartComponent data={breakdownChartData} dataKey="value" nameKey="name" />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-500">
-                      {loading ? 'Loading breakdown data...' : 'No breakdown data available'}
-                    </div>
-                  )}
-                </div>
+              {selectedChart === 'breakdown' && breakdownChartData.length > 0 && (
+                <PieChartComponent data={breakdownChartData} dataKey="value" nameKey="name" />
               )}
-              
-              {selectedChart === 'features' && (
-                <div className="relative">
-                  {dataErrorsRef.current.topFeatures && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" title="Top features data unavailable" />
-                    </div>
-                  )}
-                  {featuresChartData.length > 0 ? (
-                    <BarChartComponent data={featuresChartData} dataKey="usage" name="Usage Count" />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-500">
-                      {loading ? 'Loading features data...' : 'No features data available'}
-                    </div>
-                  )}
-                </div>
+              {selectedChart === 'features' && featuresChartData.length > 0 && (
+                <BarChartComponent data={featuresChartData} dataKey="usage" name="Usage Count" />
               )}
-              
-              {selectedChart === 'dropoffs' && (
-                <div className="relative">
-                  {dataErrorsRef.current.dropOffs && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" title="Drop-off data unavailable" />
-                    </div>
-                  )}
-                  {dropOffsChartData.length > 0 ? (
-                    <BarChartComponent data={dropOffsChartData} dataKey="count" name="Drop-off Count" />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-500">
-                      {loading ? 'Loading drop-off data...' : 'No drop-off data available'}
-                    </div>
-                  )}
-                </div>
+              {selectedChart === 'dropoffs' && dropOffsChartData.length > 0 && (
+                <BarChartComponent data={dropOffsChartData} dataKey="count" name="Drop-off Count" />
               )}
-              
-              {selectedChart === 'retention' && (
-                <div className="relative">
-                  {dataErrorsRef.current.retention && (
-                    <div className="absolute top-2 right-2 z-10">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" title="Retention data unavailable" />
-                    </div>
-                  )}
-                  {retentionChartData.length > 0 ? (
-                    <LineChartComponent data={retentionChartData} dataKey="day30" name="30-Day Retention %" />
-                  ) : (
-                    <div className="flex items-center justify-center h-64 text-gray-500">
-                      {loading ? 'Loading retention data...' : 'No retention data available'}
-                    </div>
-                  )}
+              {selectedChart === 'retention' && retentionChartData.length > 0 && (
+                <LineChartComponent data={retentionChartData} dataKey="day30" name="30-Day Retention %" />
+              )}
+              {(!timeSeriesChartData.length && !breakdownChartData.length && !featuresChartData.length && !dropOffsChartData.length && !retentionChartData.length) && (
+                <div className="flex items-center justify-center h-64 text-gray-500">
+                  No data available for the selected period
                 </div>
               )}
             </CardContent>
