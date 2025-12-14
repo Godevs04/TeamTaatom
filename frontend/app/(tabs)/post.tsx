@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
   Platform,
   Modal,
+  AppState,
+  BackHandler,
 } from "react-native";
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
@@ -38,6 +40,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
 import { Song } from '../../services/songs';
+import { useFocusEffect } from '@react-navigation/native';
 
 const logger = createLogger('PostScreen');
 
@@ -91,6 +94,27 @@ export default function PostScreen() {
   const DRAFT_KEY = 'postDraft';
   const DRAFT_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 
+  // Upload lifecycle safety: track active upload session
+  const uploadSessionRef = useRef<{
+    isActive: boolean;
+    abortController?: AbortController;
+    progressWatchdog?: NodeJS.Timeout;
+    lastProgressTime?: number;
+  }>({ isActive: false });
+
+  // Duplicate submission prevention
+  const isSubmittingRef = useRef(false);
+
+  // Progress watchdog: detect stalled uploads
+  const PROGRESS_WATCHDOG_INTERVAL = 5000; // 5 seconds
+  const PROGRESS_STALL_THRESHOLD = 10000; // 10 seconds without progress update
+
+  // Media memory safety: track media references for cleanup
+  const mediaRefsRef = useRef<{
+    images: Array<{ uri: string }>;
+    video: string | null;
+  }>({ images: [], video: null });
+
   // Check for existing posts and shorts
   const checkExistingContent = async () => {
     try {
@@ -125,23 +149,37 @@ export default function PostScreen() {
     loadUser();
   }, []);
 
-  // Auto-save draft
+  // Enhanced draft persistence: save on every meaningful change
+  // Includes caption, media metadata, location, and music selection
   useEffect(() => {
     const saveDraft = async () => {
+      // Only save if there's media selected
       if (selectedImages.length === 0 && !selectedVideo) return;
       
       const draft = {
         selectedImages,
         selectedVideo,
+        videoThumbnail,
         location,
         address,
+        locationMetadata,
         postType,
+        selectedSong: selectedSong ? {
+          _id: selectedSong._id,
+          title: selectedSong.title,
+          artist: selectedSong.artist,
+          s3Url: selectedSong.s3Url,
+          duration: selectedSong.duration
+        } : null,
+        songStartTime,
+        songEndTime,
+        audioChoice,
         timestamp: Date.now()
       };
       
       try {
         await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-        logger.debug('Draft auto-saved');
+        logger.debug('Draft auto-saved with full metadata');
       } catch (error) {
         logger.error('Failed to save draft', error);
       }
@@ -149,15 +187,23 @@ export default function PostScreen() {
     
     const timeoutId = setTimeout(saveDraft, 2000); // Debounce by 2 seconds
     return () => clearTimeout(timeoutId);
-  }, [selectedImages, selectedVideo, location, address, postType]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
 
-  // Load draft on mount
+  // Enhanced draft recovery: restore all metadata including music selection
   const loadDraft = async () => {
     try {
       const draftJson = await AsyncStorage.getItem(DRAFT_KEY);
       if (!draftJson) return;
       
-      const draft = JSON.parse(draftJson);
+      let draft;
+      try {
+        draft = JSON.parse(draftJson);
+      } catch (parseError) {
+        logger.error('Failed to parse draft JSON', parseError);
+        // Clear corrupted draft
+        await AsyncStorage.removeItem(DRAFT_KEY);
+        return;
+      }
       
       // Check if draft is still valid (less than 24 hours old)
       if (Date.now() - draft.timestamp > DRAFT_EXPIRY) {
@@ -180,21 +226,44 @@ export default function PostScreen() {
           {
             text: 'Restore',
             onPress: () => {
+              // Restore media
               if (draft.selectedImages) setSelectedImages(draft.selectedImages);
               if (draft.selectedVideo && draft.selectedVideo.trim()) {
                 setSelectedVideo(draft.selectedVideo);
               } else {
                 setSelectedVideo(null);
               }
+              if (draft.videoThumbnail && draft.videoThumbnail.trim()) {
+                setVideoThumbnail(draft.videoThumbnail);
+              }
+              
+              // Restore location
               if (draft.location) setLocation(draft.location);
               if (draft.address) setAddress(draft.address);
+              if (draft.locationMetadata) setLocationMetadata(draft.locationMetadata);
+              
+              // Restore post type
               if (draft.postType) setPostType(draft.postType);
+              
+              // Restore music selection
+              if (draft.selectedSong) {
+                setSelectedSong(draft.selectedSong as Song);
+                if (draft.songStartTime !== undefined) setSongStartTime(draft.songStartTime);
+                if (draft.songEndTime !== undefined) setSongEndTime(draft.songEndTime);
+                if (draft.audioChoice) setAudioChoice(draft.audioChoice);
+              }
             }
           }
         ]
       );
     } catch (error) {
       logger.error('Failed to load draft', error);
+      // Clear corrupted draft on error
+      try {
+        await AsyncStorage.removeItem(DRAFT_KEY);
+      } catch (clearError) {
+        logger.error('Failed to clear corrupted draft', clearError);
+      }
     }
   };
 
@@ -211,7 +280,121 @@ export default function PostScreen() {
     setUploadError(null);
     setUploadProgress({ current: 0, total: 0, percentage: 0 });
     setIsUploading(false);
+    isSubmittingRef.current = false;
+    
+    // Cleanup upload session
+    if (uploadSessionRef.current.abortController) {
+      uploadSessionRef.current.abortController.abort();
+    }
+    if (uploadSessionRef.current.progressWatchdog) {
+      clearInterval(uploadSessionRef.current.progressWatchdog);
+    }
+    uploadSessionRef.current = { isActive: false };
   };
+
+  // Upload cancellation: cleanup on back/tab switch/app background
+  const cancelUpload = useCallback(async () => {
+    if (!uploadSessionRef.current.isActive) return;
+    
+    logger.debug('Cancelling active upload');
+    
+    // Abort ongoing request if possible
+    if (uploadSessionRef.current.abortController) {
+      uploadSessionRef.current.abortController.abort();
+    }
+    
+    // Clear progress watchdog
+    if (uploadSessionRef.current.progressWatchdog) {
+      clearInterval(uploadSessionRef.current.progressWatchdog);
+    }
+    
+    // Persist current draft state before clearing
+    try {
+      const draft = {
+        selectedImages,
+        selectedVideo,
+        videoThumbnail,
+        location,
+        address,
+        locationMetadata,
+        postType,
+        selectedSong: selectedSong ? {
+          _id: selectedSong._id,
+          title: selectedSong.title,
+          artist: selectedSong.artist,
+          s3Url: selectedSong.s3Url,
+          duration: selectedSong.duration
+        } : null,
+        songStartTime,
+        songEndTime,
+        audioChoice,
+        timestamp: Date.now()
+      };
+      await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      logger.debug('Draft saved before upload cancellation');
+    } catch (error) {
+      logger.error('Failed to save draft on cancellation', error);
+    }
+    
+    clearUploadState();
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
+
+  // Media memory safety: release references when no longer needed
+  const releaseMediaReferences = useCallback(() => {
+    mediaRefsRef.current = { images: [], video: null };
+    logger.debug('Media references released');
+  }, []);
+
+  // Upload lifecycle safety: handle back press, tab switch, app background
+  useEffect(() => {
+    // Handle Android back button
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (uploadSessionRef.current.isActive) {
+        Alert.alert(
+          'Upload in Progress',
+          'Upload is in progress. Do you want to cancel and save as draft?',
+          [
+            { text: 'Continue Upload', style: 'cancel' },
+            {
+              text: 'Cancel & Save Draft',
+              style: 'destructive',
+              onPress: cancelUpload
+            }
+          ]
+        );
+        return true; // Prevent default back behavior
+      }
+      return false; // Allow default back behavior
+    });
+
+    // Handle app backgrounding
+    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        if (uploadSessionRef.current.isActive) {
+          logger.debug('App backgrounded during upload, cancelling');
+          cancelUpload();
+        }
+      }
+    });
+
+    return () => {
+      backHandler.remove();
+      appStateSubscription.remove();
+    };
+  }, [cancelUpload]);
+
+  // Navigation lifecycle safety: cancel upload on screen blur
+  useFocusEffect(
+    useCallback(() => {
+      // On screen blur, cancel upload if active
+      return () => {
+        if (uploadSessionRef.current.isActive) {
+          logger.debug('Screen blurred during upload, cancelling');
+          cancelUpload();
+        }
+      };
+    }, [cancelUpload])
+  );
 
   const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -678,6 +861,12 @@ export default function PostScreen() {
   };
 
   const handlePost = async (values: PostFormValues) => {
+    // Duplicate submission prevention
+    if (isSubmittingRef.current) {
+      logger.debug('Post submission blocked: already in progress');
+      return;
+    }
+    
     if (selectedImages.length === 0) {
       Alert.alert("Error", "Please select at least one image first.");
       return;
@@ -687,10 +876,32 @@ export default function PostScreen() {
       return;
     }
     
+    // Set submission guard
+    isSubmittingRef.current = true;
+    
+    // Initialize upload session
+    uploadSessionRef.current = {
+      isActive: true,
+      abortController: new AbortController(),
+      lastProgressTime: Date.now()
+    };
+    
     setIsLoading(true);
     setIsUploading(true);
     setUploadProgress({ current: 0, total: selectedImages.length, percentage: 0 });
     setUploadError(null);
+    
+    // Progress watchdog: detect stalled uploads
+    uploadSessionRef.current.progressWatchdog = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastProgress = now - (uploadSessionRef.current.lastProgressTime || now);
+      
+      if (timeSinceLastProgress > PROGRESS_STALL_THRESHOLD) {
+        logger.warn('Upload progress stalled, may need retry');
+        // Don't auto-retry, just log warning
+        // User can manually retry if needed
+      }
+    }, PROGRESS_WATCHDOG_INTERVAL);
     
     try {
       logger.debug('Creating post with images:', selectedImages);
@@ -789,13 +1000,25 @@ export default function PostScreen() {
         songEndTime: songEndTime,
         songVolume: 0.5,
       }, (progress) => {
+        // Update last progress time for watchdog
+        uploadSessionRef.current.lastProgressTime = Date.now();
+        
         // Calculate overall progress: 50% optimization (already done) + 50% upload
         const uploadProgressPercent = progress / 100; // 0 to 1
         const overallProgress = 50 + (uploadProgressPercent * 50); // 50% to 100%
-        setUploadProgress({
-          current: uploadedCount + 1,
-          total: totalImages,
-          percentage: Math.min(overallProgress, 100)
+        
+        // Progress reliability: never jump backward, cap at 99% until backend confirms
+        setUploadProgress(prev => {
+          const newPercentage = Math.min(overallProgress, 99); // Cap at 99% until success
+          if (newPercentage < prev.percentage) {
+            logger.warn('Progress attempted to go backward, keeping previous value');
+            return prev;
+          }
+          return {
+            current: uploadedCount + 1,
+            total: totalImages,
+            percentage: newPercentage
+          };
         });
         
         // If this image is complete, move to next
@@ -806,17 +1029,27 @@ export default function PostScreen() {
 
       logger.debug('Post created successfully:', response);
       
-      // Set final progress
+      // Cleanup progress watchdog
+      if (uploadSessionRef.current.progressWatchdog) {
+        clearInterval(uploadSessionRef.current.progressWatchdog);
+      }
+      
+      // Set final progress to 100% (backend confirmed success)
       setUploadProgress({
         current: totalImages,
         total: totalImages,
         percentage: 100
       });
       
+      // Media memory safety: release references after successful upload
+      releaseMediaReferences();
+      
+      // Clear draft on successful post
+      await clearDraft();
+      
       // Wait a moment to show 100% progress
       setTimeout(() => {
-        setIsUploading(false);
-        setUploadProgress({ current: 0, total: 0, percentage: 0 });
+        clearUploadState();
         Alert.alert('Success!', 'Your post has been shared.', [
           {
             text: 'OK',
@@ -824,7 +1057,11 @@ export default function PostScreen() {
               setSelectedImages([]);
               setLocation(null);
               setAddress('');
+              setLocationMetadata(null);
               setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
               // Update existing posts state
               setHasExistingPosts(true);
               router.replace('/(tabs)/home');
@@ -835,12 +1072,49 @@ export default function PostScreen() {
       
     } catch (error: any) {
       logger.error('Post creation failed', error);
-      setUploadError(error?.message || 'Upload failed. Please try again.');
-      setIsUploading(false);
-      setUploadProgress({ current: 0, total: 0, percentage: 0 });
-      Alert.alert('Upload failed', error?.message || 'Please try again later.');
+      
+      // Check if upload was aborted
+      if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
+        logger.debug('Upload was aborted by user');
+        return; // Don't show error for user-initiated cancellation
+      }
+      
+      // Extract error message with better error handling
+      let errorMessage = 'Upload failed. Please try again.';
+      if (error instanceof Error) {
+        errorMessage = error.message || errorMessage;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      setUploadError(errorMessage);
+      
+      // Error & retry UX: show clear error message with retry option
+      Alert.alert(
+        'Upload failed',
+        errorMessage,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+            }
+          },
+          {
+            text: 'Retry',
+            onPress: () => {
+              // Retry with same draft data
+              clearUploadState();
+              handlePost(values);
+            }
+          }
+        ]
+      );
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -848,6 +1122,12 @@ export default function PostScreen() {
     logger.debug('handleShort called with values:', values);
     logger.debug('selectedVideo:', selectedVideo);
     logger.debug('user:', user);
+    
+    // Duplicate submission prevention
+    if (isSubmittingRef.current) {
+      logger.debug('Short submission blocked: already in progress');
+      return;
+    }
     
     if (!selectedVideo || !selectedVideo.trim()) {
       Alert.alert("Error", "Please select a video first.");
@@ -858,10 +1138,30 @@ export default function PostScreen() {
       return;
     }
     
+    // Set submission guard
+    isSubmittingRef.current = true;
+    
+    // Initialize upload session
+    uploadSessionRef.current = {
+      isActive: true,
+      abortController: new AbortController(),
+      lastProgressTime: Date.now()
+    };
+    
     setIsLoading(true);
     setIsUploading(true);
     setUploadProgress({ current: 0, total: 0, percentage: 0 });
     setUploadError(null);
+    
+    // Progress watchdog: detect stalled uploads
+    uploadSessionRef.current.progressWatchdog = setInterval(() => {
+      const now = Date.now();
+      const timeSinceLastProgress = now - (uploadSessionRef.current.lastProgressTime || now);
+      
+      if (timeSinceLastProgress > PROGRESS_STALL_THRESHOLD) {
+        logger.warn('Upload progress stalled, may need retry');
+      }
+    }, PROGRESS_WATCHDOG_INTERVAL);
     
     try {
       logger.debug('Creating short with video:', selectedVideo);
@@ -915,11 +1215,14 @@ export default function PostScreen() {
           name: 'thumbnail.jpg',
         } : undefined,
         caption: values.caption,
-        // Only send song data if user chose background music
+        // CRITICAL BUG FIX: Preserve both audio tracks
+        // If background music is selected, send music data with volume 1.0
+        // Backend should mix music with original video audio (video at 0.6, music at 1.0)
+        // If original only, don't send song data (video audio plays at 1.0)
         songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
         songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
         songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
-        songVolume: audioChoice === 'background' && selectedSong ? 0.5 : undefined,
+        songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined, // Music at full volume, video will be at 0.6
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         address: values.placeName || address,
         latitude: location?.lat,
@@ -932,31 +1235,72 @@ export default function PostScreen() {
 
       logger.debug('Short created successfully:', response);
       
+      // Cleanup progress watchdog
+      if (uploadSessionRef.current.progressWatchdog) {
+        clearInterval(uploadSessionRef.current.progressWatchdog);
+      }
+      
+      // Media memory safety: release references after successful upload
+      releaseMediaReferences();
+      
+      // Clear draft on successful post
+      await clearDraft();
+      
       Alert.alert('Success!', 'Your short has been uploaded.', [
         {
           text: 'OK',
           onPress: () => {
+            clearUploadState();
             setSelectedVideo(null);
+            setVideoThumbnail(null);
             setLocation(null);
+            setLocationMetadata(null);
             setSelectedSong(null);
             setAudioChoice(null);
+            setSongStartTime(0);
+            setSongEndTime(60);
             // Update existing shorts state
             setHasExistingShorts(true);
             setAddress('');
-            setIsUploading(false);
-            setUploadProgress({ current: 0, total: 0, percentage: 0 });
             router.replace('/(tabs)/home');
           },
         },
       ]);
     } catch (error: any) {
       logger.error('Short creation failed', error);
+      
+      // Check if upload was aborted
+      if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
+        logger.debug('Upload was aborted by user');
+        return; // Don't show error for user-initiated cancellation
+      }
+      
       setUploadError(error?.message || 'Upload failed. Please try again.');
-      Alert.alert('Upload failed', error?.message || 'Please try again later.');
+      
+      // Error & retry UX: show clear error message with retry option
+      Alert.alert(
+        'Upload failed',
+        error?.message || 'Please try again later.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+            }
+          },
+          {
+            text: 'Retry',
+            onPress: () => {
+              // Retry with same draft data
+              clearUploadState();
+              handleShort(values);
+            }
+          }
+        ]
+      );
     } finally {
       setIsLoading(false);
-      setIsUploading(false);
-      setUploadProgress({ current: 0, total: 0, percentage: 0 });
+      isSubmittingRef.current = false;
     }
   };
 
@@ -1313,6 +1657,10 @@ export default function PostScreen() {
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
+                    // CRITICAL BUG FIX: Preserve original video audio when music is added
+                    // Dual-audio mixing: video audio at 60% volume, music will overlay at 100%
+                    isMuted={false}
+                    volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
                   />
                 </View>
                 {/* Thumbnail preview below */}

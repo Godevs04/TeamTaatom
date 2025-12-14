@@ -567,11 +567,20 @@ const createPost = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    // Handle both single file and multiple files
+    // Defensive guards: validate required media exists
     const files = req.files ? req.files.images : (req.file ? [req.file] : []);
     
     if (!files || files.length === 0) {
+      logger.warn('Post creation attempted without images');
       return sendError(res, 'FILE_4001', 'Please upload at least one image');
+    }
+
+    // Defensive: validate each file has buffer
+    for (const file of files) {
+      if (!file.buffer || file.buffer.length === 0) {
+        logger.error('Post creation attempted with empty file buffer');
+        return sendError(res, 'FILE_4002', 'Invalid image file. Please try uploading again.');
+      }
     }
 
     if (files.length > 10) {
@@ -579,6 +588,12 @@ const createPost = async (req, res) => {
     }
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume } = req.body;
+
+    // Defensive guard: validate caption length within limits
+    if (caption && caption.length > 2000) {
+      logger.warn(`Post creation attempted with caption exceeding limit: ${caption.length} chars`);
+      return sendError(res, 'VAL_2002', 'Caption cannot exceed 2000 characters');
+    }
 
     // Upload all images to Sevalla Object Storage
     const imageUrls = [];
@@ -599,10 +614,28 @@ const createPost = async (req, res) => {
         });
         
         const uploadResult = await uploadObject(file.buffer, storageKey, file.mimetype);
+        
+        // Defensive: validate upload result has URL
+        if (!uploadResult || !uploadResult.url) {
+          logger.error(`Image upload succeeded but no URL returned for file ${i}`);
+          // Clean up any successfully uploaded images
+          if (storageKeys.length > 0) {
+            await Promise.all(
+              storageKeys.map(key => 
+                deleteObject(key).catch(err => 
+                  logger.error('Error cleaning up failed upload:', err)
+                )
+              )
+            );
+          }
+          return sendError(res, 'FILE_4005', 'Image upload completed but URL is missing. Please try again.');
+        }
+        
         imageUrls.push(uploadResult.url);
         storageKeys.push(storageKey);
       }
     } catch (uploadError) {
+      logger.error('Image upload error:', uploadError);
       // Clean up any successfully uploaded images if subsequent uploads fail
       if (storageKeys.length > 0) {
         await Promise.all(
@@ -613,7 +646,7 @@ const createPost = async (req, res) => {
           )
         );
       }
-      throw uploadError;
+      return sendError(res, 'FILE_4004', uploadError.message || 'Image upload failed. Please try again.');
     }
 
     // Parse tags if provided
@@ -660,11 +693,16 @@ const createPost = async (req, res) => {
           longitude: parseFloat(longitude) || 0
         }
       },
+      // CRITICAL: Dual-audio mixing support
+      // When songId is provided, backend should mix:
+      // - Original video audio at 0.6 volume (60%)
+      // - Background music at songVolume (typically 1.0 = 100%)
+      // This preserves both audio tracks instead of replacing video audio
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
-        volume: parseFloat(songVolume) || 0.5
+        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
       } : undefined
     });
 
@@ -2066,11 +2104,16 @@ const createShort = async (req, res) => {
           longitude: parseFloat(longitude) || 0
         }
       },
+      // CRITICAL: Dual-audio mixing support (same as posts)
+      // When songId is provided, backend should mix:
+      // - Original video audio at 0.6 volume (60%)
+      // - Background music at songVolume (typically 1.0 = 100%)
+      // This preserves both audio tracks instead of replacing video audio
       song: songId ? {
         songId: songId,
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
-        volume: parseFloat(songVolume) || 0.5
+        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
       } : undefined
     });
 
