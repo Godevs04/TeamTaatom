@@ -15,7 +15,27 @@ export const useRealTime = () => {
 }
 
 export const RealTimeProvider = ({ children }) => {
-  const [dashboardData, setDashboardData] = useState(null)
+  // Initialize empty data structure
+  const initialEmptyData = {
+    metrics: {
+      totalUsers: 0,
+      activeUsers: 0,
+      totalPosts: 0,
+      totalShorts: 0,
+      userGrowth: { weeklyGrowth: 0 },
+      contentGrowth: { weeklyGrowth: 0 }
+    },
+    recentActivity: { users: [], posts: [] },
+    aiInsights: []
+  }
+  
+  // Cache for dashboard data to show on partial failures
+  // Initialize with empty data to prevent infinite loading
+  const cachedDashboardDataRef = useRef(initialEmptyData)
+  
+  // Initialize with empty data to prevent infinite loading
+  // This will be replaced with real data once fetch completes
+  const [dashboardData, setDashboardData] = useState(initialEmptyData)
   const [analyticsData, setAnalyticsData] = useState(null)
   const [users, setUsers] = useState([])
   const [posts, setPosts] = useState([])
@@ -25,28 +45,118 @@ export const RealTimeProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false)
   const [lastUpdate, setLastUpdate] = useState(null)
   
+  // Auto-refresh enabled state (default: false, loaded from localStorage)
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(() => {
+    const saved = localStorage.getItem('dashboard_auto_refresh')
+    return saved === 'true'
+  })
+  const dashboardDataErrorsRef = useRef({})
+  
+  // Previous dashboard data for spike detection
+  const previousDashboardDataRef = useRef(null)
+  
   // Store socket handlers for cleanup
   const socketHandlersRef = useRef({})
+  
+  // Request deduplication refs to prevent concurrent calls
+  const fetchingDashboardRef = useRef(false)
+  const fetchingAnalyticsRef = useRef(false)
+  
+  // Update localStorage when auto-refresh preference changes
+  useEffect(() => {
+    localStorage.setItem('dashboard_auto_refresh', String(autoRefreshEnabled))
+  }, [autoRefreshEnabled])
 
   // Real-time data refresh interval
   const REFRESH_INTERVAL = 30000 // 30 seconds
 
-  // Fetch dashboard overview data
+  // Fetch dashboard overview data with partial failure handling and deduplication
   const fetchDashboardData = useCallback(async (signal) => {
+    // Prevent duplicate concurrent calls
+    if (fetchingDashboardRef.current) {
+      logger.debug('Dashboard data fetch already in progress, skipping duplicate call')
+      return
+    }
+    
     try {
+      fetchingDashboardRef.current = true
+      logger.info('📊 Fetching dashboard data...')
+      
       // Check if user is authenticated before making API calls
       const token = localStorage.getItem('founder_token')
       if (!token) {
-        logger.debug('No auth token found, skipping dashboard data fetch')
+        logger.warn('⚠️ No auth token found, setting empty dashboard data')
+        // Set empty data structure to prevent infinite loading
+        if (!dashboardData && !cachedDashboardDataRef.current) {
+          const emptyData = {
+            metrics: {
+              totalUsers: 0,
+              activeUsers: 0,
+              totalPosts: 0,
+              totalShorts: 0,
+              userGrowth: { weeklyGrowth: 0 },
+              contentGrowth: { weeklyGrowth: 0 }
+            },
+            recentActivity: { users: [], posts: [] },
+            aiInsights: []
+          }
+          setDashboardData(emptyData)
+          cachedDashboardDataRef.current = emptyData
+        }
         return
       }
       
+      logger.debug('Making API call to /api/superadmin/dashboard/overview')
       const response = await api.get('/api/superadmin/dashboard/overview', {
         signal
       })
+      
+      logger.debug('Dashboard API response received:', { 
+        status: response.status, 
+        hasData: !!response.data,
+        dataKeys: response.data ? Object.keys(response.data) : null
+      })
+      
       if (!signal?.aborted) {
-        setDashboardData(response.data)
+        // Store previous data for spike detection before updating
+        previousDashboardDataRef.current = dashboardData || cachedDashboardDataRef.current
+        
+        // Extract data from response - sendSuccess spreads data directly into response
+        const responseData = response.data || {}
+        const newData = {
+          metrics: responseData.metrics || {
+            totalUsers: 0,
+            activeUsers: 0,
+            totalPosts: 0,
+            totalShorts: 0,
+            userGrowth: { weeklyGrowth: 0 },
+            contentGrowth: { weeklyGrowth: 0 }
+          },
+          recentActivity: responseData.recentActivity || { users: [], posts: [] },
+          aiInsights: responseData.aiInsights || []
+        }
+        
+        logger.info('✅ Dashboard data updated successfully', { 
+          hasMetrics: !!newData.metrics,
+          hasRecentActivity: !!newData.recentActivity,
+          hasAiInsights: !!newData.aiInsights,
+          metricsKeys: newData.metrics ? Object.keys(newData.metrics) : []
+        })
+        
+        // Force state update - set both state and cache
+        cachedDashboardDataRef.current = newData
+        setDashboardData(newData)
         setLastUpdate(new Date())
+        
+        // Clear any previous errors on successful fetch
+        dashboardDataErrorsRef.current = {}
+        
+        logger.debug('State update completed, new data:', {
+          totalUsers: newData.metrics?.totalUsers,
+          totalPosts: newData.metrics?.totalPosts
+        })
+      } else {
+        logger.debug('Dashboard fetch was aborted')
       }
     } catch (error) {
       // Skip logging for canceled requests
@@ -57,13 +167,47 @@ export const RealTimeProvider = ({ children }) => {
                         error.parsedError?.code === 'CANCELED'
       if (!isCanceled) {
         logger.error('Failed to fetch dashboard data:', error)
+        
+        // Mark error but keep cached data visible
+        dashboardDataErrorsRef.current.fetchError = true
+        
+        // If we have cached data, keep showing it
+        if (cachedDashboardDataRef.current && !dashboardData) {
+          setDashboardData(cachedDashboardDataRef.current)
+        } else if (!dashboardData && !cachedDashboardDataRef.current) {
+          // Set empty data structure to prevent infinite loading
+          const emptyData = {
+            metrics: {
+              totalUsers: 0,
+              activeUsers: 0,
+              totalPosts: 0,
+              totalShorts: 0,
+              userGrowth: { weeklyGrowth: 0 },
+              contentGrowth: { weeklyGrowth: 0 }
+            },
+            recentActivity: { users: [], posts: [] },
+            aiInsights: []
+          }
+          setDashboardData(emptyData)
+          cachedDashboardDataRef.current = emptyData
+        }
       }
+    } finally {
+      fetchingDashboardRef.current = false
     }
-  }, [])
+  }, [dashboardData])
 
-  // Fetch real-time analytics
+  // Fetch real-time analytics with deduplication
   const fetchAnalyticsData = useCallback(async (period = '24h', signal) => {
+    // Prevent duplicate concurrent calls
+    if (fetchingAnalyticsRef.current) {
+      logger.debug('Analytics data fetch already in progress, skipping duplicate call')
+      return
+    }
+    
     try {
+      fetchingAnalyticsRef.current = true
+      
       // Check if user is authenticated before making API calls
       const token = localStorage.getItem('founder_token')
       if (!token) {
@@ -78,9 +222,17 @@ export const RealTimeProvider = ({ children }) => {
         setAnalyticsData(response.data)
       }
     } catch (error) {
-      if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+      // Skip logging for canceled requests
+      const isCanceled = error.name === 'CanceledError' || 
+                        error.name === 'AbortError' ||
+                        error.code === 'ERR_CANCELED' ||
+                        error.message === 'canceled' ||
+                        error.parsedError?.code === 'CANCELED'
+      if (!isCanceled) {
         logger.error('Failed to fetch analytics data:', error)
       }
+    } finally {
+      fetchingAnalyticsRef.current = false
     }
   }, [])
 
@@ -430,12 +582,53 @@ export const RealTimeProvider = ({ children }) => {
     }
   }, [])
 
-  // Auto-refresh data - only refresh dashboard and analytics, not user data
+  // Auto-refresh data - only refresh when enabled, tab is visible, and route is active
   useEffect(() => {
+    // Clear any existing interval when auto-refresh is disabled or component unmounts
+    const cleanup = () => {
+      if (window.__dashboardRefreshInterval) {
+        clearInterval(window.__dashboardRefreshInterval)
+        window.__dashboardRefreshInterval = null
+      }
+    }
+    
+    // Only set up auto-refresh if it's enabled
+    if (!autoRefreshEnabled) {
+      cleanup()
+      return cleanup
+    }
+    
     let isMounted = true
     let abortController = null
+    let interval = null
+    
+    // Track if dashboard route is active (will be set by Dashboard component)
+    let isDashboardActive = false
+    const setDashboardActive = (active) => {
+      isDashboardActive = active
+    }
+    
+    // Expose setDashboardActive to Dashboard component via context
+    window.__setDashboardActive = setDashboardActive
+    
+    // Track last refresh time to prevent rapid successive calls
+    let lastRefreshTime = 0
+    const MIN_REFRESH_INTERVAL = 5000 // Minimum 5 seconds between refreshes
     
     const refreshData = () => {
+      // Only refresh if:
+      // 1. Auto-refresh is enabled
+      // 2. Component is mounted
+      // 3. Browser tab is visible
+      // 4. Dashboard route is active
+      // 5. Enough time has passed since last refresh
+      const now = Date.now()
+      if (!autoRefreshEnabled || !isMounted || document.hidden || !isDashboardActive || (now - lastRefreshTime < MIN_REFRESH_INTERVAL)) {
+        return
+      }
+      
+      lastRefreshTime = now
+      
       // Cancel previous request if still pending
       if (abortController) {
         abortController.abort()
@@ -444,52 +637,144 @@ export const RealTimeProvider = ({ children }) => {
       // Create new abort controller for this refresh
       abortController = new AbortController()
       
-      if (isMounted) {
-        fetchDashboardData(abortController.signal)
-        fetchAnalyticsData('24h', abortController.signal)
+      if (isMounted && !document.hidden && isDashboardActive && autoRefreshEnabled) {
+        // Add small delay between dashboard and analytics to avoid rate limits
+        fetchDashboardData(abortController.signal).then(() => {
+          // Small delay before analytics fetch
+          setTimeout(() => {
+            if (isMounted && !abortController?.signal?.aborted && autoRefreshEnabled) {
+              fetchAnalyticsData('24h', abortController.signal)
+            }
+          }, 200)
+        }).catch(() => {
+          // If dashboard fails, still try analytics after delay
+          setTimeout(() => {
+            if (isMounted && !abortController?.signal?.aborted && autoRefreshEnabled) {
+              fetchAnalyticsData('24h', abortController.signal)
+            }
+          }, 200)
+        })
         // Don't auto-refresh user data to prevent flickering
       }
     }
     
-    const interval = setInterval(refreshData, REFRESH_INTERVAL)
+    // Handle visibility change
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isDashboardActive && isMounted && autoRefreshEnabled) {
+        // Resume refresh when tab becomes visible (with delay to avoid immediate call)
+        setTimeout(() => {
+          if (isMounted && !document.hidden && isDashboardActive && autoRefreshEnabled) {
+            refreshData()
+          }
+        }, 1000)
+      }
+    }
     
-    // Initial refresh
-    refreshData()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    // Set up interval only when tab is visible and auto-refresh is enabled
+    // Add initial delay to let initial fetch complete first
+    const startInterval = () => {
+      if (interval) clearInterval(interval)
+      if (!document.hidden && isDashboardActive && autoRefreshEnabled) {
+        // Wait at least 10 seconds after mount before starting auto-refresh
+        // This gives initial fetch time to complete
+        setTimeout(() => {
+          if (isMounted && !document.hidden && isDashboardActive && autoRefreshEnabled) {
+            interval = setInterval(refreshData, REFRESH_INTERVAL)
+            window.__dashboardRefreshInterval = interval
+          }
+        }, 10000)
+      }
+    }
+    
+    startInterval()
+    
+    // Don't do initial refresh here - let the initial fetch handle it
 
     return () => {
       isMounted = false
-      clearInterval(interval)
+      cleanup() // Clear interval
+      if (interval) {
+        clearInterval(interval)
+        window.__dashboardRefreshInterval = null
+      }
       if (abortController) {
         abortController.abort()
       }
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      delete window.__setDashboardActive
     }
-  }, [fetchDashboardData, fetchAnalyticsData])
+  }, [fetchDashboardData, fetchAnalyticsData, autoRefreshEnabled])
 
-  // Initial data fetch - run only once
+  // Initial data fetch - run only once on mount
+  // Use a ref to ensure this only runs once, even if dependencies change
+  const hasInitialFetchRef = useRef(false)
+  
   useEffect(() => {
+    // Only fetch once on initial mount
+    if (hasInitialFetchRef.current) {
+      return
+    }
+    
+    hasInitialFetchRef.current = true
     let isMounted = true
     const abortController = new AbortController()
     
     const fetchInitialData = async () => {
+      logger.info('🚀 Starting initial dashboard data fetch...')
+      
+      // Fetch dashboard data first (most critical)
+      try {
+        logger.debug('Calling fetchDashboardData...')
+        await fetchDashboardData(abortController.signal)
+        logger.info('✅ Initial dashboard fetch completed')
+      } catch (error) {
+        logger.error('❌ Initial dashboard fetch failed:', error)
+        // Data already set to empty above, so dashboard will render
+      }
+      
+      // Small delay between requests to avoid rate limits
       if (isMounted) {
-        await Promise.all([
-          fetchDashboardData(abortController.signal),
-          fetchAnalyticsData('24h', abortController.signal),
-          fetchFeatureFlags(),
-          fetchUsers({}, abortController.signal),
-          fetchPosts({}, abortController.signal),
-          fetchReports({}, abortController.signal)
-        ])
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+      
+      // Fetch analytics (non-critical, can fail silently)
+      if (isMounted) {
+        try {
+          await fetchAnalyticsData('24h', abortController.signal)
+        } catch (error) {
+          logger.error('Initial analytics fetch failed:', error)
+        }
+      }
+      
+      // Fetch other data in parallel (less critical, can fail silently)
+      if (isMounted) {
+        try {
+          await Promise.allSettled([
+            fetchFeatureFlags(),
+            fetchUsers({}, abortController.signal),
+            fetchPosts({}, abortController.signal),
+            fetchReports({}, abortController.signal)
+          ])
+        } catch (error) {
+          logger.error('Initial data fetch failed:', error)
+        }
       }
     }
     
-    fetchInitialData()
+    // Start fetch immediately - don't wait
+    fetchInitialData().catch(error => {
+      logger.error('Fatal error in initial fetch:', error)
+      // Data already set to empty above, so dashboard will render
+    })
     
     return () => {
       isMounted = false
       abortController.abort()
     }
-  }, [fetchDashboardData, fetchAnalyticsData, fetchFeatureFlags, fetchUsers, fetchPosts, fetchReports])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - only run once on mount
 
   // Manual trigger function for debugging
   const manualTrigger = () => {
@@ -530,6 +815,15 @@ export const RealTimeProvider = ({ children }) => {
     auditLogs,
     isConnected,
     lastUpdate,
+    
+    // Cached data and errors for partial failure handling
+    cachedDashboardData: cachedDashboardDataRef.current,
+    dashboardDataErrors: dashboardDataErrorsRef.current,
+    previousDashboardData: previousDashboardDataRef.current,
+    
+    // Auto-refresh control
+    autoRefreshEnabled,
+    setAutoRefreshEnabled,
     
     // Fetch functions
     fetchDashboardData,
