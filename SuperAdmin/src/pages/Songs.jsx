@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
@@ -30,17 +30,186 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  Edit2
+  Edit2,
+  AlertTriangle,
+  Power,
+  PowerOff
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSongs, uploadSong, deleteSong, toggleSongStatus, updateSong } from '../services/songService'
 import { motion, AnimatePresence } from 'framer-motion'
+
+// Lightweight waveform generator (simple visual bars, no audio processing)
+const generateWaveform = (duration = 60, bars = 50) => {
+  // Generate random heights for visual effect (not actual audio analysis)
+  return Array.from({ length: bars }, () => Math.random() * 0.6 + 0.2)
+}
+
+// Memoized Song Row Component
+const SongRow = memo(({
+  song,
+  index,
+  selectedSongs,
+  onSelect,
+  onToggleStatus,
+  onDeleteClick,
+  onPreview,
+  onEditClick,
+  onPlayPause,
+  playingAudio,
+  formatDuration,
+  SortIcon
+}) => {
+  const usageCount = song.usageCount || 0
+  const isActive = song.isActive !== false
+  const isUsed = usageCount > 0
+  
+  // Visual state: active & used, active & unused, inactive
+  const getStateColor = () => {
+    if (!isActive) return 'bg-gray-100 text-gray-600' // inactive
+    if (isUsed) return 'bg-green-100 text-green-700' // active & used
+    return 'bg-blue-100 text-blue-700' // active & unused
+  }
+  
+  const getStateIcon = () => {
+    if (!isActive) return <PowerOff className="w-3 h-3" />
+    if (isUsed) return <CheckCircle className="w-3 h-3" />
+    return <Music className="w-3 h-3" />
+  }
+  
+  const getStateText = () => {
+    if (!isActive) return 'Inactive'
+    if (isUsed) return 'Active & Used'
+    return 'Active & Unused'
+  }
+  
+  // Lightweight waveform (generated once, cached)
+  const waveform = useMemo(() => generateWaveform(song.duration), [song.duration])
+  
+  return (
+    <motion.tr
+      key={song._id}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ delay: index * 0.05 }}
+      className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors"
+    >
+      <TableCell>
+        <input
+          type="checkbox"
+          checked={selectedSongs.includes(song._id)}
+          onChange={(e) => {
+            if (e.target.checked) {
+              onSelect([...selectedSongs, song._id])
+            } else {
+              onSelect(selectedSongs.filter(id => id !== song._id))
+            }
+          }}
+          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+        />
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onPlayPause(song)}
+            className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+          >
+            {playingAudio === song._id ? (
+              <Pause className="w-4 h-4 text-blue-600" />
+            ) : (
+              <Play className="w-4 h-4 text-blue-600" />
+            )}
+          </button>
+          <audio
+            id={`audio-${song._id}`}
+            src={song.s3Url}
+            onEnded={() => onPlayPause(song)}
+            preload="none"
+          />
+          {/* Lightweight waveform preview */}
+          <div className="flex items-center gap-0.5 h-8 w-20">
+            {waveform.map((height, i) => (
+              <div
+                key={i}
+                className="w-0.5 bg-blue-400 rounded-full transition-all hover:bg-blue-600"
+                style={{ height: `${height * 100}%` }}
+              />
+            ))}
+          </div>
+          <span className="font-medium text-gray-900">{song.title}</span>
+        </div>
+      </TableCell>
+      <TableCell className="text-gray-700">{song.artist}</TableCell>
+      <TableCell>
+        <span className="px-3 py-1 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-700 rounded-full text-xs font-semibold">
+          {song.genre}
+        </span>
+      </TableCell>
+      <TableCell className="text-gray-700">{formatDuration(song.duration)}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1 text-gray-700">
+          <Users className="w-4 h-4" />
+          <span className="font-medium">{usageCount}</span>
+          {usageCount > 0 && (
+            <span className="text-xs text-gray-500 ml-1">
+              {usageCount === 1 ? 'post' : 'posts'}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="text-gray-600 text-sm">{formatDate(song.createdAt)}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${getStateColor()}`}>
+            {getStateIcon()}
+            {getStateText()}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => onPreview(song)}
+            className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+            title="Preview"
+          >
+            <Eye className="w-4 h-4 text-blue-600" />
+          </button>
+          <button
+            onClick={() => onEditClick(song)}
+            className="p-2 hover:bg-green-100 rounded-lg transition-colors"
+            title="Edit"
+          >
+            <Edit2 className="w-4 h-4 text-green-600" />
+          </button>
+          <button
+            onClick={() => onDeleteClick(song)}
+            disabled={isUsed}
+            className="p-2 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative group"
+            title={isUsed ? 'Cannot delete: song is in use' : 'Delete'}
+          >
+            <Trash2 className="w-4 h-4 text-red-600" />
+            {isUsed && (
+              <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                In use ({usageCount} {usageCount === 1 ? 'post' : 'posts'})
+              </span>
+            )}
+          </button>
+        </div>
+      </TableCell>
+    </motion.tr>
+  )
+})
+
+SongRow.displayName = 'SongRow'
 
 const Songs = () => {
   const [songs, setSongs] = useState([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
   const [selectedGenre, setSelectedGenre] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -49,6 +218,10 @@ const Songs = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showBulkActionModal, setShowBulkActionModal] = useState(false)
+  const [bulkActionType, setBulkActionType] = useState(null) // 'activate' | 'deactivate'
+  const [bulkActionProgress, setBulkActionProgress] = useState(0)
+  const [isBulkActionInProgress, setIsBulkActionInProgress] = useState(false)
   const [songToDelete, setSongToDelete] = useState(null)
   const [songToEdit, setSongToEdit] = useState(null)
   const [previewSong, setPreviewSong] = useState(null)
@@ -57,6 +230,15 @@ const Songs = () => {
   const [sortField, setSortField] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
   const [selectedSongs, setSelectedSongs] = useState([])
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const searchDebounceTimerRef = useRef(null)
+  const cachedSongsRef = useRef(null)
+  const cacheKeyRef = useRef(null)
+  const beforeUnloadHandlerRef = useRef(null)
   const [formData, setFormData] = useState({
     title: '',
     artist: '',
@@ -71,39 +253,154 @@ const Songs = () => {
     duration: ''
   })
 
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    
+    // Prevent navigation during bulk actions
+    beforeUnloadHandlerRef.current = (e) => {
+      if (isBulkActionInProgress) {
+        e.preventDefault()
+        e.returnValue = 'Bulk action in progress. Please wait...'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', beforeUnloadHandlerRef.current)
+    
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current)
+      }
+      if (beforeUnloadHandlerRef.current) {
+        window.removeEventListener('beforeunload', beforeUnloadHandlerRef.current)
+      }
+    }
+  }, [isBulkActionInProgress])
+  
+  // Debounced search (combined title + artist, case-insensitive)
+  useEffect(() => {
+    if (searchDebounceTimerRef.current) {
+      clearTimeout(searchDebounceTimerRef.current)
+    }
+    
+    searchDebounceTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setDebouncedSearchQuery(searchQuery)
+        setCurrentPage(1) // Reset to page 1 on search
+      }
+    }, 400) // 400ms debounce
+    
+    return () => {
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current)
+      }
+    }
+  }, [searchQuery])
+  
   // Reset to page 1 when filters change (except search which is handled separately)
   useEffect(() => {
-    setCurrentPage(1)
-  }, [selectedGenre, sortField, sortOrder])
-
+    if (isMountedRef.current) {
+      setCurrentPage(1)
+    }
+  }, [selectedGenre, sortField, sortOrder, debouncedSearchQuery])
+  
+  // Load songs with caching and deduplication
   useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    // Prevent duplicate concurrent fetches
+    if (isFetchingRef.current) {
+      logger.debug('Songs fetch already in progress, skipping duplicate call')
+      return
+    }
+    
     loadSongs()
-  }, [currentPage, searchQuery, selectedGenre, sortField, sortOrder])
+  }, [currentPage, debouncedSearchQuery, selectedGenre, sortField, sortOrder])
 
-  const loadSongs = async () => {
-    setLoading(true)
+  const loadSongs = useCallback(async () => {
+    if (!isMountedRef.current) return
+    
+    // Abort any in-flight requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    isFetchingRef.current = true
+    
+    // Generate cache key
+    const cacheKey = `${debouncedSearchQuery}-${selectedGenre}-${currentPage}-${sortField}-${sortOrder}`
+    
+    // Show cached data immediately if available
+    if (cachedSongsRef.current && cacheKeyRef.current === cacheKey && isMountedRef.current) {
+      setSongs(cachedSongsRef.current.songs)
+      setTotalPages(cachedSongsRef.current.totalPages)
+      setTotalSongs(cachedSongsRef.current.totalSongs)
+    }
+    
+    if (isMountedRef.current) {
+      setLoading(true)
+    }
+    
     try {
-      const result = await getSongs(searchQuery, selectedGenre, currentPage, 20)
+      const result = await getSongs(debouncedSearchQuery, selectedGenre, currentPage, 20)
+      
+      if (abortControllerRef.current?.signal?.aborted || !isMountedRef.current) {
+        return
+      }
+      
       if (result && result.songs) {
-        setSongs(result.songs)
-        setTotalPages(result.pagination?.totalPages || 1)
-        setTotalSongs(result.pagination?.total || 0)
+        // Cache the result
+        cachedSongsRef.current = {
+          songs: result.songs,
+          totalPages: result.pagination?.totalPages || 1,
+          totalSongs: result.pagination?.total || 0
+        }
+        cacheKeyRef.current = cacheKey
+        
+        if (isMountedRef.current) {
+          setSongs(result.songs)
+          setTotalPages(result.pagination?.totalPages || 1)
+          setTotalSongs(result.pagination?.total || 0)
+        }
       } else {
         logger.error('Unexpected response structure:', result)
-        setSongs([])
-        setTotalPages(1)
-        setTotalSongs(0)
+        if (isMountedRef.current) {
+          setSongs([])
+          setTotalPages(1)
+          setTotalSongs(0)
+        }
       }
     } catch (error) {
-      handleError(error, toast, 'Failed to load songs')
+      if (error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+        return
+      }
+      
+      // Fallback to cached data on error
+      if (cachedSongsRef.current && isMountedRef.current) {
+        setSongs(cachedSongsRef.current.songs)
+        setTotalPages(cachedSongsRef.current.totalPages)
+        setTotalSongs(cachedSongsRef.current.totalSongs)
+        toast.error('Failed to load songs. Showing cached data.', { duration: 3000 })
+      } else {
+        handleError(error, toast, 'Failed to load songs')
+        if (isMountedRef.current) {
+          setSongs([])
+          setTotalPages(1)
+          setTotalSongs(0)
+        }
+      }
       logger.error('Error loading songs:', error)
-      setSongs([])
-      setTotalPages(1)
-      setTotalSongs(0)
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+      isFetchingRef.current = false
     }
-  }
+  }, [debouncedSearchQuery, selectedGenre, currentPage, sortField, sortOrder])
 
   // Calculate statistics
   const statistics = useMemo(() => {
@@ -206,78 +503,129 @@ const Songs = () => {
     }
   }
 
-  const handleDeleteClick = (song) => {
+  const handleDeleteClick = useCallback((song) => {
+    if (!isMountedRef.current) return
+    
+    const usageCount = song.usageCount || 0
+    
+    // Safe deletion: Check if song is referenced
+    if (usageCount > 0) {
+      toast.error(`Cannot delete: This song is used in ${usageCount} ${usageCount === 1 ? 'post' : 'posts'}. Deactivate it instead.`, { duration: 5000 })
+      return
+    }
+    
     setSongToDelete(song)
     setShowDeleteModal(true)
-  }
-
-  const handleDeleteConfirm = async () => {
-    if (!songToDelete) return
-
-    try {
-      await deleteSong(songToDelete._id)
-      toast.success('Song deleted successfully')
+  }, [])
+  
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!songToDelete || !isMountedRef.current) return
+    
+    const usageCount = songToDelete.usageCount || 0
+    
+    // Double-check usage before deletion
+    if (usageCount > 0) {
+      toast.error(`Cannot delete: Song is in use. Deactivate it instead.`)
       setShowDeleteModal(false)
       setSongToDelete(null)
-      loadSongs()
-    } catch (error) {
-      handleError(error, toast, 'Failed to delete song')
-      logger.error('Delete error:', error)
+      return
     }
-  }
+    
+    try {
+      await deleteSong(songToDelete._id)
+      if (isMountedRef.current) {
+        toast.success('Song deleted successfully')
+        setShowDeleteModal(false)
+        setSongToDelete(null)
+        loadSongs()
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        handleError(error, toast, 'Failed to delete song')
+        logger.error('Delete error:', error)
+      }
+    }
+  }, [songToDelete, loadSongs])
 
-  const handleToggleStatus = async (songId, currentStatus) => {
+  const handleToggleStatus = useCallback(async (songId, currentStatus) => {
+    if (!isMountedRef.current) return
+    
     try {
       const newStatus = !currentStatus
       await toggleSongStatus(songId, newStatus)
-      toast.success(`Song ${newStatus ? 'activated' : 'deactivated'} successfully`)
-      loadSongs()
+      if (isMountedRef.current) {
+        toast.success(`Song ${newStatus ? 'activated' : 'deactivated'} successfully`)
+        loadSongs()
+      }
     } catch (error) {
-      handleError(error, toast, 'Failed to toggle song status')
-      logger.error('Toggle error:', error)
+      if (isMountedRef.current) {
+        handleError(error, toast, 'Failed to toggle song status')
+        logger.error('Toggle error:', error)
+      }
     }
-  }
-
-  const handleBulkToggleStatus = async (isActive) => {
-    if (selectedSongs.length === 0) {
-      toast.error('Please select at least one song')
+  }, [loadSongs])
+  
+  const handleBulkToggleStatus = useCallback(async (isActive) => {
+    if (selectedSongs.length === 0 || !isMountedRef.current) {
+      if (isMountedRef.current) {
+        toast.error('Please select at least one song')
+      }
       return
     }
-
+    
+    // Show confirmation
+    const action = isActive ? 'activate' : 'deactivate'
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} ${selectedSongs.length} song(s)? This will ${isActive ? 'make them available' : 'hide them'} from users.`
+    )
+    if (!confirmed || !isMountedRef.current) return
+    
+    setIsBulkActionInProgress(true)
+    setBulkActionProgress(0)
+    
     try {
-      const promises = selectedSongs.map(songId => {
+      const songsToUpdate = selectedSongs.filter(songId => {
         const song = songs.find(s => s._id === songId)
-        if (song && song.isActive !== isActive) {
-          return toggleSongStatus(songId, isActive)
-        }
-        return Promise.resolve()
+        return song && song.isActive !== isActive
       })
       
-      await Promise.all(promises)
-      toast.success(`${selectedSongs.length} song(s) ${isActive ? 'activated' : 'deactivated'} successfully`)
-      setSelectedSongs([])
-      loadSongs()
+      const total = songsToUpdate.length
+      let completed = 0
+      
+      // Process in batches to show progress
+      for (const songId of songsToUpdate) {
+        if (!isMountedRef.current) break
+        
+        try {
+          await toggleSongStatus(songId, isActive)
+          completed++
+          if (isMountedRef.current) {
+            setBulkActionProgress(Math.round((completed / total) * 100))
+          }
+        } catch (error) {
+          logger.error(`Error updating song ${songId}:`, error)
+        }
+      }
+      
+      if (isMountedRef.current) {
+        toast.success(`${completed} song(s) ${isActive ? 'activated' : 'deactivated'} successfully`)
+        setSelectedSongs([])
+        setBulkActionProgress(0)
+        setShowBulkActionModal(false)
+        setBulkActionType(null)
+        loadSongs()
+      }
     } catch (error) {
-      handleError(error, toast, 'Failed to update song status')
-      logger.error('Bulk toggle error:', error)
+      if (isMountedRef.current) {
+        handleError(error, toast, 'Failed to update song status')
+        logger.error('Bulk toggle error:', error)
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsBulkActionInProgress(false)
+      }
     }
-  }
-
-  const handlePreview = (song) => {
-    setPreviewSong(song)
-    setShowPreviewModal(true)
-  }
-
-  const handleEditClick = (song) => {
-    setSongToEdit(song)
-    setEditFormData({
-      title: song.title || '',
-      artist: song.artist || '',
-      genre: song.genre || 'General',
-      duration: song.duration ? song.duration.toString() : ''
-    })
-    setShowEditModal(true)
-  }
+  }, [selectedSongs, songs, loadSongs])
 
   const handleUpdate = async (e) => {
     e.preventDefault()
@@ -313,7 +661,9 @@ const Songs = () => {
     }
   }
 
-  const handlePlayPause = (song) => {
+  const handlePlayPause = useCallback((song) => {
+    if (!isMountedRef.current) return
+    
     if (playingAudio === song._id) {
       setPlayingAudio(null)
       // Stop audio if playing
@@ -329,11 +679,43 @@ const Songs = () => {
       if (audio) {
         audio.play().catch(err => {
           logger.error('Error playing audio:', err)
-          toast.error('Failed to play audio')
+          if (isMountedRef.current) {
+            toast.error('Failed to play audio')
+          }
         })
       }
     }
-  }
+  }, [playingAudio])
+  
+  const handlePreview = useCallback((song) => {
+    if (isMountedRef.current) {
+      setPreviewSong(song)
+      setShowPreviewModal(true)
+    }
+  }, [])
+  
+  const handleEditClick = useCallback((song) => {
+    if (!isMountedRef.current) return
+    
+    setSongToEdit(song)
+    setEditFormData({
+      title: song.title || '',
+      artist: song.artist || '',
+      genre: song.genre || 'General',
+      duration: song.duration ? song.duration.toString() : ''
+    })
+    setShowEditModal(true)
+  }, [])
+  
+  const handleSelectAll = useCallback((e) => {
+    if (!isMountedRef.current) return
+    
+    if (e.target.checked) {
+      setSelectedSongs(songs.map(s => s._id))
+    } else {
+      setSelectedSongs([])
+    }
+  }, [songs])
 
   const formatDuration = (seconds) => {
     if (!seconds) return '0:00'
@@ -501,8 +883,9 @@ const Songs = () => {
                 placeholder="Search songs by title or artist..."
                 value={searchQuery}
                 onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setCurrentPage(1)
+                  if (isMountedRef.current) {
+                    setSearchQuery(e.target.value)
+                  }
                 }}
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               />
@@ -541,12 +924,23 @@ const Songs = () => {
                 <span className="text-sm text-gray-600">{selectedSongs.length} selected</span>
                 <button
                   onClick={() => {
-                    // Bulk delete functionality
-                    toast('Bulk delete feature coming soon', { icon: 'ℹ️' })
+                    setBulkActionType('activate')
+                    setShowBulkActionModal(true)
                   }}
-                  className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
+                  className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors flex items-center gap-1"
                 >
-                  Delete Selected
+                  <Power className="w-4 h-4" />
+                  Activate
+                </button>
+                <button
+                  onClick={() => {
+                    setBulkActionType('deactivate')
+                    setShowBulkActionModal(true)
+                  }}
+                  className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm transition-colors flex items-center gap-1"
+                >
+                  <PowerOff className="w-4 h-4" />
+                  Deactivate
                 </button>
               </div>
             )}
@@ -584,13 +978,7 @@ const Songs = () => {
                       <input
                         type="checkbox"
                         checked={selectedSongs.length === songs.length && songs.length > 0}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedSongs(songs.map(s => s._id))
-                          } else {
-                            setSelectedSongs([])
-                          }
-                        }}
+                        onChange={handleSelectAll}
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
                     </TableHead>
@@ -648,121 +1036,28 @@ const Songs = () => {
                         <SortIcon field="createdAt" />
                       </button>
                     </TableHead>
-                    <TableHead className="font-semibold text-gray-700">Status</TableHead>
+                    <TableHead className="font-semibold text-gray-700">State</TableHead>
                     <TableHead className="font-semibold text-gray-700 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <AnimatePresence>
                     {sortedSongs.map((song, index) => (
-                      <motion.tr
+                      <SongRow
                         key={song._id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors"
-                      >
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            checked={selectedSongs.includes(song._id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedSongs([...selectedSongs, song._id])
-                              } else {
-                                setSelectedSongs(selectedSongs.filter(id => id !== song._id))
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => handlePlayPause(song)}
-                              className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
-                            >
-                              {playingAudio === song._id ? (
-                                <Pause className="w-4 h-4 text-blue-600" />
-                              ) : (
-                                <Play className="w-4 h-4 text-blue-600" />
-                              )}
-                            </button>
-                            <audio
-                              id={`audio-${song._id}`}
-                              src={song.s3Url}
-                              onEnded={() => setPlayingAudio(null)}
-                            />
-                            <span className="font-medium text-gray-900">{song.title}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-700">{song.artist}</TableCell>
-                        <TableCell>
-                          <span className="px-3 py-1 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-700 rounded-full text-xs font-semibold">
-                            {song.genre}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-gray-700">{formatDuration(song.duration)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-gray-700">
-                            <Users className="w-4 h-4" />
-                            {song.usageCount || 0}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-600 text-sm">{formatDate(song.createdAt)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => handleToggleStatus(song._id, song.isActive)}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
-                                song.isActive
-                                  ? 'bg-green-500'
-                                  : 'bg-gray-300'
-                              }`}
-                              title={`Click to ${song.isActive ? 'deactivate' : 'activate'}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${
-                                  song.isActive ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              song.isActive
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}>
-                              {song.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handlePreview(song)}
-                              className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
-                              title="Preview"
-                            >
-                              <Eye className="w-4 h-4 text-blue-600" />
-                            </button>
-                            <button
-                              onClick={() => handleEditClick(song)}
-                              className="p-2 hover:bg-green-100 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4 text-green-600" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(song)}
-                              className="p-2 hover:bg-red-100 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </button>
-                          </div>
-                        </TableCell>
-                      </motion.tr>
+                        song={song}
+                        index={index}
+                        selectedSongs={selectedSongs}
+                        onSelect={setSelectedSongs}
+                        onToggleStatus={handleToggleStatus}
+                        onDeleteClick={handleDeleteClick}
+                        onPreview={handlePreview}
+                        onEditClick={handleEditClick}
+                        onPlayPause={handlePlayPause}
+                        playingAudio={playingAudio}
+                        formatDuration={formatDuration}
+                        SortIcon={SortIcon}
+                      />
                     ))}
                   </AnimatePresence>
                 </TableBody>
@@ -962,9 +1257,25 @@ const Songs = () => {
             <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
               <p className="text-gray-900 font-medium mb-2">Are you sure you want to delete this song?</p>
               {songToDelete && (
-                <p className="text-gray-600 text-sm mb-2">
-                  <span className="font-semibold">{songToDelete.title}</span> - {songToDelete.artist}
-                </p>
+                <>
+                  <p className="text-gray-600 text-sm mb-2">
+                    <span className="font-semibold">{songToDelete.title}</span> - {songToDelete.artist}
+                  </p>
+                  {(songToDelete.usageCount || 0) > 0 && (
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg mb-2">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+                        <div>
+                          <p className="text-yellow-800 font-semibold text-sm mb-1">Warning: Song is in use</p>
+                          <p className="text-yellow-700 text-xs">
+                            This song is used in {songToDelete.usageCount} {songToDelete.usageCount === 1 ? 'post' : 'posts'}. 
+                            Deleting it will break those posts. Consider deactivating instead.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
               <p className="text-gray-500 text-sm">
                 This action cannot be undone. The song will be permanently removed from storage and the database.
@@ -983,11 +1294,113 @@ const Songs = () => {
           <button
             type="button"
             onClick={handleDeleteConfirm}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2"
+            disabled={(songToDelete?.usageCount || 0) > 0}
+            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-5 h-5" />
             Delete Song
           </button>
+        </ModalFooter>
+      </Modal>
+      
+      {/* Bulk Action Modal */}
+      <Modal isOpen={showBulkActionModal} onClose={() => {
+        if (!isBulkActionInProgress) {
+          setShowBulkActionModal(false)
+          setBulkActionType(null)
+        }
+      }} className="max-w-md bg-white">
+        <ModalHeader onClose={() => {
+          if (!isBulkActionInProgress) {
+            setShowBulkActionModal(false)
+            setBulkActionType(null)
+          }
+        }}>
+          <div className="flex items-center gap-3">
+            <div className={`p-2 ${bulkActionType === 'activate' ? 'bg-green-100' : 'bg-orange-100'} rounded-lg`}>
+              {bulkActionType === 'activate' ? (
+                <Power className="w-5 h-5 text-green-600" />
+              ) : (
+                <PowerOff className="w-5 h-5 text-orange-600" />
+              )}
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">
+              {bulkActionType === 'activate' ? 'Activate Songs' : 'Deactivate Songs'}
+            </h2>
+          </div>
+        </ModalHeader>
+        <ModalContent>
+          <div className="space-y-4">
+            {!isBulkActionInProgress ? (
+              <>
+                <p className="text-gray-600">
+                  Are you sure you want to {bulkActionType} {selectedSongs.length} song(s)?
+                </p>
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                  <p className="text-sm text-yellow-800">
+                    {bulkActionType === 'activate' 
+                      ? 'Activated songs will be available for users to select in their posts.'
+                      : 'Deactivated songs will be hidden from users but existing posts using them will continue to work.'}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-gray-600">Processing {selectedSongs.length} song(s)...</p>
+                <div className="w-full bg-gray-200 rounded-full h-4">
+                  <div
+                    className="bg-blue-600 h-4 rounded-full transition-all duration-300"
+                    style={{ width: `${bulkActionProgress}%` }}
+                  />
+                </div>
+                <p className="text-sm text-gray-500 text-center">{bulkActionProgress}% complete</p>
+              </div>
+            )}
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isBulkActionInProgress) {
+                setShowBulkActionModal(false)
+                setBulkActionType(null)
+              }
+            }}
+            disabled={isBulkActionInProgress}
+            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isBulkActionInProgress ? 'Processing...' : 'Cancel'}
+          </button>
+          {!isBulkActionInProgress && (
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkActionType === 'activate') {
+                  handleBulkToggleStatus(true)
+                } else {
+                  handleBulkToggleStatus(false)
+                }
+              }}
+              className={`px-6 py-3 rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2 ${
+                bulkActionType === 'activate'
+                  ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
+                  : 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white'
+              }`}
+            >
+              {bulkActionType === 'activate' ? (
+                <>
+                  <Power className="w-5 h-5" />
+                  Activate
+                </>
+              ) : (
+                <>
+                  <PowerOff className="w-5 h-5" />
+                  Deactivate
+                </>
+              )}
+            </button>
+          )}
         </ModalFooter>
       </Modal>
 

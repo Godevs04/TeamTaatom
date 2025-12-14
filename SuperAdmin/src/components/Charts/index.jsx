@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { memo } from 'react'
 import {
   LineChart,
   Line,
@@ -19,7 +19,7 @@ import {
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
 
-export const LineChartComponent = ({ data, dataKey, dataKeys, name, xAxisKey = "name", height = 300 }) => {
+export const LineChartComponent = memo(({ data, dataKey, dataKeys, name, xAxisKey = "name", height = 300 }) => {
   const colors = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6']
   
   return (
@@ -63,9 +63,11 @@ export const LineChartComponent = ({ data, dataKey, dataKeys, name, xAxisKey = "
       </LineChart>
     </ResponsiveContainer>
   )
-}
+})
 
-export const AreaChartComponent = ({ data, dataKey, name }) => {
+LineChartComponent.displayName = 'LineChartComponent'
+
+export const AreaChartComponent = memo(({ data, dataKey, name }) => {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <AreaChart data={data}>
@@ -85,9 +87,11 @@ export const AreaChartComponent = ({ data, dataKey, name }) => {
       </AreaChart>
     </ResponsiveContainer>
   )
-}
+})
 
-export const BarChartComponent = ({ data, dataKey, dataKeys, name, xAxisKey = "name", height = 300 }) => {
+AreaChartComponent.displayName = 'AreaChartComponent'
+
+export const BarChartComponent = memo(({ data, dataKey, dataKeys, name, xAxisKey = "name", height = 300 }) => {
   const colors = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6']
   
   return (
@@ -120,9 +124,11 @@ export const BarChartComponent = ({ data, dataKey, dataKeys, name, xAxisKey = "n
       </BarChart>
     </ResponsiveContainer>
   )
-}
+})
 
-export const PieChartComponent = ({ data, dataKey, nameKey, height = 300 }) => {
+BarChartComponent.displayName = 'BarChartComponent'
+
+export const PieChartComponent = memo(({ data, dataKey, nameKey, height = 300 }) => {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <PieChart>
@@ -156,4 +162,6 @@ export const PieChartComponent = ({ data, dataKey, nameKey, height = 300 }) => {
       </PieChart>
     </ResponsiveContainer>
   )
-}
+})
+
+PieChartComponent.displayName = 'PieChartComponent'
