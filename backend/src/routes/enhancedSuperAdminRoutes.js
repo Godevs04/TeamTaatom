@@ -689,7 +689,11 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     
     const total = await User.countDocuments(query)
     
-    // Add additional user metrics
+    // Add additional user metrics including TripScore and report counts
+    const Report = require('../models/Report')
+    const TripVisit = require('../models/TripVisit')
+    const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig')
+    
     const usersWithMetrics = await Promise.all(users.map(async (user) => {
       try {
         const userPosts = await Post.countDocuments({ user: user._id })
@@ -703,13 +707,56 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
         // Get followers count
         const followersCount = await User.findById(user._id).select('followers')
         
+        // Calculate TripScore (unique trusted places)
+        const trustedVisits = await TripVisit.find({
+          user: user._id,
+          trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+          isActive: true
+        }).lean()
+        
+        // Get unique places (deduplicated by rounded coordinates)
+        const uniquePlaces = new Set()
+        trustedVisits.forEach(visit => {
+          if (visit.latitude && visit.longitude) {
+            const key = `${Math.round(visit.latitude * 100) / 100}_${Math.round(visit.longitude * 100) / 100}`
+            uniquePlaces.add(key)
+          }
+        })
+        const tripScore = uniquePlaces.size
+        
+        // Get report counts (reports against this user's content)
+        const reportCount = await Report.countDocuments({
+          reportedUser: user._id,
+          status: { $in: ['pending', 'under_review'] }
+        })
+        
+        // Get high-priority reports (critical priority or multiple reports)
+        const highPriorityReports = await Report.countDocuments({
+          reportedUser: user._id,
+          priority: 'critical',
+          status: { $in: ['pending', 'under_review'] }
+        })
+        
+        // Determine risk level
+        let riskLevel = 'low'
+        if (tripScore === 0 && reportCount > 0) {
+          riskLevel = 'medium'
+        } else if (reportCount >= 5 || highPriorityReports > 0) {
+          riskLevel = 'high'
+        } else if (tripScore === 0 && userPosts > 10) {
+          riskLevel = 'medium' // User has posts but no TripScore (suspicious)
+        }
+        
         return {
           ...user.toObject(),
           metrics: {
             totalPosts: userPosts,
             totalLikes: userLikesResult[0]?.totalLikes || 0,
             totalFollowers: followersCount?.followers?.length || 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
+            tripScore,
+            reportCount,
+            riskLevel
           }
         }
       } catch (error) {
@@ -720,7 +767,10 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
             totalPosts: 0,
             totalLikes: 0,
             totalFollowers: 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt
+            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
+            tripScore: 0,
+            reportCount: 0,
+            riskLevel: 'low'
           }
         }
       }
@@ -974,15 +1024,21 @@ router.post('/users/bulk-action', async (req, res) => {
 router.get('/travel-content', checkPermission('canManageContent'), async (req, res) => {
   try {
     const { page = 1, limit = 20, search, type, status } = req.query
-    const skip = (page - 1) * limit
+    
+    // Defensive guards: Validate and cap limit
+    const validatedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), 100) // Max 100 per page
+    const validatedPage = Math.max(parseInt(page) || 1, 1)
+    const skip = (validatedPage - 1) * validatedLimit
     
     const Post = require('../models/Post')
+    const Report = require('../models/Report')
     let query = {}
     
-    if (search) {
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const searchTerm = search.trim().substring(0, 100) // Cap search length
       query.$or = [
-        { caption: { $regex: search, $options: 'i' } },
-        { 'location.address': { $regex: search, $options: 'i' } }
+        { caption: { $regex: searchTerm, $options: 'i' } },
+        { 'location.address': { $regex: searchTerm, $options: 'i' } }
       ]
     }
     
@@ -1009,18 +1065,66 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
       .populate('user', 'fullName email profilePic')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(validatedLimit)
       .lean()
+    
+    // Get report counts for each post (using existing Report model)
+    const postIds = posts.map(p => p._id)
+    const reportCounts = await Report.aggregate([
+      {
+        $match: {
+          reportedContent: { $in: postIds },
+          status: { $in: ['pending', 'under_review'] } // Only count active reports
+        }
+      },
+      {
+        $group: {
+          _id: '$reportedContent',
+          count: { $sum: 1 }
+        }
+      }
+    ])
+    
+    // Create a map of postId -> reportCount
+    const reportCountMap = {}
+    reportCounts.forEach(item => {
+      reportCountMap[item._id.toString()] = item.count
+    })
+    
+    // Enhance posts with report counts and health indicators
+    const enhancedPosts = posts.map(post => {
+      const reportCount = reportCountMap[post._id.toString()] || 0
+      const isFlagged = post.flagged === true
+      
+      // Determine health status
+      let healthStatus = 'normal'
+      if (reportCount >= 5) {
+        healthStatus = 'high_reports'
+      } else if (isFlagged || reportCount > 0) {
+        healthStatus = 'flagged'
+      }
+      
+      return {
+        ...post,
+        reportCount,
+        healthStatus,
+        flagged: isFlagged,
+        // Review state: pending if flagged or has reports, reviewed if not flagged and no reports, disabled if !isActive
+        reviewState: !post.isActive ? 'disabled' : (isFlagged || reportCount > 0 ? 'pending' : 'reviewed'),
+        // Use updatedAt as last moderation timestamp (when isActive or flagged changes)
+        lastModeratedAt: post.updatedAt
+      }
+    })
     
     const total = await Post.countDocuments(query)
     
     return sendSuccess(res, 200, 'Travel content fetched successfully', {
-      posts,
+      posts: enhancedPosts,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: validatedPage,
+        limit: validatedLimit,
         total,
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / validatedLimit)
       }
     })
   } catch (error) {
@@ -1109,17 +1213,43 @@ router.patch('/posts/:id', authenticateSuperAdmin, async (req, res) => {
     const { isActive, flagged } = req.body
     const Post = require('../models/Post')
     
-    const updateData = {}
-    if (isActive !== undefined) updateData.isActive = isActive
-    if (flagged !== undefined) updateData.flagged = flagged
-    
-    const post = await Post.findByIdAndUpdate(req.params.id, updateData, { new: true })
-    
+    // Defensive guards: Validate post exists
+    const post = await Post.findById(req.params.id)
     if (!post) {
       return sendError(res, 'RES_3001', 'Post not found')
     }
     
-    return sendSuccess(res, 200, 'Post updated successfully', { post })
+    const updateData = {}
+    if (isActive !== undefined) {
+      if (typeof isActive !== 'boolean') {
+        return sendError(res, 'VAL_2001', 'isActive must be a boolean')
+      }
+      updateData.isActive = isActive
+    }
+    if (flagged !== undefined) {
+      if (typeof flagged !== 'boolean') {
+        return sendError(res, 'VAL_2001', 'flagged must be a boolean')
+      }
+      updateData.flagged = flagged
+    }
+    
+    // Only update if there are changes
+    if (Object.keys(updateData).length === 0) {
+      return sendSuccess(res, 200, 'No changes to update', { post })
+    }
+    
+    const updatedPost = await Post.findByIdAndUpdate(req.params.id, updateData, { new: true })
+    
+    // Log moderation event
+    await req.superAdmin.logSecurityEvent(
+      'content_updated',
+      `Updated post: ${req.params.id} - ${JSON.stringify(updateData)}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    )
+    
+    return sendSuccess(res, 200, 'Post updated successfully', { post: updatedPost })
   } catch (error) {
     logger.error('Update post error:', error)
     return sendError(res, 'SRV_6001', 'Failed to update post')
