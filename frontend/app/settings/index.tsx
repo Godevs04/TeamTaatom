@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -10,11 +10,11 @@ import {
   RefreshControl 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage } from '../../services/auth';
-import { getSettings, updateSettings, resetSettings, UserSettings } from '../../services/settings';
+import { useSettings } from '../../context/SettingsContext';
 import { useAlert } from '../../context/AlertContext';
 import { createLogger } from '../../utils/logger';
 
@@ -95,7 +95,13 @@ export default function SettingsScreen() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [settings, setSettings] = useState<UserSettings | null>(null);
+  
+  // Settings State Single Source of Truth: Use SettingsContext
+  const { settings, loading: settingsLoading, resetAllSettings, refreshSettings } = useSettings();
+  
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
   const router = useRouter();
   const { theme, setMode, mode } = useTheme();
   const { showSuccess, showError, showConfirm, showOptions } = useAlert();
@@ -107,30 +113,54 @@ export default function SettingsScreen() {
         router.replace('/(auth)/signin');
         return;
       }
-      setUser(userData);
-      
-      // Load settings
-      const settingsData = await getSettings();
-      setSettings(settingsData.settings);
+      if (isMountedRef.current) {
+        setUser(userData);
+      }
     } catch (error: any) {
-      logger.error('Failed to load settings', error);
-      Alert.alert('Error', 'Failed to load settings');
+      if (isMountedRef.current) {
+        logger.error('Failed to load user data', error);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [router]);
 
+  // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
+    isMountedRef.current = true;
     loadUserData();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [loadUserData]);
+
+  // Navigation & Lifecycle Safety: Refresh settings on focus
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      refreshSettings();
+      return () => {
+        // Screen blurred - cleanup
+      };
+    }, [refreshSettings])
+  );
 
   const handleRefresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     setRefreshing(true);
-    await loadUserData();
-    setRefreshing(false);
-  }, [loadUserData]);
+    try {
+      await Promise.all([loadUserData(), refreshSettings()]);
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [loadUserData, refreshSettings]);
 
-  const handleResetSettings = () => {
+  const handleResetSettings = useCallback(() => {
     Alert.alert(
       'Reset Settings',
       'Are you sure you want to reset all settings to default? This action cannot be undone.',
@@ -144,23 +174,33 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await resetSettings();
-              await loadUserData();
-              Alert.alert('Success', 'Settings have been reset to default');
+              await resetAllSettings();
+              if (isMountedRef.current) {
+                Alert.alert('Success', 'Settings have been reset to default');
+              }
             } catch (error) {
-              Alert.alert('Error', 'Failed to reset settings');
+              if (isMountedRef.current) {
+                Alert.alert('Error', 'Failed to reset settings');
+              }
             }
           },
         },
       ]
     );
-  };
+  }, [resetAllSettings]);
 
-  const navigateToSection = (section: SettingsSection) => {
+  // Screen Load Performance: Memoize navigation handler
+  const navigateToSection = useCallback((section: SettingsSection) => {
     router.push(section.route as any);
-  };
+  }, [router]);
 
-  if (loading) {
+  // Screen Load Performance: Memoize sections list (static data)
+  const memoizedSections = useMemo(() => settingsSections, []);
+
+  // Screen Load Performance: Memoize loading state
+  const isLoading = useMemo(() => loading || settingsLoading, [loading, settingsLoading]);
+
+  if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Settings" />
@@ -226,7 +266,7 @@ export default function SettingsScreen() {
 
         {/* Settings Sections */}
         <View style={styles.sectionsContainer}>
-          {settingsSections.map((section) => (
+          {memoizedSections.map((section) => (
             <TouchableOpacity
               key={section.id}
               style={[styles.sectionItem, { backgroundColor: theme.colors.surface }]}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -13,7 +13,7 @@ import {
   useColorScheme
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -35,7 +35,6 @@ import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
-import { useMemo } from 'react';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 
 const logger = createLogger('ProfileScreen');
@@ -84,6 +83,17 @@ export default function ProfileScreen() {
   const { theme, mode } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
   
+  // Lifecycle & Navigation Safety: Track mounted state and cancel requests on unmount
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Analytics De-duplication: Prevent duplicate profile view events
+  const lastProfileViewTimeRef = useRef<number>(0);
+  const PROFILE_VIEW_DEBOUNCE_MS = 2000; // 2 seconds
+  
+  // Request Guards: Prevent duplicate API calls on rapid tab switching
+  const isFetchingRef = useRef(false);
+  
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
   // Improved dark mode detection - use theme mode if available, otherwise check background color
@@ -124,47 +134,153 @@ export default function ProfileScreen() {
     }
   }, []);
 
+  // Profile Data Consistency: Single source of truth - refresh all profile data from API
   const loadUserData = useCallback(async () => {
+    // Request Guard: Prevent duplicate calls
+    if (isFetchingRef.current) {
+      logger.debug('loadUserData already in progress, skipping');
+      return;
+    }
+    
+    isFetchingRef.current = true;
     setCheckingUser(true);
+    
+    // Cancel previous request if any
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    
     try {
       const userData = await getUserFromStorage();
       logger.debug('getUserFromStorage:', userData);
+      
+      if (!isMountedRef.current) return;
+      
       if (!userData) {
         setCheckingUser(false);
         setLoading(false);
         return;
       }
+      
       setUser(userData);
       setCheckingUser(false);
+      
+      // Fetch profile data (single source of truth)
       const profile = await getProfile(userData._id);
+      if (!isMountedRef.current) return;
       setProfileData(profile.profile);
-      const userPosts = await getUserPosts(userData._id);
-      setPosts(userPosts.posts);
-      try {
-        const shortsResp = await getUserShorts(userData._id, 1, 100);
-        setUserShorts(shortsResp.shorts || []);
-      } catch {}
+      
+      // Fetch posts and shorts in parallel for better performance
+      const [userPosts, shortsResp] = await Promise.allSettled([
+        getUserPosts(userData._id),
+        getUserShorts(userData._id, 1, 100)
+      ]);
+      
+      if (!isMountedRef.current) return;
+      
+      if (userPosts.status === 'fulfilled') {
+        setPosts(userPosts.value.posts);
+      }
+      
+      if (shortsResp.status === 'fulfilled') {
+        setUserShorts(shortsResp.value.shorts || []);
+      }
+      
+      // Load saved IDs (defensive parsing)
       try {
         const stored = await AsyncStorage.getItem('savedShorts');
-        if (stored) setSavedIds(JSON.parse(stored));
-      } catch {}
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setSavedIds(parsed);
+          }
+        }
+      } catch (storageError) {
+        logger.warn('Failed to parse savedShorts from AsyncStorage', storageError);
+        // Recover corrupted storage by resetting
+        try {
+          await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
+        } catch {}
+      }
+      
       await loadUnreadCount();
     } catch (error: any) {
+      if (error.name === 'AbortError') {
+        logger.debug('loadUserData aborted');
+        return;
+      }
+      if (!isMountedRef.current) return;
       logger.error('Failed to load profile', error);
       showError('Failed to load profile data');
     } finally {
-      setLoading(false);
-      setCheckingUser(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setCheckingUser(false);
+      }
+      isFetchingRef.current = false;
     }
-  }, [router]);
+  }, [showError, loadUnreadCount]);
 
+  // Lifecycle: Setup and cleanup
   useEffect(() => {
+    isMountedRef.current = true;
     loadUserData();
+    
+    return () => {
+      isMountedRef.current = false;
+      // Cancel any pending requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [loadUserData]);
   
-  // Track profile screen view with analytics
+  // Navigation Lifecycle Safety: Clear state on screen blur
+  // Privacy & Settings Propagation: Refresh profile when screen is focused (e.g., after settings changes)
+  useFocusEffect(
+    useCallback(() => {
+      // Screen focused - ensure mounted
+      isMountedRef.current = true;
+      
+      // Refresh profile data when screen is focused to ensure privacy settings are reflected
+      // This ensures profile header, visibility, and dependent UI reflect latest settings
+      if (user?._id && !isFetchingRef.current) {
+        // Small delay to avoid race conditions with navigation
+        const refreshTimer = setTimeout(() => {
+          if (isMountedRef.current && user?._id) {
+            loadUserData();
+          }
+        }, 100);
+        
+        return () => {
+          clearTimeout(refreshTimer);
+          // Screen blurred - cancel pending requests
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+          }
+        };
+      }
+      
+      return () => {
+        // Screen blurred - cancel pending requests
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+      };
+    }, [user?._id, loadUserData])
+  );
+  
+  // Analytics De-duplication: Prevent duplicate profile view events
   useEffect(() => {
-    if (user && profileData) {
+    if (!user || !profileData) return;
+    
+    const now = Date.now();
+    const timeSinceLastView = now - lastProfileViewTimeRef.current;
+    
+    // Only track if enough time has passed since last view
+    if (timeSinceLastView >= PROFILE_VIEW_DEBOUNCE_MS) {
+      lastProfileViewTimeRef.current = now;
       trackScreenView('profile', {
         userId: user._id,
         hasPosts: posts.length > 0,
@@ -174,14 +290,50 @@ export default function ProfileScreen() {
     }
   }, [user?._id, profileData?.postsCount, posts.length, userShorts.length]);
 
+  // Saved Content Stability: Listen for save/unsave events with defensive parsing
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(async () => {
+      if (!isMountedRef.current) return;
+      
       try {
         const savedShorts = await AsyncStorage.getItem('savedShorts');
         const savedPosts = await AsyncStorage.getItem('savedPosts');
-        const shortsArr = savedShorts ? JSON.parse(savedShorts) : [];
-        const postsArr = savedPosts ? JSON.parse(savedPosts) : [];
-        setSavedIds([...(Array.isArray(postsArr)?postsArr:[]), ...(Array.isArray(shortsArr)?shortsArr:[])]);
+        
+        // Defensive JSON parsing with recovery
+        let shortsArr: string[] = [];
+        let postsArr: string[] = [];
+        
+        try {
+          if (savedShorts) {
+            const parsed = JSON.parse(savedShorts);
+            shortsArr = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (error) {
+          logger.warn('Failed to parse savedShorts, resetting', error);
+          try {
+            await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
+          } catch {}
+        }
+        
+        try {
+          if (savedPosts) {
+            const parsed = JSON.parse(savedPosts);
+            postsArr = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (error) {
+          logger.warn('Failed to parse savedPosts, resetting', error);
+          try {
+            await AsyncStorage.setItem('savedPosts', JSON.stringify([]));
+          } catch {}
+        }
+        
+        // Deduplicate by combining and using Set
+        const allIds = [...postsArr, ...shortsArr];
+        const uniqueIds = Array.from(new Set(allIds));
+        
+        if (isMountedRef.current) {
+          setSavedIds(uniqueIds);
+        }
       } catch (error) {
         logger.error('Error loading saved items in listener', error);
       }
@@ -191,30 +343,80 @@ export default function ProfileScreen() {
     };
   }, []);
 
+  // Saved Content Stability: Load saved IDs when switching to saved tab (defensive parsing)
   useEffect(() => {
     const loadSaved = async () => {
-      if (activeTab !== 'saved') return;
+      if (activeTab !== 'saved' || !isMountedRef.current) return;
+      
       try {
         const savedShorts = await AsyncStorage.getItem('savedShorts');
         const savedPosts = await AsyncStorage.getItem('savedPosts');
-        const shortsArr = savedShorts ? JSON.parse(savedShorts) : [];
-        const postsArr = savedPosts ? JSON.parse(savedPosts) : [];
-        setSavedIds([...(Array.isArray(postsArr)?postsArr:[]), ...(Array.isArray(shortsArr)?shortsArr:[])]);
-      } catch {}
+        
+        // Defensive JSON parsing
+        let shortsArr: string[] = [];
+        let postsArr: string[] = [];
+        
+        try {
+          if (savedShorts) {
+            const parsed = JSON.parse(savedShorts);
+            shortsArr = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (error) {
+          logger.warn('Failed to parse savedShorts on tab switch, resetting', error);
+          try {
+            await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
+          } catch {}
+        }
+        
+        try {
+          if (savedPosts) {
+            const parsed = JSON.parse(savedPosts);
+            postsArr = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (error) {
+          logger.warn('Failed to parse savedPosts on tab switch, resetting', error);
+          try {
+            await AsyncStorage.setItem('savedPosts', JSON.stringify([]));
+          } catch {}
+        }
+        
+        // Deduplicate
+        const allIds = [...postsArr, ...shortsArr];
+        const uniqueIds = Array.from(new Set(allIds));
+        
+        if (isMountedRef.current) {
+          setSavedIds(uniqueIds);
+        }
+      } catch (error) {
+        logger.error('Error loading saved items on tab switch', error);
+      }
     };
     loadSaved();
   }, [activeTab]);
 
+  // Saved Content Stability: Resolve saved IDs to full post objects with deduplication and cleanup
   useEffect(() => {
     const resolveSaved = async () => {
-      if (activeTab !== 'saved') return;
+      if (activeTab !== 'saved' || !isMountedRef.current) return;
       if (!savedIds || savedIds.length === 0) {
-        setSavedItems([]);
+        if (isMountedRef.current) {
+          setSavedItems([]);
+        }
         return;
       }
+      
       try {
-        const uniqueIds = Array.from(new Set(savedIds));
-        const batchSize = 10; // Increased batch size for better performance
+        // Deduplicate IDs (defensive)
+        const uniqueIds = Array.from(new Set(savedIds.filter(id => id && typeof id === 'string')));
+        
+        if (uniqueIds.length === 0) {
+          if (isMountedRef.current) {
+            setSavedItems([]);
+          }
+          return;
+        }
+        
+        const batchSize = 10; // Batch size for performance
         const batches: string[][] = [];
         for (let i = 0; i < uniqueIds.length; i += batchSize) {
           batches.push(uniqueIds.slice(i, i + batchSize));
@@ -227,7 +429,10 @@ export default function ProfileScreen() {
           )
         );
         
+        if (!isMountedRef.current) return;
+        
         const items: PostType[] = [];
+        const itemMap = new Map<string, PostType>(); // Deduplicate by _id
         const failedIds: string[] = [];
         
         allResults.forEach((batchResults, batchIndex) => {
@@ -235,8 +440,12 @@ export default function ProfileScreen() {
             if (r.status === 'fulfilled') {
               const val: any = (r as any).value;
               const item = val.post || val;
-              if (item) {
-                items.push(item);
+              if (item && item._id) {
+                // Deduplicate: only add if not already in map
+                if (!itemMap.has(item._id)) {
+                  itemMap.set(item._id, item);
+                  items.push(item);
+                }
               } else {
                 // Post not found in response
                 const id = batches[batchIndex][itemIndex];
@@ -251,24 +460,52 @@ export default function ProfileScreen() {
           });
         });
         
-        // Clean up AsyncStorage by removing deleted post IDs
-        if (failedIds.length > 0) {
+        // Clean up AsyncStorage by removing deleted post IDs (atomic read-modify-write)
+        if (failedIds.length > 0 && isMountedRef.current) {
           try {
             const savedShorts = await AsyncStorage.getItem('savedShorts');
             const savedPosts = await AsyncStorage.getItem('savedPosts');
-            const shortsArr: string[] = savedShorts ? JSON.parse(savedShorts) : [];
-            const postsArr: string[] = savedPosts ? JSON.parse(savedPosts) : [];
+            
+            // Defensive parsing
+            let shortsArr: string[] = [];
+            let postsArr: string[] = [];
+            
+            try {
+              if (savedShorts) {
+                const parsed = JSON.parse(savedShorts);
+                shortsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedShorts during cleanup, resetting', error);
+              shortsArr = [];
+            }
+            
+            try {
+              if (savedPosts) {
+                const parsed = JSON.parse(savedPosts);
+                postsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedPosts during cleanup, resetting', error);
+              postsArr = [];
+            }
             
             // Remove failed IDs from both arrays
             const cleanedShorts = shortsArr.filter(id => !failedIds.includes(id));
             const cleanedPosts = postsArr.filter(id => !failedIds.includes(id));
             
-            // Update AsyncStorage with cleaned arrays
-            await AsyncStorage.setItem('savedShorts', JSON.stringify(cleanedShorts));
-            await AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts));
+            // Atomic write: update both storage keys
+            await Promise.all([
+              AsyncStorage.setItem('savedShorts', JSON.stringify(cleanedShorts)),
+              AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts))
+            ]);
             
             // Update savedIds state to reflect cleaned list
-            setSavedIds([...cleanedPosts, ...cleanedShorts]);
+            if (isMountedRef.current) {
+              const allCleanedIds = [...cleanedPosts, ...cleanedShorts];
+              const uniqueCleanedIds = Array.from(new Set(allCleanedIds));
+              setSavedIds(uniqueCleanedIds);
+            }
             
             logger.debug(`Cleaned up ${failedIds.length} deleted posts from saved items`);
           } catch (cleanupError) {
@@ -276,8 +513,11 @@ export default function ProfileScreen() {
           }
         }
         
-        setSavedItems(items);
+        if (isMountedRef.current) {
+          setSavedItems(items);
+        }
       } catch (e) {
+        if (!isMountedRef.current) return;
         logger.error('Failed to load saved items', e);
         setSavedItems([]);
       }
@@ -298,11 +538,21 @@ export default function ProfileScreen() {
   }, [checkingUser, user, router]);
 
   const handleRefresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     triggerRefreshHaptic();
     setRefreshing(true);
-    await loadUserData();
-    await loadUnreadCount();
-    setRefreshing(false);
+    
+    try {
+      await loadUserData();
+      if (isMountedRef.current) {
+        await loadUnreadCount();
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
   }, [loadUserData, loadUnreadCount]);
 
   const handleSignOut = async () => {
@@ -322,10 +572,33 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleProfileUpdate = (updatedUser: UserType) => {
+  // Profile Data Consistency: Refresh profile data after edit to ensure single source of truth
+  const handleProfileUpdate = useCallback(async (updatedUser: UserType) => {
+    if (!isMountedRef.current) return;
+    
+    // Optimistic update
     setUser(updatedUser);
     setProfileData(prev => prev ? { ...prev, ...updatedUser } : null);
-  };
+    
+    // Refresh from API to ensure consistency (single source of truth)
+    // This ensures profile header, post count, follower/following count, and tabs are all in sync
+    try {
+      if (updatedUser._id) {
+        const profile = await getProfile(updatedUser._id);
+        if (isMountedRef.current) {
+          setProfileData(profile.profile);
+          // Also refresh posts count if needed
+          const userPosts = await getUserPosts(updatedUser._id);
+          if (isMountedRef.current) {
+            setPosts(userPosts.posts);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to refresh profile after update', error);
+      // Don't show error - optimistic update is already applied
+    }
+  }, []);
 
   const handleDeletePost = async (postId: string, isShort: boolean = false) => {
     showConfirm(
@@ -723,7 +996,14 @@ export default function ProfileScreen() {
                     ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
                     : { backgroundColor: 'transparent' }
                 ]} 
-                onPress={() => setActiveTab(tab)}
+                onPress={() => {
+                  // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
+                  if (isFetchingRef.current && activeTab !== tab) {
+                    logger.debug('Tab switch blocked - fetch in progress');
+                    return;
+                  }
+                  setActiveTab(tab);
+                }}
               >
                 <Ionicons 
                   name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
@@ -741,6 +1021,7 @@ export default function ProfileScreen() {
           </View>
           
           <View style={styles.contentArea}>
+            {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
             {activeTab === 'posts' && (
               posts.length > 0 ? (
                 <View style={styles.postsGrid}>

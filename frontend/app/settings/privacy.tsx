@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -10,20 +10,21 @@ import {
   Switch
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
-import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
+import { useSettings } from '../../context/SettingsContext';
+import { getUserFromStorage } from '../../services/auth';
 import CustomAlert from '../../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../../components/CustomOptions';
 import { createLogger } from '../../utils/logger';
+import { getProfile } from '../../services/profile';
 
 const logger = createLogger('PrivacySettings');
 
 export default function PrivacySettingsScreen() {
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
+  // Settings State Single Source of Truth: Use SettingsContext
+  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -36,6 +37,13 @@ export default function PrivacySettingsScreen() {
     message: '',
     options: [] as CustomOption[],
   });
+  
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
+  // Toggle Interaction Safety: Per-toggle guards to prevent multiple API calls
+  const updatingKeysRef = useRef<Set<string>>(new Set());
+  
   const router = useRouter();
   const { theme } = useTheme();
 
@@ -44,74 +52,105 @@ export default function PrivacySettingsScreen() {
     setAlertVisible(true);
   };
 
-  const showError = (message: string, title?: string) => {
+  const showError = useCallback((message: string, title?: string) => {
     showAlert(message, title || 'Error', 'error');
-  };
-
-  const showSuccess = (message: string, title?: string) => {
-    showAlert(message, title || 'Success', 'success');
-  };
-
-  useEffect(() => {
-    loadSettings();
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      const settingsData = await getSettings();
-      setSettings(settingsData.settings);
-    } catch (error) {
-      showError('Failed to load privacy settings');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const showSuccess = useCallback((message: string, title?: string) => {
+    showAlert(message, title || 'Success', 'success');
+  }, []);
 
-  const updateSetting = async (key: string, value: any) => {
+  // Navigation & Lifecycle Safety: Setup and cleanup
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Navigation & Lifecycle Safety: Refresh settings on focus (e.g., after returning from other screens)
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      // Refresh settings to ensure we have latest server state
+      refreshSettings();
+      return () => {
+        // Screen blurred - cleanup
+      };
+    }, [refreshSettings])
+  );
+
+  // Toggle Interaction Safety: Wrapper with per-toggle guard and optimistic update
+  const handleUpdateSetting = useCallback(async (key: string, value: any) => {
     if (!settings) return;
     
-    setUpdating(true);
-    try {
-      const updatedSettings = {
-        ...settings.privacy,
-        [key]: value
-      };
-      
-      const response = await updateSettingCategory('privacy', updatedSettings);
-      setSettings(response.settings);
-      showSuccess('Setting updated successfully');
-      logger.debug(`Setting ${key} updated successfully`);
-    } catch (error: any) {
-      logger.error(`Failed to update setting ${key}`, error);
-      showError(error.message || 'Failed to update setting');
-    } finally {
-      setUpdating(false);
+    // Prevent re-entry while API call is in-flight
+    if (updatingKeysRef.current.has(key)) {
+      logger.debug(`Update already in progress for ${key}, skipping`);
+      return;
     }
-  };
+    
+    updatingKeysRef.current.add(key);
+    
+    try {
+      await updateSetting('privacy', key, value);
+      if (isMountedRef.current) {
+        showSuccess('Setting updated successfully');
+      }
+    } catch (error: any) {
+      if (isMountedRef.current) {
+        // Error already shown by context (rollback handled there)
+        logger.error(`Failed to update setting ${key}`, error);
+      }
+    } finally {
+      updatingKeysRef.current.delete(key);
+    }
+  }, [settings, updateSetting, showSuccess]);
 
-  const updateProfileVisibilitySettings = async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
+  // Cross-Module Consistency: Refresh profile after privacy settings update
+  const updateProfileVisibilitySettings = useCallback(async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
     if (!settings) return;
     
-    setUpdating(true);
-    try {
-      const updatedSettings = {
-        ...settings.privacy,
-        profileVisibility,
-        requireFollowApproval,
-        allowFollowRequests
-      };
-      
-      const response = await updateSettingCategory('privacy', updatedSettings);
-      setSettings(response.settings);
-      showSuccess('Profile visibility updated successfully');
-      logger.debug('Profile visibility updated successfully');
-    } catch (error: any) {
-      logger.error('Failed to update profile visibility', error);
-      showError(error.message || 'Failed to update profile visibility');
-    } finally {
-      setUpdating(false);
+    const key = 'profileVisibility';
+    if (updatingKeysRef.current.has(key)) {
+      logger.debug('Profile visibility update already in progress, skipping');
+      return;
     }
-  };
+    
+    updatingKeysRef.current.add(key);
+    
+    try {
+      // Update all three related settings
+      await Promise.all([
+        updateSetting('privacy', 'profileVisibility', profileVisibility),
+        updateSetting('privacy', 'requireFollowApproval', requireFollowApproval),
+        updateSetting('privacy', 'allowFollowRequests', allowFollowRequests)
+      ]);
+      
+      if (isMountedRef.current) {
+        showSuccess('Profile visibility updated successfully');
+        
+        // Cross-Module Consistency: Refresh profile to reflect privacy changes
+        try {
+          const user = await getUserFromStorage();
+          if (user?._id) {
+            await getProfile(user._id);
+            // Profile will refresh on next focus (handled in profile.tsx useFocusEffect)
+          }
+        } catch (profileError) {
+          logger.warn('Failed to refresh profile after privacy update', profileError);
+          // Non-critical - profile will refresh on next navigation
+        }
+      }
+    } catch (error: any) {
+      if (isMountedRef.current) {
+        logger.error('Failed to update profile visibility', error);
+        showError(error.message || 'Failed to update profile visibility');
+      }
+    } finally {
+      updatingKeysRef.current.delete(key);
+    }
+  }, [settings, updateSetting, showSuccess, showError]);
 
   const handleProfileVisibilityChange = () => {
     const options: CustomOption[] = [
@@ -156,7 +195,7 @@ export default function PrivacySettingsScreen() {
         icon: 'globe-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateSetting('allowMessages', 'everyone');
+          handleUpdateSetting('allowMessages', 'everyone');
         }
       },
       {
@@ -164,7 +203,7 @@ export default function PrivacySettingsScreen() {
         icon: 'people-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateSetting('allowMessages', 'followers');
+          handleUpdateSetting('allowMessages', 'followers');
         }
       },
       {
@@ -172,7 +211,7 @@ export default function PrivacySettingsScreen() {
         icon: 'lock-closed-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateSetting('allowMessages', 'none');
+          handleUpdateSetting('allowMessages', 'none');
         }
       }
     ];
@@ -185,7 +224,10 @@ export default function PrivacySettingsScreen() {
     setCustomOptionsVisible(true);
   };
 
-  if (loading) {
+  // Screen Load Performance: Memoize loading state
+  const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);
+
+  if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Privacy & Security" />
@@ -214,7 +256,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleProfileVisibilityChange}
-            disabled={updating}
+            disabled={updatingKeysRef.current.has('profileVisibility')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="eye-outline" size={20} color={theme.colors.text} />
@@ -259,8 +301,8 @@ export default function PrivacySettingsScreen() {
             </View>
             <Switch
               value={settings?.privacy?.showEmail || false}
-              onValueChange={(value) => updateSetting('showEmail', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('showEmail', value)}
+              disabled={updatingKeysRef.current.has('showEmail')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.privacy?.showEmail ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -279,11 +321,11 @@ export default function PrivacySettingsScreen() {
               </View>
             </View>
             <Switch
-              value={settings?.privacy?.showLocation || true}
-              onValueChange={(value) => updateSetting('showLocation', value)}
-              disabled={updating}
+              value={settings?.privacy?.showLocation !== false}
+              onValueChange={(value) => handleUpdateSetting('showLocation', value)}
+              disabled={updatingKeysRef.current.has('showLocation')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.showLocation ? theme.colors.primary : theme.colors.textSecondary}
+              thumbColor={settings?.privacy?.showLocation !== false ? theme.colors.primary : theme.colors.textSecondary}
             />
           </View>
 
@@ -298,7 +340,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleAllowMessagesChange}
-            disabled={updating}
+            disabled={updatingKeysRef.current.has('allowMessages')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="chatbubbles-outline" size={20} color={theme.colors.text} />
@@ -334,8 +376,8 @@ export default function PrivacySettingsScreen() {
             </View>
             <Switch
               value={settings?.privacy?.shareActivity !== false}
-              onValueChange={(value) => updateSetting('shareActivity', value)}
-              disabled={updating}
+              onValueChange={(value) => handleUpdateSetting('shareActivity', value)}
+              disabled={updatingKeysRef.current.has('shareActivity')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.privacy?.shareActivity !== false ? theme.colors.primary : theme.colors.textSecondary}
             />
