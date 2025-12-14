@@ -598,7 +598,7 @@ const Profile = () => {
                     Your session timeout is set to 30 minutes. After inactivity, you'll need to log in again.
                   </p>
                   <button
-                    onClick={() => toast.info('Session settings are configured by the system administrator')}
+                    onClick={() => toast('Session settings are configured by the system administrator', { icon: 'ℹ️' })}
                     className="w-full px-4 py-2.5 bg-white/20 backdrop-blur-md hover:bg-white/30 text-white rounded-lg font-semibold transition-all duration-200 border border-white/30 hover:scale-105"
                   >
                     View Session History

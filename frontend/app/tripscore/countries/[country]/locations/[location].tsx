@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -46,6 +46,16 @@ export default function LocationDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [localeData, setLocaleData] = useState<Locale | null>(null);
+  
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
+  // Bookmark Stability: Track in-flight bookmark operations
+  const bookmarkingRef = useRef(false);
+  
+  // Distance Calculation Guards: Cache calculated distances per session
+  const distanceCacheRef = useRef<Map<string, number>>(new Map());
+  
   const { theme } = useTheme();
   const router = useRouter();
   const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes } = useLocalSearchParams();
@@ -56,12 +66,19 @@ export default function LocationDetailScreen() {
   const isFromLocaleFlow = countryParam === 'general';
   const isAdminLocale = userIdParam === 'admin-locale';
 
+  // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
+    isMountedRef.current = true;
     loadLocationData();
     checkBookmarkStatus();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!isMountedRef.current) return;
     if ((data?.name || localeData) && (isAdminLocale ? localeData : data)) {
       checkBookmarkStatus();
     }
@@ -71,20 +88,25 @@ export default function LocationDetailScreen() {
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
       // Refresh bookmark status when saved locales change
-      checkBookmarkStatus();
+      if (isMountedRef.current) {
+        checkBookmarkStatus();
+      }
     });
     return unsubscribe;
   }, []);
 
   // Refresh bookmark status when screen comes into focus
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
+      if (!isMountedRef.current) return;
       checkBookmarkStatus();
     }, [localeData, data?.name])
   );
 
   // Calculate distance when coordinates are available
   useEffect(() => {
+    if (!isMountedRef.current) return;
+    
     if (data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
       const lat = data.coordinates.latitude;
       const lng = data.coordinates.longitude;
@@ -94,7 +116,7 @@ export default function LocationDetailScreen() {
         calculateDistanceAsync(lat, lng);
       }
     }
-  }, [data?.coordinates?.latitude, data?.coordinates?.longitude]);
+  }, [data?.coordinates?.latitude, data?.coordinates?.longitude, distance]);
 
   // Helper functions - defined before use
   const getLocationImage = (locationName: string) => {
@@ -161,129 +183,283 @@ export default function LocationDetailScreen() {
     }
   };
 
+  // Distance Calculation Guards: Handle null location, permission denied, with caching
   const calculateDistanceAsync = async (targetLat: number, targetLng: number) => {
     try {
-      console.log('Starting distance calculation with coordinates:', { targetLat, targetLng });
-      
-      // Validate coordinates
+      // Distance Calculation Guards: Validate coordinates
       if (!targetLat || !targetLng || isNaN(targetLat) || isNaN(targetLng) || targetLat === 0 || targetLng === 0) {
         console.log('Invalid coordinates provided:', { targetLat, targetLng });
-        setDistance(null);
-        return;
-      }
-
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      console.log('Location permission status:', status);
-      
-      if (status === 'granted') {
-        const currentLocation = await Location.getCurrentPositionAsync({});
-        console.log('Current location:', currentLocation.coords);
-        
-        if (currentLocation && currentLocation.coords) {
-          const calculatedDistance = calculateDistance(
-            currentLocation.coords.latitude,
-            currentLocation.coords.longitude,
-            targetLat,
-            targetLng
-          );
-          console.log('Distance calculated successfully:', calculatedDistance, 'km');
-          setDistance(calculatedDistance);
-        } else {
-          console.log('Failed to get current location coordinates');
+        if (isMountedRef.current) {
           setDistance(null);
         }
+        return;
+      }
+      
+      // Distance Calculation Guards: Check cache first (per session)
+      const cacheKey = `${targetLat},${targetLng}`;
+      if (distanceCacheRef.current.has(cacheKey)) {
+        const cachedDistance = distanceCacheRef.current.get(cacheKey);
+        if (cachedDistance !== undefined && isMountedRef.current) {
+          setDistance(cachedDistance);
+          return;
+        }
+      }
+
+      // Distance Calculation Guards: Request permission with error handling
+      let status;
+      try {
+        status = await Location.requestForegroundPermissionsAsync();
+      } catch (permError) {
+        console.warn('Failed to request location permission:', permError);
+        if (isMountedRef.current) {
+          setDistance(null);
+        }
+        return;
+      }
+      
+      if (status.status !== 'granted') {
+        // Distance Calculation Guards: Permission denied - fallback to null (hide distance)
+        console.log('Location permission denied or unavailable');
+        if (isMountedRef.current) {
+          setDistance(null);
+        }
+        return;
+      }
+      
+      // Distance Calculation Guards: Get current location with error handling
+      let currentLocation;
+      try {
+        // Note: expo-location doesn't support timeout in LocationOptions
+        // Use Promise.race for timeout functionality
+        const locationPromise = Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Location request timeout')), 10000);
+        });
+        
+        currentLocation = await Promise.race([locationPromise, timeoutPromise]);
+      } catch (locationError) {
+        console.warn('Failed to get current location:', locationError);
+        if (isMountedRef.current) {
+          setDistance(null);
+        }
+        return;
+      }
+      
+      if (currentLocation && currentLocation.coords && 
+          currentLocation.coords.latitude && currentLocation.coords.longitude) {
+        // Distance Calculation Guards: Validate current location coordinates
+        const currentLat = currentLocation.coords.latitude;
+        const currentLng = currentLocation.coords.longitude;
+        
+        if (isNaN(currentLat) || isNaN(currentLng) || currentLat === 0 || currentLng === 0) {
+          console.warn('Invalid current location coordinates');
+          if (isMountedRef.current) {
+            setDistance(null);
+          }
+          return;
+        }
+        
+        const calculatedDistance = calculateDistance(
+          currentLat,
+          currentLng,
+          targetLat,
+          targetLng
+        );
+        
+        // Distance Calculation Guards: Validate calculated distance
+        if (isNaN(calculatedDistance) || calculatedDistance < 0) {
+          console.warn('Invalid calculated distance:', calculatedDistance);
+          if (isMountedRef.current) {
+            setDistance(null);
+          }
+          return;
+        }
+        
+        // Cache the calculated distance
+        distanceCacheRef.current.set(cacheKey, calculatedDistance);
+        
+        console.log('Distance calculated successfully:', calculatedDistance, 'km');
+        if (isMountedRef.current) {
+          setDistance(calculatedDistance);
+        }
       } else {
-        console.log('Location permission denied');
-        setDistance(null);
+        // Distance Calculation Guards: Missing coordinates - fallback
+        console.log('Failed to get current location coordinates');
+        if (isMountedRef.current) {
+          setDistance(null);
+        }
       }
     } catch (error) {
+      // Distance Calculation Guards: Catch-all error handling
       console.error('Error calculating distance:', error);
-      setDistance(null);
+      if (isMountedRef.current) {
+        setDistance(null);
+      }
     }
   };
 
-  const checkBookmarkStatus = async () => {
+  // Bookmark Stability: Check bookmark status with defensive parsing
+  const checkBookmarkStatus = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       if (isAdminLocale && localeData) {
         // Check saved locales for admin locales
         const savedLocales = await AsyncStorage.getItem('savedLocales');
-        const saved = savedLocales ? JSON.parse(savedLocales) : [];
-        setIsBookmarked(saved.some((loc: Locale) => loc._id === localeData._id));
+        let saved: Locale[] = [];
+        
+        try {
+          if (savedLocales) {
+            const parsed = JSON.parse(savedLocales);
+            saved = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse savedLocales in checkBookmarkStatus', parseError);
+          saved = [];
+        }
+        
+        if (isMountedRef.current) {
+          setIsBookmarked(saved.some((loc: Locale) => loc && loc._id === localeData._id));
+        }
       } else {
         // Check saved locations for regular locations
         const savedLocations = await AsyncStorage.getItem('savedLocations');
-        const saved = savedLocations ? JSON.parse(savedLocations) : [];
+        let saved: any[] = [];
+        
+        try {
+          if (savedLocations) {
+            const parsed = JSON.parse(savedLocations);
+            saved = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse savedLocations in checkBookmarkStatus', parseError);
+          saved = [];
+        }
+        
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
-        setIsBookmarked(saved.some((loc: any) => loc.slug === locationSlug || loc.name === locationName));
+        
+        if (isMountedRef.current) {
+          setIsBookmarked(saved.some((loc: any) => loc && (loc.slug === locationSlug || loc.name === locationName)));
+        }
       }
     } catch (error) {
+      if (!isMountedRef.current) return;
       console.error('Error checking bookmark status:', error);
     }
-  };
+  }, [isAdminLocale, localeData, data?.name, location]);
 
-  const handleBookmark = async () => {
+  // Bookmark Stability: Atomic read-modify-write with deduplication
+  const handleBookmark = useCallback(async () => {
+    // Bookmark Stability: Prevent duplicate bookmark operations
+    if (bookmarkingRef.current) {
+      console.debug('Bookmark operation already in progress, skipping');
+      return;
+    }
+    
+    if (!isMountedRef.current) return;
+    
+    bookmarkingRef.current = true;
+    setBookmarkLoading(true);
+    
     try {
-      setBookmarkLoading(true);
-      
       if (isAdminLocale && localeData) {
-        // Handle admin locale bookmarking
+        // Handle admin locale bookmarking - Atomic read-modify-write
         const savedLocales = await AsyncStorage.getItem('savedLocales');
-        const locales: Locale[] = savedLocales ? JSON.parse(savedLocales) : [];
+        let locales: Locale[] = [];
+        
+        try {
+          if (savedLocales) {
+            const parsed = JSON.parse(savedLocales);
+            locales = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse savedLocales in handleBookmark, resetting', parseError);
+          locales = [];
+        }
         
         if (isBookmarked) {
           // Remove bookmark
-          const updated = locales.filter((loc: Locale) => loc._id !== localeData._id);
+          const updated = locales.filter((loc: Locale) => loc && loc._id !== localeData._id);
           await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
-          setIsBookmarked(false);
+          if (isMountedRef.current) {
+            setIsBookmarked(false);
+          }
           // Emit event to sync with list page
           savedEvents.emitChanged();
         } else {
-          // Add bookmark
-          const updated = [...locales, localeData];
-          await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
-          setIsBookmarked(true);
-          // Emit event to sync with list page
-          savedEvents.emitChanged();
+          // Add bookmark - Deduplicate before adding
+          if (!locales.find(l => l && l._id === localeData._id)) {
+            const updated = [...locales, localeData];
+            await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
+            if (isMountedRef.current) {
+              setIsBookmarked(true);
+            }
+            // Emit event to sync with list page
+            savedEvents.emitChanged();
+          }
         }
       } else {
-        // Handle regular location bookmarking
+        // Handle regular location bookmarking - Atomic read-modify-write
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
         
         const savedLocations = await AsyncStorage.getItem('savedLocations');
-        const saved = savedLocations ? JSON.parse(savedLocations) : [];
+        let saved: any[] = [];
         
-        const locationData = {
-          id: `loc-${Date.now()}`,
-          name: locationName.toUpperCase(),
-          slug: locationSlug,
-          imageUrl: data?.imageUrl || getLocationImage(locationName),
-          type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
-          description: data?.description || `${locationName} is a beautiful destination`,
-          savedDate: new Date().toISOString(),
-          coordinates: data?.coordinates,
-        };
-
+        try {
+          if (savedLocations) {
+            const parsed = JSON.parse(savedLocations);
+            saved = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse savedLocations in handleBookmark, resetting', parseError);
+          saved = [];
+        }
+        
         if (isBookmarked) {
           // Remove bookmark
-          const updated = saved.filter((loc: any) => loc.slug !== locationSlug && loc.name !== locationName);
+          const updated = saved.filter((loc: any) => loc && loc.slug !== locationSlug && loc.name !== locationName);
           await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
-          setIsBookmarked(false);
+          if (isMountedRef.current) {
+            setIsBookmarked(false);
+          }
         } else {
-          // Add bookmark
-          const updated = [...saved, locationData];
-          await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
-          setIsBookmarked(true);
+          // Add bookmark - Deduplicate before adding
+          if (!saved.find(l => l && (l.slug === locationSlug || l.name === locationName))) {
+            const locationData = {
+              id: `loc-${Date.now()}`,
+              name: locationName.toUpperCase(),
+              slug: locationSlug,
+              imageUrl: data?.imageUrl || getLocationImage(locationName),
+              type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
+              description: data?.description || `${locationName} is a beautiful destination`,
+              savedDate: new Date().toISOString(),
+              coordinates: data?.coordinates,
+            };
+            
+            const updated = [...saved, locationData];
+            await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+            if (isMountedRef.current) {
+              setIsBookmarked(true);
+            }
+          }
         }
       }
     } catch (error) {
+      if (!isMountedRef.current) return;
       console.error('Error bookmarking location:', error);
       Alert.alert('Error', 'Failed to save location');
     } finally {
-      setBookmarkLoading(false);
+      bookmarkingRef.current = false;
+      if (isMountedRef.current) {
+        setBookmarkLoading(false);
+      }
     }
-  };
+  }, [isAdminLocale, localeData, isBookmarked, data, location]);
 
   const loadLocationData = async () => {
     try {
