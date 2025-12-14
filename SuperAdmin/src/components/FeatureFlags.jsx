@@ -1,16 +1,262 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './Cards/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from './Modals/index.jsx'
 import { 
   ToggleLeft, ToggleRight, Settings, Users, Zap, AlertCircle, CheckCircle, 
   Clock, Plus, Filter, Search, TrendingUp, Shield, Trash2, Edit,
-  PlayCircle, PauseCircle, Target, MessageSquare, BarChart3, Bell, X, Calendar
+  PlayCircle, PauseCircle, Target, MessageSquare, BarChart3, Bell, X, Calendar, Info
 } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import { api } from '../services/api'
 import SafeComponent from './SafeComponent'
 import logger from '../utils/logger'
+
+// Memoized Feature Flag Card Component for performance
+const FeatureFlagCard = memo(({
+  flag,
+  isUpdating,
+  isCritical,
+  onToggle,
+  onDelete,
+  onEdit,
+  onViewDetails,
+  editingFlag,
+  rolloutValue,
+  targetUsers,
+  onRolloutChange,
+  onTargetUsersChange,
+  onUpdateRollout,
+  isLoading,
+  getAffectsDescription,
+  getCategoryIcon,
+  getCategoryColor,
+  getPriorityColor,
+  getStatusColor,
+  getStatusText,
+  targetOptions,
+  originalRolloutValue,
+  originalTargetUsers
+}) => {
+  const CategoryIcon = getCategoryIcon(flag.category)
+  
+  return (
+    <div 
+      className="group bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 border border-gray-200 shadow-lg hover:shadow-2xl transform hover:-translate-y-2 transition-all duration-300"
+      style={{
+        background: flag.enabled 
+          ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+          : 'linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)'
+      }}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex-1">
+          <div className="flex items-center space-x-2 mb-2">
+            <div className={`p-1.5 rounded-lg ${getCategoryColor(flag.category)}`}>
+              <CategoryIcon className="w-4 h-4" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">{flag.name}</h3>
+            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getPriorityColor(flag.priority)}`}>
+              {flag.priority}
+            </span>
+            {isCritical && (
+              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300" title="Critical flag - requires confirmation">
+                <Shield className="w-3 h-3 inline" />
+              </span>
+            )}
+          </div>
+          <p className="text-gray-600 text-sm mb-3">{flag.description}</p>
+          
+          {/* Affects Description */}
+          <div className="flex items-start gap-2 mb-3 p-2 bg-blue-50/50 rounded-lg border border-blue-100">
+            <Info className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-blue-900 mb-0.5">Affects:</p>
+              <p className="text-xs text-blue-700">{getAffectsDescription(flag)}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-2 mb-3">
+            <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(flag)}`}>
+              {getStatusText(flag)}
+            </div>
+            <div className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(flag.category)}`}>
+              {flag.category}
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => onToggle(flag)}
+            disabled={isLoading || isUpdating}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              flag.enabled ? 'bg-blue-600' : 'bg-gray-200'
+            } ${isLoading || isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title={isUpdating ? 'Updating...' : isCritical ? 'Critical flag - confirmation required' : ''}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                flag.enabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+          <button
+            onClick={() => onDelete(flag.id)}
+            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Rollout Configuration */}
+      {flag.enabled && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">Rollout Percentage</span>
+            <span className="text-sm font-bold text-gray-900">{flag.rolloutPercentage}%</span>
+          </div>
+          
+          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-300 shadow-sm"
+              style={{ width: `${flag.rolloutPercentage}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center space-x-2">
+              <Target className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-600 capitalize">
+                {targetOptions.find(t => t.value === flag.targetUsers)?.label || flag.targetUsers}
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Clock className="w-3 h-3 text-gray-400" />
+              <span className="text-gray-500 text-xs">
+                {new Date(flag.updatedAt).toLocaleDateString()}
+              </span>
+            </div>
+          </div>
+
+          {editingFlag === flag.id ? (
+            <div className="space-y-3 pt-3 border-t border-gray-200">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Rollout Percentage
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="10"
+                  value={rolloutValue}
+                  onChange={(e) => onRolloutChange(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>0%</span>
+                  <span className="font-semibold">{rolloutValue}%</span>
+                  <span>100%</span>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Target Users
+                </label>
+                <select
+                  value={targetUsers}
+                  onChange={(e) => onTargetUsersChange(e.target.value)}
+                  className="input w-full"
+                >
+                  {targetOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => onUpdateRollout(flag)}
+                  disabled={isLoading}
+                  className="flex-1 btn btn-primary"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => {
+                    // Reset to original values before canceling
+                    if (originalRolloutValue !== undefined) {
+                      onRolloutChange(originalRolloutValue)
+                    }
+                    if (originalTargetUsers !== undefined) {
+                      onTargetUsersChange(originalTargetUsers)
+                    }
+                    onEdit(null)
+                  }}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex space-x-2">
+              <button
+                onClick={() => onEdit(flag)}
+                className="flex-1 btn btn-sm btn-secondary"
+              >
+                Configure Rollout
+              </button>
+              <button
+                onClick={() => onViewDetails(flag)}
+                className="btn btn-sm btn-secondary"
+                title="View Details"
+              >
+                <Clock className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Metadata */}
+      <div className="mt-4 pt-3 border-t border-gray-200">
+        <div className="space-y-2">
+          {/* Last Changed Info */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center space-x-1 text-gray-600">
+              <Clock className="w-3 h-3" />
+              <span>Last changed:</span>
+              <span className="font-medium text-gray-900">
+                {new Date(flag.updatedAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center space-x-1 text-gray-500">
+              <Users className="w-3 h-3" />
+              <span>by {flag.updatedBy || flag.createdBy}</span>
+            </div>
+            <span className="text-gray-400">{flag.changelog?.length || 0} changes</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+FeatureFlagCard.displayName = 'FeatureFlagCard'
 
 const FeatureFlags = () => {
   const { isConnected } = useRealTime()
@@ -43,10 +289,54 @@ const FeatureFlags = () => {
     priority: 'medium',
     impact: 'medium'
   })
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const updatingFlagsRef = useRef(new Set()) // Track flags being updated
+  const flagStateCacheRef = useRef(new Map()) // Cache previous states for rollback
+  const pendingConfirmationsRef = useRef(new Map()) // Track pending confirmations
 
+  // Get "Affects:" description based on category and impact
+  const getAffectsDescription = useCallback((flag) => {
+    const categoryMap = {
+      ui: 'User interface elements and styling',
+      ai: 'AI-powered features and recommendations',
+      analytics: 'Analytics tracking and reporting',
+      social: 'Social features, sharing, and interactions',
+      security: 'Security features and authentication',
+      other: 'General application features'
+    }
+    
+    const impactMap = {
+      high: 'All users',
+      medium: 'Targeted user segments',
+      low: 'Limited user groups'
+    }
+    
+    const categoryDesc = categoryMap[flag.category] || 'Application features'
+    const impactDesc = impactMap[flag.impact] || 'User segments'
+    
+    return `${categoryDesc} - ${impactDesc}`
+  }, [])
+  
+  // Check if flag is critical (high priority or high impact)
+  const isCriticalFlag = useCallback((flag) => {
+    return flag.priority === 'high' || flag.impact === 'high'
+  }, [])
+  
   // Fetch feature flags from API
-  const fetchFeatureFlags = async () => {
-    setIsLoading(true)
+  const fetchFeatureFlags = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    abortControllerRef.current = new AbortController()
+    
+    if (isMountedRef.current) {
+      setIsLoading(true)
+    }
+    
     try {
       const params = {}
       
@@ -60,9 +350,12 @@ const FeatureFlags = () => {
         params.search = searchTerm
       }
       
-      const response = await api.get('/api/superadmin/feature-flags', { params })
+      const response = await api.get('/api/superadmin/feature-flags', { 
+        params,
+        signal: abortControllerRef.current.signal
+      })
       
-      if (response.data.success) {
+      if (!abortControllerRef.current.signal.aborted && isMountedRef.current && response.data.success) {
         // Transform data to match component expectations
         const transformed = response.data.featureFlags.map(flag => ({
           id: flag._id,
@@ -83,51 +376,222 @@ const FeatureFlags = () => {
         setFeatureFlags(transformed)
       }
     } catch (error) {
-      logger.error('Failed to fetch feature flags:', error)
-      toast.error('Failed to fetch feature flags')
+      if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
+        logger.error('Failed to fetch feature flags:', error)
+        if (isMountedRef.current) {
+          toast.error('Failed to fetch feature flags')
+        }
+      }
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
     }
-  }
-
-  useEffect(() => {
-    fetchFeatureFlags()
   }, [filterCategory, filterEnabled, searchTerm])
 
-  const handleToggleFlag = async (flag) => {
-    setIsLoading(true)
+  // Initial fetch on mount
+  useEffect(() => {
+    if (isMountedRef.current) {
+      fetchFeatureFlags()
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, []) // Only run once on mount
+  
+  // Fetch when filters change
+  useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    fetchFeatureFlags()
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [filterCategory, filterEnabled, searchTerm, fetchFeatureFlags])
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true
+    
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      updatingFlagsRef.current.clear()
+      flagStateCacheRef.current.clear()
+      pendingConfirmationsRef.current.clear()
+    }
+  }, [])
+
+  const handleToggleFlag = useCallback(async (flag) => {
+    // Prevent duplicate toggles
+    if (updatingFlagsRef.current.has(flag.id)) {
+      logger.debug('Flag toggle already in progress:', flag.id)
+      return
+    }
+    
+    // Check if critical flag requires confirmation
+    const isCritical = isCriticalFlag(flag)
+    if (isCritical && !pendingConfirmationsRef.current.has(flag.id)) {
+      const confirmed = window.confirm(
+        `⚠️ Critical Feature Flag\n\n` +
+        `You are about to ${flag.enabled ? 'disable' : 'enable'} "${flag.name}".\n\n` +
+        `This flag has ${flag.priority === 'high' ? 'high priority' : ''}${flag.priority === 'high' && flag.impact === 'high' ? ' and ' : ''}${flag.impact === 'high' ? 'high impact' : ''}.\n\n` +
+        `Are you sure you want to proceed?`
+      )
+      
+      if (!confirmed) {
+        return
+      }
+      
+      pendingConfirmationsRef.current.set(flag.id, true)
+      // Clear confirmation after 5 seconds to allow re-confirmation if needed
+      setTimeout(() => {
+        pendingConfirmationsRef.current.delete(flag.id)
+      }, 5000)
+    }
+    
+    // Store previous state for rollback
+    const previousState = {
+      enabled: flag.enabled,
+      rolloutPercentage: flag.rolloutPercentage
+    }
+    flagStateCacheRef.current.set(flag.id, previousState)
+    
+    // Optimistic update
+    updatingFlagsRef.current.add(flag.id)
+    setFeatureFlags(prev => prev.map(f => 
+      f.id === flag.id 
+        ? { ...f, enabled: !f.enabled, rolloutPercentage: !f.enabled ? (f.rolloutPercentage || 100) : 0 }
+        : f
+    ))
+    
     try {
-      await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
+      const response = await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
         enabled: !flag.enabled,
         rolloutPercentage: flag.enabled ? 0 : flag.rolloutPercentage || 100
       })
-      toast.success(`Feature ${!flag.enabled ? 'enabled' : 'disabled'} successfully`)
-      await fetchFeatureFlags()
+      
+      if (!isMountedRef.current) return
+      
+      if (response.data.success) {
+        // Update with server response to ensure sync
+        setFeatureFlags(prev => prev.map(f => 
+          f.id === flag.id 
+            ? { 
+                ...f, 
+                enabled: response.data.featureFlag.enabled,
+                rolloutPercentage: response.data.featureFlag.rolloutPercentage,
+                updatedBy: response.data.featureFlag.updatedBy?.email || f.updatedBy,
+                updatedAt: response.data.featureFlag.updatedAt || f.updatedAt
+              }
+            : f
+        ))
+        
+        toast.success(`Feature ${!flag.enabled ? 'enabled' : 'disabled'} successfully`)
+        flagStateCacheRef.current.delete(flag.id)
+      }
     } catch (error) {
+      if (!isMountedRef.current) return
+      
       logger.error('Failed to toggle feature flag:', error)
+      
+      // Rollback to previous state
+      setFeatureFlags(prev => prev.map(f => 
+        f.id === flag.id 
+          ? { ...f, ...previousState }
+          : f
+      ))
+      
       toast.error('Failed to toggle feature flag')
+      flagStateCacheRef.current.delete(flag.id)
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        updatingFlagsRef.current.delete(flag.id)
+      }
     }
-  }
+  }, [isCriticalFlag])
 
-  const handleUpdateRollout = async (flag) => {
-    setIsLoading(true)
+  const handleUpdateRollout = useCallback(async (flag) => {
+    if (updatingFlagsRef.current.has(flag.id)) {
+      logger.debug('Rollout update already in progress:', flag.id)
+      return
+    }
+    
+    // Store previous state for rollback
+    const previousState = {
+      rolloutPercentage: flag.rolloutPercentage,
+      targetUsers: flag.targetUsers
+    }
+    flagStateCacheRef.current.set(flag.id, previousState)
+    
+    updatingFlagsRef.current.add(flag.id)
+    
+    if (isMountedRef.current) {
+      setIsLoading(true)
+    }
+    
+    // Optimistic update
+    setFeatureFlags(prev => prev.map(f => 
+      f.id === flag.id 
+        ? { ...f, rolloutPercentage: rolloutValue, targetUsers }
+        : f
+    ))
+    
     try {
-      await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
+      const response = await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
         rolloutPercentage: rolloutValue,
         targetUsers
       })
-      toast.success('Feature flag updated successfully')
-      setEditingFlag(null)
-      await fetchFeatureFlags()
+      
+      if (!isMountedRef.current) return
+      
+      if (response.data.success) {
+        // Update with server response
+        setFeatureFlags(prev => prev.map(f => 
+          f.id === flag.id 
+            ? { 
+                ...f, 
+                rolloutPercentage: response.data.featureFlag.rolloutPercentage,
+                targetUsers: response.data.featureFlag.targetUsers,
+                updatedBy: response.data.featureFlag.updatedBy?.email || f.updatedBy,
+                updatedAt: response.data.featureFlag.updatedAt || f.updatedAt
+              }
+            : f
+        ))
+        
+        toast.success('Feature flag updated successfully')
+        setEditingFlag(null)
+        flagStateCacheRef.current.delete(flag.id)
+      }
     } catch (error) {
+      if (!isMountedRef.current) return
+      
       logger.error('Failed to update rollout:', error)
+      
+      // Rollback to previous state
+      setFeatureFlags(prev => prev.map(f => 
+        f.id === flag.id 
+          ? { ...f, ...previousState }
+          : f
+      ))
+      
       toast.error('Failed to update feature flag')
+      flagStateCacheRef.current.delete(flag.id)
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+        updatingFlagsRef.current.delete(flag.id)
+      }
     }
-  }
+  }, [rolloutValue, targetUsers])
 
   const handleCreateFlag = async () => {
     if (!newFlag.name || !newFlag.description) {
@@ -198,11 +662,17 @@ const FeatureFlags = () => {
     }
   }
 
-  const startEditing = (flag) => {
-    setEditingFlag(flag.id)
-    setRolloutValue(flag.rolloutPercentage)
-    setTargetUsers(flag.targetUsers)
-  }
+  const startEditing = useCallback((flag) => {
+    if (!isMountedRef.current) return
+    
+    if (flag === null) {
+      setEditingFlag(null)
+    } else {
+      setEditingFlag(flag.id)
+      setRolloutValue(flag.rolloutPercentage)
+      setTargetUsers(flag.targetUsers)
+    }
+  }, [])
 
   const getStatusColor = (flag) => {
     if (!flag.enabled) return 'text-gray-500 bg-gray-100'
@@ -442,184 +912,37 @@ const FeatureFlags = () => {
         </Card>
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {featureFlags.map((flag, index) => {
-            const CategoryIcon = getCategoryIcon(flag.category)
+          {featureFlags.map((flag) => {
             return (
-              <div 
-            key={flag.id}
-                className="group bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 border border-gray-200 shadow-lg hover:shadow-2xl transform hover:-translate-y-2 transition-all duration-300"
-                style={{
-                  background: flag.enabled 
-                    ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
-                    : 'linear-gradient(135deg, #ffffff 0%, #f9fafb 100%)'
+              <FeatureFlagCard
+                key={flag.id}
+                flag={flag}
+                isUpdating={updatingFlagsRef.current.has(flag.id)}
+                isCritical={isCriticalFlag(flag)}
+                onToggle={handleToggleFlag}
+                onDelete={handleDeleteFlag}
+                onEdit={startEditing}
+                onViewDetails={(flag) => {
+                  setSelectedFlag(flag)
+                  setShowDetailsModal(true)
                 }}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center space-x-2 mb-2">
-                        <div className={`p-1.5 rounded-lg ${getCategoryColor(flag.category)}`}>
-                          <CategoryIcon className="w-4 h-4" />
-                        </div>
-                  <h3 className="text-lg font-semibold text-gray-900">{flag.name}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getPriorityColor(flag.priority)}`}>
-                          {flag.priority}
-                        </span>
-                </div>
-                <p className="text-gray-600 text-sm mb-3">{flag.description}</p>
-                
-                      <div className="flex items-center space-x-2 mb-3">
-                <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(flag)}`}>
-                  {getStatusText(flag)}
-                        </div>
-                        <div className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(flag.category)}`}>
-                          {flag.category}
-                        </div>
-                </div>
-              </div>
-              
-                    <div className="flex items-center space-x-2">
-              <button
-                onClick={() => handleToggleFlag(flag)}
-                disabled={isLoading}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  flag.enabled ? 'bg-blue-600' : 'bg-gray-200'
-                } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    flag.enabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-                      <button
-                        onClick={() => handleDeleteFlag(flag.id)}
-                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-            </div>
-
-            {/* Rollout Configuration */}
-            {flag.enabled && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">Rollout Percentage</span>
-                        <span className="text-sm font-bold text-gray-900">{flag.rolloutPercentage}%</span>
-                </div>
-                
-                      <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                  <div
-                          className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-300 shadow-sm"
-                    style={{ width: `${flag.rolloutPercentage}%` }}
-                  />
-                </div>
-
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center space-x-2">
-                          <Target className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-600 capitalize">
-                            {targetOptions.find(t => t.value === flag.targetUsers)?.label || flag.targetUsers}
-                          </span>
-                        </div>
-                <div className="flex items-center space-x-2">
-                          <Clock className="w-3 h-3 text-gray-400" />
-                          <span className="text-gray-500 text-xs">
-                            {new Date(flag.updatedAt).toLocaleDateString()}
-                          </span>
-                  </div>
-                </div>
-
-                {editingFlag === flag.id ? (
-                  <div className="space-y-3 pt-3 border-t border-gray-200">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Rollout Percentage
-                      </label>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="10"
-                        value={rolloutValue}
-                        onChange={(e) => setRolloutValue(parseInt(e.target.value))}
-                        className="w-full"
-                      />
-                      <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>0%</span>
-                        <span className="font-semibold">{rolloutValue}%</span>
-                        <span>100%</span>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Target Users
-                      </label>
-                      <select
-                        value={targetUsers}
-                        onChange={(e) => setTargetUsers(e.target.value)}
-                              className="input w-full"
-                      >
-                        {targetOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => handleUpdateRollout(flag)}
-                        disabled={isLoading}
-                              className="flex-1 btn btn-primary"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingFlag(null)}
-                              className="btn btn-secondary"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                        <div className="flex space-x-2">
-                  <button
-                    onClick={() => startEditing(flag)}
-                            className="flex-1 btn btn-sm btn-secondary"
-                  >
-                    Configure Rollout
-                  </button>
-                          <button
-                            onClick={() => {
-                              setSelectedFlag(flag)
-                              setShowDetailsModal(true)
-                            }}
-                            className="btn btn-sm btn-secondary"
-                            title="View Details"
-                          >
-                            <Clock className="w-4 h-4" />
-                          </button>
-                        </div>
-                )}
-              </div>
-            )}
-
-                      {/* Metadata */}
-                  <div className="mt-4 pt-3 border-t border-gray-200">
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <div className="flex items-center space-x-1">
-                        <Users className="w-3 h-3" />
-                        <span>by {flag.createdBy}</span>
-                      </div>
-                      <span className="text-gray-400">{flag.changelog?.length || 0} changes</span>
-                    </div>
-                  </div>
-                </div>
+                editingFlag={editingFlag}
+                rolloutValue={rolloutValue}
+                targetUsers={targetUsers}
+                onRolloutChange={setRolloutValue}
+                onTargetUsersChange={setTargetUsers}
+                onUpdateRollout={handleUpdateRollout}
+                isLoading={isLoading}
+                getAffectsDescription={getAffectsDescription}
+                getCategoryIcon={getCategoryIcon}
+                getCategoryColor={getCategoryColor}
+                getPriorityColor={getPriorityColor}
+                getStatusColor={getStatusColor}
+                getStatusText={getStatusText}
+                targetOptions={targetOptions}
+                originalRolloutValue={flag.rolloutPercentage}
+                originalTargetUsers={flag.targetUsers}
+              />
             )
           })}
         </div>

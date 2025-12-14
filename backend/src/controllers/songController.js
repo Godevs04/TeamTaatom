@@ -10,28 +10,33 @@ const logger = require('../utils/logger');
 const getSongs = async (req, res) => {
   try {
     const { search, genre, page = 1, limit = 50, includeInactive } = req.query;
-    const skip = (page - 1) * limit;
+    
+    // Defensive guards: Validate and cap limit
+    const validatedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100); // Max 100 per page
+    const validatedPage = Math.max(parseInt(page) || 1, 1);
+    const skip = (validatedPage - 1) * validatedLimit;
 
     // For SuperAdmin, allow viewing inactive songs if requested
     const query = includeInactive === 'true' ? {} : { isActive: true };
     
-    // Handle search - use regex search (more reliable than text index)
-    if (search) {
+    // Handle search - use regex search (case-insensitive, combined title + artist)
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const searchTerm = search.trim().substring(0, 100); // Cap search length
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { artist: { $regex: search, $options: 'i' } }
+        { title: { $regex: searchTerm, $options: 'i' } },
+        { artist: { $regex: searchTerm, $options: 'i' } }
       ];
     }
     
-    if (genre && genre !== 'all') {
-      query.genre = genre;
+    if (genre && genre !== 'all' && typeof genre === 'string') {
+      query.genre = genre.trim();
     }
 
     const songs = await Song.find(query)
       .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(validatedLimit)
       .lean();
     
     // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to s3Url
@@ -45,10 +50,10 @@ const getSongs = async (req, res) => {
     return sendSuccess(res, 200, 'Songs fetched successfully', {
       songs: mappedSongs,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
+        currentPage: validatedPage,
+        totalPages: Math.ceil(total / validatedLimit),
         total,
-        limit: parseInt(limit)
+        limit: validatedLimit
       }
     });
   } catch (error) {
@@ -192,6 +197,17 @@ const deleteSongById = async (req, res) => {
     
     if (!song) {
       return sendError(res, 'RES_3001', 'Song not found');
+    }
+    
+    // Safe deletion: Check if song is referenced by posts/shorts
+    const Post = require('../models/Post');
+    const postsUsingSong = await Post.countDocuments({
+      'song.songId': song._id
+    });
+    
+    if (postsUsingSong > 0) {
+      logger.warn(`Attempted to delete song ${song._id} that is used in ${postsUsingSong} posts`);
+      return sendError(res, 'VAL_2001', `Cannot delete song: It is used in ${postsUsingSong} ${postsUsingSong === 1 ? 'post' : 'posts'}. Deactivate it instead.`);
     }
 
     // Delete from storage (Sevalla R2)

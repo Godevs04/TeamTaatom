@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { 
   Database, 
@@ -15,7 +15,11 @@ import {
   PieChart,
   TrendingDown,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getQueryStats, resetQueryStats } from '../services/queryMonitor'
@@ -23,11 +27,23 @@ import logger from '../utils/logger'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables'
 import { BarChartComponent, PieChartComponent, LineChartComponent } from '../components/Charts'
 
+// Slow query threshold (500ms as specified)
+const SLOW_QUERY_THRESHOLD_MS = 500
+
 const QueryMonitor = () => {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(false) // Default to false to prevent rate limits
   const [refreshInterval, setRefreshInterval] = useState(null)
+  
+  // Grouping & expansion state
+  const [groupByFingerprint, setGroupByFingerprint] = useState(true)
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const [copiedQueries, setCopiedQueries] = useState(new Set())
+  const [collapsedQueries, setCollapsedQueries] = useState(new Set())
+  
+  // Trend comparison
+  const [previousStats, setPreviousStats] = useState(null)
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -40,18 +56,190 @@ const QueryMonitor = () => {
   const [sortBy, setSortBy] = useState('duration') // 'duration', 'timestamp', 'model'
   const [sortOrder, setSortOrder] = useState('desc') // 'asc', 'desc'
 
-  const fetchStats = async () => {
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const cachedStatsRef = useRef(null)
+  const refreshThrottleTimerRef = useRef(null)
+  const lastFetchTimeRef = useRef(null)
+  const hasInitialFetchRef = useRef(false) // Track if initial fetch has completed
+
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (refreshInterval) {
+        clearInterval(refreshInterval)
+      }
+      if (refreshThrottleTimerRef.current) {
+        clearTimeout(refreshThrottleTimerRef.current)
+      }
+    }
+  }, [])
+
+  // Normalize query to create fingerprint (ignore parameter values)
+  const normalizeQuery = useCallback((query) => {
+    if (!query) return ''
     try {
+      const queryStr = typeof query === 'string' ? query : JSON.stringify(query)
+      // Replace parameter values with placeholders
+      return queryStr
+        .replace(/:\s*["']?[^"',}\]]+["']?/g, ':?') // Replace values after colons
+        .replace(/\d+/g, '?') // Replace numbers
+        .replace(/["'][^"']*["']/g, '?') // Replace string values
+        .trim()
+    } catch {
+      return String(query)
+    }
+  }, [])
+
+  // Create query fingerprint
+  const createFingerprint = useCallback((query) => {
+    const normalized = normalizeQuery(query)
+    return `${normalized}`.substring(0, 100) // Limit length for grouping
+  }, [normalizeQuery])
+
+  // Group queries by fingerprint
+  const groupQueriesByFingerprint = useCallback((queries) => {
+    const groups = new Map()
+    
+    queries.forEach(query => {
+      const fingerprint = createFingerprint(query.query)
+      if (!groups.has(fingerprint)) {
+        groups.set(fingerprint, {
+          fingerprint,
+          queries: [],
+          count: 0,
+          avgDuration: 0,
+          p95Duration: 0,
+          maxDuration: 0,
+          minDuration: Infinity,
+          model: query.model,
+          operation: query.operation
+        })
+      }
+      
+      const group = groups.get(fingerprint)
+      group.queries.push(query)
+      group.count++
+    })
+
+    // Calculate stats for each group
+    groups.forEach(group => {
+      const durations = group.queries.map(q => q.duration).sort((a, b) => a - b)
+      group.avgDuration = durations.reduce((sum, d) => sum + d, 0) / durations.length
+      group.p95Duration = durations[Math.floor(durations.length * 0.95)] || durations[durations.length - 1]
+      group.maxDuration = Math.max(...durations)
+      group.minDuration = Math.min(...durations)
+    })
+
+    return Array.from(groups.values())
+  }, [createFingerprint])
+
+  // Fetch stats with caching and request deduplication
+  const fetchStats = useCallback(async (forceRefresh = false) => {
+    // Prevent duplicate concurrent calls
+    if (isFetchingRef.current && !forceRefresh) {
+      logger.debug('Query stats fetch already in progress, skipping duplicate call')
+      return
+    }
+
+    // Throttle live updates (min 5 seconds between fetches to avoid rate limits)
+    const now = Date.now()
+    if (lastFetchTimeRef.current && (now - lastFetchTimeRef.current) < 5000 && !forceRefresh) {
+      logger.debug('Throttling query stats fetch')
+      return
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    abortControllerRef.current = new AbortController()
+    isFetchingRef.current = true
+    lastFetchTimeRef.current = now
+
+    // Show cached data immediately if available
+    if (cachedStatsRef.current && isMountedRef.current) {
+      setStats(cachedStatsRef.current)
+    }
+
+    if (isMountedRef.current) {
       setLoading(true)
+    }
+
+    try {
       const data = await getQueryStats()
+      
+      if (abortControllerRef.current?.signal?.aborted) {
+        return
+      }
+
+      if (!isMountedRef.current) return
+
+      // Store previous stats for trend comparison (use ref to avoid dependency)
+      const currentStats = cachedStatsRef.current
+      if (currentStats) {
+        setPreviousStats(currentStats)
+      }
+
       setStats(data)
+      cachedStatsRef.current = data
     } catch (error) {
+      if (abortControllerRef.current?.signal?.aborted || error.name === 'AbortError' || error.name === 'CanceledError') {
+        return
+      }
+      
+      if (!isMountedRef.current) return
+
+      // Check if it's a rate limit error
+      const errorMessage = error?.message || ''
+      const errorCode = error?.code || error?.response?.data?.code || ''
+      const isRateLimit = errorCode === 'RATE_5001' || 
+                         error?.response?.status === 429 ||
+                         errorMessage.toLowerCase().includes('rate limit') ||
+                         errorMessage.toLowerCase().includes('too many requests')
+      
+      if (isRateLimit) {
+        logger.warn('Rate limit exceeded for query stats, using cached data')
+        // Don't show error toast for rate limits, just use cached data silently
+        if (cachedStatsRef.current) {
+          setStats(cachedStatsRef.current)
+          // Extend throttle time on rate limit to prevent further hits (add 30 seconds penalty)
+          lastFetchTimeRef.current = Date.now() + 30000
+        }
+        // Disable auto-refresh temporarily if it's enabled
+        if (isMountedRef.current && autoRefresh) {
+          setAutoRefresh(false)
+          if (refreshInterval) {
+            clearInterval(refreshInterval)
+            setRefreshInterval(null)
+          }
+          toast.warning('Auto-refresh paused due to rate limit. Please refresh manually.', { duration: 5000 })
+        }
+      } else {
       logger.error('Error fetching query stats:', error)
+        
+        // Partial failure handling - show cached data if available
+        if (cachedStatsRef.current) {
+          setStats(cachedStatsRef.current)
+          toast.error('Failed to fetch query statistics. Showing cached data.', { duration: 3000 })
+        } else {
       toast.error('Failed to fetch query statistics')
+        }
+      }
     } finally {
+      if (isMountedRef.current) {
       setLoading(false)
     }
+      isFetchingRef.current = false
   }
+  }, []) // Remove stats dependency to prevent infinite loop
 
   const handleReset = async () => {
     if (!window.confirm('Are you sure you want to reset all query statistics? This action cannot be undone.')) {
@@ -108,21 +296,31 @@ const QueryMonitor = () => {
     toast.success(`Exported ${data.length} queries as ${format.toUpperCase()}`)
   }
 
+  // Initial fetch - only run once on mount
   useEffect(() => {
-    fetchStats()
+    if (isMountedRef.current && !hasInitialFetchRef.current) {
+      hasInitialFetchRef.current = true
+      fetchStats(true)
+    }
 
     return () => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
       }
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Empty deps - only fetch once on mount
 
+  // Auto-refresh with throttling (increased interval to avoid rate limits)
   useEffect(() => {
+    if (!isMountedRef.current) return
+
     if (autoRefresh) {
       const interval = setInterval(() => {
+        if (isMountedRef.current) {
         fetchStats()
-      }, 5000)
+        }
+      }, 10000) // 10 seconds interval, throttled to min 5 seconds between actual fetches
       setRefreshInterval(interval)
     } else {
       if (refreshInterval) {
@@ -136,11 +334,11 @@ const QueryMonitor = () => {
         clearInterval(refreshInterval)
       }
     }
-  }, [autoRefresh])
+  }, [autoRefresh, fetchStats])
 
-  // Filter and sort slow queries
-  const filteredSlowQueries = useMemo(() => {
-    if (!stats?.slowQueries) return []
+  // Filter and sort slow queries (or groups)
+  const { filteredSlowQueries, groupedQueries } = useMemo(() => {
+    if (!stats?.slowQueries) return { filteredSlowQueries: [], groupedQueries: [] }
 
     let filtered = [...stats.slowQueries]
 
@@ -163,7 +361,7 @@ const QueryMonitor = () => {
       filtered = filtered.filter(q => q.operation === filterOperation)
     }
 
-    // Sort
+    // Sort individual queries
     filtered.sort((a, b) => {
       let aVal, bVal
       switch (sortBy) {
@@ -191,8 +389,43 @@ const QueryMonitor = () => {
       }
     })
 
-    return filtered
-  }, [stats?.slowQueries, searchTerm, filterModel, filterOperation, sortBy, sortOrder])
+    // Group by fingerprint if enabled
+    let grouped = []
+    if (groupByFingerprint && filtered.length > 0) {
+      grouped = groupQueriesByFingerprint(filtered)
+      
+      // Sort groups
+      grouped.sort((a, b) => {
+        let aVal, bVal
+        switch (sortBy) {
+          case 'duration':
+            aVal = a.avgDuration
+            bVal = b.avgDuration
+            break
+          case 'timestamp':
+            // Use most recent query in group
+            aVal = Math.max(...a.queries.map(q => new Date(q.timestamp).getTime()))
+            bVal = Math.max(...b.queries.map(q => new Date(q.timestamp).getTime()))
+            break
+          case 'model':
+            aVal = a.model
+            bVal = b.model
+            break
+          default:
+            aVal = a.avgDuration
+            bVal = b.avgDuration
+        }
+
+        if (sortOrder === 'asc') {
+          return aVal > bVal ? 1 : aVal < bVal ? -1 : 0
+        } else {
+          return aVal < bVal ? 1 : aVal > bVal ? -1 : 0
+        }
+      })
+    }
+
+    return { filteredSlowQueries: filtered, groupedQueries: grouped }
+  }, [stats?.slowQueries, searchTerm, filterModel, filterOperation, sortBy, sortOrder, groupByFingerprint, groupQueriesByFingerprint])
 
   // Get unique models and operations for filters
   const uniqueModels = useMemo(() => {
@@ -205,11 +438,18 @@ const QueryMonitor = () => {
     return [...new Set(stats.slowQueries.map(q => q.operation))].sort()
   }, [stats?.slowQueries])
 
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredSlowQueries.length / itemsPerPage)
+  // Memoize previous groups for trend calculation
+  const previousGroups = useMemo(() => {
+    if (!previousStats?.slowQueries) return []
+    return groupQueriesByFingerprint(previousStats.slowQueries)
+  }, [previousStats?.slowQueries, groupQueriesByFingerprint])
+
+  // Pagination calculations (use groups if grouping enabled, otherwise individual queries)
+  const displayItems = groupByFingerprint ? groupedQueries : filteredSlowQueries
+  const totalPages = Math.ceil(displayItems.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
-  const paginatedQueries = filteredSlowQueries.slice(startIndex, endIndex)
+  const paginatedItems = displayItems.slice(startIndex, endIndex)
 
   // Chart data
   const modelDistribution = useMemo(() => {
@@ -268,11 +508,79 @@ const QueryMonitor = () => {
     return new Date(dateString).toLocaleString()
   }
 
-  const getSeverityColor = (duration) => {
-    if (duration > 1000) return 'text-red-600 bg-red-50 border-red-200'
-    if (duration > 500) return 'text-orange-600 bg-orange-50 border-orange-200'
+  // Get severity color based on threshold (500ms)
+  const getSeverityColor = useCallback((duration) => {
+    if (duration > SLOW_QUERY_THRESHOLD_MS * 4) return 'text-red-700 bg-red-100 border-red-300 font-bold'
+    if (duration > SLOW_QUERY_THRESHOLD_MS * 2) return 'text-red-600 bg-red-50 border-red-200 font-semibold'
+    if (duration > SLOW_QUERY_THRESHOLD_MS) return 'text-orange-600 bg-orange-50 border-orange-200'
     return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-  }
+  }, [])
+
+  // Get severity icon
+  const getSeverityIcon = useCallback((duration) => {
+    if (duration > SLOW_QUERY_THRESHOLD_MS * 4) return <AlertTriangle className="w-4 h-4 text-red-700" />
+    if (duration > SLOW_QUERY_THRESHOLD_MS * 2) return <AlertTriangle className="w-4 h-4 text-red-600" />
+    if (duration > SLOW_QUERY_THRESHOLD_MS) return <AlertTriangle className="w-4 h-4 text-orange-600" />
+    return null
+  }, [])
+
+  // Calculate trend (compare with previous window)
+  const getTrend = useCallback((currentAvg, previousAvg) => {
+    if (!previousAvg || previousAvg === 0) return null
+    const change = ((currentAvg - previousAvg) / previousAvg) * 100
+    if (Math.abs(change) < 5) return null // Ignore small changes
+    return {
+      change: Math.round(change),
+      isSlowing: change > 0,
+      isSpeeding: change < 0
+    }
+  }, [])
+
+  // Copy query to clipboard
+  const handleCopyQuery = useCallback(async (query, index) => {
+    try {
+      const queryText = typeof query === 'string' ? query : JSON.stringify(query, null, 2)
+      await navigator.clipboard.writeText(queryText)
+      setCopiedQueries(prev => new Set([...prev, index]))
+      toast.success('Query copied to clipboard')
+      setTimeout(() => {
+        setCopiedQueries(prev => {
+          const next = new Set(prev)
+          next.delete(index)
+          return next
+        })
+      }, 2000)
+    } catch (error) {
+      logger.error('Failed to copy query:', error)
+      toast.error('Failed to copy query')
+    }
+  }, [])
+
+  // Toggle query collapse
+  const toggleQueryCollapse = useCallback((index) => {
+    setCollapsedQueries(prev => {
+      const next = new Set(prev)
+      if (next.has(index)) {
+        next.delete(index)
+      } else {
+        next.add(index)
+      }
+      return next
+    })
+  }, [])
+
+  // Toggle group expansion
+  const toggleGroupExpansion = useCallback((fingerprint) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(fingerprint)) {
+        next.delete(fingerprint)
+      } else {
+        next.add(fingerprint)
+      }
+      return next
+    })
+  }, [])
 
   const slowQueryRate = stats?.totalQueries 
     ? ((stats.slowQueriesCount / stats.totalQueries) * 100).toFixed(2)
@@ -296,7 +604,7 @@ const QueryMonitor = () => {
             {autoRefresh && (
               <div className="flex items-center space-x-2 mt-4">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-sm">Auto-refreshing every 5 seconds</span>
+                <span className="text-sm">Auto-refreshing every 10 seconds</span>
               </div>
             )}
           </div>
@@ -533,13 +841,26 @@ const QueryMonitor = () => {
                     <Activity className="w-5 h-5 text-red-600" />
                     <span>Slow Queries</span>
                     <span className="px-2 py-1 bg-red-100 text-red-600 rounded-full text-xs font-semibold">
-                      {filteredSlowQueries.length}
+                      {displayItems.length}
                     </span>
                   </CardTitle>
                   <p className="text-sm text-gray-600 mt-1">
-                    Queries exceeding the {stats?.threshold || 100}ms threshold
+                    Queries exceeding the {SLOW_QUERY_THRESHOLD_MS}ms threshold
                   </p>
                 </div>
+              </div>
+              
+              {/* Grouping Toggle */}
+              <div className="mt-4 flex items-center justify-between">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={groupByFingerprint}
+                    onChange={(e) => setGroupByFingerprint(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm text-gray-700">Group by query fingerprint</span>
+                </label>
               </div>
               
               {/* Filters */}
@@ -604,22 +925,142 @@ const QueryMonitor = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {paginatedQueries.length > 0 ? (
+              {paginatedItems.length > 0 ? (
                 <>
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          {groupByFingerprint && <TableHead className="w-8"></TableHead>}
                           <TableHead>Timestamp</TableHead>
                           <TableHead>Model</TableHead>
                           <TableHead>Operation</TableHead>
                           <TableHead>Duration</TableHead>
+                          {groupByFingerprint && (
+                            <>
+                              <TableHead>Count</TableHead>
+                              <TableHead>Avg / P95</TableHead>
+                              <TableHead>Trend</TableHead>
+                            </>
+                          )}
                           <TableHead>Query Details</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {paginatedQueries.map((query, index) => (
-                          <TableRow key={index} className="hover:bg-gray-50 transition-colors">
+                        {paginatedItems.map((item, index) => {
+                          const globalIndex = startIndex + index
+                          const isGroup = groupByFingerprint && item.queries
+                          const isExpanded = isGroup && expandedGroups.has(item.fingerprint)
+                          const isCollapsed = collapsedQueries.has(globalIndex)
+                          const wasCopied = copiedQueries.has(globalIndex)
+
+                          // Calculate trend for groups
+                          let trend = null
+                          if (isGroup && previousGroups.length > 0) {
+                            const prevGroup = previousGroups.find(g => g.fingerprint === item.fingerprint)
+                            if (prevGroup) {
+                              trend = getTrend(item.avgDuration, prevGroup.avgDuration)
+                            }
+                          }
+
+                          if (isGroup) {
+                            // Render grouped query
+                            return (
+                              <React.Fragment key={item.fingerprint}>
+                                <TableRow className={`hover:bg-gray-50 transition-colors ${item.avgDuration > SLOW_QUERY_THRESHOLD_MS ? 'bg-red-50/30' : ''}`}>
+                                  <TableCell>
+                                    <button
+                                      onClick={() => toggleGroupExpansion(item.fingerprint)}
+                                      className="p-1 hover:bg-gray-200 rounded"
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-4 h-4" />
+                                      ) : (
+                                        <ChevronRight className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  </TableCell>
+                                  <TableCell className="text-sm font-mono">
+                                    {formatDate(item.queries[0]?.timestamp)}
+                                  </TableCell>
+                                  <TableCell>
+                                    <span className="font-semibold text-gray-900">{item.model}</span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                      {item.operation}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      {getSeverityIcon(item.avgDuration)}
+                                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getSeverityColor(item.avgDuration)}`}>
+                                        {formatDuration(item.avgDuration)}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+                                      {item.count}x
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="text-xs">
+                                      <div>Avg: {formatDuration(item.avgDuration)}</div>
+                                      <div className="text-gray-500">P95: {formatDuration(item.p95Duration)}</div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    {trend && (
+                                      <div className="flex items-center gap-1 text-xs">
+                                        {trend.isSlowing ? (
+                                          <>
+                                            <TrendingUp className="w-4 h-4 text-red-600" />
+                                            <span className="text-red-600 font-semibold">+{trend.change}%</span>
+                                          </>
+                                        ) : trend.isSpeeding ? (
+                                          <>
+                                            <TrendingDown className="w-4 h-4 text-green-600" />
+                                            <span className="text-green-600 font-semibold">{trend.change}%</span>
+                                          </>
+                                        ) : null}
+                                      </div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleCopyQuery(item.queries[0]?.query, globalIndex)}
+                                        className="p-1 hover:bg-gray-200 rounded"
+                                        title="Copy query"
+                                      >
+                                        {wasCopied ? (
+                                          <Check className="w-4 h-4 text-green-600" />
+                                        ) : (
+                                          <Copy className="w-4 h-4 text-gray-600" />
+                                        )}
+                                      </button>
+                                      <details className="cursor-pointer group">
+                                        <summary className="text-sm text-blue-600 hover:text-blue-800 font-medium group-hover:underline">
+                                          View Query
+                                        </summary>
+                                        <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                          <pre className="text-xs overflow-auto max-h-40 font-mono whitespace-pre-wrap">
+                                            {JSON.stringify(item.queries[0]?.query, null, 2)}
+                                          </pre>
+                                        </div>
+                                      </details>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                                {/* Expanded group queries */}
+                                {isExpanded && item.queries.map((query, qIndex) => {
+                                  const queryGlobalIndex = `${globalIndex}-${qIndex}`
+                                  const queryIsCollapsed = collapsedQueries.has(queryGlobalIndex)
+                                  const queryWasCopied = copiedQueries.has(queryGlobalIndex)
+                                  return (
+                                    <TableRow key={qIndex} className="bg-gray-50/50 hover:bg-gray-100">
+                                      <TableCell></TableCell>
                             <TableCell className="text-sm font-mono">
                               {formatDate(query.timestamp)}
                             </TableCell>
@@ -632,24 +1073,106 @@ const QueryMonitor = () => {
                               </span>
                             </TableCell>
                             <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          {getSeverityIcon(query.duration)}
                               <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getSeverityColor(query.duration)}`}>
                                 {formatDuration(query.duration)}
                               </span>
+                                        </div>
                             </TableCell>
+                                      <TableCell colSpan={3}></TableCell>
                             <TableCell>
-                              <details className="cursor-pointer group">
-                                <summary className="text-sm text-blue-600 hover:text-blue-800 font-medium group-hover:underline">
-                                  View Query
-                                </summary>
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleCopyQuery(query.query, queryGlobalIndex)}
+                                    className="p-1 hover:bg-gray-200 rounded"
+                                    title="Copy query"
+                                  >
+                                    {queryWasCopied ? (
+                                      <Check className="w-4 h-4 text-green-600" />
+                                    ) : (
+                                      <Copy className="w-4 h-4 text-gray-600" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => toggleQueryCollapse(queryGlobalIndex)}
+                                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                  >
+                                    {queryIsCollapsed ? 'Expand Query' : 'Collapse Query'}
+                                  </button>
+                                </div>
+                                {!queryIsCollapsed && (
                                 <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
-                                  <pre className="text-xs overflow-auto max-h-40 font-mono">
+                                    <pre className="text-xs overflow-auto max-h-40 font-mono whitespace-pre-wrap">
                                     {JSON.stringify(query.query, null, 2)}
                                   </pre>
                                 </div>
-                              </details>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                                  )
+                                })}
+                              </React.Fragment>
+                            )
+                          } else {
+                            // Render individual query
+                            return (
+                              <TableRow key={index} className={`hover:bg-gray-50 transition-colors ${item.duration > SLOW_QUERY_THRESHOLD_MS ? 'bg-red-50/30' : ''}`}>
+                                <TableCell className="text-sm font-mono">
+                                  {formatDate(item.timestamp)}
+                                </TableCell>
+                                <TableCell>
+                                  <span className="font-semibold text-gray-900">{item.model}</span>
+                                </TableCell>
+                                <TableCell>
+                                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                    {item.operation}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    {getSeverityIcon(item.duration)}
+                                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getSeverityColor(item.duration)}`}>
+                                      {formatDuration(item.duration)}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleCopyQuery(item.query, globalIndex)}
+                                        className="p-1 hover:bg-gray-200 rounded"
+                                        title="Copy query"
+                                      >
+                                        {wasCopied ? (
+                                          <Check className="w-4 h-4 text-green-600" />
+                                        ) : (
+                                          <Copy className="w-4 h-4 text-gray-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => toggleQueryCollapse(globalIndex)}
+                                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                      >
+                                        {isCollapsed ? 'Expand Query' : 'Collapse Query'}
+                                      </button>
+                                    </div>
+                                    {!isCollapsed && (
+                                      <div className="mt-2 p-3 bg-gray-50 rounded-lg border">
+                                        <pre className="text-xs overflow-auto max-h-40 font-mono whitespace-pre-wrap">
+                                          {JSON.stringify(item.query, null, 2)}
+                                        </pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          }
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -672,7 +1195,7 @@ const QueryMonitor = () => {
                         <option value={50}>50</option>
                       </select>
                       <span className="text-sm text-gray-600">
-                        Showing {startIndex + 1} to {Math.min(endIndex, filteredSlowQueries.length)} of {filteredSlowQueries.length} queries
+                        Showing {startIndex + 1} to {Math.min(endIndex, displayItems.length)} of {displayItems.length} {groupByFingerprint ? 'query groups' : 'queries'}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">

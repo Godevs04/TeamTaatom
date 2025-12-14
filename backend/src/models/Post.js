@@ -106,6 +106,10 @@ const postSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  flagged: {
+    type: Boolean,
+    default: false
+  },
   commentsDisabled: {
     type: Boolean,
     default: false
