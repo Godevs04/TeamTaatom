@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { formatDate } from '../utils/formatDate'
-import { Search, Filter, Download, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle, Calendar, Eye, Clock, List, ChevronDown, ChevronUp, Shield, Ban } from 'lucide-react'
+import { Search, Filter, Download, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle, Calendar, Eye, Clock, List, ChevronDown, ChevronUp, Shield, Ban, Copy, Check } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import { api } from '../services/api'
@@ -21,7 +21,15 @@ const Logs = () => {
   const [totalLogs, setTotalLogs] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [showMoreFilters, setShowMoreFilters] = useState(false)
-  const [dateRange, setDateRange] = useState('all')
+  // Time range presets
+  const [timeRangePreset, setTimeRangePreset] = useState(() => {
+    const saved = localStorage.getItem('logs_time_range_preset')
+    return saved || 'all'
+  })
+  const [dateRange, setDateRange] = useState(() => {
+    const saved = localStorage.getItem('logs_date_range')
+    return saved || 'all'
+  })
   const [selectedLog, setSelectedLog] = useState(null)
   const [showLogModal, setShowLogModal] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
@@ -40,12 +48,46 @@ const Logs = () => {
   const [groupedLogs, setGroupedLogs] = useState([])
   const [expandedGroups, setExpandedGroups] = useState(new Set())
   
+  // Stack trace expansion state
+  const [expandedStackTraces, setExpandedStackTraces] = useState(new Set())
+  const [copiedStackTraces, setCopiedStackTraces] = useState(new Set())
+  
   // Stability & performance refs
   const isMountedRef = useRef(true)
   const abortControllerRef = useRef(null)
   const isFetchingRef = useRef(false)
   const cachedLogsRef = useRef(null)
   const cacheKeyRef = useRef('')
+  const fetchTimeoutRef = useRef(null)
+
+  // Calculate time range from preset (defined before fetchLogs to avoid initialization error)
+  const getTimeRangeFromPreset = useCallback((preset) => {
+    const now = new Date()
+    switch (preset) {
+      case '15m':
+        return {
+          start: new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
+          end: now.toISOString()
+        }
+      case '1h':
+        return {
+          start: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
+          end: now.toISOString()
+        }
+      case '24h':
+        return {
+          start: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+          end: now.toISOString()
+        }
+      case '7d':
+        return {
+          start: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+          end: now.toISOString()
+        }
+      default:
+        return null
+    }
+  }, [])
 
   // Fetch logs from API with caching and request deduplication
   const fetchLogs = useCallback(async (forceRefresh = false) => {
@@ -55,8 +97,14 @@ const Logs = () => {
       return
     }
     
-    // Check cache first
-    const cacheKey = `${currentPage}-${itemsPerPage}-${filterLevel}-${filterType}-${searchTerm}-${showFailedOnly}-${showBlockedOnly}`
+    // Clear any pending timeout
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current)
+      fetchTimeoutRef.current = null
+    }
+    
+    // Check cache first (show immediately on re-entry)
+    const cacheKey = `${currentPage}-${itemsPerPage}-${filterLevel}-${filterType}-${searchTerm}-${showFailedOnly}-${showBlockedOnly}-${timeRangePreset}`
     
     if (cachedLogsRef.current && cacheKeyRef.current === cacheKey && !forceRefresh) {
       logger.debug('Using cached logs')
@@ -66,7 +114,7 @@ const Logs = () => {
         setTotalPages(cachedLogsRef.current.totalPages)
       }
       // Revalidate in background
-      setTimeout(() => {
+      fetchTimeoutRef.current = setTimeout(() => {
         if (isMountedRef.current) {
           fetchLogs(true)
         }
@@ -81,6 +129,13 @@ const Logs = () => {
     
     abortControllerRef.current = new AbortController()
     isFetchingRef.current = true
+    
+    // Show cached data immediately if available (for better UX)
+    if (cachedLogsRef.current && isMountedRef.current) {
+      setLogs(cachedLogsRef.current.logs)
+      setTotalLogs(cachedLogsRef.current.total)
+      setTotalPages(cachedLogsRef.current.totalPages)
+    }
     
     if (isMountedRef.current) {
       setIsLoading(true)
@@ -100,6 +155,15 @@ const Logs = () => {
       }
       if (filterType !== 'all') {
         params.type = filterType
+      }
+      
+      // Add time range from preset
+      if (timeRangePreset !== 'all') {
+        const timeRange = getTimeRangeFromPreset(timeRangePreset)
+        if (timeRange) {
+          params.startDate = timeRange.start
+          params.endDate = timeRange.end
+        }
       }
       
       const response = await api.get('/api/superadmin/logs', { 
@@ -139,13 +203,14 @@ const Logs = () => {
       if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
         logger.error('Failed to fetch logs:', error)
         if (isMountedRef.current) {
-          // Show cached data if available
+          // Show cached data if available (partial failure handling)
           if (cachedLogsRef.current) {
             setLogs(cachedLogsRef.current.logs)
             setTotalLogs(cachedLogsRef.current.total)
             setTotalPages(cachedLogsRef.current.totalPages)
-            toast.error('Failed to fetch logs. Showing cached data.')
+            toast.error('Failed to fetch logs. Showing cached data.', { duration: 3000 })
           } else {
+            // Only show error if no cached data
             toast.error('Failed to fetch logs')
           }
         }
@@ -156,9 +221,9 @@ const Logs = () => {
         isFetchingRef.current = false
       }
     }
-  }, [currentPage, itemsPerPage, filterLevel, filterType, searchTerm, showFailedOnly, showBlockedOnly])
+  }, [currentPage, itemsPerPage, filterLevel, filterType, searchTerm, showFailedOnly, showBlockedOnly, timeRangePreset, getTimeRangeFromPreset])
 
-  // Save quick filter preferences to localStorage
+  // Save filter preferences to localStorage (sticky filters)
   useEffect(() => {
     localStorage.setItem('logs_show_failed_only', showFailedOnly.toString())
   }, [showFailedOnly])
@@ -167,12 +232,42 @@ const Logs = () => {
     localStorage.setItem('logs_show_blocked_only', showBlockedOnly.toString())
   }, [showBlockedOnly])
   
+  useEffect(() => {
+    localStorage.setItem('logs_time_range_preset', timeRangePreset)
+  }, [timeRangePreset])
+  
+  useEffect(() => {
+    localStorage.setItem('logs_date_range', dateRange)
+  }, [dateRange])
+  
+  useEffect(() => {
+    localStorage.setItem('logs_filter_level', filterLevel)
+  }, [filterLevel])
+  
+  useEffect(() => {
+    localStorage.setItem('logs_filter_type', filterType)
+  }, [filterType])
+  
+  // Restore filters from localStorage on mount
+  useEffect(() => {
+    const savedFilterLevel = localStorage.getItem('logs_filter_level')
+    const savedFilterType = localStorage.getItem('logs_filter_type')
+    
+    if (savedFilterLevel && isMountedRef.current) {
+      setFilterLevel(savedFilterLevel)
+    }
+    if (savedFilterType && isMountedRef.current) {
+      setFilterType(savedFilterType)
+    }
+  }, [])
+  
+  
   // Reset to page 1 when filters change
   useEffect(() => {
     if (isMountedRef.current) {
       setCurrentPage(1)
     }
-  }, [filterLevel, filterType, dateRange, showFailedOnly, showBlockedOnly])
+  }, [filterLevel, filterType, dateRange, showFailedOnly, showBlockedOnly, timeRangePreset])
 
   // Initial fetch on mount
   useEffect(() => {
@@ -188,15 +283,18 @@ const Logs = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // Only run once on mount
   
-  // Fetch logs when dependencies change (with debounce for search)
+  // Fetch logs when dependencies change (with debounce for search and time range)
   useEffect(() => {
     if (!isMountedRef.current) return
     
+    // Debounce search and time range changes to prevent duplicate fetches
+    const debounceDelay = searchTerm || timeRangePreset !== 'all' ? 400 : 0
+    
     const timeoutId = setTimeout(() => {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && !isFetchingRef.current) {
         fetchLogs()
       }
-    }, searchTerm ? 500 : 0) // Debounce search, immediate for other filters
+    }, debounceDelay)
     
     return () => {
       clearTimeout(timeoutId)
@@ -204,7 +302,7 @@ const Logs = () => {
         abortControllerRef.current.abort()
       }
     }
-  }, [currentPage, itemsPerPage, filterLevel, filterType, showFailedOnly, showBlockedOnly, fetchLogs, searchTerm])
+  }, [currentPage, itemsPerPage, filterLevel, filterType, showFailedOnly, showBlockedOnly, fetchLogs, searchTerm, timeRangePreset])
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -237,7 +335,43 @@ const Logs = () => {
       if (isFetchingRef.current) {
         isFetchingRef.current = false
       }
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current)
+        fetchTimeoutRef.current = null
+      }
     }
+  }, [])
+  
+  // Copy stack trace to clipboard
+  const handleCopyStackTrace = useCallback(async (logId, stackTrace) => {
+    try {
+      await navigator.clipboard.writeText(stackTrace)
+      setCopiedStackTraces(prev => new Set(prev).add(logId))
+      setTimeout(() => {
+        setCopiedStackTraces(prev => {
+          const next = new Set(prev)
+          next.delete(logId)
+          return next
+        })
+      }, 2000)
+      toast.success('Stack trace copied to clipboard')
+    } catch (error) {
+      logger.error('Failed to copy stack trace:', error)
+      toast.error('Failed to copy stack trace')
+    }
+  }, [])
+  
+  // Toggle stack trace expansion
+  const toggleStackTrace = useCallback((logId) => {
+    setExpandedStackTraces(prev => {
+      const next = new Set(prev)
+      if (next.has(logId)) {
+        next.delete(logId)
+      } else {
+        next.add(logId)
+      }
+      return next
+    })
   }, [])
 
   const handleRefresh = useCallback(async () => {
@@ -295,13 +429,23 @@ const Logs = () => {
     setShowLogModal(true)
   }
 
+  // Enhanced severity-based visual hierarchy
   const getLevelColor = (level) => {
     switch (level) {
-      case 'error': return 'text-red-600 bg-red-100'
-      case 'warning': return 'text-yellow-600 bg-yellow-100'
-      case 'info': return 'text-blue-600 bg-blue-100'
-      case 'success': return 'text-green-600 bg-green-100'
-      default: return 'text-gray-600 bg-gray-100'
+      case 'error': return 'text-red-700 bg-red-50 border border-red-200'
+      case 'warning': case 'warn': return 'text-yellow-700 bg-yellow-50 border border-yellow-200'
+      case 'info': return 'text-blue-700 bg-blue-50 border border-blue-200'
+      case 'success': return 'text-green-700 bg-green-50 border border-green-200'
+      default: return 'text-gray-700 bg-gray-50 border border-gray-200'
+    }
+  }
+  
+  const getLevelRowBg = (level) => {
+    switch (level) {
+      case 'error': return 'bg-red-50/30 hover:bg-red-50/50'
+      case 'warning': case 'warn': return 'bg-yellow-50/20 hover:bg-yellow-50/40'
+      case 'info': return 'bg-blue-50/10 hover:bg-blue-50/20'
+      default: return 'hover:bg-gray-50'
     }
   }
 
@@ -668,6 +812,65 @@ const Logs = () => {
             
             {/* Filter Controls */}
             <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto lg:flex-shrink-0">
+              {/* Time Range Presets */}
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => setTimeRangePreset('15m')}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    timeRangePreset === '15m'
+                      ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Last 15 minutes"
+                >
+                  15m
+                </button>
+                <button
+                  onClick={() => setTimeRangePreset('1h')}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    timeRangePreset === '1h'
+                      ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Last 1 hour"
+                >
+                  1h
+                </button>
+                <button
+                  onClick={() => setTimeRangePreset('24h')}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    timeRangePreset === '24h'
+                      ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Last 24 hours"
+                >
+                  24h
+                </button>
+                <button
+                  onClick={() => setTimeRangePreset('7d')}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    timeRangePreset === '7d'
+                      ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Last 7 days"
+                >
+                  7d
+                </button>
+                <button
+                  onClick={() => setTimeRangePreset('all')}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+                    timeRangePreset === 'all'
+                      ? 'bg-blue-100 text-blue-700 border-2 border-blue-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="All time"
+                >
+                  All
+                </button>
+              </div>
+              
               {/* Quick Filter Buttons */}
               <div className="flex gap-2 flex-shrink-0">
                 <button
@@ -821,9 +1024,15 @@ const Logs = () => {
                     const isFailed = log.success === false || log.level === 'error'
                     const isExpanded = expandedGroups.has(groupData?.id)
                     
+                    const logId = log._id || `log_${index}_${log.timestamp}_${log.action || 'unknown'}`
+                    const hasStackTrace = log.stackTrace || log.stack || log.error?.stack
+                    const isStackTraceExpanded = expandedStackTraces.has(logId)
+                    const isCopied = copiedStackTraces.has(logId)
+                    const rowBgClass = getLevelRowBg(log.level)
+                    
                     return (
-                      <React.Fragment key={log._id || `log_${index}_${log.timestamp}_${log.action || 'unknown'}`}>
-                        <TableRow className={`hover:bg-gray-50 ${isFailed ? 'bg-red-50/30' : ''} ${isGroup ? 'font-semibold' : ''}`}>
+                      <React.Fragment key={logId}>
+                        <TableRow className={`${rowBgClass} ${isFailed ? 'bg-red-50/30' : ''} ${isGroup ? 'font-semibold' : ''}`}>
                           <TableCell className="font-mono text-sm align-middle">
                             <div className="flex flex-col">
                               <span className="text-xs text-gray-600" title={timestamp.absolute}>
@@ -883,8 +1092,49 @@ const Logs = () => {
                             </div>
                           </TableCell>
                           <TableCell className="max-w-xs align-middle">
-                            <div className="truncate text-sm" title={log.message || log.details}>
-                              {log.message || log.details || '-'}
+                            <div className="space-y-1">
+                              <div className="truncate text-sm" title={log.message || log.details}>
+                                {log.message || log.details || '-'}
+                              </div>
+                              {hasStackTrace && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <button
+                                    onClick={() => toggleStackTrace(logId)}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                                  >
+                                    {isStackTraceExpanded ? (
+                                      <>
+                                        <ChevronUp className="w-3 h-3" />
+                                        <span>Hide stack trace</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ChevronDown className="w-3 h-3" />
+                                        <span>Show stack trace</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  {isStackTraceExpanded && (
+                                    <button
+                                      onClick={() => handleCopyStackTrace(logId, hasStackTrace)}
+                                      className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded transition-colors"
+                                      title="Copy stack trace"
+                                    >
+                                      {isCopied ? (
+                                        <>
+                                          <Check className="w-3 h-3" />
+                                          <span>Copied!</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="w-3 h-3" />
+                                          <span>Copy</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell className="font-mono text-sm align-middle">
@@ -914,6 +1164,18 @@ const Logs = () => {
                             </div>
                           </TableCell>
                         </TableRow>
+                        {/* Expanded stack trace */}
+                        {hasStackTrace && isStackTraceExpanded && (
+                          <TableRow className={`${rowBgClass} bg-gray-50/50`}>
+                            <TableCell colSpan={8} className="p-4">
+                              <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs overflow-x-auto">
+                                <pre className="whitespace-pre-wrap break-words">
+                                  {log.stackTrace || log.stack || log.error?.stack || 'No stack trace available'}
+                                </pre>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
                         {/* Expanded group logs */}
                         {isGroup && isExpanded && groupData.logs.slice(1).map((groupLog, groupIndex) => {
                           const groupTimestamp = formatTimestamp(groupLog.timestamp)
@@ -939,75 +1201,135 @@ const Logs = () => {
                             return indicators
                           })()
                           
+                          const groupLogId = `${groupData.id}-${groupIndex}`
+                          const groupHasStackTrace = groupLog.stackTrace || groupLog.stack || groupLog.error?.stack
+                          const groupIsStackTraceExpanded = expandedStackTraces.has(groupLogId)
+                          const groupIsCopied = copiedStackTraces.has(groupLogId)
+                          
                           return (
-                            <TableRow key={`${groupData.id}-${groupIndex}`} className={`hover:bg-gray-50 bg-gray-50/50 ${groupIsFailed ? 'bg-red-50/20' : ''}`}>
-                              <TableCell className="font-mono text-sm pl-8 align-middle">
-                                <span className="text-xs text-gray-600" title={groupTimestamp.absolute}>
-                                  {groupTimestamp.relative}
-                                </span>
-                              </TableCell>
-                              <TableCell className="align-middle">
-                                <div className="flex items-center space-x-2 flex-wrap">
-                                  {getLevelIcon(groupLog.level)}
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(groupLog.level)}`}>
-                                    {groupLog.level}
+                            <React.Fragment key={groupLogId}>
+                              <TableRow className={`hover:bg-gray-50 bg-gray-50/50 ${groupIsFailed ? 'bg-red-50/20' : ''}`}>
+                                <TableCell className="font-mono text-sm pl-8 align-middle">
+                                  <span className="text-xs text-gray-600" title={groupTimestamp.absolute}>
+                                    {groupTimestamp.relative}
                                   </span>
-                                  {groupSuspiciousIndicators.length > 0 && (
-                                    <div className="flex items-center gap-1 flex-shrink-0">
-                                      {groupSuspiciousIndicators.map((indicator, idx) => (
-                                        <span
-                                          key={idx}
-                                          className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300 inline-flex items-center"
-                                          title={
-                                            indicator.type === 'multiple_failed'
-                                              ? `${indicator.count} failed attempts from this IP`
-                                              : 'Blocked attempt'
-                                          }
-                                        >
-                                          {indicator.type === 'multiple_failed' ? (
-                                            <Shield className="w-3 h-3" />
-                                          ) : (
-                                            <Ban className="w-3 h-3" />
-                                          )}
-                                        </span>
-                                      ))}
+                                </TableCell>
+                                <TableCell className="align-middle">
+                                  <div className="flex items-center space-x-2 flex-wrap">
+                                    {getLevelIcon(groupLog.level)}
+                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(groupLog.level)}`}>
+                                      {groupLog.level}
+                                    </span>
+                                    {groupSuspiciousIndicators.length > 0 && (
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        {groupSuspiciousIndicators.map((indicator, idx) => (
+                                          <span
+                                            key={idx}
+                                            className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300 inline-flex items-center"
+                                            title={
+                                              indicator.type === 'multiple_failed'
+                                                ? `${indicator.count} failed attempts from this IP`
+                                                : 'Blocked attempt'
+                                            }
+                                          >
+                                            {indicator.type === 'multiple_failed' ? (
+                                              <Shield className="w-3 h-3" />
+                                            ) : (
+                                              <Ban className="w-3 h-3" />
+                                            )}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="align-middle">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(groupLog.type)}`}>
+                                    {groupLog.type?.replace('_', ' ') || 'N/A'}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="max-w-xs align-middle">
+                                  <div className="truncate text-sm" title={groupLog.action}>
+                                    {groupLog.action}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="max-w-xs align-middle">
+                                  <div className="space-y-1">
+                                    <div className="truncate text-sm" title={groupLog.message || groupLog.details}>
+                                      {groupLog.message || groupLog.details || '-'}
                                     </div>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="align-middle">
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(groupLog.type)}`}>
-                                  {groupLog.type?.replace('_', ' ') || 'N/A'}
-                                </span>
-                              </TableCell>
-                              <TableCell className="max-w-xs align-middle">
-                                <div className="truncate text-sm" title={groupLog.action}>
-                                  {groupLog.action}
-                                </div>
-                              </TableCell>
-                              <TableCell className="max-w-xs align-middle">
-                                <div className="truncate text-sm" title={groupLog.message || groupLog.details}>
-                                  {groupLog.message || groupLog.details || '-'}
-                                </div>
-                              </TableCell>
-                              <TableCell className="font-mono text-sm align-middle">
-                                {groupLog.ipAddress || 'N/A'}
-                              </TableCell>
-                              <TableCell className="text-sm align-middle">
-                                {groupLog.userId || 'N/A'}
-                              </TableCell>
-                              <TableCell className="align-middle">
-                                <div className="flex items-center justify-center">
-                                  <button 
-                                    onClick={() => handleViewLog(groupLog)}
-                                    className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors flex-shrink-0"
-                                    title="View Details"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
+                                    {groupHasStackTrace && (
+                                      <div className="flex items-center gap-2 mt-2">
+                                        <button
+                                          onClick={() => toggleStackTrace(groupLogId)}
+                                          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                                        >
+                                          {groupIsStackTraceExpanded ? (
+                                            <>
+                                              <ChevronUp className="w-3 h-3" />
+                                              <span>Hide stack trace</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <ChevronDown className="w-3 h-3" />
+                                              <span>Show stack trace</span>
+                                            </>
+                                          )}
+                                        </button>
+                                        {groupIsStackTraceExpanded && (
+                                          <button
+                                            onClick={() => handleCopyStackTrace(groupLogId, groupLog.stackTrace || groupLog.stack || groupLog.error?.stack)}
+                                            className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded transition-colors"
+                                            title="Copy stack trace"
+                                          >
+                                            {groupIsCopied ? (
+                                              <>
+                                                <Check className="w-3 h-3" />
+                                                <span>Copied!</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Copy className="w-3 h-3" />
+                                                <span>Copy</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="font-mono text-sm align-middle">
+                                  {groupLog.ipAddress || 'N/A'}
+                                </TableCell>
+                                <TableCell className="text-sm align-middle">
+                                  {groupLog.userId || 'N/A'}
+                                </TableCell>
+                                <TableCell className="align-middle">
+                                  <div className="flex items-center justify-center">
+                                    <button 
+                                      onClick={() => handleViewLog(groupLog)}
+                                      className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors flex-shrink-0"
+                                      title="View Details"
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                              {/* Expanded stack trace for grouped logs */}
+                              {groupHasStackTrace && groupIsStackTraceExpanded && (
+                                <TableRow className="bg-gray-50/30">
+                                  <TableCell colSpan={8} className="p-4 pl-12">
+                                    <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs overflow-x-auto">
+                                      <pre className="whitespace-pre-wrap break-words">
+                                        {groupLog.stackTrace || groupLog.stack || groupLog.error?.stack || 'No stack trace available'}
+                                      </pre>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </React.Fragment>
                           )
                         })}
                       </React.Fragment>
@@ -1154,6 +1476,35 @@ const Logs = () => {
                   <label className="text-sm font-medium text-gray-500">Details</label>
                   <p className="text-sm text-gray-900 mt-1 break-words">{selectedLog.details || selectedLog.message || '-'}</p>
                 </div>
+                {(selectedLog.stackTrace || selectedLog.stack || selectedLog.error?.stack) && (
+                  <div className="col-span-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-500">Stack Trace</label>
+                      <button
+                        onClick={() => handleCopyStackTrace('modal', selectedLog.stackTrace || selectedLog.stack || selectedLog.error?.stack)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded transition-colors"
+                        title="Copy stack trace"
+                      >
+                        {copiedStackTraces.has('modal') ? (
+                          <>
+                            <Check className="w-3 h-3" />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs overflow-x-auto max-h-96 overflow-y-auto">
+                      <pre className="whitespace-pre-wrap break-words">
+                        {selectedLog.stackTrace || selectedLog.stack || selectedLog.error?.stack || 'No stack trace available'}
+                      </pre>
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="text-sm font-medium text-gray-500">IP Address</label>
                   <p className="text-sm text-gray-900 font-mono mt-1">{selectedLog.ipAddress || '-'}</p>
