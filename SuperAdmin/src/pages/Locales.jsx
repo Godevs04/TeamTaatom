@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
@@ -22,11 +22,55 @@ import {
   ChevronRight,
   Eye,
   Edit2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale } from '../services/localeService'
+import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById } from '../services/localeService'
 import { motion, AnimatePresence } from 'framer-motion'
+
+// Helper function to calculate distance between two coordinates (Haversine formula)
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null
+  const R = 6371 // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+// Helper function to check if coordinates are valid
+const isValidCoordinate = (lat, lng) => {
+  return lat != null && lng != null && 
+         typeof lat === 'number' && typeof lng === 'number' &&
+         !isNaN(lat) && !isNaN(lng) &&
+         lat >= -90 && lat <= 90 &&
+         lng >= -180 && lng <= 180
+}
+
+// Helper function to normalize string for comparison
+const normalizeString = (str) => {
+  return (str || '').toLowerCase().trim()
+}
+
+// Helper function to check if two strings are similar (Levenshtein-like simple check)
+const areSimilarNames = (name1, name2, threshold = 0.8) => {
+  const n1 = normalizeString(name1)
+  const n2 = normalizeString(name2)
+  if (n1 === n2) return true
+  // Simple similarity check: if one contains the other (for partial matches)
+  if (n1.length > 3 && n2.length > 3) {
+    return n1.includes(n2) || n2.includes(n1)
+  }
+  return false
+}
 
 const Locales = () => {
   const [locales, setLocales] = useState([])
@@ -48,6 +92,19 @@ const Locales = () => {
   const [sortField, setSortField] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
   const [selectedLocales, setSelectedLocales] = useState([])
+  const [expandedLocales, setExpandedLocales] = useState(new Set()) // For lazy detail loading
+  const [expandedLocaleDetails, setExpandedLocaleDetails] = useState(new Map()) // Cache expanded details
+  const [showBulkActionModal, setShowBulkActionModal] = useState(false)
+  const [bulkActionType, setBulkActionType] = useState(null) // 'enable' or 'disable'
+  const [bulkActionProgress, setBulkActionProgress] = useState({ current: 0, total: 0 })
+  const [isBulkActionInProgress, setIsBulkActionInProgress] = useState(false)
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const cachedLocalesRef = useRef(null)
+  const previousStateRef = useRef(null) // For rollback on bulk operation failure
   const [formData, setFormData] = useState({
     name: '',
     country: '',
@@ -68,39 +125,182 @@ const Locales = () => {
     displayOrder: '0'
   })
 
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
+
+  // Prevent navigation during bulk operations
+  useEffect(() => {
+    if (isBulkActionInProgress) {
+      const handleBeforeUnload = (e) => {
+        e.preventDefault()
+        e.returnValue = 'A bulk operation is in progress. Are you sure you want to leave?'
+        return e.returnValue
+      }
+      
+      window.addEventListener('beforeunload', handleBeforeUnload)
+      
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload)
+      }
+    }
+  }, [isBulkActionInProgress])
+
   // Reset to page 1 when filters change
   useEffect(() => {
-    setCurrentPage(1)
+    if (isMountedRef.current) {
+      setCurrentPage(1)
+    }
   }, [selectedCountryCode, sortField, sortOrder])
 
-  useEffect(() => {
-    loadLocales()
-  }, [currentPage, searchQuery, selectedCountryCode, sortField, sortOrder])
+  // Load locales with request deduplication
+  const loadLocales = useCallback(async () => {
+    // Prevent duplicate concurrent calls
+    if (isFetchingRef.current) {
+      logger.debug('Locales fetch already in progress, skipping duplicate call')
+      return
+    }
 
-  const loadLocales = async () => {
-    setLoading(true)
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    abortControllerRef.current = new AbortController()
+    isFetchingRef.current = true
+
+    if (isMountedRef.current) {
+      setLoading(true)
+    }
+
     try {
       const result = await getLocales(searchQuery, selectedCountryCode, currentPage, 20)
+      
+      if (abortControllerRef.current?.signal?.aborted) {
+        return
+      }
+
+      if (!isMountedRef.current) return
+
       if (result && result.locales) {
-        setLocales(result.locales)
+        // Store minimal data for list view (lazy detail loading)
+        const minimalLocales = result.locales.map(locale => ({
+          _id: locale._id,
+          name: locale.name,
+          country: locale.country,
+          countryCode: locale.countryCode,
+          stateProvince: locale.stateProvince,
+          stateCode: locale.stateCode,
+          displayOrder: locale.displayOrder,
+          createdAt: locale.createdAt,
+          isActive: locale.isActive,
+          imageUrl: locale.imageUrl,
+          // Only include coordinates if valid
+          latitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.latitude : null,
+          longitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.longitude : null,
+          // Description and other heavy fields loaded on expand
+          description: null,
+          fullDataLoaded: false
+        }))
+        
+        setLocales(minimalLocales)
         setTotalPages(result.pagination?.totalPages || 1)
         setTotalLocales(result.pagination?.total || 0)
+        cachedLocalesRef.current = minimalLocales
       } else {
         logger.error('Unexpected response structure:', result)
+        if (isMountedRef.current) {
+          setLocales([])
+          setTotalPages(1)
+          setTotalLocales(0)
+        }
+      }
+    } catch (error) {
+      if (abortControllerRef.current?.signal?.aborted || error.name === 'AbortError' || error.name === 'CanceledError') {
+        return
+      }
+      
+      if (!isMountedRef.current) return
+
+      handleError(error, toast, 'Failed to load locales')
+      logger.error('Error loading locales:', error)
+      
+      // Fallback to cached data if available
+      if (cachedLocalesRef.current) {
+        setLocales(cachedLocalesRef.current)
+      } else {
         setLocales([])
         setTotalPages(1)
         setTotalLocales(0)
       }
-    } catch (error) {
-      handleError(error, toast, 'Failed to load locales')
-      logger.error('Error loading locales:', error)
-      setLocales([])
-      setTotalPages(1)
-      setTotalLocales(0)
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+      isFetchingRef.current = false
     }
-  }
+  }, [currentPage, searchQuery, selectedCountryCode, sortField, sortOrder])
+
+  useEffect(() => {
+    if (isMountedRef.current) {
+      loadLocales()
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [loadLocales])
+
+  // Detect duplicate locales (similar names and coordinates within radius)
+  const duplicateHints = useMemo(() => {
+    const hints = new Map()
+    const DUPLICATE_RADIUS_KM = 1 // 1 km radius for duplicate detection
+    
+    locales.forEach((locale, index) => {
+      const duplicates = []
+      
+      locales.forEach((otherLocale, otherIndex) => {
+        if (index === otherIndex) return
+        
+        // Check similar names
+        const similarName = areSimilarNames(locale.name, otherLocale.name)
+        
+        // Check coordinates within radius
+        let nearbyCoordinates = false
+        if (isValidCoordinate(locale.latitude, locale.longitude) && 
+            isValidCoordinate(otherLocale.latitude, otherLocale.longitude)) {
+          const distance = calculateDistance(
+            locale.latitude, locale.longitude,
+            otherLocale.latitude, otherLocale.longitude
+          )
+          nearbyCoordinates = distance !== null && distance < DUPLICATE_RADIUS_KM
+        }
+        
+        if (similarName || nearbyCoordinates) {
+          duplicates.push({
+            id: otherLocale._id,
+            name: otherLocale.name,
+            reason: similarName && nearbyCoordinates ? 'name and location' : 
+                    similarName ? 'similar name' : 'nearby location'
+          })
+        }
+      })
+      
+      if (duplicates.length > 0) {
+        hints.set(locale._id, duplicates)
+      }
+    })
+    
+    return hints
+  }, [locales])
 
   // Calculate statistics
   const statistics = useMemo(() => {
@@ -238,17 +438,154 @@ const Locales = () => {
     }
   }
 
-  const handleToggleStatus = async (localeId, currentStatus) => {
+  // Lazy load full locale details when expanded
+  const handleExpandLocale = useCallback(async (localeId) => {
+    if (expandedLocales.has(localeId)) {
+      // Already expanded, just toggle
+      const newExpanded = new Set(expandedLocales)
+      newExpanded.delete(localeId)
+      setExpandedLocales(newExpanded)
+      return
+    }
+
+    // Check cache first
+    if (expandedLocaleDetails.has(localeId)) {
+      const newExpanded = new Set(expandedLocales)
+      newExpanded.add(localeId)
+      setExpandedLocales(newExpanded)
+      return
+    }
+
+    // Fetch full details
+    try {
+      const fullLocale = await getLocaleById(localeId)
+      if (!isMountedRef.current) return
+
+      // Update cache
+      const newDetails = new Map(expandedLocaleDetails)
+      newDetails.set(localeId, fullLocale)
+      setExpandedLocaleDetails(newDetails)
+
+      // Update locale in list with full data
+      setLocales(prev => prev.map(locale => 
+        locale._id === localeId 
+          ? { ...locale, ...fullLocale, fullDataLoaded: true }
+          : locale
+      ))
+
+      // Mark as expanded
+      const newExpanded = new Set(expandedLocales)
+      newExpanded.add(localeId)
+      setExpandedLocales(newExpanded)
+    } catch (error) {
+      if (!isMountedRef.current) return
+      logger.error('Error loading locale details:', error)
+      toast.error('Failed to load locale details')
+    }
+  }, [expandedLocales, expandedLocaleDetails])
+
+  const handleToggleStatus = useCallback(async (localeId, currentStatus) => {
+    if (!isMountedRef.current) return
+
+    const previousState = locales.find(l => l._id === localeId)
+    if (!previousState) return
+
+    // Optimistic update
+    setLocales(prev => prev.map(locale => 
+      locale._id === localeId 
+        ? { ...locale, isActive: !currentStatus }
+        : locale
+    ))
+
     try {
       const newStatus = !currentStatus
       await toggleLocaleStatus(localeId, newStatus)
+      
+      if (!isMountedRef.current) return
+      
       toast.success(`Locale ${newStatus ? 'activated' : 'deactivated'} successfully`)
-      loadLocales()
+      // Refresh to ensure sync with backend
+      await loadLocales()
     } catch (error) {
+      if (!isMountedRef.current) return
+      
+      // Rollback on error
+      setLocales(prev => prev.map(locale => 
+        locale._id === localeId 
+          ? previousState
+          : locale
+      ))
+      
       handleError(error, toast, 'Failed to toggle locale status')
       logger.error('Toggle error:', error)
     }
-  }
+  }, [locales, loadLocales])
+
+  // Bulk enable/disable
+  const handleBulkToggleStatus = useCallback(async (isActive) => {
+    if (selectedLocales.length === 0) {
+      toast.error('Please select at least one locale')
+      return
+    }
+
+    // Store previous state for rollback
+    previousStateRef.current = locales.filter(l => selectedLocales.includes(l._id))
+
+    setIsBulkActionInProgress(true)
+    setBulkActionProgress({ current: 0, total: selectedLocales.length })
+    setShowBulkActionModal(false)
+
+    const results = { success: 0, failed: 0 }
+    const failedIds = []
+
+    for (let i = 0; i < selectedLocales.length; i++) {
+      if (!isMountedRef.current) break
+
+      const localeId = selectedLocales[i]
+      setBulkActionProgress({ current: i + 1, total: selectedLocales.length })
+
+      try {
+        await toggleLocaleStatus(localeId, isActive)
+        results.success++
+        
+        // Optimistic update
+        setLocales(prev => prev.map(locale => 
+          locale._id === localeId 
+            ? { ...locale, isActive }
+            : locale
+        ))
+      } catch (error) {
+        logger.error(`Failed to toggle locale ${localeId}:`, error)
+        results.failed++
+        failedIds.push(localeId)
+      }
+    }
+
+    if (!isMountedRef.current) return
+
+    setIsBulkActionInProgress(false)
+    setBulkActionProgress({ current: 0, total: 0 })
+    setSelectedLocales([])
+
+    if (results.failed > 0) {
+      // Rollback failed items
+      const previousState = previousStateRef.current || []
+      setLocales(prev => prev.map(locale => {
+        if (failedIds.includes(locale._id)) {
+          const previous = previousState.find(p => p._id === locale._id)
+          return previous || locale
+        }
+        return locale
+      }))
+      
+      toast.error(`${results.success} updated, ${results.failed} failed`)
+    } else {
+      toast.success(`${results.success} locale(s) ${isActive ? 'activated' : 'deactivated'} successfully`)
+    }
+
+    // Refresh to ensure sync
+    await loadLocales()
+  }, [selectedLocales, locales, loadLocales])
 
   const handlePreview = (locale) => {
     setPreviewLocale(locale)
@@ -330,6 +667,214 @@ const Locales = () => {
     if (sortField !== field) return null
     return sortOrder === 'asc' ? <SortAsc className="w-4 h-4 ml-1" /> : <SortDesc className="w-4 h-4 ml-1" />
   }
+
+  // Memoized Locale Row Component for performance
+  const LocaleRow = memo(({ 
+    locale, 
+    index, 
+    isSelected, 
+    onSelect, 
+    onToggleStatus, 
+    onPreview, 
+    onEdit, 
+    onDelete,
+    onExpand,
+    isExpanded,
+    duplicateHints,
+    hasInvalidCoordinates
+  }) => {
+    const hasDuplicates = duplicateHints.has(locale._id)
+    const duplicates = duplicateHints.get(locale._id) || []
+    
+    return (
+      <>
+        <motion.tr
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ delay: index * 0.05 }}
+          className={`border-b border-gray-100 transition-colors ${
+            locale.isActive 
+              ? 'hover:bg-green-50/50 bg-white' 
+              : 'hover:bg-gray-50/50 bg-gray-50/30'
+          }`}
+        >
+          <TableCell>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={(e) => onSelect(locale._id, e.target.checked)}
+              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+          </TableCell>
+          <TableCell>
+            <button
+              onClick={() => onExpand(locale._id)}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+              title={isExpanded ? 'Collapse details' : 'Expand details'}
+            >
+              {isExpanded ? (
+                <ChevronUp className="w-4 h-4 text-gray-600" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-600" />
+              )}
+            </button>
+          </TableCell>
+          <TableCell>
+            <div className="flex items-center gap-3">
+              {locale.imageUrl && (
+                <img 
+                  src={locale.imageUrl} 
+                  alt={locale.name}
+                  className="w-10 h-10 rounded-lg object-cover"
+                />
+              )}
+              <div className="flex flex-col">
+                <span className={`font-medium ${locale.isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+                  {locale.name}
+                </span>
+                {hasDuplicates && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <AlertTriangle className="w-3 h-3 text-orange-500" />
+                    <span className="text-xs text-orange-600">
+                      Possible duplicate ({duplicates.length})
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </TableCell>
+          <TableCell className={locale.isActive ? 'text-gray-700' : 'text-gray-500'}>
+            {locale.country}
+          </TableCell>
+          <TableCell>
+            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-semibold">
+              {locale.countryCode}
+            </span>
+          </TableCell>
+          <TableCell className={locale.isActive ? 'text-gray-700' : 'text-gray-500'}>
+            {locale.stateProvince || '-'}
+          </TableCell>
+          <TableCell className={locale.isActive ? 'text-gray-700' : 'text-gray-500'}>
+            {locale.displayOrder || 0}
+          </TableCell>
+          <TableCell className={`text-sm ${locale.isActive ? 'text-gray-600' : 'text-gray-400'}`}>
+            {formatDate(locale.createdAt)}
+          </TableCell>
+          <TableCell>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onToggleStatus(locale._id, locale.isActive)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 cursor-pointer ${
+                  locale.isActive
+                    ? 'bg-green-500'
+                    : 'bg-gray-300'
+                }`}
+                title={`Click to ${locale.isActive ? 'deactivate' : 'activate'}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${
+                    locale.isActive ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                locale.isActive
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-red-100 text-red-700'
+              }`}>
+                {locale.isActive ? 'Active' : 'Inactive'}
+              </span>
+              {hasInvalidCoordinates && (
+                <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  Invalid coords
+                </span>
+              )}
+            </div>
+          </TableCell>
+          <TableCell>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => onPreview(locale)}
+                className="p-2 hover:bg-green-100 rounded-lg transition-colors"
+                title="Preview"
+              >
+                <Eye className="w-4 h-4 text-green-600" />
+              </button>
+              <button
+                onClick={() => onEdit(locale)}
+                className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
+                title="Edit"
+              >
+                <Edit2 className="w-4 h-4 text-blue-600" />
+              </button>
+              <button
+                onClick={() => onDelete(locale)}
+                className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                title="Delete"
+              >
+                <Trash2 className="w-4 h-4 text-red-600" />
+              </button>
+            </div>
+          </TableCell>
+        </motion.tr>
+        {isExpanded && (
+          <motion.tr
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-gray-50"
+          >
+            <TableCell colSpan={10} className="p-4">
+              <div className="space-y-3">
+                {locale.fullDataLoaded ? (
+                  <>
+                    {locale.description && (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-700 mb-1">Description:</p>
+                        <p className="text-sm text-gray-600">{locale.description}</p>
+                      </div>
+                    )}
+                    {isValidCoordinate(locale.latitude, locale.longitude) ? (
+                      <div>
+                        <p className="text-sm font-semibold text-gray-700 mb-1">Coordinates:</p>
+                        <p className="text-sm text-gray-600">
+                          {locale.latitude.toFixed(6)}, {locale.longitude.toFixed(6)}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-yellow-700">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>Coordinates missing or invalid</span>
+                      </div>
+                    )}
+                    {hasDuplicates && (
+                      <div>
+                        <p className="text-sm font-semibold text-orange-700 mb-1">Possible Duplicates:</p>
+                        <ul className="text-sm text-orange-600 space-y-1">
+                          {duplicates.map(dup => (
+                            <li key={dup.id}>• {dup.name} ({dup.reason})</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                    <span className="ml-2 text-sm text-gray-500">Loading details...</span>
+                  </div>
+                )}
+              </div>
+            </TableCell>
+          </motion.tr>
+        )}
+      </>
+    )
+  })
+
+  LocaleRow.displayName = 'LocaleRow'
 
   return (
     <div className="p-6 space-y-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
@@ -467,7 +1012,58 @@ const Locales = () => {
                 ))}
               </select>
             </div>
+            {selectedLocales.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">
+                  {selectedLocales.length} selected
+                </span>
+                <button
+                  onClick={() => {
+                    setBulkActionType('enable')
+                    setShowBulkActionModal(true)
+                  }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isBulkActionInProgress}
+                >
+                  Enable
+                </button>
+                <button
+                  onClick={() => {
+                    setBulkActionType('disable')
+                    setShowBulkActionModal(true)
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isBulkActionInProgress}
+                >
+                  Disable
+                </button>
+                <button
+                  onClick={() => setSelectedLocales([])}
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors text-sm font-medium"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
+          {isBulkActionInProgress && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-900">
+                    Processing {bulkActionProgress.current} of {bulkActionProgress.total} locales...
+                  </p>
+                  <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(bulkActionProgress.current / bulkActionProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -508,6 +1104,21 @@ const Locales = () => {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 hover:bg-gray-50">
+                    <TableHead className="w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedLocales.length === sortedLocales.length && sortedLocales.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedLocales(sortedLocales.map(l => l._id))
+                          } else {
+                            setSelectedLocales([])
+                          }
+                        }}
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                    </TableHead>
+                    <TableHead className="w-12"></TableHead>
                     <TableHead>
                       <button
                         onClick={() => handleSort('name')}
@@ -552,89 +1163,32 @@ const Locales = () => {
                 </TableHeader>
                 <TableBody>
                   <AnimatePresence>
-                    {sortedLocales.map((locale, index) => (
-                      <motion.tr
-                        key={locale._id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ delay: index * 0.05 }}
-                        className="border-b border-gray-100 hover:bg-green-50/50 transition-colors"
-                      >
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            {locale.imageUrl && (
-                              <img 
-                                src={locale.imageUrl} 
-                                alt={locale.name}
-                                className="w-10 h-10 rounded-lg object-cover"
-                              />
-                            )}
-                            <span className="font-medium text-gray-900">{locale.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-700">{locale.country}</TableCell>
-                        <TableCell>
-                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs font-semibold">
-                            {locale.countryCode}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-gray-700">{locale.stateProvince || '-'}</TableCell>
-                        <TableCell className="text-gray-700">{locale.displayOrder || 0}</TableCell>
-                        <TableCell className="text-gray-600 text-sm">{formatDate(locale.createdAt)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <button
-                              onClick={() => handleToggleStatus(locale._id, locale.isActive)}
-                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 cursor-pointer ${
-                                locale.isActive
-                                  ? 'bg-green-500'
-                                  : 'bg-gray-300'
-                              }`}
-                              title={`Click to ${locale.isActive ? 'deactivate' : 'activate'}`}
-                            >
-                              <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${
-                                  locale.isActive ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                              />
-                            </button>
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              locale.isActive
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-red-700'
-                            }`}>
-                              {locale.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handlePreview(locale)}
-                              className="p-2 hover:bg-green-100 rounded-lg transition-colors"
-                              title="Preview"
-                            >
-                              <Eye className="w-4 h-4 text-green-600" />
-                            </button>
-                            <button
-                              onClick={() => handleEditClick(locale)}
-                              className="p-2 hover:bg-blue-100 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4 text-blue-600" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(locale)}
-                              className="p-2 hover:bg-red-100 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </button>
-                          </div>
-                        </TableCell>
-                      </motion.tr>
-                    ))}
+                    {sortedLocales.map((locale, index) => {
+                      const hasInvalidCoords = !isValidCoordinate(locale.latitude, locale.longitude)
+                      return (
+                        <LocaleRow
+                          key={locale._id}
+                          locale={locale}
+                          index={index}
+                          isSelected={selectedLocales.includes(locale._id)}
+                          onSelect={(id, checked) => {
+                            if (checked) {
+                              setSelectedLocales(prev => [...prev, id])
+                            } else {
+                              setSelectedLocales(prev => prev.filter(lid => lid !== id))
+                            }
+                          }}
+                          onToggleStatus={handleToggleStatus}
+                          onPreview={handlePreview}
+                          onEdit={handleEditClick}
+                          onDelete={handleDeleteClick}
+                          onExpand={handleExpandLocale}
+                          isExpanded={expandedLocales.has(locale._id)}
+                          duplicateHints={duplicateHints}
+                          hasInvalidCoordinates={hasInvalidCoords}
+                        />
+                      )
+                    })}
                   </AnimatePresence>
                 </TableBody>
               </Table>
@@ -1094,6 +1648,106 @@ const Locales = () => {
             </button>
           </ModalFooter>
         </form>
+      </Modal>
+
+      {/* Bulk Action Modal */}
+      <Modal 
+        isOpen={showBulkActionModal} 
+        onClose={() => {
+          if (!isBulkActionInProgress) {
+            setShowBulkActionModal(false)
+          }
+        }} 
+        className="max-w-md bg-white"
+      >
+        <ModalHeader onClose={() => {
+          if (!isBulkActionInProgress) {
+            setShowBulkActionModal(false)
+          }
+        }}>
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${bulkActionType === 'enable' ? 'bg-green-100' : 'bg-red-100'}`}>
+              {bulkActionType === 'enable' ? (
+                <CheckCircle className="w-5 h-5 text-green-600" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-600" />
+              )}
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900">
+              Bulk {bulkActionType === 'enable' ? 'Enable' : 'Disable'} Locales
+            </h2>
+          </div>
+        </ModalHeader>
+        <ModalContent>
+          <div className="space-y-4">
+            <div className={`p-4 border rounded-xl ${
+              bulkActionType === 'enable' 
+                ? 'bg-green-50 border-green-200' 
+                : 'bg-red-50 border-red-200'
+            }`}>
+              <p className="text-gray-900 font-medium mb-2">
+                Are you sure you want to {bulkActionType === 'enable' ? 'enable' : 'disable'} {selectedLocales.length} locale(s)?
+              </p>
+              <p className="text-gray-600 text-sm">
+                This action will {bulkActionType === 'enable' ? 'activate' : 'deactivate'} all selected locales.
+              </p>
+            </div>
+            {isBulkActionInProgress && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-900">
+                      Processing {bulkActionProgress.current} of {bulkActionProgress.total}...
+                    </p>
+                    <div className="mt-2 w-full bg-blue-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${(bulkActionProgress.current / bulkActionProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isBulkActionInProgress) {
+                setShowBulkActionModal(false)
+              }
+            }}
+            disabled={isBulkActionInProgress}
+            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBulkToggleStatus(bulkActionType === 'enable')}
+            disabled={isBulkActionInProgress}
+            className={`px-6 py-3 rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
+              bulkActionType === 'enable'
+                ? 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white'
+                : 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white'
+            }`}
+          >
+            {isBulkActionInProgress ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                {bulkActionType === 'enable' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                {bulkActionType === 'enable' ? 'Enable' : 'Disable'} {selectedLocales.length} Locale(s)
+              </>
+            )}
+          </button>
+        </ModalFooter>
       </Modal>
 
       {/* Preview Modal */}
