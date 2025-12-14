@@ -1,18 +1,232 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate, getStatusColor } from '../utils/formatDate'
-import { Search, Filter, MoreHorizontal, CheckCircle, XCircle, Eye, AlertTriangle, RefreshCw, Download } from 'lucide-react'
+import { Search, Filter, MoreHorizontal, CheckCircle, XCircle, Eye, AlertTriangle, RefreshCw, Download, Clock, User, Undo2 } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
+import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { api } from '../services/api'
 import logger from '../utils/logger'
 import { handleError } from '../utils/errorCodes'
 
+// Memoized Report Row Component for performance
+const ReportRow = memo(({ 
+  report, 
+  index,
+  selectedReports,
+  onSelect,
+  onActionClick,
+  isLockedByMe,
+  isLockedByOther,
+  lockInfo,
+  isActionInProgress,
+  getAgingBadge,
+  getPriorityColor,
+  getStatusColor,
+  formatDate
+}) => {
+  const reportId = report._id || report.id
+  const agingBadge = getAgingBadge(report.createdAt)
+  
+  return (
+    <TableRow className={isLockedByMe ? 'bg-blue-50' : isLockedByOther ? 'bg-yellow-50 opacity-75' : ''}>
+      <TableCell>
+        <input
+          type="checkbox"
+          checked={selectedReports.includes(reportId)}
+          onChange={() => onSelect(reportId)}
+          className="rounded"
+          disabled={isActionInProgress}
+        />
+      </TableCell>
+      <TableCell>
+        <span className="font-medium text-gray-900 capitalize">
+          {report.type?.replace('_', ' ') || 'Unknown'}
+        </span>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center space-x-2">
+          {report.reportedBy?.profilePic && (
+            <img src={report.reportedBy.profilePic} alt={report.reportedBy.fullName} className="w-6 h-6 rounded-full" />
+          )}
+          <span>{report.reportedBy?.fullName || report.reportedBy?.email || 'Unknown'}</span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center space-x-2">
+          {report.reportedUser?.profilePic && (
+            <img src={report.reportedUser.profilePic} alt={report.reportedUser.fullName} className="w-6 h-6 rounded-full" />
+          )}
+          <span>{report.reportedUser?.fullName || report.reportedUser?.email || 'Unknown'}</span>
+        </div>
+      </TableCell>
+      <TableCell className="max-w-xs truncate" title={report.reason}>{report.reason || 'No reason provided'}</TableCell>
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(report.priority)}`}>
+            {report.priority || 'medium'}
+          </span>
+          {agingBadge && report.status === 'pending' && (
+            <span className={`px-2 py-0.5 rounded-full text-xs ${agingBadge.color}`}>
+              {agingBadge.text}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
+            {report.status || 'pending'}
+          </span>
+          {isLockedByMe && (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700 flex items-center gap-1">
+              <User className="w-3 h-3" />
+              You
+            </span>
+          )}
+          {isLockedByOther && lockInfo && (
+            <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700 flex items-center gap-1">
+              <User className="w-3 h-3" />
+              {lockInfo.reviewerEmail?.split('@')[0] || 'Other'}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>{formatDate(report.createdAt)}</TableCell>
+      <TableCell>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => onActionClick(report, 'view')}
+            disabled={isActionInProgress}
+            className="p-2 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors relative group disabled:opacity-50"
+            title="View full details of this report"
+          >
+            <Eye className="w-4 h-4" />
+            <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+              View Details
+            </span>
+          </button>
+          {report.status === 'pending' && !isLockedByOther && (
+            <>
+              <button
+                onClick={() => onActionClick(report, 'approve')}
+                disabled={isActionInProgress}
+                className="p-2 rounded-md text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors relative group disabled:opacity-50"
+                title="Approve this report"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  Approve Report
+                </span>
+              </button>
+              <button
+                onClick={() => onActionClick(report, 'reject')}
+                disabled={isActionInProgress}
+                className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors relative group disabled:opacity-50"
+                title="Reject this report"
+              >
+                <XCircle className="w-4 h-4" />
+                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  Reject Report
+                </span>
+              </button>
+            </>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+})
+
+ReportRow.displayName = 'ReportRow'
+
+// Content Preview Component (Lazy-loaded media)
+const ContentPreview = memo(({ content }) => {
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageError, setImageError] = useState(false)
+  
+  if (!content) return null
+  
+  return (
+    <div className="space-y-3">
+      {content.imageUrl && (
+        <div className="relative bg-gray-100 rounded-lg overflow-hidden aspect-video">
+          {!imageLoaded && !imageError && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          )}
+          {imageError ? (
+            <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+              <AlertTriangle className="w-12 h-12" />
+            </div>
+          ) : (
+            <img
+              src={content.imageUrl}
+              alt="Reported content"
+              className={`w-full h-full object-cover ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+              onLoad={() => setImageLoaded(true)}
+              onError={() => {
+                setImageError(true)
+                setImageLoaded(false)
+              }}
+              loading="lazy"
+            />
+          )}
+        </div>
+      )}
+      {content.videoUrl && (
+        <div className="relative bg-gray-100 rounded-lg overflow-hidden aspect-video">
+          <video
+            src={content.videoUrl}
+            controls
+            className="w-full h-full object-cover"
+            preload="metadata"
+          />
+        </div>
+      )}
+      {content.caption && (
+        <div className="bg-gray-50 rounded-lg p-3">
+          <p className="text-sm text-gray-900">{content.caption}</p>
+        </div>
+      )}
+      {!content.imageUrl && !content.videoUrl && !content.caption && (
+        <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
+          <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+          <p>No content preview available</p>
+        </div>
+      )}
+    </div>
+  )
+})
+
+ContentPreview.displayName = 'ContentPreview'
+
+// Helper: Calculate aging badge text
+const getAgingBadge = (createdAt) => {
+  if (!createdAt) return null
+  const now = Date.now()
+  const created = new Date(createdAt).getTime()
+  const diffMs = now - created
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffMinutes = Math.floor(diffMs / (1000 * 60))
+  
+  if (diffDays > 0) return { text: `Pending for ${diffDays}d`, color: diffDays >= 7 ? 'bg-red-100 text-red-700' : diffDays >= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700' }
+  if (diffHours > 0) return { text: `Pending for ${diffHours}h`, color: 'bg-blue-100 text-blue-700' }
+  if (diffMinutes > 0) return { text: `Pending for ${diffMinutes}m`, color: 'bg-gray-100 text-gray-700' }
+  return { text: 'Just now', color: 'bg-gray-100 text-gray-700' }
+}
+
+// Priority order for sorting (higher = more important)
+const PRIORITY_ORDER = { critical: 4, high: 3, medium: 2, low: 1 }
+
 const Reports = () => {
   const { reports, fetchReports, isConnected } = useRealTime()
+  const { user: currentAdmin } = useAuth()
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedReport, setSelectedReport] = useState(null)
@@ -21,7 +235,7 @@ const Reports = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [itemsPerPage, setItemsPerPage] = useState(20)
-  const [sortBy, setSortBy] = useState('createdAt')
+  const [sortBy, setSortBy] = useState('priority') // Default to priority sort
   const [sortOrder, setSortOrder] = useState('desc')
   const [showMoreFilters, setShowMoreFilters] = useState(false)
   const [typeFilter, setTypeFilter] = useState('all')
@@ -29,22 +243,161 @@ const Reports = () => {
   const [selectedReports, setSelectedReports] = useState([])
   const [showExportModal, setShowExportModal] = useState(false)
   
+  // Soft locking state (client-side only, no DB changes)
+  const [lockedReports, setLockedReports] = useState(new Map()) // reportId -> { reviewerEmail, lockedAt, timeoutId }
+  
+  // Undo state for moderation actions
+  const [undoState, setUndoState] = useState(null) // { reportId, previousStatus, action, timeoutId }
+  
+  // Action in-flight tracking
+  const actionInProgressRef = useRef(new Set()) // Track reportIds being acted upon
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const searchDebounceTimerRef = useRef(null)
+  const inactivityTimerRef = useRef(null)
+  const UNDO_WINDOW_MS = 5000 // 5 seconds undo window
+  const LOCK_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes inactivity timeout
+  
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      // Clean up all locks and timers
+      lockedReports.forEach((lock) => {
+        if (lock.timeoutId) clearTimeout(lock.timeoutId)
+      })
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+      if (searchDebounceTimerRef.current) clearTimeout(searchDebounceTimerRef.current)
+      if (undoState?.timeoutId) clearTimeout(undoState.timeoutId)
+    }
+  }, [lockedReports, undoState])
+
   // Handle initial load state
   useEffect(() => {
-    if (reports && reports.length > 0) {
+    if (reports && reports.length > 0 && isMountedRef.current) {
       setIsInitialLoad(false)
     }
   }, [reports])
+  
+  // Auto-release locks on inactivity
+  useEffect(() => {
+    const checkInactivity = () => {
+      const now = Date.now()
+      setLockedReports(prev => {
+        const updated = new Map(prev)
+        let changed = false
+        prev.forEach((lock, reportId) => {
+          if (now - lock.lockedAt > LOCK_TIMEOUT_MS) {
+            if (lock.timeoutId) clearTimeout(lock.timeoutId)
+            updated.delete(reportId)
+            changed = true
+          }
+        })
+        return changed ? updated : prev
+      })
+    }
+    
+    const interval = setInterval(checkInactivity, 60000) // Check every minute
+    return () => clearInterval(interval)
+  }, [])
+  
+  // Auto-release lock when navigating away from modal
+  useEffect(() => {
+    if (!showModal && selectedReport) {
+      releaseLock(selectedReport._id || selectedReport.id)
+    }
+  }, [showModal, selectedReport])
 
+  // Soft locking functions
+  const acquireLock = useCallback((reportId) => {
+    if (!currentAdmin?.email) return false
+    const reviewerEmail = currentAdmin.email
+    const now = Date.now()
+    
+    setLockedReports(prev => {
+      const existing = prev.get(reportId)
+      // If already locked by someone else, don't acquire
+      if (existing && existing.reviewerEmail !== reviewerEmail) {
+        return prev
+      }
+      
+      const updated = new Map(prev)
+      // Clear existing timeout if any
+      if (existing?.timeoutId) clearTimeout(existing.timeoutId)
+      
+      // Set new lock with timeout
+      const timeoutId = setTimeout(() => {
+        setLockedReports(prevLocked => {
+          const updatedLocked = new Map(prevLocked)
+          updatedLocked.delete(reportId)
+          return updatedLocked
+        })
+      }, LOCK_TIMEOUT_MS)
+      
+      updated.set(reportId, { reviewerEmail, lockedAt: now, timeoutId })
+      return updated
+    })
+    return true
+  }, [currentAdmin])
+  
+  const releaseLock = useCallback((reportId) => {
+    if (!reportId) return
+    setLockedReports(prev => {
+      const lock = prev.get(reportId)
+      if (lock?.timeoutId) clearTimeout(lock.timeoutId)
+      const updated = new Map(prev)
+      updated.delete(reportId)
+      return updated
+    })
+  }, [])
+  
+  const isLockedByMe = useCallback((reportId) => {
+    if (!currentAdmin?.email) return false
+    const lock = lockedReports.get(reportId)
+    return lock && lock.reviewerEmail === currentAdmin.email
+  }, [currentAdmin, lockedReports])
+  
+  const isLockedByOther = useCallback((reportId) => {
+    if (!currentAdmin?.email) return false
+    const lock = lockedReports.get(reportId)
+    return lock && lock.reviewerEmail !== currentAdmin.email
+  }, [currentAdmin, lockedReports])
+  
   // Reset to page 1 when filters change (except search which is handled separately)
   useEffect(() => {
-    setCurrentPage(1)
+    if (isMountedRef.current) {
+      setCurrentPage(1)
+    }
   }, [filterStatus, typeFilter, priorityFilter, sortBy, sortOrder])
 
-  // Fetch reports data on component mount and when filters change
+  // Fetch reports data on component mount and when filters change (with deduplication)
   useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    // Prevent duplicate concurrent fetches
+    if (isFetchingRef.current) {
+      logger.debug('Reports fetch already in progress, skipping duplicate call')
+      return
+    }
+    
     const fetchData = async () => {
-      setLoading(true)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      abortControllerRef.current = new AbortController()
+      isFetchingRef.current = true
+      
+      if (isMountedRef.current) {
+        setLoading(true)
+      }
+      
       try {
         const params = {
           page: currentPage,
@@ -68,45 +421,116 @@ const Reports = () => {
         
         await fetchReports(params)
       } catch (error) {
-        handleError(error, toast, 'Failed to fetch reports')
-        logger.error('Error fetching reports:', error)
+        if (error.name === 'AbortError' || error.name === 'CanceledError') {
+          return
+        }
+        if (isMountedRef.current) {
+          handleError(error, toast, 'Failed to fetch reports')
+          logger.error('Error fetching reports:', error)
+        }
       } finally {
-        setLoading(false)
+        if (isMountedRef.current) {
+          setLoading(false)
+        }
+        isFetchingRef.current = false
       }
     }
 
     fetchData()
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
   }, [fetchReports, currentPage, filterStatus, sortBy, sortOrder, typeFilter, priorityFilter])
 
   // Handle search with debouncing (standardized 500ms delay)
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (searchTerm !== '') {
+    if (searchDebounceTimerRef.current) {
+      clearTimeout(searchDebounceTimerRef.current)
+    }
+    
+    searchDebounceTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current && searchTerm !== '') {
         setCurrentPage(1) // Reset to first page when searching
       }
     }, 500) // Standardized debounce delay: 500ms
 
-    return () => clearTimeout(timeoutId)
+    return () => {
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current)
+      }
+    }
   }, [searchTerm])
 
-  // Handle report actions
-  const handleReportAction = async (reportId, action) => {
+  // Handle report actions with optimistic updates and undo
+  const handleReportAction = useCallback(async (reportId, action) => {
+    // Prevent duplicate actions
+    if (actionInProgressRef.current.has(reportId)) {
+      logger.debug(`Action already in progress for report ${reportId}`)
+      return
+    }
+    
+    if (!isMountedRef.current) return
+    
+    // Get current report state for rollback
+    const reportsArray = Array.isArray(reports) ? reports : (reports?.reports || [])
+    const report = reportsArray.find(r => (r._id || r.id) === reportId)
+    if (!report) return
+    
+    const previousStatus = report.status
+    actionInProgressRef.current.add(reportId)
+    
+    // Optimistic update
+    const status = action === 'approve' ? 'resolved' : 'dismissed'
+    
     try {
-      const status = action === 'approve' ? 'resolved' : 'dismissed'
-      
       await api.patch(`/api/superadmin/reports/${reportId}`, {
         status,
         adminNotes: action === 'approve' ? 'Report approved by admin' : 'Report dismissed by admin'
       })
       
-      toast.success(`Report ${action}d successfully`)
+      if (!isMountedRef.current) return
+      
+      // Release lock
+      releaseLock(reportId)
+      
+      // Set undo state
+      const undoTimeoutId = setTimeout(() => {
+        setUndoState(null)
+      }, UNDO_WINDOW_MS)
+      
+      setUndoState({
+        reportId,
+        previousStatus,
+        action,
+        timeoutId: undoTimeoutId
+      })
+      
+      toast.success(
+        (t) => (
+          <div className="flex items-center justify-between">
+            <span>Report {action}d successfully</span>
+            <button
+              onClick={() => {
+                handleUndo(reportId, previousStatus)
+                toast.dismiss(t.id)
+              }}
+              className="ml-4 text-blue-600 hover:text-blue-800 font-semibold"
+            >
+              Undo
+            </button>
+          </div>
+        ),
+        { duration: UNDO_WINDOW_MS }
+      )
       
       // Remove the report from selected reports if it was selected
       setSelectedReports(prev => prev.filter(id => id !== reportId))
       
-      // Refresh reports after action
-      setLoading(true)
-      try {
+      // Refresh reports after action (non-blocking)
+      if (isMountedRef.current) {
         const params = {
           page: currentPage,
           limit: 20
@@ -124,17 +548,62 @@ const Reports = () => {
           params.priority = priorityFilter
         }
         
-        await fetchReports(params)
-      } catch (error) {
-        logger.error('Refresh error:', error)
-      } finally {
-        setLoading(false)
+        fetchReports(params).catch(err => {
+          logger.error('Refresh error:', err)
+        })
       }
     } catch (error) {
+      if (!isMountedRef.current) return
+      
       logger.error('Report action error:', error)
       handleError(error, toast, `Failed to ${action} report`)
+      
+      // Rollback would happen via refetch, but we could also optimistically revert here
+    } finally {
+      actionInProgressRef.current.delete(reportId)
     }
-  }
+  }, [reports, currentPage, filterStatus, typeFilter, priorityFilter, fetchReports, releaseLock])
+  
+  // Undo action (client-side only, calls API to revert)
+  const handleUndo = useCallback(async (reportId, previousStatus) => {
+    if (!isMountedRef.current) return
+    
+    try {
+      await api.patch(`/api/superadmin/reports/${reportId}`, {
+        status: previousStatus,
+        adminNotes: 'Action undone by admin'
+      })
+      
+      // Clear undo state
+      if (undoState?.timeoutId) clearTimeout(undoState.timeoutId)
+      setUndoState(null)
+      
+      toast.success('Action undone successfully')
+      
+      // Refresh reports
+      const params = {
+        page: currentPage,
+        limit: 20
+      }
+      
+      if (filterStatus !== 'all') {
+        params.status = filterStatus
+      }
+      
+      if (typeFilter !== 'all') {
+        params.type = typeFilter
+      }
+      
+      if (priorityFilter !== 'all') {
+        params.priority = priorityFilter
+      }
+      
+      await fetchReports(params)
+    } catch (error) {
+      logger.error('Undo error:', error)
+      handleError(error, toast, 'Failed to undo action')
+    }
+  }, [undoState, currentPage, filterStatus, typeFilter, priorityFilter, fetchReports])
   
   // Handle report selection
   const handleReportSelect = (reportId) => {
@@ -155,22 +624,63 @@ const Reports = () => {
     }
   }
 
-  // Get filtered reports based on search
+  // Get filtered and sorted reports (with auto-sort by priority and age)
   const reportsArray = Array.isArray(reports) ? reports : (reports?.reports || [])
   
-  // Only do search filtering on frontend, backend already filters by status/type/priority
-  const filteredReports = reportsArray.filter(report => {
-    if (!searchTerm) return true
+  // Filter reports
+  const filteredReports = useMemo(() => {
+    let filtered = reportsArray.filter(report => {
+      if (searchTerm) {
+        const matchesSearch = report.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          report.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          report.reportedBy?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          report.reportedBy?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          report.reportedUser?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          report.reportedUser?.email?.toLowerCase().includes(searchTerm.toLowerCase())
+        
+        if (!matchesSearch) return false
+      }
+      return true
+    })
     
-    const matchesSearch = report.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.reportedBy?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.reportedBy?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.reportedUser?.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      report.reportedUser?.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    // Auto-sort by priority and age (if sortBy is 'priority' or default)
+    if (sortBy === 'priority' || (!sortBy || sortBy === 'createdAt')) {
+      filtered.sort((a, b) => {
+        // First sort by priority (critical > high > medium > low)
+        const priorityA = PRIORITY_ORDER[a.priority] || 0
+        const priorityB = PRIORITY_ORDER[b.priority] || 0
+        
+        if (priorityA !== priorityB) {
+          return sortOrder === 'desc' ? priorityB - priorityA : priorityA - priorityB
+        }
+        
+        // Then sort by age (newer first if desc, older first if asc)
+        const dateA = new Date(a.createdAt).getTime()
+        const dateB = new Date(b.createdAt).getTime()
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB
+      })
+    } else {
+      // Manual sorting by other fields
+      filtered.sort((a, b) => {
+        let aVal = a[sortBy]
+        let bVal = b[sortBy]
+        
+        if (sortBy === 'createdAt') {
+          aVal = new Date(aVal).getTime()
+          bVal = new Date(bVal).getTime()
+        } else if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase()
+          bVal = bVal.toLowerCase()
+        }
+        
+        if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1
+        if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1
+        return 0
+      })
+    }
     
-    return matchesSearch
-  })
+    return filtered
+  }, [reportsArray, searchTerm, sortBy, sortOrder])
 
   // Pagination
   const totalPages = Math.ceil(filteredReports.length / itemsPerPage)
@@ -207,33 +717,54 @@ const Reports = () => {
     }
   }
 
-  const handleReportActionClick = (report, action) => {
-    setSelectedReport({ ...report, action })
-    if (action === 'view') {
-      setShowModal(true)
-    } else {
-      // Direct action for approve/reject
-      setShowModal(true)
+  const handleReportActionClick = useCallback((report, action) => {
+    if (!isMountedRef.current) return
+    
+    const reportId = report._id || report.id
+    
+    // Acquire lock when viewing/acting on report
+    if (action === 'view' || action === 'approve' || action === 'reject') {
+      if (!acquireLock(reportId)) {
+        // Locked by someone else
+        const lock = lockedReports.get(reportId)
+        toast.warning(`This report is being reviewed by ${lock?.reviewerEmail || 'another moderator'}`)
+        return
+      }
     }
-  }
+    
+    setSelectedReport({ ...report, action })
+    setShowModal(true)
+  }, [acquireLock, lockedReports])
 
-  const handleConfirmAction = async () => {
-    if (!selectedReport) {
+  const handleConfirmAction = useCallback(async () => {
+    if (!selectedReport || !isMountedRef.current) {
       setShowModal(false)
       return
     }
     
+    // Soft confirmation for resolve/dismiss
+    if (selectedReport.action === 'approve' || selectedReport.action === 'reject') {
+      const confirmed = window.confirm(
+        `Are you sure you want to ${selectedReport.action === 'approve' ? 'resolve' : 'dismiss'} this report? This action cannot be undone.`
+      )
+      if (!confirmed) return
+    }
+    
     try {
       if (selectedReport.action === 'approve' || selectedReport.action === 'reject') {
-        await handleReportAction(selectedReport._id, selectedReport.action)
+        await handleReportAction(selectedReport._id || selectedReport.id, selectedReport.action)
       }
-      setShowModal(false)
-      setSelectedReport(null)
+      if (isMountedRef.current) {
+        setShowModal(false)
+        setSelectedReport(null)
+      }
     } catch (error) {
-      logger.error('Confirm action error:', error)
-      handleError(error, toast, `Failed to ${selectedReport.action} report`)
+      if (isMountedRef.current) {
+        logger.error('Confirm action error:', error)
+        handleError(error, toast, `Failed to ${selectedReport.action} report`)
+      }
     }
-  }
+  }, [selectedReport, handleReportAction])
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -518,10 +1049,10 @@ const Reports = () => {
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
               >
+                <option value="priority">Sort by Priority (Auto)</option>
                 <option value="createdAt">Sort by Date</option>
                 <option value="type">Sort by Type</option>
                 <option value="status">Sort by Status</option>
-                <option value="priority">Sort by Priority</option>
               </select>
               <button
                 onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
@@ -561,88 +1092,23 @@ const Reports = () => {
               </TableHeader>
               <TableBody>
                 {currentReports.map((report, index) => (
-                  <TableRow key={report.id || report._id || `report-${index}`}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedReports.includes(report._id || report.id)}
-                        onChange={() => handleReportSelect(report._id || report.id)}
-                        className="rounded"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-medium text-gray-900 capitalize">
-                        {report.type?.replace('_', ' ') || 'Unknown'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        {report.reportedBy?.profilePic && (
-                          <img src={report.reportedBy.profilePic} alt={report.reportedBy.fullName} className="w-6 h-6 rounded-full" />
-                        )}
-                        <span>{report.reportedBy?.fullName || report.reportedBy?.email || 'Unknown'}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        {report.reportedUser?.profilePic && (
-                          <img src={report.reportedUser.profilePic} alt={report.reportedUser.fullName} className="w-6 h-6 rounded-full" />
-                        )}
-                        <span>{report.reportedUser?.fullName || report.reportedUser?.email || 'Unknown'}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate" title={report.reason}>{report.reason || 'No reason provided'}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(report.priority)}`}>
-                        {report.priority || 'medium'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
-                        {report.status || 'pending'}
-                      </span>
-                    </TableCell>
-                    <TableCell>{formatDate(report.createdAt)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleReportActionClick(report, 'view')}
-                          className="p-2 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors relative group"
-                          title="View full details of this report"
-                        >
-                          <Eye className="w-4 h-4" />
-                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                            View Details
-                          </span>
-                        </button>
-                        {report.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={() => handleReportActionClick(report, 'approve')}
-                              className="p-2 rounded-md text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors relative group"
-                              title="Approve this report"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                              <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                Approve Report
-                              </span>
-                            </button>
-                            <button
-                              onClick={() => handleReportActionClick(report, 'reject')}
-                              className="p-2 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors relative group"
-                              title="Reject this report"
-                            >
-                              <XCircle className="w-4 h-4" />
-                              <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                                Reject Report
-                              </span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                </TableRow>
-              ))}
+                  <ReportRow
+                    key={report.id || report._id || `report-${index}`}
+                    report={report}
+                    index={index}
+                    selectedReports={selectedReports}
+                    onSelect={handleReportSelect}
+                    onActionClick={handleReportActionClick}
+                    isLockedByMe={isLockedByMe(report._id || report.id)}
+                    isLockedByOther={isLockedByOther(report._id || report.id)}
+                    lockInfo={lockedReports.get(report._id || report.id)}
+                    isActionInProgress={actionInProgressRef.current.has(report._id || report.id)}
+                    getAgingBadge={getAgingBadge}
+                    getPriorityColor={getPriorityColor}
+                    getStatusColor={getStatusColor}
+                    formatDate={formatDate}
+                  />
+                ))}
             </TableBody>
           </Table>
           )}
@@ -731,50 +1197,88 @@ const Reports = () => {
       )}
 
       {/* Action Modal */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)}>
-        <ModalHeader onClose={() => setShowModal(false)}>
+      <Modal isOpen={showModal} onClose={() => {
+        if (selectedReport) {
+          releaseLock(selectedReport._id || selectedReport.id)
+        }
+        setShowModal(false)
+      }}>
+        <ModalHeader onClose={() => {
+          if (selectedReport) {
+            releaseLock(selectedReport._id || selectedReport.id)
+          }
+          setShowModal(false)
+        }}>
           {selectedReport?.action === 'view' && 'Report Details'}
           {selectedReport?.action === 'approve' && 'Approve Report'}
           {selectedReport?.action === 'reject' && 'Reject Report'}
         </ModalHeader>
         <ModalContent>
           {selectedReport?.action === 'view' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Report Type</label>
-                  <p className="text-sm text-gray-900 capitalize">
-                    {selectedReport.type.replace('_', ' ')}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Priority</label>
-                  <p className="text-sm text-gray-900 capitalize">{selectedReport.priority}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left: Report Details */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Report Type</label>
+                    <p className="text-sm text-gray-900 capitalize">
+                      {selectedReport.type?.replace('_', ' ') || 'Unknown'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Priority</label>
+                    <p className="text-sm text-gray-900 capitalize">{selectedReport.priority || 'medium'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Status</label>
+                    <p className="text-sm text-gray-900 capitalize">{selectedReport.status || 'pending'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Created</label>
+                    <p className="text-sm text-gray-900">{formatDate(selectedReport.createdAt)}</p>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Reporter</label>
-                  <p className="text-sm text-gray-900">{selectedReport.reportedBy?.fullName || selectedReport.reportedBy?.email || selectedReport.reporter || 'Unknown'}</p>
+                  <div className="flex items-center space-x-2 mt-1">
+                    {selectedReport.reportedBy?.profilePic && (
+                      <img src={selectedReport.reportedBy.profilePic} alt={selectedReport.reportedBy.fullName} className="w-8 h-8 rounded-full" />
+                    )}
+                    <p className="text-sm text-gray-900">{selectedReport.reportedBy?.fullName || selectedReport.reportedBy?.email || 'Unknown'}</p>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700">Reported User</label>
-                  <p className="text-sm text-gray-900">{selectedReport.reportedUser?.fullName || selectedReport.reportedUser?.email || selectedReport.reportedUser || 'Unknown'}</p>
+                  <div className="flex items-center space-x-2 mt-1">
+                    {selectedReport.reportedUser?.profilePic && (
+                      <img src={selectedReport.reportedUser.profilePic} alt={selectedReport.reportedUser.fullName} className="w-8 h-8 rounded-full" />
+                    )}
+                    <p className="text-sm text-gray-900">{selectedReport.reportedUser?.fullName || selectedReport.reportedUser?.email || 'Unknown'}</p>
+                  </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Content</label>
-                  <p className="text-sm text-gray-900">{selectedReport.reportedContent?.caption || selectedReport.reportedContent?.content || selectedReport.content || 'Unknown'}</p>
+                  <label className="text-sm font-medium text-gray-700">Reason</label>
+                  <p className="text-sm text-gray-900 mt-1">{selectedReport.reason || 'No reason provided'}</p>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Status</label>
-                  <p className="text-sm text-gray-900 capitalize">{selectedReport.status}</p>
-                </div>
+                {selectedReport.description && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Description</label>
+                    <p className="text-sm text-gray-900 mt-1">{selectedReport.description}</p>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Reason</label>
-                <p className="text-sm text-gray-900">{selectedReport.reason}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Description</label>
-                <p className="text-sm text-gray-900">{selectedReport.description}</p>
+              
+              {/* Right: Content Preview (Lazy-loaded) */}
+              <div className="space-y-4">
+                <label className="text-sm font-medium text-gray-700">Reported Content Preview</label>
+                {selectedReport.reportedContent ? (
+                  <ContentPreview content={selectedReport.reportedContent} />
+                ) : (
+                  <div className="bg-gray-50 rounded-lg p-8 text-center text-gray-500">
+                    <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+                    <p>Content not available</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -796,19 +1300,38 @@ const Reports = () => {
         </ModalContent>
         <ModalFooter>
           <button
-            onClick={() => setShowModal(false)}
+            onClick={() => {
+              if (selectedReport) {
+                releaseLock(selectedReport._id || selectedReport.id)
+              }
+              setShowModal(false)
+            }}
             className="btn btn-secondary"
           >
             Cancel
           </button>
-          <button
-            onClick={handleConfirmAction}
-            className={`btn ${selectedReport?.action === 'reject' ? 'btn-destructive' : 'btn-primary'}`}
-          >
-            {selectedReport?.action === 'view' && 'Close'}
-            {selectedReport?.action === 'approve' && 'Approve'}
-            {selectedReport?.action === 'reject' && 'Reject'}
-          </button>
+          {selectedReport?.action !== 'view' && (
+            <button
+              onClick={handleConfirmAction}
+              className={`btn ${selectedReport?.action === 'reject' ? 'btn-destructive' : 'btn-primary'}`}
+            >
+              {selectedReport?.action === 'approve' && 'Approve'}
+              {selectedReport?.action === 'reject' && 'Reject'}
+            </button>
+          )}
+          {selectedReport?.action === 'view' && (
+            <button
+              onClick={() => {
+                if (selectedReport) {
+                  releaseLock(selectedReport._id || selectedReport.id)
+                }
+                setShowModal(false)
+              }}
+              className="btn btn-primary"
+            >
+              Close
+            </button>
+          )}
         </ModalFooter>
       </Modal>
 
