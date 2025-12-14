@@ -9,13 +9,43 @@ const logger = require('../utils/logger');
 // @access  Public
 const getLocales = async (req, res) => {
   try {
-    const { search, countryCode, page = 1, limit = 50, includeInactive } = req.query;
-    const skip = (page - 1) * limit;
+    // Backend Defensive Guards: Validate and sanitize query params
+    let { search, countryCode, page = 1, limit = 50, includeInactive, spotType } = req.query;
+    
+    // Validate and cap limit (max 50)
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const skip = (parsedPage - 1) * parsedLimit;
+
+    // Backend Defensive Guards: Validate search query (prevent injection)
+    if (search && typeof search !== 'string') {
+      logger.warn('Invalid search parameter type:', typeof search);
+      search = '';
+    }
+    if (search) {
+      search = search.trim().substring(0, 100); // Cap search length
+    }
+    
+    // Backend Defensive Guards: Validate countryCode
+    if (countryCode && typeof countryCode !== 'string') {
+      logger.warn('Invalid countryCode parameter type:', typeof countryCode);
+      countryCode = '';
+    }
+    if (countryCode && countryCode.length > 10) {
+      logger.warn('countryCode too long, truncating');
+      countryCode = countryCode.substring(0, 10);
+    }
+    
+    // Backend Defensive Guards: Validate spotType
+    if (spotType && typeof spotType !== 'string') {
+      logger.warn('Invalid spotType parameter type:', typeof spotType);
+      spotType = '';
+    }
 
     // For SuperAdmin, allow viewing inactive locales if requested
     const query = includeInactive === 'true' ? {} : { isActive: true };
     
-    // Handle search - use regex search
+    // Handle search - use regex search (sanitized)
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -27,12 +57,17 @@ const getLocales = async (req, res) => {
     if (countryCode && countryCode !== 'all') {
       query.countryCode = countryCode.toUpperCase();
     }
+    
+    // Backend Defensive Guards: Add spotType filter if provided
+    if (spotType && spotType !== 'all') {
+      query.spotTypes = { $in: [spotType] };
+    }
 
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt latitude longitude spotTypes')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(parsedLimit)
       .lean();
     
     // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to imageUrl
@@ -46,10 +81,10 @@ const getLocales = async (req, res) => {
     return sendSuccess(res, 200, 'Locales fetched successfully', {
       locales: mappedLocales,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
+        currentPage: parsedPage,
+        totalPages: Math.ceil(total / parsedLimit),
         total,
-        limit: parseInt(limit)
+        limit: parsedLimit
       }
     });
   } catch (error) {
