@@ -178,8 +178,20 @@ export const createPostWithProgress = async (
     if (data.hasExifGps !== undefined) {
       formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
     }
+    // Defensive: ensure takenAt is a valid Date before calling toISOString
     if (data.takenAt) {
-      formData.append('takenAt', data.takenAt.toISOString());
+      let takenAtDate: Date | null = null;
+      if (data.takenAt instanceof Date) {
+        takenAtDate = data.takenAt;
+      } else if (typeof data.takenAt === 'string') {
+        takenAtDate = new Date(data.takenAt);
+      }
+      // Only append if we have a valid Date
+      if (takenAtDate && !isNaN(takenAtDate.getTime())) {
+        formData.append('takenAt', takenAtDate.toISOString());
+      } else {
+        logger.warn('takenAt is not a valid Date, skipping');
+      }
     }
     if (data.source) {
       formData.append('source', data.source);
@@ -211,14 +223,31 @@ export const createPostWithProgress = async (
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to create post');
+      let errorMessage = 'Failed to create post';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.error || errorMessage;
+      } catch (parseError) {
+        // If JSON parsing fails, try to get text response
+        try {
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        } catch (textError) {
+          // Fallback to status text
+          errorMessage = response.statusText || errorMessage;
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     const responseData = await response.json();
     return responseData;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to create post');
+    // Improved error handling: preserve original error message
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(error?.response?.data?.message || error?.message || 'Failed to create post');
   }
 };
 
@@ -246,8 +275,20 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.hasExifGps !== undefined) {
       formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
     }
+    // Defensive: ensure takenAt is a valid Date before calling toISOString
     if (data.takenAt) {
-      formData.append('takenAt', data.takenAt.toISOString());
+      let takenAtDate: Date | null = null;
+      if (data.takenAt instanceof Date) {
+        takenAtDate = data.takenAt;
+      } else if (typeof data.takenAt === 'string') {
+        takenAtDate = new Date(data.takenAt);
+      }
+      // Only append if we have a valid Date
+      if (takenAtDate && !isNaN(takenAtDate.getTime())) {
+        formData.append('takenAt', takenAtDate.toISOString());
+      } else {
+        logger.warn('takenAt is not a valid Date, skipping');
+      }
     }
     if (data.source) {
       formData.append('source', data.source);
@@ -513,6 +554,33 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.address) formData.append('address', data.address);
     if (data.latitude) formData.append('latitude', data.latitude.toString());
     if (data.longitude) formData.append('longitude', data.longitude.toString());
+    
+    // Add location metadata for TripScore v2
+    if (data.hasExifGps !== undefined) {
+      formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
+    }
+    // Defensive: ensure takenAt is a valid Date before calling toISOString
+    if (data.takenAt) {
+      let takenAtDate: Date | null = null;
+      if (data.takenAt instanceof Date) {
+        takenAtDate = data.takenAt;
+      } else if (typeof data.takenAt === 'string') {
+        takenAtDate = new Date(data.takenAt);
+      }
+      // Only append if we have a valid Date
+      if (takenAtDate && !isNaN(takenAtDate.getTime())) {
+        formData.append('takenAt', takenAtDate.toISOString());
+      } else {
+        logger.warn('takenAt is not a valid Date, skipping');
+      }
+    }
+    if (data.source) {
+      formData.append('source', data.source);
+    }
+    if (data.fromCamera !== undefined) {
+      formData.append('fromCamera', data.fromCamera ? 'true' : 'false');
+    }
+    
     if (data.songId) {
       formData.append('songId', data.songId);
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
