@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { LineChartComponent, BarChartComponent, PieChartComponent, AreaChartComponent } from '../components/Charts/index.jsx'
 import { 
@@ -24,7 +24,10 @@ import {
   Calendar,
   Eye,
   Target,
-  Percent
+  Percent,
+  ChevronRight,
+  Home,
+  AlertCircle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { motion } from 'framer-motion'
@@ -37,6 +40,15 @@ import {
   getDetailedLocations
 } from '../services/tripScoreAnalytics'
 import logger from '../utils/logger'
+
+// Memoized chart components for performance
+const MemoizedPieChart = memo(PieChartComponent)
+const MemoizedLineChart = memo(LineChartComponent)
+const MemoizedBarChart = memo(BarChartComponent)
+
+MemoizedPieChart.displayName = 'MemoizedPieChart'
+MemoizedLineChart.displayName = 'MemoizedLineChart'
+MemoizedBarChart.displayName = 'MemoizedBarChart'
 
 const TripScoreAnalytics = () => {
   const [stats, setStats] = useState(null)
@@ -70,7 +82,23 @@ const TripScoreAnalytics = () => {
     manual_only: true
   })
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-
+  
+  // Trust health & navigation state
+  const [trustHealth, setTrustHealth] = useState(null) // 'healthy' | 'warning' | 'risk'
+  const [breadcrumbs, setBreadcrumbs] = useState([{ label: 'Overview', view: 'overview' }])
+  const [loadedSections, setLoadedSections] = useState(new Set(['overview'])) // Track lazy-loaded sections
+  const [dataErrors, setDataErrors] = useState({}) // Track errors per section
+  const [isExporting, setIsExporting] = useState(false)
+  const [exportSection, setExportSection] = useState(null)
+  
+  // Lifecycle & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const analyticsCacheRef = useRef(new Map()) // Cache per period
+  const previousPeriodDataRef = useRef(null) // For trend comparison
+  const chartMemoCacheRef = useRef(new Map()) // Cache chart data transformations
+  
   // Calculate date range from period
   const getDateRange = (period) => {
     const end = new Date()
@@ -96,15 +124,89 @@ const TripScoreAnalytics = () => {
     return { start: start.toISOString(), end: end.toISOString() }
   }
 
-  // Fetch all TripScore analytics data
-  const fetchAllData = async () => {
-    setLoading(true)
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
+  
+  // Calculate trust health from existing stats
+  const calculateTrustHealth = useCallback((currentStats) => {
+    if (!currentStats || !currentStats.totalVisits) return null
+    
+    const trustScore = ((currentStats.trustedVisits / currentStats.totalVisits) * 100)
+    const fraudRate = ((currentStats.suspiciousVisits / currentStats.totalVisits) * 100)
+    
+    // Health logic: Healthy if trust > 70% and fraud < 5%, Warning if trust 50-70% or fraud 5-10%, Risk otherwise
+    if (trustScore >= 70 && fraudRate < 5) {
+      return 'healthy'
+    } else if (trustScore >= 50 && fraudRate < 10) {
+      return 'warning'
+    } else {
+      return 'risk'
+    }
+  }, [])
+  
+  // Fetch all TripScore analytics data with partial failure handling
+  const fetchAllData = useCallback(async (signal) => {
+    if (isFetchingRef.current) {
+      logger.debug('TripScore analytics fetch already in progress, skipping duplicate call')
+      return
+    }
+    
+    isFetchingRef.current = true
+    
+    // Check cache first
+    const cacheKey = `${selectedPeriod}-${suspiciousPage}-${locationsGroupBy}-${locationsPagination.page}`
+    const cachedData = analyticsCacheRef.current.get(cacheKey)
+    
+    if (cachedData && isMountedRef.current) {
+      // Show cached data immediately
+      setStats(cachedData.stats)
+      setTopUsers(cachedData.topUsers || [])
+      setSuspiciousVisits(cachedData.suspiciousVisits || [])
+      setTrustTimeline(cachedData.trustTimeline || [])
+      setContinentBreakdown(cachedData.continentBreakdown || [])
+      setDetailedLocations(cachedData.detailedLocations || [])
+      setLocationsPagination(cachedData.locationsPagination || { page: 1, limit: 50, total: 0, totalPages: 0 })
+      setTrustHealth(calculateTrustHealth(cachedData.stats))
+      // Continue to fetch fresh data in background
+    }
+    
+    if (isMountedRef.current) {
+      setLoading(true)
+      setDataErrors({}) // Clear previous errors
+    }
+    
     try {
       const { start, end } = getDateRange(selectedPeriod)
       
       // Store previous stats for comparison
-      if (stats) {
+      if (stats && isMountedRef.current) {
         setPreviousStats(stats)
+        previousPeriodDataRef.current = stats
+      }
+      
+      // Fetch with individual error handling for partial failure
+      const fetchWithErrorHandling = async (fetchFn, sectionName) => {
+        try {
+          return await fetchFn()
+        } catch (error) {
+          if (error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+            throw error // Re-throw abort errors
+          }
+          logger.error(`Failed to fetch ${sectionName}:`, error)
+          if (isMountedRef.current) {
+            setDataErrors(prev => ({ ...prev, [sectionName]: error.message || 'Failed to load' }))
+          }
+          return null
+        }
       }
       
       const [
@@ -114,64 +216,298 @@ const TripScoreAnalytics = () => {
         timelineData,
         continentsData,
         locationsData
-      ] = await Promise.all([
-        getTripScoreStats(start, end),
-        getTopUsersByTripScore({ limit: 20, startDate: start, endDate: end }),
-        getSuspiciousVisits({ page: suspiciousPage, limit: 20, startDate: start, endDate: end }),
-        getTrustTimeline({ startDate: start, endDate: end, groupBy: 'day' }),
-        getContinentBreakdown(start, end),
-        getDetailedLocations({ startDate: start, endDate: end, groupBy: locationsGroupBy, limit: locationsPagination.limit, page: locationsPagination.page })
+      ] = await Promise.allSettled([
+        fetchWithErrorHandling(() => getTripScoreStats(start, end), 'stats'),
+        fetchWithErrorHandling(() => getTopUsersByTripScore({ limit: 20, startDate: start, endDate: end }), 'topUsers'),
+        fetchWithErrorHandling(() => getSuspiciousVisits({ page: suspiciousPage, limit: 20, startDate: start, endDate: end }), 'suspiciousVisits'),
+        fetchWithErrorHandling(() => getTrustTimeline({ startDate: start, endDate: end, groupBy: 'day' }), 'trustTimeline'),
+        fetchWithErrorHandling(() => getContinentBreakdown(start, end), 'continentBreakdown'),
+        fetchWithErrorHandling(() => getDetailedLocations({ startDate: start, endDate: end, groupBy: locationsGroupBy, limit: locationsPagination.limit, page: locationsPagination.page }), 'detailedLocations')
       ])
       
-      setStats(statsData.stats)
-      setTopUsers(topUsersData.topUsers || [])
-      setSuspiciousVisits(suspiciousData.suspiciousVisits || [])
-      setTrustTimeline(timelineData.timeline || [])
-      setContinentBreakdown(continentsData.continents || [])
-      setDetailedLocations(locationsData.locations || [])
-      setLocationsPagination(locationsData.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 })
+      if (!isMountedRef.current) return
+      
+      // Update state only for successful fetches
+      if (statsData.status === 'fulfilled' && statsData.value) {
+        setStats(statsData.value.stats)
+        setTrustHealth(calculateTrustHealth(statsData.value.stats))
+      }
+      if (topUsersData.status === 'fulfilled' && topUsersData.value) {
+        setTopUsers(topUsersData.value.topUsers || [])
+      }
+      if (suspiciousData.status === 'fulfilled' && suspiciousData.value) {
+        setSuspiciousVisits(suspiciousData.value.suspiciousVisits || [])
+      }
+      if (timelineData.status === 'fulfilled' && timelineData.value) {
+        setTrustTimeline(timelineData.value.timeline || [])
+      }
+      if (continentsData.status === 'fulfilled' && continentsData.value) {
+        setContinentBreakdown(continentsData.value.continents || [])
+      }
+      if (locationsData.status === 'fulfilled' && locationsData.value) {
+        setDetailedLocations(locationsData.value.locations || [])
+        setLocationsPagination(locationsData.value.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 })
+      }
+      
+      // Cache successful data
+      if (statsData.status === 'fulfilled' && statsData.value && isMountedRef.current) {
+        analyticsCacheRef.current.set(cacheKey, {
+          stats: statsData.value.stats,
+          topUsers: topUsersData.status === 'fulfilled' && topUsersData.value ? topUsersData.value.topUsers : [],
+          suspiciousVisits: suspiciousData.status === 'fulfilled' && suspiciousData.value ? suspiciousData.value.suspiciousVisits : [],
+          trustTimeline: timelineData.status === 'fulfilled' && timelineData.value ? timelineData.value.timeline : [],
+          continentBreakdown: continentsData.status === 'fulfilled' && continentsData.value ? continentsData.value.continents : [],
+          detailedLocations: locationsData.status === 'fulfilled' && locationsData.value ? locationsData.value.locations : [],
+          locationsPagination: locationsData.status === 'fulfilled' && locationsData.value ? locationsData.value.pagination : { page: 1, limit: 50, total: 0, totalPages: 0 }
+        })
+      }
+      
+      // Show error toast only if all sections failed
+      const allFailed = Object.keys(dataErrors).length > 0 && !statsData.value && !topUsersData.value && !suspiciousData.value
+      if (allFailed && isMountedRef.current) {
+        toast.error('Failed to fetch TripScore analytics data')
+      }
     } catch (error) {
+      if (error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+        return
+      }
       logger.error('Failed to fetch TripScore analytics data:', error)
-      toast.error('Failed to fetch TripScore analytics data')
+      if (isMountedRef.current) {
+        toast.error('Failed to fetch TripScore analytics data')
+      }
     } finally {
-      setLoading(false)
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+      isFetchingRef.current = false
     }
-  }
+  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page, calculateTrustHealth])
 
+  // Fetch data on mount and when dependencies change
   useEffect(() => {
-    fetchAllData()
-  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page])
-
-  const handleRefresh = async () => {
-    await fetchAllData()
-    toast.success('TripScore analytics data refreshed successfully')
-  }
-
-  const handleExport = () => {
-    // Create CSV export
-    const csvData = [
-      ['Metric', 'Value'],
-      ['Total Visits', stats?.totalVisits || 0],
-      ['Unique Places', stats?.uniquePlaces || 0],
-      ['Trusted Visits', stats?.trustedVisits || 0],
-      ['Suspicious Visits', stats?.suspiciousVisits || 0],
-      ['Unique Users', stats?.uniqueUsers || 0],
-      ['High Trust', stats?.trustBreakdown?.high || 0],
-      ['Medium Trust', stats?.trustBreakdown?.medium || 0],
-      ['Low Trust', stats?.trustBreakdown?.low || 0],
-      ['Unverified', stats?.trustBreakdown?.unverified || 0],
-      ['Suspicious', stats?.trustBreakdown?.suspicious || 0],
-    ]
+    if (!isMountedRef.current) return
     
-    const csvContent = csvData.map(row => row.join(',')).join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `tripscore-analytics-${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-    toast.success('Data exported successfully')
-  }
+    // Abort previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    
+    fetchAllData(abortControllerRef.current.signal)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page])
+  
+  // Lazy load sections when view changes
+  useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    if (!loadedSections.has(selectedView)) {
+      setLoadedSections(prev => new Set([...prev, selectedView]))
+      // Trigger fetch if needed (some views need specific data)
+      if (selectedView === 'locations' && detailedLocations.length === 0) {
+        fetchAllData(abortControllerRef.current?.signal)
+      }
+    }
+  }, [selectedView, loadedSections, detailedLocations.length, fetchAllData])
+
+  const handleRefresh = useCallback(async () => {
+    if (!isMountedRef.current || isFetchingRef.current) return
+    
+    // Clear cache for current period to force fresh fetch
+    const cacheKey = `${selectedPeriod}-${suspiciousPage}-${locationsGroupBy}-${locationsPagination.page}`
+    analyticsCacheRef.current.delete(cacheKey)
+    
+    await fetchAllData(abortControllerRef.current?.signal)
+    if (isMountedRef.current) {
+      toast.success('TripScore analytics data refreshed successfully')
+    }
+  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page, fetchAllData])
+  
+  // Export handler with safety checks
+  const handleExport = useCallback((section = null) => {
+    if (!stats || isExporting) return
+    
+    setIsExporting(true)
+    setExportSection(section)
+    
+    try {
+      let csvData = []
+      
+      if (section === 'overview' || !section) {
+        csvData = [
+          ['Metric', 'Value'],
+          ['Total Visits', stats?.totalVisits || 0],
+          ['Unique Places', stats?.uniquePlaces || 0],
+          ['Trusted Visits', stats?.trustedVisits || 0],
+          ['Suspicious Visits', stats?.suspiciousVisits || 0],
+          ['Unique Users', stats?.uniqueUsers || 0],
+          ['High Trust', stats?.trustBreakdown?.high || 0],
+          ['Medium Trust', stats?.trustBreakdown?.medium || 0],
+          ['Low Trust', stats?.trustBreakdown?.low || 0],
+          ['Unverified', stats?.trustBreakdown?.unverified || 0],
+          ['Suspicious', stats?.trustBreakdown?.suspicious || 0],
+        ]
+      } else if (section === 'users' && topUsers.length > 0) {
+        csvData = [
+          ['Rank', 'User', 'Email', 'TripScore', 'Unique Places'],
+          ...topUsers.map((user, index) => [
+            index + 1,
+            user.fullName || user.username || 'Unknown',
+            user.email || '',
+            user.tripScore || 0,
+            user.uniquePlaces || 0
+          ])
+        ]
+      } else if (section === 'fraud' && suspiciousVisits.length > 0) {
+        csvData = [
+          ['User', 'Location', 'Source', 'Date', 'Reason'],
+          ...suspiciousVisits.map(visit => [
+            visit.user?.fullName || visit.user?.username || 'Unknown',
+            visit.address || 'Unknown',
+            visit.source || 'Unknown',
+            new Date(visit.createdAt).toLocaleDateString(),
+            visit.metadata?.flaggedReason || 'Impossible travel pattern'
+          ])
+        ]
+      } else if (section === 'geography' && continentBreakdown.length > 0) {
+        csvData = [
+          ['Continent', 'Unique Places', 'Total Visits'],
+          ...continentBreakdown.map(item => [
+            item._id || 'Unknown',
+            item.uniquePlaces || 0,
+            item.totalVisits || 0
+          ])
+        ]
+      } else if (section === 'locations' && detailedLocations.length > 0) {
+        // Export based on groupBy
+        if (locationsGroupBy === 'location') {
+          csvData = [
+            ['Location', 'Coordinates', 'Country', 'Continent', 'Visit Count', 'Unique Users'],
+            ...detailedLocations.map(item => [
+              item.address || 'Unknown',
+              `${item.lat?.toFixed(4)}, ${item.lng?.toFixed(4)}`,
+              item.country || 'Unknown',
+              item.continent || 'Unknown',
+              item.visitCount || 0,
+              item.uniqueUsers || 0
+            ])
+          ]
+        } else if (locationsGroupBy === 'user') {
+          csvData = [
+            ['User', 'Unique Places', 'Total Visits'],
+            ...detailedLocations.map(item => [
+              item.fullName || item.username || 'Unknown',
+              item.uniquePlaces || 0,
+              item.totalVisits || 0
+            ])
+          ]
+        } else if (locationsGroupBy === 'country') {
+          csvData = [
+            ['Country', 'Continent', 'Unique Places', 'Total Visits', 'Unique Users'],
+            ...detailedLocations.map(item => [
+              item.country || 'Unknown',
+              item.continent || 'Unknown',
+              item.uniquePlaces || 0,
+              item.totalVisits || 0,
+              item.uniqueUsers || 0
+            ])
+          ]
+        }
+      }
+      
+      if (csvData.length === 0) {
+        toast.error('No data available to export')
+        return
+      }
+      
+      const csvContent = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const sectionSuffix = section ? `-${section}` : ''
+      a.download = `tripscore-analytics${sectionSuffix}-${new Date().toISOString().split('T')[0]}.csv`
+      a.click()
+      window.URL.revokeObjectURL(url)
+      
+      if (isMountedRef.current) {
+        toast.success(`Data exported successfully${section ? ` (${section})` : ''}`)
+      }
+    } catch (error) {
+      logger.error('Export error:', error)
+      if (isMountedRef.current) {
+        toast.error('Failed to export data')
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsExporting(false)
+        setExportSection(null)
+      }
+    }
+  }, [stats, topUsers, suspiciousVisits, continentBreakdown, detailedLocations, locationsGroupBy, isExporting])
+  
+  // Navigate with breadcrumb tracking
+  const handleViewChange = useCallback((viewId, viewLabel) => {
+    if (!isMountedRef.current) return
+    
+    setSelectedView(viewId)
+    
+    // Update breadcrumbs
+    if (viewId === 'overview') {
+      setBreadcrumbs([{ label: 'Overview', view: 'overview' }])
+    } else {
+      const newBreadcrumbs = [
+        { label: 'Overview', view: 'overview' },
+        { label: viewLabel || viewId, view: viewId }
+      ]
+      setBreadcrumbs(newBreadcrumbs)
+    }
+  }, [])
+  
+  // Navigate via breadcrumb
+  const handleBreadcrumbClick = useCallback((view) => {
+    if (!isMountedRef.current) return
+    
+    setSelectedView(view)
+    if (view === 'overview') {
+      setBreadcrumbs([{ label: 'Overview', view: 'overview' }])
+    } else {
+      const breadcrumbIndex = breadcrumbs.findIndex(b => b.view === view)
+      if (breadcrumbIndex >= 0) {
+        setBreadcrumbs(breadcrumbs.slice(0, breadcrumbIndex + 1))
+      }
+    }
+  }, [breadcrumbs])
+  
+  // Calculate trend indicators (spikes/drops)
+  const calculateTrends = useMemo(() => {
+    if (!stats || !previousStats) return {}
+    
+    const trends = {}
+    
+    // Average TripScore trend
+    const currentAvgScore = stats.totalVisits > 0 ? (stats.trustedVisits / stats.totalVisits) * 100 : 0
+    const previousAvgScore = previousStats.totalVisits > 0 ? (previousStats.trustedVisits / previousStats.totalVisits) * 100 : 0
+    const scoreDelta = currentAvgScore - previousAvgScore
+    trends.avgTripScore = {
+      value: Math.abs(scoreDelta).toFixed(1),
+      direction: scoreDelta >= 0 ? 'up' : 'down',
+      isAnomaly: Math.abs(scoreDelta) >= 20 // 20% change is significant
+    }
+    
+    // Flagged trips trend
+    const currentFlagged = stats.suspiciousVisits || 0
+    const previousFlagged = previousStats.suspiciousVisits || 0
+    const flaggedDelta = previousFlagged > 0 ? ((currentFlagged - previousFlagged) / previousFlagged) * 100 : 0
+    trends.flaggedTrips = {
+      value: Math.abs(flaggedDelta).toFixed(1),
+      direction: flaggedDelta >= 0 ? 'up' : 'down',
+      isAnomaly: Math.abs(flaggedDelta) >= 20 // 20% change is significant
+    }
+    
+    return trends
+  }, [stats, previousStats])
+  
 
   // Calculate percentage changes
   const calculateChange = (current, previous) => {
@@ -196,39 +532,83 @@ const TripScoreAnalytics = () => {
     return ((stats.suspiciousVisits / stats.totalVisits) * 100).toFixed(2)
   }, [stats])
 
-  // Transform trust timeline for chart
-  const trustTimelineChartData = trustTimeline.map(item => ({
-    name: item.date,
-    High: item.high || 0,
-    Medium: item.medium || 0,
-    Low: item.low || 0,
-    Unverified: item.unverified || 0,
-    Suspicious: item.suspicious || 0
-  }))
+  // Memoized chart data transformations (cached for performance)
+  const trustTimelineChartData = useMemo(() => {
+    const cacheKey = `timeline-${trustTimeline.length}-${JSON.stringify(trustTimeline.slice(0, 3))}`
+    if (chartMemoCacheRef.current.has(cacheKey)) {
+      return chartMemoCacheRef.current.get(cacheKey)
+    }
+    
+    const data = trustTimeline.map(item => ({
+      name: item.date,
+      High: item.high || 0,
+      Medium: item.medium || 0,
+      Low: item.low || 0,
+      Unverified: item.unverified || 0,
+      Suspicious: item.suspicious || 0
+    }))
+    
+    chartMemoCacheRef.current.set(cacheKey, data)
+    return data
+  }, [trustTimeline])
 
-  // Transform trust breakdown for pie chart
-  const trustBreakdownChartData = stats ? [
-    { name: 'High', value: stats.trustBreakdown.high || 0, color: '#10B981' },
-    { name: 'Medium', value: stats.trustBreakdown.medium || 0, color: '#3B82F6' },
-    { name: 'Low', value: stats.trustBreakdown.low || 0, color: '#F59E0B' },
-    { name: 'Unverified', value: stats.trustBreakdown.unverified || 0, color: '#6B7280' },
-    { name: 'Suspicious', value: stats.trustBreakdown.suspicious || 0, color: '#EF4444' }
-  ].filter(item => item.value > 0) : []
+  // Memoized trust breakdown chart data
+  const trustBreakdownChartData = useMemo(() => {
+    if (!stats) return []
+    
+    const cacheKey = `trustBreakdown-${stats.trustBreakdown?.high}-${stats.trustBreakdown?.medium}`
+    if (chartMemoCacheRef.current.has(cacheKey)) {
+      return chartMemoCacheRef.current.get(cacheKey)
+    }
+    
+    const data = [
+      { name: 'High', value: stats.trustBreakdown?.high || 0, color: '#10B981' },
+      { name: 'Medium', value: stats.trustBreakdown?.medium || 0, color: '#3B82F6' },
+      { name: 'Low', value: stats.trustBreakdown?.low || 0, color: '#F59E0B' },
+      { name: 'Unverified', value: stats.trustBreakdown?.unverified || 0, color: '#6B7280' },
+      { name: 'Suspicious', value: stats.trustBreakdown?.suspicious || 0, color: '#EF4444' }
+    ].filter(item => item.value > 0)
+    
+    chartMemoCacheRef.current.set(cacheKey, data)
+    return data
+  }, [stats])
 
-  // Transform source breakdown for pie chart
-  const sourceBreakdownChartData = stats ? [
-    { name: 'Taatom Camera', value: stats.sourceBreakdown.taatom_camera_live || 0, color: '#10B981' },
-    { name: 'Gallery (EXIF)', value: stats.sourceBreakdown.gallery_exif || 0, color: '#3B82F6' },
-    { name: 'Gallery (No EXIF)', value: stats.sourceBreakdown.gallery_no_exif || 0, color: '#F59E0B' },
-    { name: 'Manual Only', value: stats.sourceBreakdown.manual_only || 0, color: '#6B7280' }
-  ].filter(item => item.value > 0) : []
+  // Memoized source breakdown chart data
+  const sourceBreakdownChartData = useMemo(() => {
+    if (!stats) return []
+    
+    const cacheKey = `sourceBreakdown-${stats.sourceBreakdown?.taatom_camera_live}-${stats.sourceBreakdown?.gallery_exif}`
+    if (chartMemoCacheRef.current.has(cacheKey)) {
+      return chartMemoCacheRef.current.get(cacheKey)
+    }
+    
+    const data = [
+      { name: 'Taatom Camera', value: stats.sourceBreakdown?.taatom_camera_live || 0, color: '#10B981' },
+      { name: 'Gallery (EXIF)', value: stats.sourceBreakdown?.gallery_exif || 0, color: '#3B82F6' },
+      { name: 'Gallery (No EXIF)', value: stats.sourceBreakdown?.gallery_no_exif || 0, color: '#F59E0B' },
+      { name: 'Manual Only', value: stats.sourceBreakdown?.manual_only || 0, color: '#6B7280' }
+    ].filter(item => item.value > 0)
+    
+    chartMemoCacheRef.current.set(cacheKey, data)
+    return data
+  }, [stats])
 
-  // Transform continent breakdown for bar chart
-  const continentChartData = continentBreakdown.map(item => ({
-    name: item._id || 'Unknown',
-    places: item.uniquePlaces || 0,
-    visits: item.totalVisits || 0
-  }))
+  // Memoized continent chart data
+  const continentChartData = useMemo(() => {
+    const cacheKey = `continent-${continentBreakdown.length}-${JSON.stringify(continentBreakdown.slice(0, 2))}`
+    if (chartMemoCacheRef.current.has(cacheKey)) {
+      return chartMemoCacheRef.current.get(cacheKey)
+    }
+    
+    const data = continentBreakdown.map(item => ({
+      name: item._id || 'Unknown',
+      places: item.uniquePlaces || 0,
+      visits: item.totalVisits || 0
+    }))
+    
+    chartMemoCacheRef.current.set(cacheKey, data)
+    return data
+  }, [continentBreakdown])
 
   // Calculate filtered totals based on active filters
   const filteredTotalVisits = useMemo(() => {
@@ -369,6 +749,28 @@ const TripScoreAnalytics = () => {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb Navigation */}
+      {breadcrumbs.length > 1 && (
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          {breadcrumbs.map((crumb, index) => (
+            <React.Fragment key={crumb.view}>
+              {index > 0 && <ChevronRight className="w-4 h-4" />}
+              <button
+                onClick={() => handleBreadcrumbClick(crumb.view)}
+                className={`px-3 py-1.5 rounded-lg transition-colors ${
+                  index === breadcrumbs.length - 1
+                    ? 'bg-blue-100 text-blue-700 font-semibold'
+                    : 'hover:bg-gray-100 text-gray-700'
+                }`}
+              >
+                {index === 0 ? <Home className="w-4 h-4 inline mr-1" /> : null}
+                {crumb.label}
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+      
       {/* Enhanced Header with Gradient */}
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
@@ -384,7 +786,28 @@ const TripScoreAnalytics = () => {
                   <Globe className="w-8 h-8" />
                 </div>
                 <div>
-                  <h1 className="text-4xl font-bold">TripScore Analytics</h1>
+                  <div className="flex items-center gap-3">
+                    <h1 className="text-4xl font-bold">TripScore Analytics</h1>
+                    {/* Trust Health Indicator */}
+                    {trustHealth && (
+                      <span className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1 ${
+                        trustHealth === 'healthy' 
+                          ? 'bg-green-500/20 text-green-100 border border-green-300/30'
+                          : trustHealth === 'warning'
+                          ? 'bg-yellow-500/20 text-yellow-100 border border-yellow-300/30'
+                          : 'bg-red-500/20 text-red-100 border border-red-300/30'
+                      }`}>
+                        {trustHealth === 'healthy' ? (
+                          <CheckCircle className="w-3 h-3" />
+                        ) : trustHealth === 'warning' ? (
+                          <AlertCircle className="w-3 h-3" />
+                        ) : (
+                          <AlertTriangle className="w-3 h-3" />
+                        )}
+                        {trustHealth === 'healthy' ? 'Healthy' : trustHealth === 'warning' ? 'Warning' : 'Risk'}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-blue-100 text-lg">
                     Verified travel-based scoring system insights and fraud monitoring
                   </p>
@@ -413,13 +836,16 @@ const TripScoreAnalytics = () => {
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
-              <button 
-                onClick={handleExport}
-                className="px-4 py-2.5 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-all flex items-center gap-2 shadow-lg"
-              >
-                <Download className="w-4 h-4" />
-                Export
-              </button>
+              <div className="relative">
+                <button 
+                  onClick={() => handleExport(selectedView === 'overview' ? null : selectedView)}
+                  disabled={!stats || loading || isExporting}
+                  className="px-4 py-2.5 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
+                  {isExporting ? 'Exporting...' : `Export${selectedView !== 'overview' ? ` ${selectedView}` : ''}`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -520,7 +946,7 @@ const TripScoreAnalytics = () => {
         )}
       </motion.div>
 
-      {/* View Tabs */}
+      {/* View Tabs with Error Indicators */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {[
           { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -531,8 +957,8 @@ const TripScoreAnalytics = () => {
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setSelectedView(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap ${
+            onClick={() => handleViewChange(tab.id, tab.label)}
+            className={`relative flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap ${
               selectedView === tab.id
                 ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
                 : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
@@ -540,13 +966,79 @@ const TripScoreAnalytics = () => {
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
+            {dataErrors[tab.id === 'overview' ? 'stats' : tab.id === 'users' ? 'topUsers' : tab.id === 'fraud' ? 'suspiciousVisits' : tab.id === 'geography' ? 'continentBreakdown' : 'detailedLocations'] && (
+              <AlertCircle className="w-3 h-3 text-red-500 absolute -top-1 -right-1" />
+            )}
           </button>
         ))}
       </div>
+      
+      {/* Trend & Anomaly Indicators */}
+      {calculateTrends.avgTripScore && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-xl shadow-md border border-gray-200 p-4"
+        >
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-600" />
+              <span className="font-semibold text-gray-700">Trend Indicators</span>
+            </div>
+            <div className="flex gap-4 flex-wrap">
+              {calculateTrends.avgTripScore && (
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                  calculateTrends.avgTripScore.isAnomaly 
+                    ? 'bg-red-50 border border-red-200' 
+                    : 'bg-blue-50 border border-blue-200'
+                }`}>
+                  {calculateTrends.avgTripScore.direction === 'up' ? (
+                    <TrendingUp className={`w-4 h-4 ${calculateTrends.avgTripScore.isAnomaly ? 'text-red-600' : 'text-blue-600'}`} />
+                  ) : (
+                    <TrendingDown className={`w-4 h-4 ${calculateTrends.avgTripScore.isAnomaly ? 'text-red-600' : 'text-blue-600'}`} />
+                  )}
+                  <span className={`text-sm font-medium ${calculateTrends.avgTripScore.isAnomaly ? 'text-red-700' : 'text-blue-700'}`}>
+                    Avg TripScore: {calculateTrends.avgTripScore.value}% {calculateTrends.avgTripScore.direction === 'up' ? '↑' : '↓'}
+                    {calculateTrends.avgTripScore.isAnomaly && <span className="ml-1 text-xs">⚠️ Anomaly</span>}
+                  </span>
+                </div>
+              )}
+              {calculateTrends.flaggedTrips && (
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+                  calculateTrends.flaggedTrips.isAnomaly 
+                    ? 'bg-red-50 border border-red-200' 
+                    : 'bg-yellow-50 border border-yellow-200'
+                }`}>
+                  {calculateTrends.flaggedTrips.direction === 'up' ? (
+                    <TrendingUp className={`w-4 h-4 ${calculateTrends.flaggedTrips.isAnomaly ? 'text-red-600' : 'text-yellow-600'}`} />
+                  ) : (
+                    <TrendingDown className={`w-4 h-4 ${calculateTrends.flaggedTrips.isAnomaly ? 'text-red-600' : 'text-yellow-600'}`} />
+                  )}
+                  <span className={`text-sm font-medium ${calculateTrends.flaggedTrips.isAnomaly ? 'text-red-700' : 'text-yellow-700'}`}>
+                    Flagged Trips: {calculateTrends.flaggedTrips.value}% {calculateTrends.flaggedTrips.direction === 'up' ? '↑' : '↓'}
+                    {calculateTrends.flaggedTrips.isAnomaly && <span className="ml-1 text-xs">⚠️ Anomaly</span>}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Enhanced KPI Cards Grid */}
-      {selectedView === 'overview' && (
+      {selectedView === 'overview' && loadedSections.has('overview') && (
         <>
+          {/* Error indicator for overview */}
+          {dataErrors.stats && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Stats data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.stats}</p>
+              </div>
+            </div>
+          )}
+          
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
             {kpiCards.map((card, index) => (
               <motion.div
@@ -717,7 +1209,7 @@ const TripScoreAnalytics = () => {
               </CardHeader>
               <CardContent className="pt-6">
                 {trustBreakdownChartData.length > 0 ? (
-                  <PieChartComponent 
+                  <MemoizedPieChart 
                     data={trustBreakdownChartData}
                     dataKey="value"
                     nameKey="name"
@@ -744,7 +1236,7 @@ const TripScoreAnalytics = () => {
               </CardHeader>
               <CardContent className="pt-6">
                 {sourceBreakdownChartData.length > 0 ? (
-                  <PieChartComponent 
+                  <MemoizedPieChart 
                     data={sourceBreakdownChartData}
                     dataKey="value"
                     nameKey="name"
@@ -772,7 +1264,7 @@ const TripScoreAnalytics = () => {
             </CardHeader>
             <CardContent className="pt-6">
               {trustTimelineChartData.length > 0 ? (
-                <LineChartComponent
+                <MemoizedLineChart
                   data={trustTimelineChartData}
                   dataKeys={['High', 'Medium', 'Low', 'Unverified', 'Suspicious']}
                   xAxisKey="name"
@@ -792,8 +1284,18 @@ const TripScoreAnalytics = () => {
       )}
 
       {/* Top Users View */}
-      {selectedView === 'users' && (
-        <Card className="border-0 shadow-lg">
+      {selectedView === 'users' && loadedSections.has('users') && (
+        <>
+          {dataErrors.topUsers && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Top users data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.topUsers}</p>
+              </div>
+            </div>
+          )}
+          <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-amber-50 to-yellow-50">
             <CardTitle className="flex items-center gap-2">
               <Award className="w-5 h-5 text-amber-600" />
@@ -902,11 +1404,22 @@ const TripScoreAnalytics = () => {
             )}
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* Fraud Monitor View */}
-      {selectedView === 'fraud' && (
-        <Card className="border-0 shadow-lg">
+      {selectedView === 'fraud' && loadedSections.has('fraud') && (
+        <>
+          {dataErrors.suspiciousVisits && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Suspicious visits data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.suspiciousVisits}</p>
+              </div>
+            </div>
+          )}
+          <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-red-50 to-orange-50">
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-600" />
@@ -1039,11 +1552,21 @@ const TripScoreAnalytics = () => {
             )}
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* Geography View */}
-      {selectedView === 'geography' && (
+      {selectedView === 'geography' && loadedSections.has('geography') && (
         <>
+          {dataErrors.continentBreakdown && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Geography data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.continentBreakdown}</p>
+              </div>
+            </div>
+          )}
           <Card className="border-0 shadow-lg">
             <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
               <CardTitle className="flex items-center gap-2">
@@ -1053,7 +1576,7 @@ const TripScoreAnalytics = () => {
             </CardHeader>
             <CardContent className="pt-6">
               {continentChartData.length > 0 ? (
-                <BarChartComponent
+                <MemoizedBarChart
                   data={continentChartData}
                   dataKeys={['places', 'visits']}
                   xAxisKey="name"
@@ -1107,8 +1630,17 @@ const TripScoreAnalytics = () => {
       )}
 
       {/* Detailed Locations View */}
-      {selectedView === 'locations' && (
+      {selectedView === 'locations' && loadedSections.has('locations') && (
         <>
+          {dataErrors.detailedLocations && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Detailed locations data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.detailedLocations}</p>
+              </div>
+            </div>
+          )}
           {/* Group By Selector */}
           <Card className="border-0 shadow-lg">
             <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50">
@@ -1338,6 +1870,16 @@ const TripScoreAnalytics = () => {
             </CardContent>
           </Card>
         </>
+      )}
+      
+      {/* Loading placeholder for lazy-loaded sections */}
+      {!loadedSections.has(selectedView) && (
+        <div className="flex items-center justify-center h-64 bg-white rounded-xl shadow-lg">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading {selectedView} data...</p>
+          </div>
+        </div>
       )}
     </div>
   )
