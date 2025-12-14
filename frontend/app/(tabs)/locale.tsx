@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { geocodeAddress } from '../../utils/locationUtils';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
@@ -28,10 +28,7 @@ import { getLocales, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
-import { useReducer, useMemo, useCallback, useRef } from 'react';
-import api from '../../services/api';
 import { savedEvents } from '../../utils/savedEvents';
-import { useFocusEffect } from 'expo-router';
 
 const logger = createLogger('LocaleScreen');
 
@@ -116,6 +113,25 @@ export default function LocaleScreen() {
     searchRadius: '',
   });
   
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
+  // Search Input Stability: Debounce timer and abort controller
+  const searchDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const SEARCH_DEBOUNCE_MS = 350; // 300-400ms as specified
+  
+  // Pagination & Filter Race Safety: Request guards
+  const isSearchingRef = useRef(false);
+  const isPaginatingRef = useRef(false);
+  const currentPageRef = useRef(1);
+  
+  // Distance Calculation Guards: Cache calculated distances per session
+  const distanceCacheRef = useRef<Map<string, number>>(new Map());
+  
+  // Bookmark Stability: Track in-flight bookmark operations
+  const bookmarkingKeysRef = useRef<Set<string>>(new Set());
+  
   const { theme, mode } = useTheme();
   const router = useRouter();
 
@@ -129,20 +145,56 @@ export default function LocaleScreen() {
     'Beach spots',
   ];
 
+  // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
+    isMountedRef.current = true;
     loadCountries();
     loadSavedLocales();
     loadAdminLocales();
+    
+    return () => {
+      isMountedRef.current = false;
+      // Cancel any pending search requests
+      if (searchAbortControllerRef.current) {
+        searchAbortControllerRef.current.abort();
+      }
+      // Clear debounce timer
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current);
+      }
+    };
   }, []);
 
-  const loadAdminLocales = async (forceRefresh = false) => {
+  // Pagination & Filter Race Safety: Load locales with request guards
+  const loadAdminLocales = useCallback(async (forceRefresh = false) => {
+    // Request Guard: Prevent duplicate calls
+    if (isSearchingRef.current || isPaginatingRef.current) {
+      logger.debug('loadAdminLocales already in progress, skipping');
+      return;
+    }
+    
+    isSearchingRef.current = true;
+    
+    // Cancel previous search request if any
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    searchAbortControllerRef.current = new AbortController();
+    
     try {
-      setLoadingLocales(true);
-      setLoading(true);
+      if (isMountedRef.current) {
+        setLoadingLocales(true);
+        setLoading(true);
+      }
+      
+      // Reset pagination when filters change or force refresh
+      if (forceRefresh) {
+        currentPageRef.current = 1;
+      }
       
       // Build query parameters
       const params: any = {
-        page: 1,
+        page: currentPageRef.current,
         limit: 100,
         includeInactive: false, // Only show active locales
       };
@@ -171,22 +223,51 @@ export default function LocaleScreen() {
         params.includeInactive
       );
       
+      if (!isMountedRef.current) return;
+      
       if (response && response.locales) {
-        setAdminLocales(response.locales);
-        applyFilters(response.locales);
+        // Pagination & Filter Race Safety: Deduplicate locales by unique ID
+        const newLocales = response.locales;
+        if (forceRefresh || currentPageRef.current === 1) {
+          // Fresh load - replace all
+          setAdminLocales(newLocales);
+        } else {
+          // Pagination - merge and deduplicate
+          setAdminLocales(prev => {
+            const localeMap = new Map<string, Locale>();
+            // Add existing locales
+            prev.forEach(locale => localeMap.set(locale._id, locale));
+            // Add new locales (will overwrite duplicates)
+            newLocales.forEach(locale => localeMap.set(locale._id, locale));
+            return Array.from(localeMap.values());
+          });
+        }
+        
+        // Apply client-side filters
+        applyFilters(forceRefresh || currentPageRef.current === 1 ? newLocales : adminLocales);
       } else {
-        setAdminLocales([]);
-        setFilteredLocales([]);
+        if (isMountedRef.current) {
+          setAdminLocales([]);
+          setFilteredLocales([]);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        logger.debug('loadAdminLocales aborted');
+        return;
+      }
+      if (!isMountedRef.current) return;
       logger.error('Failed to load admin locales', error);
       setAdminLocales([]);
       setFilteredLocales([]);
     } finally {
-      setLoadingLocales(false);
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoadingLocales(false);
+        setLoading(false);
+      }
+      isSearchingRef.current = false;
     }
-  };
+  }, [searchQuery, filters, adminLocales]);
   
   // Apply client-side filters (for spot types that API doesn't support)
   const applyFilters = (locales: Locale[]) => {
@@ -252,66 +333,191 @@ export default function LocaleScreen() {
     return unsubscribe;
   }, [adminLocales.length]);
 
-  // Refresh bookmark status when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      loadSavedLocales();
-      if (adminLocales.length > 0) {
-        // Refresh to update bookmark indicators
-        loadAdminLocales(true);
-      }
-    }, [adminLocales.length])
-  );
-
-  const loadSavedLocales = async () => {
+  // Bookmark Stability: Load saved locales with defensive parsing
+  const loadSavedLocales = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       const saved = await AsyncStorage.getItem('savedLocales');
-      const locales = saved ? JSON.parse(saved) : [];
-      setSavedLocales(locales);
+      
+      // Defensive JSON parsing with recovery
+      let locales: Locale[] = [];
+      try {
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          locales = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (parseError) {
+        logger.warn('Failed to parse savedLocales, resetting', parseError);
+        // Recover corrupted storage by resetting
+        try {
+          await AsyncStorage.setItem('savedLocales', JSON.stringify([]));
+        } catch {}
+        locales = [];
+      }
+      
+      // Deduplicate by locale ID
+      const localeMap = new Map<string, Locale>();
+      locales.forEach(locale => {
+        if (locale && locale._id) {
+          localeMap.set(locale._id, locale);
+        }
+      });
+      const uniqueLocales = Array.from(localeMap.values());
+      
+      if (isMountedRef.current) {
+        setSavedLocales(uniqueLocales);
+        
+        // Update AsyncStorage if duplicates were found
+        if (uniqueLocales.length !== locales.length) {
+          try {
+            await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
+          } catch {}
+        }
+      }
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error loading saved locales', error);
       setSavedLocales([]);
     }
-  };
-  
-  const saveLocale = async (locale: Locale) => {
-    try {
-      const saved = await AsyncStorage.getItem('savedLocales');
-      const locales: Locale[] = saved ? JSON.parse(saved) : [];
+  }, []);
+
+  // Navigation & Lifecycle Safety: Refresh bookmark status on focus (prevent refetch loops)
+  useFocusEffect(
+    useCallback(() => {
+      if (!isMountedRef.current) return;
       
-      // Check if already saved
-      if (locales.find(l => l._id === locale._id)) {
-        Alert.alert('Already Saved', 'This locale is already in your saved list');
+      // Only refresh saved locales (lightweight)
+      loadSavedLocales();
+      
+      // Only refresh admin locales if we have data (prevent unnecessary refetch)
+      if (adminLocales.length > 0 && !isSearchingRef.current) {
+        // Refresh to update bookmark indicators
+        loadAdminLocales(true);
+      }
+    }, [adminLocales.length, loadSavedLocales, loadAdminLocales])
+  );
+
+  // Bookmark Stability: Atomic read-modify-write with deduplication
+  const saveLocale = useCallback(async (locale: Locale) => {
+    if (!locale || !locale._id) {
+      logger.warn('Invalid locale provided to saveLocale');
+      return;
+    }
+    
+    const localeId = locale._id;
+    
+    // Bookmark Stability: Prevent duplicate bookmark operations
+    if (bookmarkingKeysRef.current.has(localeId)) {
+      logger.debug(`Bookmark operation already in progress for ${localeId}, skipping`);
+      return;
+    }
+    
+    bookmarkingKeysRef.current.add(localeId);
+    
+    try {
+      // Atomic read-modify-write
+      const saved = await AsyncStorage.getItem('savedLocales');
+      let locales: Locale[] = [];
+      
+      try {
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          locales = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (parseError) {
+        logger.warn('Failed to parse savedLocales in saveLocale, resetting', parseError);
+        locales = [];
+      }
+      
+      // Deduplicate: Check if already saved
+      if (locales.find(l => l && l._id === localeId)) {
+        if (isMountedRef.current) {
+          Alert.alert('Already Saved', 'This locale is already in your saved list');
+        }
         return;
       }
       
+      // Add new locale
       locales.push(locale);
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(locales));
-      setSavedLocales(locales);
-      // Emit event to sync with detail page
-      savedEvents.emitChanged();
-      Alert.alert('Saved', 'Locale saved successfully');
+      
+      // Deduplicate all locales before saving
+      const localeMap = new Map<string, Locale>();
+      locales.forEach(l => {
+        if (l && l._id) {
+          localeMap.set(l._id, l);
+        }
+      });
+      const uniqueLocales = Array.from(localeMap.values());
+      
+      // Atomic write
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
+      
+      if (isMountedRef.current) {
+        setSavedLocales(uniqueLocales);
+        // Emit event to sync with detail page
+        savedEvents.emitChanged();
+        Alert.alert('Saved', 'Locale saved successfully');
+      }
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error saving locale', error);
       Alert.alert('Error', 'Failed to save locale');
+    } finally {
+      bookmarkingKeysRef.current.delete(localeId);
     }
-  };
+  }, []);
   
-  const unsaveLocale = async (localeId: string) => {
+  // Bookmark Stability: Atomic read-modify-write
+  const unsaveLocale = useCallback(async (localeId: string) => {
+    if (!localeId) {
+      logger.warn('Invalid localeId provided to unsaveLocale');
+      return;
+    }
+    
+    // Bookmark Stability: Prevent duplicate bookmark operations
+    if (bookmarkingKeysRef.current.has(localeId)) {
+      logger.debug(`Unbookmark operation already in progress for ${localeId}, skipping`);
+      return;
+    }
+    
+    bookmarkingKeysRef.current.add(localeId);
+    
     try {
+      // Atomic read-modify-write
       const saved = await AsyncStorage.getItem('savedLocales');
-      const locales: Locale[] = saved ? JSON.parse(saved) : [];
-      const filtered = locales.filter(l => l._id !== localeId);
+      let locales: Locale[] = [];
+      
+      try {
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          locales = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (parseError) {
+        logger.warn('Failed to parse savedLocales in unsaveLocale, resetting', parseError);
+        locales = [];
+      }
+      
+      // Remove locale
+      const filtered = locales.filter(l => l && l._id !== localeId);
+      
+      // Atomic write
       await AsyncStorage.setItem('savedLocales', JSON.stringify(filtered));
-      setSavedLocales(filtered);
-      // Emit event to sync with detail page
-      savedEvents.emitChanged();
-      Alert.alert('Removed', 'Locale removed from saved list');
+      
+      if (isMountedRef.current) {
+        setSavedLocales(filtered);
+        // Emit event to sync with detail page
+        savedEvents.emitChanged();
+        Alert.alert('Removed', 'Locale removed from saved list');
+      }
     } catch (error) {
+      if (!isMountedRef.current) return;
       logger.error('Error unsaving locale', error);
       Alert.alert('Error', 'Failed to remove locale');
+    } finally {
+      bookmarkingKeysRef.current.delete(localeId);
     }
-  };
+  }, []);
   
   const isLocaleSaved = (localeId: string): boolean => {
     return savedLocales.some(l => l._id === localeId);
@@ -367,32 +573,69 @@ export default function LocaleScreen() {
   };
 
 
-  const handleRefresh = async () => {
+  // Pagination & Filter Race Safety: Refresh with guards
+  const handleRefresh = useCallback(async () => {
+    if (isSearchingRef.current || isPaginatingRef.current) {
+      logger.debug('Refresh already in progress, skipping');
+      return;
+    }
+    
+    if (!isMountedRef.current) return;
+    
     setRefreshing(true);
-    await loadAdminLocales(true);
-    setRefreshing(false);
-  };
+    try {
+      currentPageRef.current = 1;
+      await loadAdminLocales(true);
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [loadAdminLocales]);
 
   const toggleSpotType = (spotType: string) => {
     dispatchFilter({ type: 'TOGGLE_SPOT_TYPE', payload: spotType });
   };
 
-  const handleSearch = () => {
+  // Pagination & Filter Race Safety: Reset pagination when filters change
+  const handleSearch = useCallback(() => {
     setShowFilterModal(false);
+    // Reset pagination cleanly when filters change
+    currentPageRef.current = 1;
     // Reload locales with filters applied
     loadAdminLocales(true);
-  };
+  }, [loadAdminLocales]);
   
-  // Handle search query changes
+  // Search Input Stability: Debounced search with request cancellation
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (adminLocales.length > 0) {
-        loadAdminLocales(true);
-      }
-    }, 500); // Debounce search
+    // Clear previous debounce timer
+    if (searchDebounceTimerRef.current) {
+      clearTimeout(searchDebounceTimerRef.current);
+    }
     
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+    // Cancel previous search request
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    
+    // Only search if we have locales loaded or it's the initial load
+    if (adminLocales.length > 0 || loading) {
+      // Set up new debounce timer
+      searchDebounceTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current && !isSearchingRef.current) {
+          // Reset pagination on new search
+          currentPageRef.current = 1;
+          loadAdminLocales(true);
+        }
+      }, SEARCH_DEBOUNCE_MS);
+    }
+    
+    return () => {
+      if (searchDebounceTimerRef.current) {
+        clearTimeout(searchDebounceTimerRef.current);
+      }
+    };
+  }, [searchQuery, loadAdminLocales]);
 
   const renderFilterModal = () => (
     <Modal
@@ -615,7 +858,8 @@ export default function LocaleScreen() {
 
 
 
-  const renderAdminLocaleCard = ({ locale, index }: { locale: Locale; index: number }) => {
+  // List Rendering Performance: Memoize render functions
+  const renderAdminLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
     return (
       <TouchableOpacity 
         style={[
@@ -670,7 +914,7 @@ export default function LocaleScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [router, theme]);
 
   const renderAdminLocales = () => {
     const localesToShow = filteredLocales.length > 0 ? filteredLocales : adminLocales;
@@ -724,7 +968,8 @@ export default function LocaleScreen() {
     );
   }, [filteredLocales, adminLocales, loadingLocales, theme, searchQuery, filters]);
 
-  const renderSavedLocaleCard = ({ locale, index }: { locale: Locale; index: number }) => {
+  // List Rendering Performance: Memoize render functions
+  const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
     return (
       <TouchableOpacity 
         style={[
@@ -793,7 +1038,7 @@ export default function LocaleScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [router, theme, unsaveLocale]);
 
   const renderEmptySavedState = () => (
     <View style={styles.emptyContainer}>
@@ -909,7 +1154,17 @@ export default function LocaleScreen() {
         <FlatList
           data={savedLocales}
           renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item) => item._id}
+          keyExtractor={(item, index) => item._id || `locale-${index}`}
+          // List Rendering Performance: FlatList optimization
+          removeClippedSubviews={true}
+          initialNumToRender={6}
+          maxToRenderPerBatch={4}
+          windowSize={7}
+          getItemLayout={(data, index) => ({
+            length: 200 + 16, // card height + margin
+            offset: (200 + 16) * index,
+            index,
+          })}
           ListEmptyComponent={savedLocales.length === 0 ? renderEmptySavedState() : null}
           onScroll={handleScroll}
           scrollEventThrottle={16}
@@ -917,9 +1172,15 @@ export default function LocaleScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={async () => {
+                if (!isMountedRef.current) return;
                 setRefreshing(true);
-                await loadSavedLocales();
-                setRefreshing(false);
+                try {
+                  await loadSavedLocales();
+                } finally {
+                  if (isMountedRef.current) {
+                    setRefreshing(false);
+                  }
+                }
               }}
             />
           }

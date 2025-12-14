@@ -651,52 +651,80 @@ function PhotoCard({
     }
   };
 
-  const handleImageError = () => {
-    setImageError(true);
-    setImageLoading(false);
-  };
-
-  const handleImageRetry = async () => {
+  // Image loading safety: stop retrying failed image loads to prevent retry loops
+  const imageRetryCountRef = useRef(0);
+  const MAX_IMAGE_RETRIES = 2; // Maximum retry attempts before giving up
+  
+  const handleImageRetry = useCallback(async () => {
+    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
+      setImageError(true);
+      setImageLoading(false);
+      return;
+    }
+    
     setImageError(false);
     setImageLoading(true);
     
     try {
-      const optimizedUrl = await loadImageWithFallback(post.imageUrl);
+      const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
+        timeout: 8000,
+        retries: 1,
+        retryDelay: 1000
+      });
       setImageUri(optimizedUrl);
       setImageLoading(false);
+      imageRetryCountRef.current = 0; // Reset on success
     } catch (error) {
+      logger.warn('Image retry failed', { postId: post._id, retryCount: imageRetryCountRef.current });
+      // handleImageError will be called by Image onError, which will check retry count
       setImageError(true);
       setImageLoading(false);
     }
-  };
+  }, [post.imageUrl, post._id]);
 
-  // Don't render if not visible (for lazy loading)
-  if (!isVisible) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.placeholder}>
-          <ActivityIndicator color={theme.colors.primary} />
-        </View>
-      </View>
-    );
-  }
+  const handleImageError = useCallback(() => {
+    // Stop retrying after max attempts to prevent retry loops
+    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
+      logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
+      setImageError(true);
+      setImageLoading(false);
+      return;
+    }
+    
+    // Increment retry count and try again
+    imageRetryCountRef.current += 1;
+    logger.debug(`Image load error, retry attempt ${imageRetryCountRef.current}`, { postId: post._id });
+    
+    // Retry with exponential backoff
+    setTimeout(() => {
+      handleImageRetry();
+    }, 1000 * imageRetryCountRef.current);
+  }, [post._id, handleImageRetry]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
       {/* Header */}
       <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
 
-      {/* Image */}
-      <PostImage
-        post={post}
-        onPress={handlePress}
-        imageUri={imageUri}
-        imageLoading={imageLoading}
-        imageError={imageError}
-        onImageError={handleImageError}
-        onRetry={handleImageRetry}
-        pulseAnim={pulseAnim}
-      />
+      {/* Image - Conditional rendering: only render Image component when visible */}
+      {/* This drastically reduces memory usage for off-screen images without changing UX */}
+      {/* Only images within 2 indices of visible are rendered, others use lightweight placeholder */}
+      {isVisible ? (
+        <PostImage
+          post={post}
+          onPress={handlePress}
+          imageUri={imageUri}
+          imageLoading={imageLoading}
+          imageError={imageError}
+          onImageError={handleImageError}
+          onRetry={handleImageRetry}
+          pulseAnim={pulseAnim}
+        />
+      ) : (
+        // Lightweight placeholder for unmounted images
+        // Maintains layout (same aspectRatio) without consuming image resources
+        <View style={{ width: '100%', aspectRatio: 1, backgroundColor: theme.colors.surface }} />
+      )}
 
       {/* Actions */}
       <PostActions

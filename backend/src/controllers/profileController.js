@@ -65,8 +65,16 @@ const getProfile = async (req, res) => {
       return users[0] || null;
     }, CACHE_TTL.USER_PROFILE);
 
+    // Backend Defensive Guards: Guard against null/missing profile data
     if (!user) {
+      logger.warn(`Profile not found for userId: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
+    }
+    
+    // Defensive: Ensure user has required fields
+    if (!user._id || !user.fullName) {
+      logger.error(`Invalid user data structure for userId: ${id}`, { hasId: !!user._id, hasFullName: !!user.fullName });
+      return sendError(res, 'ERR_5001', 'Invalid user data');
     }
 
     // Get user's posts count and locations (optimized query)
@@ -267,8 +275,15 @@ const updateProfile = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
+    // Backend Defensive Guards: Validate userId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      logger.warn(`Invalid userId format in updateProfile: ${id}`);
+      return sendError(res, 'VAL_2001', 'Invalid user ID format');
+    }
+    
     const user = await User.findById(id);
     if (!user) {
+      logger.warn(`User not found in updateProfile: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
@@ -415,16 +430,28 @@ const toggleFollow = async (req, res) => {
     const { id } = req.params;
     const currentUserId = req.user._id;
 
+    // Backend Defensive Guards: Validate userId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      logger.warn(`Invalid userId format in toggleFollow: ${id}`);
+      return sendError(res, 'VAL_2001', 'Invalid user ID format');
+    }
+
     if (currentUserId.toString() === id) {
       return sendError(res, 'BIZ_7001', 'You cannot follow yourself');
     }
 
     const targetUser = await User.findById(id);
     if (!targetUser) {
+      logger.warn(`Target user not found in toggleFollow: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
+    // Defensive: Guard against missing current user
     const currentUser = await User.findById(currentUserId);
+    if (!currentUser) {
+      logger.error(`Current user not found in toggleFollow: ${currentUserId}`);
+      return sendError(res, 'AUTH_1001', 'Authentication error');
+    }
     const isFollowing = currentUser.following.includes(id);
 
     if (isFollowing) {

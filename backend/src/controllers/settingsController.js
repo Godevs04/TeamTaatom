@@ -174,14 +174,51 @@ const updateSettingCategory = async (req, res) => {
 
     logger.debug('UpdateSettingCategory called:', { userId, category, settingsData });
 
+    // Backend Defensive Guards: Validate category
     if (!['privacy', 'notifications', 'account'].includes(category)) {
+      logger.warn(`Invalid category in updateSettingCategory: ${category}`);
       return sendError(res, 'VAL_2001', 'Category must be privacy, notifications, or account');
     }
 
+    // Backend Defensive Guards: Validate payload shape
+    if (!settingsData || typeof settingsData !== 'object' || Array.isArray(settingsData)) {
+      logger.warn('Invalid settingsData payload shape', { settingsData });
+      return sendError(res, 'VAL_2001', 'Settings data must be an object');
+    }
+
+    // Backend Defensive Guards: Get current user settings to check for redundant updates
+    const currentUser = await User.findById(userId).select(`settings.${category}`);
+    if (!currentUser) {
+      logger.warn(`User not found in updateSettingCategory: ${userId}`);
+      return sendError(res, 'RES_3001', 'User does not exist');
+    }
+
+    const currentCategorySettings = currentUser.settings?.[category] || {};
     const updateQuery = {};
+    let hasChanges = false;
+
+    // Build update query and check for redundant updates
     Object.keys(settingsData).forEach(key => {
-      updateQuery[`settings.${category}.${key}`] = settingsData[key];
+      const newValue = settingsData[key];
+      const currentValue = currentCategorySettings[key];
+      
+      // Prevent Redundant API Calls: Skip if value hasn't changed
+      if (JSON.stringify(newValue) === JSON.stringify(currentValue)) {
+        logger.debug(`Skipping redundant update for ${category}.${key}: value unchanged`);
+        return;
+      }
+      
+      updateQuery[`settings.${category}.${key}`] = newValue;
+      hasChanges = true;
     });
+
+    // If no changes, return success without updating (idempotent behavior)
+    if (!hasChanges) {
+      logger.debug(`No changes detected for ${category}, returning current settings`);
+      return sendSuccess(res, 200, `${category} settings unchanged`, { 
+        settings: currentUser.settings 
+      });
+    }
 
     logger.debug('Update query:', updateQuery);
 
