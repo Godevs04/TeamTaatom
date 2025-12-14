@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { formatDate } from '../utils/formatDate'
-import { Search, Filter, Download, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle, Calendar, Eye, Clock, List } from 'lucide-react'
+import { Search, Filter, Download, RefreshCw, AlertTriangle, Info, CheckCircle, XCircle, Calendar, Eye, Clock, List, ChevronDown, ChevronUp, Shield, Ban } from 'lucide-react'
 import { useRealTime } from '../context/RealTimeContext'
 import toast from 'react-hot-toast'
 import { api } from '../services/api'
 import SafeComponent from '../components/SafeComponent'
+import logger from '../utils/logger'
 
 const Logs = () => {
   const { isConnected } = useRealTime()
@@ -24,17 +25,67 @@ const Logs = () => {
   const [selectedLog, setSelectedLog] = useState(null)
   const [showLogModal, setShowLogModal] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(false)
+  
+  // Quick filters for failed/blocked attempts
+  const [showFailedOnly, setShowFailedOnly] = useState(() => {
+    const saved = localStorage.getItem('logs_show_failed_only')
+    return saved === 'true'
+  })
+  const [showBlockedOnly, setShowBlockedOnly] = useState(() => {
+    const saved = localStorage.getItem('logs_show_blocked_only')
+    return saved === 'true'
+  })
+  
+  // Log grouping state
+  const [groupedLogs, setGroupedLogs] = useState([])
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isFetchingRef = useRef(false)
+  const cachedLogsRef = useRef(null)
+  const cacheKeyRef = useRef('')
 
-  // Fetch logs from API
-  // REAL-TIME LOG FETCHING EXPLANATION:
-  // 1. Logs are fetched from MongoDB (SuperAdmin.securityLogs array in each SuperAdmin document)
-  // 2. Backend aggregates all logs from all SuperAdmin accounts
-  // 3. Works on BOTH local and production servers - no configuration needed
-  // 4. Auto-refresh polls every 10 seconds when enabled
-  // 5. All security events (login, logout, 2FA, etc.) are automatically logged
-  // 6. Each log contains: timestamp, action, details, IP address, user agent, success status
-  const fetchLogs = async () => {
-    setIsLoading(true)
+  // Fetch logs from API with caching and request deduplication
+  const fetchLogs = useCallback(async (forceRefresh = false) => {
+    // Prevent duplicate concurrent calls
+    if (isFetchingRef.current && !forceRefresh) {
+      logger.debug('Logs fetch already in progress, skipping duplicate call')
+      return
+    }
+    
+    // Check cache first
+    const cacheKey = `${currentPage}-${itemsPerPage}-${filterLevel}-${filterType}-${searchTerm}-${showFailedOnly}-${showBlockedOnly}`
+    
+    if (cachedLogsRef.current && cacheKeyRef.current === cacheKey && !forceRefresh) {
+      logger.debug('Using cached logs')
+      if (isMountedRef.current) {
+        setLogs(cachedLogsRef.current.logs)
+        setTotalLogs(cachedLogsRef.current.total)
+        setTotalPages(cachedLogsRef.current.totalPages)
+      }
+      // Revalidate in background
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          fetchLogs(true)
+        }
+      }, 100)
+      return
+    }
+    
+    // Cancel previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    
+    abortControllerRef.current = new AbortController()
+    isFetchingRef.current = true
+    
+    if (isMountedRef.current) {
+      setIsLoading(true)
+    }
+    
     try {
       const params = {
         page: currentPage,
@@ -51,65 +102,152 @@ const Logs = () => {
         params.type = filterType
       }
       
-      const response = await api.get('/api/superadmin/logs', { params })
+      const response = await api.get('/api/superadmin/logs', { 
+        params,
+        signal: abortControllerRef.current.signal
+      })
       
-      if (response.data.success) {
-        setLogs(response.data.logs)
+      if (!abortControllerRef.current.signal.aborted && isMountedRef.current && response.data.success) {
+        const fetchedLogs = response.data.logs || []
+        
+        // Apply quick filters client-side (if needed)
+        let filteredLogs = fetchedLogs
+        if (showFailedOnly) {
+          filteredLogs = filteredLogs.filter(log => log.success === false || log.level === 'error')
+        }
+        if (showBlockedOnly) {
+          filteredLogs = filteredLogs.filter(log => 
+            log.details?.toLowerCase().includes('blocked') || 
+            log.details?.toLowerCase().includes('ban') ||
+            log.action?.toLowerCase().includes('block')
+          )
+        }
+        
+        setLogs(filteredLogs)
         setTotalLogs(response.data.total)
         setTotalPages(response.data.totalPages)
+        
+        // Cache the results
+        cachedLogsRef.current = {
+          logs: filteredLogs,
+          total: response.data.total,
+          totalPages: response.data.totalPages
+        }
+        cacheKeyRef.current = cacheKey
       }
     } catch (error) {
-      const logger = (await import('../utils/logger')).default
-      logger.error('Failed to fetch logs:', error)
-      toast.error('Failed to fetch logs')
+      if (!abortControllerRef.current?.signal?.aborted && error.name !== 'AbortError' && error.name !== 'CanceledError') {
+        logger.error('Failed to fetch logs:', error)
+        if (isMountedRef.current) {
+          // Show cached data if available
+          if (cachedLogsRef.current) {
+            setLogs(cachedLogsRef.current.logs)
+            setTotalLogs(cachedLogsRef.current.total)
+            setTotalPages(cachedLogsRef.current.totalPages)
+            toast.error('Failed to fetch logs. Showing cached data.')
+          } else {
+            toast.error('Failed to fetch logs')
+          }
+        }
+      }
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+        isFetchingRef.current = false
+      }
     }
-  }
+  }, [currentPage, itemsPerPage, filterLevel, filterType, searchTerm, showFailedOnly, showBlockedOnly])
 
-  // Reset to page 1 when filters change (except search which is handled separately)
+  // Save quick filter preferences to localStorage
   useEffect(() => {
-    setCurrentPage(1)
-  }, [filterLevel, filterType, dateRange])
+    localStorage.setItem('logs_show_failed_only', showFailedOnly.toString())
+  }, [showFailedOnly])
+  
+  useEffect(() => {
+    localStorage.setItem('logs_show_blocked_only', showBlockedOnly.toString())
+  }, [showBlockedOnly])
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    if (isMountedRef.current) {
+      setCurrentPage(1)
+    }
+  }, [filterLevel, filterType, dateRange, showFailedOnly, showBlockedOnly])
 
-  // Fetch logs on mount and when filters change
+  // Initial fetch on mount
   useEffect(() => {
-    fetchLogs()
-  }, [currentPage, itemsPerPage, filterLevel, filterType, searchTerm])
+    if (isMountedRef.current) {
+      fetchLogs()
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
+  
+  // Fetch logs when dependencies change (with debounce for search)
+  useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    const timeoutId = setTimeout(() => {
+      if (isMountedRef.current) {
+        fetchLogs()
+      }
+    }, searchTerm ? 500 : 0) // Debounce search, immediate for other filters
+    
+    return () => {
+      clearTimeout(timeoutId)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [currentPage, itemsPerPage, filterLevel, filterType, showFailedOnly, showBlockedOnly, fetchLogs, searchTerm])
 
   // Auto-refresh functionality
   useEffect(() => {
+    if (!isMountedRef.current) return
+    
     let intervalId
     
     if (autoRefresh) {
       intervalId = setInterval(() => {
-        fetchLogs()
+        if (isMountedRef.current && !isFetchingRef.current) {
+          fetchLogs(true) // Force refresh
+        }
       }, 10000) // Refresh every 10 seconds
     }
     
     return () => {
       if (intervalId) clearInterval(intervalId)
     }
-  }, [autoRefresh, currentPage, itemsPerPage, filterLevel, filterType, searchTerm])
-
-  // Debounced search
+  }, [autoRefresh, fetchLogs])
+  
+  // Cleanup on unmount
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (searchTerm !== '') {
-        setCurrentPage(1)
+    isMountedRef.current = true
+    
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
       }
-      fetchLogs()
-    }, 500)
+      if (isFetchingRef.current) {
+        isFetchingRef.current = false
+      }
+    }
+  }, [])
 
-    return () => clearTimeout(timeoutId)
-  }, [searchTerm])
-
-  const handleRefresh = async () => {
-    setIsLoading(true)
-    await fetchLogs()
-    toast.success('Logs refreshed successfully')
-    setIsLoading(false)
-  }
+  const handleRefresh = useCallback(async () => {
+    if (isFetchingRef.current) return
+    
+    await fetchLogs(true) // Force refresh
+    if (isMountedRef.current) {
+      toast.success('Logs refreshed successfully')
+    }
+  }, [fetchLogs])
 
   const handleExport = async (format) => {
     try {
@@ -188,10 +326,173 @@ const Logs = () => {
     }
   }
 
-  const errorCount = logs.filter(l => l.level === 'error').length
-  const warningCount = logs.filter(l => l.level === 'warning').length
-  const infoCount = logs.filter(l => l.level === 'info').length
-  const successCount = logs.filter(l => l.level === 'success').length
+  // Format timestamp with relative time
+  const formatTimestamp = useCallback((timestamp) => {
+    if (!timestamp) return 'N/A'
+    
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now - date
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    
+    let relative = ''
+    if (diffMins < 1) {
+      relative = 'Just now'
+    } else if (diffMins < 60) {
+      relative = `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`
+    } else if (diffHours < 24) {
+      relative = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`
+    } else if (diffDays < 7) {
+      relative = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
+    } else {
+      relative = formatDate(timestamp)
+    }
+    
+    return {
+      relative,
+      absolute: formatDate(timestamp),
+      full: date.toISOString()
+    }
+  }, [])
+  
+  // Intelligent log grouping: group by IP, user, and time window (5 minutes)
+  const groupLogs = useCallback((logList) => {
+    const groups = []
+    const groupMap = new Map()
+    const TIME_WINDOW_MS = 5 * 60 * 1000 // 5 minutes
+    
+    logList.forEach((log, index) => {
+      const logTime = new Date(log.timestamp).getTime()
+      const ip = log.ipAddress || 'unknown'
+      const userId = log.userId || 'anonymous'
+      const action = log.action || 'unknown'
+      
+      // Create group key: IP + user + action
+      const groupKey = `${ip}-${userId}-${action}`
+      
+      // Find existing group within time window
+      let foundGroup = null
+      for (const [key, group] of groupMap.entries()) {
+        if (key.startsWith(`${ip}-${userId}-${action}`)) {
+          const lastLogTime = new Date(group.logs[group.logs.length - 1].timestamp).getTime()
+          if (Math.abs(logTime - lastLogTime) <= TIME_WINDOW_MS) {
+            foundGroup = group
+            break
+          }
+        }
+      }
+      
+      if (foundGroup) {
+        // Add to existing group
+        foundGroup.logs.push(log)
+        foundGroup.count++
+        foundGroup.lastTimestamp = log.timestamp
+      } else {
+        // Create new group
+        const newGroup = {
+          id: `group-${index}`,
+          key: groupKey,
+          ip,
+          userId,
+          action,
+          logs: [log],
+          count: 1,
+          firstTimestamp: log.timestamp,
+          lastTimestamp: log.timestamp,
+          isSuspicious: false
+        }
+        groupMap.set(groupKey, newGroup)
+        groups.push(newGroup)
+      }
+    })
+    
+    // Mark suspicious groups (multiple failed attempts)
+    groups.forEach(group => {
+      const failedCount = group.logs.filter(l => l.success === false || l.level === 'error').length
+      if (failedCount >= 3 || group.count >= 5) {
+        group.isSuspicious = true
+      }
+    })
+    
+    return groups
+  }, [])
+  
+  // Detect suspicious behavior for individual logs
+  const getSuspiciousIndicators = useCallback((log, allLogs) => {
+    const indicators = []
+    
+    // Check for multiple failed attempts from same IP
+    const sameIpFailed = allLogs.filter(l => 
+      l.ipAddress === log.ipAddress && 
+      (l.success === false || l.level === 'error') &&
+      Math.abs(new Date(l.timestamp) - new Date(log.timestamp)) < 15 * 60 * 1000 // 15 minutes
+    ).length
+    
+    if (sameIpFailed >= 3) {
+      indicators.push({ type: 'multiple_failed', count: sameIpFailed })
+    }
+    
+    // Check for blocked attempts
+    if (log.details?.toLowerCase().includes('blocked') || 
+        log.details?.toLowerCase().includes('ban') ||
+        log.action?.toLowerCase().includes('block')) {
+      indicators.push({ type: 'blocked' })
+    }
+    
+    return indicators
+  }, [])
+  
+  // Memoized grouped logs
+  const processedLogs = useMemo(() => {
+    if (logs.length === 0) return []
+    
+    const grouped = groupLogs(logs)
+    
+    // Flatten groups (show grouped or individual)
+    const flattened = []
+    grouped.forEach(group => {
+      if (group.count > 1 && !expandedGroups.has(group.id)) {
+        // Show as grouped entry
+        const firstLog = group.logs[0]
+        flattened.push({
+          ...firstLog,
+          _isGroup: true,
+          _groupData: group,
+          _suspiciousIndicators: group.isSuspicious ? [{ type: 'multiple_failed', count: group.count }] : []
+        })
+      } else {
+        // Show individual logs
+        group.logs.forEach(log => {
+          flattened.push({
+            ...log,
+            _isGroup: false,
+            _suspiciousIndicators: getSuspiciousIndicators(log, logs)
+          })
+        })
+      }
+    })
+    
+    return flattened
+  }, [logs, groupLogs, expandedGroups, getSuspiciousIndicators])
+  
+  const errorCount = useMemo(() => logs.filter(l => l.level === 'error').length, [logs])
+  const warningCount = useMemo(() => logs.filter(l => l.level === 'warning').length, [logs])
+  const infoCount = useMemo(() => logs.filter(l => l.level === 'info').length, [logs])
+  const successCount = useMemo(() => logs.filter(l => l.level === 'success').length, [logs])
+  
+  const toggleGroupExpansion = useCallback((groupId) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(groupId)) {
+        next.delete(groupId)
+      } else {
+        next.add(groupId)
+      }
+      return next
+    })
+  }, [])
 
   return (
     <SafeComponent>
@@ -350,45 +651,81 @@ const Logs = () => {
       {/* Filters */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+            {/* Search Bar */}
+            <div className="flex-1 w-full lg:w-auto min-w-0">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search by action, details, IP address..."
-                  className="input pl-10 w-full"
+                  className="input pl-10 w-full h-10"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
             </div>
-            <div className="flex space-x-2">
-              <select
-                className="input"
-                value={filterLevel}
-                onChange={(e) => setFilterLevel(e.target.value)}
-              >
-                <option value="all">All Levels</option>
-                <option value="error">Error</option>
-                <option value="warning">Warning</option>
-                <option value="info">Info</option>
-                <option value="success">Success</option>
-              </select>
-              <select
-                className="input"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-              >
-                <option value="all">All Types</option>
-                <option value="user_action">User Action</option>
-                <option value="security">Security</option>
-                <option value="system">System</option>
-                <option value="moderation">Moderation</option>
-                <option value="api">API</option>
-              </select>
+            
+            {/* Filter Controls */}
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto lg:flex-shrink-0">
+              {/* Quick Filter Buttons */}
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => setShowFailedOnly(!showFailedOnly)}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 whitespace-nowrap ${
+                    showFailedOnly
+                      ? 'bg-red-100 text-red-700 border-2 border-red-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Show only failed attempts"
+                >
+                  <XCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>Failed Only</span>
+                </button>
+                <button
+                  onClick={() => setShowBlockedOnly(!showBlockedOnly)}
+                  className={`px-3 py-2 h-10 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 whitespace-nowrap ${
+                    showBlockedOnly
+                      ? 'bg-orange-100 text-orange-700 border-2 border-orange-300 shadow-sm'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                  }`}
+                  title="Show only blocked attempts"
+                >
+                  <Ban className="w-4 h-4 flex-shrink-0" />
+                  <span>Blocked Only</span>
+                </button>
+              </div>
+              
+              {/* Dropdown Filters */}
+              <div className="flex gap-2 flex-1 sm:flex-initial">
+                <select
+                  className="input h-10 min-w-[140px]"
+                  value={filterLevel}
+                  onChange={(e) => setFilterLevel(e.target.value)}
+                >
+                  <option value="all">All Levels</option>
+                  <option value="error">Error</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                  <option value="success">Success</option>
+                </select>
+                <select
+                  className="input h-10 min-w-[140px]"
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value)}
+                >
+                  <option value="all">All Types</option>
+                  <option value="user_action">User Action</option>
+                  <option value="security">Security</option>
+                  <option value="system">System</option>
+                  <option value="moderation">Moderation</option>
+                  <option value="api">API</option>
+                </select>
+              </div>
+              
+              {/* More Filters Button */}
               <button 
-                className="btn btn-secondary"
+                className="btn btn-secondary h-10 whitespace-nowrap flex-shrink-0"
                 onClick={() => setShowMoreFilters(!showMoreFilters)}
               >
                 <Filter className="w-4 h-4 mr-2" />
@@ -476,51 +813,206 @@ const Logs = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  logs.map((log, index) => (
-                    <TableRow key={log._id || `log_${index}_${log.timestamp}_${log.action || 'unknown'}`} className="hover:bg-gray-50">
-                      <TableCell className="font-mono text-sm">
-                        {formatDate(log.timestamp)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getLevelIcon(log.level)}
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(log.level)}`}>
-                            {log.level}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(log.type)}`}>
-                          {log.type?.replace('_', ' ') || 'N/A'}
-                        </span>
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div className="truncate text-sm" title={log.action}>
-                          {log.action}
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div className="truncate text-sm" title={log.message || log.details}>
-                          {log.message || log.details || '-'}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {log.ipAddress || 'N/A'}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {log.userId || 'N/A'}
-                      </TableCell>
-                      <TableCell>
-                        <button 
-                          onClick={() => handleViewLog(log)}
-                          className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  processedLogs.map((log, index) => {
+                    const timestamp = formatTimestamp(log.timestamp)
+                    const isGroup = log._isGroup
+                    const groupData = log._groupData
+                    const suspiciousIndicators = log._suspiciousIndicators || []
+                    const isFailed = log.success === false || log.level === 'error'
+                    const isExpanded = expandedGroups.has(groupData?.id)
+                    
+                    return (
+                      <React.Fragment key={log._id || `log_${index}_${log.timestamp}_${log.action || 'unknown'}`}>
+                        <TableRow className={`hover:bg-gray-50 ${isFailed ? 'bg-red-50/30' : ''} ${isGroup ? 'font-semibold' : ''}`}>
+                          <TableCell className="font-mono text-sm align-middle">
+                            <div className="flex flex-col">
+                              <span className="text-xs text-gray-600" title={timestamp.absolute}>
+                                {timestamp.relative}
+                              </span>
+                              {isGroup && (
+                                <span className="text-xs text-gray-400 mt-1">
+                                  {formatTimestamp(groupData.firstTimestamp).relative} - {formatTimestamp(groupData.lastTimestamp).relative}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-middle">
+                            <div className="flex items-center space-x-2 flex-wrap">
+                              {getLevelIcon(log.level)}
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(log.level)}`}>
+                                {log.level}
+                              </span>
+                              {suspiciousIndicators.length > 0 && (
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {suspiciousIndicators.map((indicator, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300 inline-flex items-center"
+                                      title={
+                                        indicator.type === 'multiple_failed'
+                                          ? `${indicator.count} failed attempts from this IP`
+                                          : 'Blocked attempt'
+                                      }
+                                    >
+                                      {indicator.type === 'multiple_failed' ? (
+                                        <Shield className="w-3 h-3" />
+                                      ) : (
+                                        <Ban className="w-3 h-3" />
+                                      )}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-middle">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(log.type)}`}>
+                              {log.type?.replace('_', ' ') || 'N/A'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-xs align-middle">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm" title={log.action}>
+                                {log.action}
+                              </div>
+                              {isGroup && (
+                                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 whitespace-nowrap flex-shrink-0">
+                                  {groupData.count} attempts
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="max-w-xs align-middle">
+                            <div className="truncate text-sm" title={log.message || log.details}>
+                              {log.message || log.details || '-'}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm align-middle">
+                            {log.ipAddress || 'N/A'}
+                          </TableCell>
+                          <TableCell className="text-sm align-middle">
+                            {log.userId || 'N/A'}
+                          </TableCell>
+                          <TableCell className="align-middle">
+                            <div className="flex items-center justify-center gap-2">
+                              {isGroup && (
+                                <button
+                                  onClick={() => toggleGroupExpansion(groupData.id)}
+                                  className="p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0"
+                                  title={isExpanded ? 'Collapse group' : 'Expand group'}
+                                >
+                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => handleViewLog(log)}
+                                className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors flex-shrink-0"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {/* Expanded group logs */}
+                        {isGroup && isExpanded && groupData.logs.slice(1).map((groupLog, groupIndex) => {
+                          const groupTimestamp = formatTimestamp(groupLog.timestamp)
+                          const groupIsFailed = groupLog.success === false || groupLog.level === 'error'
+                          // For grouped logs, check if this specific log has suspicious indicators
+                          const groupSuspiciousIndicators = (() => {
+                            const indicators = []
+                            if (groupLog.success === false || groupLog.level === 'error') {
+                              const sameIpFailed = logs.filter(l => 
+                                l.ipAddress === groupLog.ipAddress && 
+                                (l.success === false || l.level === 'error') &&
+                                Math.abs(new Date(l.timestamp) - new Date(groupLog.timestamp)) < 15 * 60 * 1000
+                              ).length
+                              if (sameIpFailed >= 3) {
+                                indicators.push({ type: 'multiple_failed', count: sameIpFailed })
+                              }
+                            }
+                            if (groupLog.details?.toLowerCase().includes('blocked') || 
+                                groupLog.details?.toLowerCase().includes('ban') ||
+                                groupLog.action?.toLowerCase().includes('block')) {
+                              indicators.push({ type: 'blocked' })
+                            }
+                            return indicators
+                          })()
+                          
+                          return (
+                            <TableRow key={`${groupData.id}-${groupIndex}`} className={`hover:bg-gray-50 bg-gray-50/50 ${groupIsFailed ? 'bg-red-50/20' : ''}`}>
+                              <TableCell className="font-mono text-sm pl-8 align-middle">
+                                <span className="text-xs text-gray-600" title={groupTimestamp.absolute}>
+                                  {groupTimestamp.relative}
+                                </span>
+                              </TableCell>
+                              <TableCell className="align-middle">
+                                <div className="flex items-center space-x-2 flex-wrap">
+                                  {getLevelIcon(groupLog.level)}
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getLevelColor(groupLog.level)}`}>
+                                    {groupLog.level}
+                                  </span>
+                                  {groupSuspiciousIndicators.length > 0 && (
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      {groupSuspiciousIndicators.map((indicator, idx) => (
+                                        <span
+                                          key={idx}
+                                          className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-300 inline-flex items-center"
+                                          title={
+                                            indicator.type === 'multiple_failed'
+                                              ? `${indicator.count} failed attempts from this IP`
+                                              : 'Blocked attempt'
+                                          }
+                                        >
+                                          {indicator.type === 'multiple_failed' ? (
+                                            <Shield className="w-3 h-3" />
+                                          ) : (
+                                            <Ban className="w-3 h-3" />
+                                          )}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="align-middle">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(groupLog.type)}`}>
+                                  {groupLog.type?.replace('_', ' ') || 'N/A'}
+                                </span>
+                              </TableCell>
+                              <TableCell className="max-w-xs align-middle">
+                                <div className="truncate text-sm" title={groupLog.action}>
+                                  {groupLog.action}
+                                </div>
+                              </TableCell>
+                              <TableCell className="max-w-xs align-middle">
+                                <div className="truncate text-sm" title={groupLog.message || groupLog.details}>
+                                  {groupLog.message || groupLog.details || '-'}
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-mono text-sm align-middle">
+                                {groupLog.ipAddress || 'N/A'}
+                              </TableCell>
+                              <TableCell className="text-sm align-middle">
+                                {groupLog.userId || 'N/A'}
+                              </TableCell>
+                              <TableCell className="align-middle">
+                                <div className="flex items-center justify-center">
+                                  <button 
+                                    onClick={() => handleViewLog(groupLog)}
+                                    className="p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors flex-shrink-0"
+                                    title="View Details"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </React.Fragment>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -623,7 +1115,12 @@ const Logs = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Timestamp</label>
-                  <p className="text-sm text-gray-900 font-mono">{formatDate(selectedLog.timestamp)}</p>
+                  <div className="mt-1">
+                    <p className="text-sm text-gray-900 font-mono" title={formatTimestamp(selectedLog.timestamp).absolute}>
+                      {formatTimestamp(selectedLog.timestamp).relative}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{formatTimestamp(selectedLog.timestamp).absolute}</p>
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-500">Level</label>
