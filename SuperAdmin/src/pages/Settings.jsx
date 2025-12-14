@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useRealTime } from '../context/RealTimeContext'
+import { useAuth } from '../context/AuthContext'
 import { api } from '../services/api'
 import { 
   Settings as SettingsIcon, Shield, Lock, Bell, Database, 
@@ -10,10 +12,27 @@ import {
 import toast from 'react-hot-toast'
 import SafeComponent from '../components/SafeComponent'
 import { handleError } from '../utils/errorCodes'
+import { formatDate } from '../utils/formatDate'
+import logger from '../utils/logger'
 import * as Sentry from '@sentry/react'
+
+// Critical settings that require awareness (high-impact)
+const CRITICAL_SETTINGS = {
+  maintenanceMode: { section: 'system', warning: 'Enabling maintenance mode will make the system unavailable to all users.' },
+  debugMode: { section: 'system', warning: 'Debug mode may expose sensitive information in logs.' },
+  rateLimitEnabled: { section: 'api', warning: 'Disabling rate limiting may expose the system to abuse.' },
+  userRegistration: { section: 'features', warning: 'Disabling user registration will prevent new users from joining.' },
+  twoFactorAuth: { section: 'security', warning: 'Disabling 2FA reduces account security.' },
+}
 
 const Settings = () => {
   const { isConnected } = useRealTime()
+  const { user: currentAdmin } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Original settings (from server) for comparison
+  const [originalSettings, setOriginalSettings] = useState(null)
   const [settings, setSettings] = useState({
     // Security Settings
     pinRequired: true,
@@ -62,27 +81,97 @@ const Settings = () => {
 
   const [showModal, setShowModal] = useState(false)
   const [modalType, setModalType] = useState('')
-  const [hasChanges, setHasChanges] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [activeSection, setActiveSection] = useState('security')
+  const [loadedSections, setLoadedSections] = useState(new Set(['security'])) // Track loaded sections for lazy loading
+  const [lastSavedInfo, setLastSavedInfo] = useState(null) // { lastModifiedAt, lastModifiedBy }
+  
+  // Dirty state tracking per section
+  const [dirtySections, setDirtySections] = useState(new Set())
+  
+  // Stability & performance refs
+  const isMountedRef = useRef(true)
+  const abortControllerRef = useRef(null)
+  const isSavingRef = useRef(false)
+  const savingSectionRef = useRef(null)
+  const lastSavedPayloadRef = useRef(null) // Track last successfully saved payload
+  const beforeUnloadHandlerRef = useRef(null)
 
+  // Lifecycle safety
+  useEffect(() => {
+    isMountedRef.current = true
+    
+    // Unsaved changes guard: Warn on browser refresh/close
+    beforeUnloadHandlerRef.current = (e) => {
+      if (dirtySections.size > 0) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'
+        return e.returnValue
+      }
+    }
+    window.addEventListener('beforeunload', beforeUnloadHandlerRef.current)
+    
+    return () => {
+      isMountedRef.current = false
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (beforeUnloadHandlerRef.current) {
+        window.removeEventListener('beforeunload', beforeUnloadHandlerRef.current)
+      }
+    }
+  }, [dirtySections])
+  
+  // Unsaved changes guard: Warn on route change
+  useEffect(() => {
+    const handleRouteChange = () => {
+      if (dirtySections.size > 0) {
+        const confirmed = window.confirm(
+          'You have unsaved changes. Are you sure you want to leave?'
+        )
+        if (!confirmed) {
+          navigate(location.pathname, { replace: true })
+          return false
+        }
+      }
+      return true
+    }
+    
+    // Note: React Router doesn't have a built-in beforeRouteLeave,
+    // so we'll handle this in the navigation handlers
+    return () => {
+      // Cleanup if needed
+    }
+  }, [dirtySections, navigate, location])
+  
   // Fetch settings on component mount
   useEffect(() => {
+    if (!isMountedRef.current) return
+    
     const fetchSettings = async () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      abortControllerRef.current = new AbortController()
+      
       try {
-        const response = await api.get('/api/superadmin/settings')
+        const response = await api.get('/api/superadmin/settings', {
+          signal: abortControllerRef.current.signal
+        })
+        
+        if (abortControllerRef.current.signal.aborted || !isMountedRef.current) return
+        
         if (response.data.success && response.data.settings) {
           const loadedSettings = response.data.settings
           
-          // Map loaded settings to local state
-          setSettings({
+          // Store original settings for comparison (flattened)
+          const originalFlat = {
             pinRequired: loadedSettings.security?.pinRequired ?? true,
             twoFactorAuth: loadedSettings.security?.twoFactorAuth ?? false,
             sessionTimeout: loadedSettings.security?.sessionTimeout ?? 30,
             maxLoginAttempts: loadedSettings.security?.maxLoginAttempts ?? 5,
             passwordMinLength: loadedSettings.security?.passwordMinLength ?? 8,
             requireEmailVerification: loadedSettings.security?.requireEmailVerification ?? true,
-            
             userRegistration: loadedSettings.features?.userRegistration ?? true,
             contentModeration: loadedSettings.features?.contentModeration ?? true,
             locationTracking: loadedSettings.features?.locationTracking ?? true,
@@ -90,44 +179,149 @@ const Settings = () => {
             analyticsTracking: loadedSettings.features?.analyticsTracking ?? true,
             aiRecommendations: loadedSettings.features?.aiRecommendations ?? true,
             liveComments: loadedSettings.features?.liveComments ?? true,
-            
             maintenanceMode: loadedSettings.system?.maintenanceMode ?? false,
             debugMode: loadedSettings.system?.debugMode ?? false,
             logLevel: loadedSettings.system?.logLevel ?? 'info',
             backupFrequency: loadedSettings.system?.backupFrequency ?? 'daily',
             autoBackup: loadedSettings.system?.autoBackup ?? true,
             maxFileSize: loadedSettings.system?.maxFileSize ?? 10,
-            
             rateLimitEnabled: loadedSettings.api?.rateLimitEnabled ?? true,
             rateLimitRequests: loadedSettings.api?.rateLimitRequests ?? 1000,
             rateLimitWindow: loadedSettings.api?.rateLimitWindow ?? 3600,
-            
             emailNotifications: loadedSettings.email?.emailNotifications ?? true,
             emailProvider: loadedSettings.email?.emailProvider ?? 'smtp',
             smtpHost: loadedSettings.email?.smtpHost ?? 'smtp.gmail.com',
             smtpPort: loadedSettings.email?.smtpPort ?? 587,
-            
             dataRetentionDays: loadedSettings.privacy?.dataRetentionDays ?? 90,
             gdprCompliance: loadedSettings.privacy?.gdprCompliance ?? true,
             shareAnalytics: loadedSettings.privacy?.shareAnalytics ?? false,
-          })
+          }
+          
+          setOriginalSettings(originalFlat)
+          
+          // Map loaded settings to local state
+          setSettings(originalFlat)
+          
+          // Store last saved info
+          if (loadedSettings.lastModifiedAt || loadedSettings.lastModifiedBy) {
+            setLastSavedInfo({
+              lastModifiedAt: loadedSettings.lastModifiedAt,
+              lastModifiedBy: loadedSettings.lastModifiedBy,
+            })
+          }
         }
       } catch (error) {
-        const logger = (await import('../utils/logger')).default
+        if (error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+          return
+        }
         logger.error('Failed to fetch settings:', error)
-        handleError(error, toast, 'Failed to fetch settings')
+        if (isMountedRef.current) {
+          handleError(error, toast, 'Failed to fetch settings')
+        }
       }
     }
     fetchSettings()
-  }, [api])
+  }, [])
+  
+  // Lazy load section when activated
+  useEffect(() => {
+    if (!loadedSections.has(activeSection)) {
+      setLoadedSections(prev => new Set([...prev, activeSection]))
+    }
+  }, [activeSection, loadedSections])
 
-  const handleSettingChange = (key, value) => {
+  // Determine which section a setting belongs to
+  const getSectionForKey = useCallback((key) => {
+    const sectionMap = {
+      pinRequired: 'security',
+      twoFactorAuth: 'security',
+      sessionTimeout: 'security',
+      maxLoginAttempts: 'security',
+      passwordMinLength: 'security',
+      requireEmailVerification: 'security',
+      userRegistration: 'features',
+      contentModeration: 'features',
+      locationTracking: 'features',
+      pushNotifications: 'features',
+      analyticsTracking: 'features',
+      aiRecommendations: 'features',
+      liveComments: 'features',
+      maintenanceMode: 'system',
+      debugMode: 'system',
+      logLevel: 'system',
+      backupFrequency: 'system',
+      autoBackup: 'system',
+      maxFileSize: 'system',
+      rateLimitEnabled: 'api',
+      rateLimitRequests: 'api',
+      rateLimitWindow: 'api',
+      emailNotifications: 'api',
+      emailProvider: 'api',
+      smtpHost: 'api',
+      smtpPort: 'api',
+      dataRetentionDays: 'privacy',
+      gdprCompliance: 'privacy',
+      shareAnalytics: 'privacy',
+    }
+    return sectionMap[key] || 'security'
+  }, [])
+  
+  const handleSettingChange = useCallback((key, value) => {
+    if (!isMountedRef.current) return
+    
     setSettings(prev => ({ ...prev, [key]: value }))
-    setHasChanges(true)
-  }
+    
+    // Mark section as dirty
+    const section = getSectionForKey(key)
+    setDirtySections(prev => new Set([...prev, section]))
+  }, [getSectionForKey])
+  
+  // Check if settings have changed (for redundant save prevention)
+  const hasChanges = useMemo(() => {
+    if (!originalSettings) return false
+    return JSON.stringify(settings) !== JSON.stringify(originalSettings)
+  }, [settings, originalSettings])
+  
+  // Check if specific section has changes
+  const sectionHasChanges = useCallback((sectionId) => {
+    if (!originalSettings) return false
+    const sectionKeys = {
+      security: ['pinRequired', 'twoFactorAuth', 'sessionTimeout', 'maxLoginAttempts', 'passwordMinLength', 'requireEmailVerification'],
+      features: ['userRegistration', 'contentModeration', 'locationTracking', 'pushNotifications', 'analyticsTracking', 'aiRecommendations', 'liveComments'],
+      system: ['maintenanceMode', 'debugMode', 'logLevel', 'backupFrequency', 'autoBackup', 'maxFileSize'],
+      api: ['rateLimitEnabled', 'rateLimitRequests', 'rateLimitWindow', 'emailNotifications', 'emailProvider', 'smtpHost', 'smtpPort'],
+      privacy: ['dataRetentionDays', 'gdprCompliance', 'shareAnalytics'],
+    }
+    const keys = sectionKeys[sectionId] || []
+    return keys.some(key => settings[key] !== originalSettings[key])
+  }, [settings, originalSettings])
 
-  const handleSave = async () => {
-    setIsLoading(true)
+  const handleSave = useCallback(async () => {
+    // Redundant save prevention: Check if payload matches last saved
+    if (!hasChanges) {
+      toast.info('No changes to save')
+      return
+    }
+    
+    // Prevent duplicate saves
+    if (isSavingRef.current) {
+      logger.debug('Save already in progress, skipping duplicate call')
+      return
+    }
+    
+    if (!isMountedRef.current) return
+    
+    // Abort any in-flight requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    
+    isSavingRef.current = true
+    if (isMountedRef.current) {
+      setIsLoading(true)
+    }
+    
     try {
       // Transform local state to backend format
       const settingsToSave = {
@@ -174,19 +368,107 @@ const Settings = () => {
         }
       }
       
-      await api.put('/api/superadmin/settings', settingsToSave)
-      setHasChanges(false)
-      toast.success('Settings saved successfully')
+      // Check if payload matches last saved (redundant save prevention)
+      const payloadStr = JSON.stringify(settingsToSave)
+      if (lastSavedPayloadRef.current === payloadStr) {
+        logger.debug('Payload matches last saved, skipping redundant save')
+        if (isMountedRef.current) {
+          toast.info('Settings already saved')
+          setDirtySections(new Set())
+        }
+        return
+      }
+      
+      // Optimistic update: Store current state for rollback
+      const previousSettings = { ...settings }
+      const previousOriginal = originalSettings ? { ...originalSettings } : null
+      
+      const response = await api.put('/api/superadmin/settings', settingsToSave, {
+        signal: abortControllerRef.current.signal
+      })
+      
+      if (abortControllerRef.current.signal.aborted || !isMountedRef.current) {
+        return
+      }
+      
+      // Update original settings to match current (successful save)
+      if (response.data?.settings) {
+        const loadedSettings = response.data.settings
+        const newOriginal = {
+          pinRequired: loadedSettings.security?.pinRequired ?? true,
+          twoFactorAuth: loadedSettings.security?.twoFactorAuth ?? false,
+          sessionTimeout: loadedSettings.security?.sessionTimeout ?? 30,
+          maxLoginAttempts: loadedSettings.security?.maxLoginAttempts ?? 5,
+          passwordMinLength: loadedSettings.security?.passwordMinLength ?? 8,
+          requireEmailVerification: loadedSettings.security?.requireEmailVerification ?? true,
+          userRegistration: loadedSettings.features?.userRegistration ?? true,
+          contentModeration: loadedSettings.features?.contentModeration ?? true,
+          locationTracking: loadedSettings.features?.locationTracking ?? true,
+          pushNotifications: loadedSettings.features?.pushNotifications ?? true,
+          analyticsTracking: loadedSettings.features?.analyticsTracking ?? true,
+          aiRecommendations: loadedSettings.features?.aiRecommendations ?? true,
+          liveComments: loadedSettings.features?.liveComments ?? true,
+          maintenanceMode: loadedSettings.system?.maintenanceMode ?? false,
+          debugMode: loadedSettings.system?.debugMode ?? false,
+          logLevel: loadedSettings.system?.logLevel ?? 'info',
+          backupFrequency: loadedSettings.system?.backupFrequency ?? 'daily',
+          autoBackup: loadedSettings.system?.autoBackup ?? true,
+          maxFileSize: loadedSettings.system?.maxFileSize ?? 10,
+          rateLimitEnabled: loadedSettings.api?.rateLimitEnabled ?? true,
+          rateLimitRequests: loadedSettings.api?.rateLimitRequests ?? 1000,
+          rateLimitWindow: loadedSettings.api?.rateLimitWindow ?? 3600,
+          emailNotifications: loadedSettings.email?.emailNotifications ?? true,
+          emailProvider: loadedSettings.email?.emailProvider ?? 'smtp',
+          smtpHost: loadedSettings.email?.smtpHost ?? 'smtp.gmail.com',
+          smtpPort: loadedSettings.email?.smtpPort ?? 587,
+          dataRetentionDays: loadedSettings.privacy?.dataRetentionDays ?? 90,
+          gdprCompliance: loadedSettings.privacy?.gdprCompliance ?? true,
+          shareAnalytics: loadedSettings.privacy?.shareAnalytics ?? false,
+        }
+        
+        setOriginalSettings(newOriginal)
+        lastSavedPayloadRef.current = payloadStr
+        
+        // Update last saved info
+        if (loadedSettings.lastModifiedAt || loadedSettings.lastModifiedBy) {
+          setLastSavedInfo({
+            lastModifiedAt: loadedSettings.lastModifiedAt,
+            lastModifiedBy: loadedSettings.lastModifiedBy,
+          })
+        }
+      }
+      
+      // Clear dirty sections
+      setDirtySections(new Set())
+      
+      if (isMountedRef.current) {
+        toast.success('Settings saved successfully')
+      }
     } catch (error) {
-      const logger = (await import('../utils/logger')).default
-      const { parseError } = await import('../utils/errorCodes')
-      const parsedError = parseError(error)
-      logger.error('Error saving settings:', parsedError.code, parsedError.message)
-      toast.error(parsedError.adminMessage || 'Failed to save settings')
+      if (error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+        return
+      }
+      
+      // Rollback on failure
+      if (previousSettings && isMountedRef.current) {
+        setSettings(previousSettings)
+        if (previousOriginal) {
+          setOriginalSettings(previousOriginal)
+        }
+      }
+      
+      logger.error('Error saving settings:', error)
+      if (isMountedRef.current) {
+        handleError(error, toast, 'Failed to save settings')
+      }
     } finally {
-      setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
+      isSavingRef.current = false
+      savingSectionRef.current = null
     }
-  }
+  }, [hasChanges, settings, originalSettings])
 
   const handleReset = () => {
     setShowModal(true)
@@ -322,12 +604,27 @@ const Settings = () => {
               </button>
               <button
                 onClick={handleSave}
-                disabled={!hasChanges || isLoading}
+                disabled={!hasChanges || isLoading || isSavingRef.current}
                 className="px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className="w-4 h-4" />
-                <span>{isLoading ? 'Saving...' : 'Save Changes'}</span>
+                <span>{isLoading || isSavingRef.current ? 'Saving...' : 'Save Changes'}</span>
               </button>
+              {dirtySections.size > 0 && (
+                <div className="flex items-center space-x-2 text-sm text-yellow-600">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>You have unsaved changes</span>
+                </div>
+              )}
+              {lastSavedInfo && (
+                <div className="flex items-center space-x-2 text-sm text-gray-500">
+                  <Clock className="w-4 h-4" />
+                  <span>
+                    Last saved {lastSavedInfo.lastModifiedAt ? formatDate(lastSavedInfo.lastModifiedAt) : 'recently'}
+                    {lastSavedInfo.lastModifiedBy && currentAdmin?.email && ` by ${currentAdmin.email.split('@')[0]}`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -337,11 +634,21 @@ const Settings = () => {
           <nav className="flex space-x-1 p-2">
             {sections.map((section) => {
               const Icon = section.icon
+              const isDirty = dirtySections.has(section.id)
               return (
                 <button
                   key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={`flex items-center py-3 px-6 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                  onClick={() => {
+                    // Warn if switching away from section with unsaved changes
+                    if (dirtySections.has(activeSection) && activeSection !== section.id) {
+                      const confirmed = window.confirm(
+                        `You have unsaved changes in ${sections.find(s => s.id === activeSection)?.name}. Are you sure you want to switch?`
+                      )
+                      if (!confirmed) return
+                    }
+                    setActiveSection(section.id)
+                  }}
+                  className={`flex items-center py-3 px-6 rounded-lg font-semibold text-sm transition-all duration-200 relative ${
                     activeSection === section.id
                       ? `bg-gradient-to-r ${section.color} text-white shadow-lg transform scale-105`
                       : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
@@ -349,6 +656,9 @@ const Settings = () => {
                 >
                   <Icon className="w-4 h-4 mr-2" />
                   {section.name}
+                  {isDirty && (
+                    <span className="ml-2 w-2 h-2 bg-yellow-400 rounded-full"></span>
+                  )}
                 </button>
               )
             })}
@@ -358,7 +668,7 @@ const Settings = () => {
         {/* Settings Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Security Settings */}
-          {activeSection === 'security' && (
+          {activeSection === 'security' && loadedSections.has('security') && (
             <>
               <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-6 border border-blue-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
@@ -389,6 +699,12 @@ const Settings = () => {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-gray-900">Two-Factor Authentication</h3>
                       <p className="text-sm text-gray-600">Enable 2FA for additional security</p>
+                      {CRITICAL_SETTINGS.twoFactorAuth && !settings.twoFactorAuth && (
+                        <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {CRITICAL_SETTINGS.twoFactorAuth.warning}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => handleSettingChange('twoFactorAuth', !settings.twoFactorAuth)}
@@ -476,7 +792,7 @@ const Settings = () => {
           )}
 
           {/* Feature Toggles */}
-          {activeSection === 'features' && (
+          {activeSection === 'features' && loadedSections.has('features') && (
             <>
               <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-2xl p-6 border border-purple-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
@@ -487,7 +803,7 @@ const Settings = () => {
                 </div>
                 <div className="space-y-6">
                   {[
-                    { key: 'userRegistration', label: 'User Registration', desc: 'Allow new users to register' },
+                    { key: 'userRegistration', label: 'User Registration', desc: 'Allow new users to register', critical: true },
                     { key: 'pushNotifications', label: 'Push Notifications', desc: 'Send push notifications to users' },
                     { key: 'analyticsTracking', label: 'Analytics Tracking', desc: 'Track user analytics' },
                   ].map((item) => (
@@ -495,6 +811,12 @@ const Settings = () => {
                       <div className="flex-1">
                         <h3 className="text-sm font-semibold text-gray-900">{item.label}</h3>
                         <p className="text-sm text-gray-600">{item.desc}</p>
+                        {item.critical && CRITICAL_SETTINGS[item.key] && !settings[item.key] && (
+                          <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />
+                            {CRITICAL_SETTINGS[item.key].warning}
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={() => handleSettingChange(item.key, !settings[item.key])}
@@ -548,7 +870,7 @@ const Settings = () => {
           )}
 
           {/* System Settings */}
-          {activeSection === 'system' && (
+          {activeSection === 'system' && loadedSections.has('system') && (
             <>
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
@@ -562,6 +884,12 @@ const Settings = () => {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-gray-900">Maintenance Mode</h3>
                       <p className="text-sm text-gray-600">Put the system in maintenance mode</p>
+                      {CRITICAL_SETTINGS.maintenanceMode && settings.maintenanceMode && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {CRITICAL_SETTINGS.maintenanceMode.warning}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => handleSettingChange('maintenanceMode', !settings.maintenanceMode)}
@@ -579,6 +907,12 @@ const Settings = () => {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-gray-900">Debug Mode</h3>
                       <p className="text-sm text-gray-600">Enable debug logging</p>
+                      {CRITICAL_SETTINGS.debugMode && settings.debugMode && (
+                        <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {CRITICAL_SETTINGS.debugMode.warning}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => handleSettingChange('debugMode', !settings.debugMode)}
@@ -670,7 +1004,7 @@ const Settings = () => {
           )}
 
           {/* API Settings */}
-          {activeSection === 'api' && (
+          {activeSection === 'api' && loadedSections.has('api') && (
             <>
               <div className="bg-gradient-to-br from-orange-50 to-red-50 rounded-2xl p-6 border border-orange-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
@@ -684,6 +1018,12 @@ const Settings = () => {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-gray-900">Rate Limiting</h3>
                       <p className="text-sm text-gray-600">Enable API rate limiting</p>
+                      {CRITICAL_SETTINGS.rateLimitEnabled && !settings.rateLimitEnabled && (
+                        <p className="text-xs text-yellow-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          {CRITICAL_SETTINGS.rateLimitEnabled.warning}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => handleSettingChange('rateLimitEnabled', !settings.rateLimitEnabled)}
@@ -781,7 +1121,7 @@ const Settings = () => {
           )}
 
           {/* Privacy Settings */}
-          {activeSection === 'privacy' && (
+          {activeSection === 'privacy' && loadedSections.has('privacy') && (
             <>
               <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
