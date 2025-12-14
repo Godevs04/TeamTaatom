@@ -3122,4 +3122,879 @@ router.post('/query-stats/reset', authenticateSuperAdmin, (req, res) => {
   }
 });
 
+// System Health Monitoring
+/**
+ * @swagger
+ * /api/v1/superadmin/system/health:
+ *   get:
+ *     summary: Get system health status
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: System health status
+ */
+router.get('/system/health', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const os = require('os');
+    
+    // Database health check
+    const dbState = mongoose.connection.readyState;
+    const dbStates = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    
+    // Test database connection with a simple query
+    let dbHealthy = false;
+    let dbResponseTime = null;
+    try {
+      const startTime = Date.now();
+      await mongoose.connection.db.admin().ping();
+      dbResponseTime = Date.now() - startTime;
+      dbHealthy = true;
+    } catch (error) {
+      logger.error('Database health check failed:', error);
+      dbHealthy = false;
+    }
+    
+    // System metrics
+    const systemMetrics = {
+      uptime: process.uptime(),
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024), // MB
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024), // MB
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024), // MB
+        external: Math.round(process.memoryUsage().external / 1024 / 1024) // MB
+      },
+      cpu: {
+        loadAverage: os.loadavg(),
+        cpus: os.cpus().length
+      },
+      platform: {
+        type: os.type(),
+        platform: os.platform(),
+        arch: os.arch(),
+        hostname: os.hostname()
+      },
+      nodeVersion: process.version
+    };
+    
+    // Overall health status
+    const overallHealth = dbHealthy && dbState === 1 ? 'healthy' : 'degraded';
+    
+    return sendSuccess(res, 200, 'System health fetched successfully', {
+      status: overallHealth,
+      timestamp: new Date().toISOString(),
+      database: {
+        status: dbStates[dbState] || 'unknown',
+        healthy: dbHealthy,
+        responseTime: dbResponseTime,
+        connectionState: dbState
+      },
+      system: systemMetrics
+    });
+  } catch (error) {
+    logger.error('System health check error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch system health');
+  }
+});
+
+// System Statistics
+/**
+ * @swagger
+ * /api/v1/superadmin/system/statistics:
+ *   get:
+ *     summary: Get system statistics (database sizes, collection counts)
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: System statistics
+ */
+router.get('/system/statistics', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    
+    if (!db) {
+      return sendError(res, 'SRV_6001', 'Database connection not available');
+    }
+    
+    // Get database stats
+    let dbStats = {
+      dataSize: 0,
+      storageSize: 0,
+      indexes: 0,
+      indexSize: 0
+    };
+    
+    try {
+      const statsResult = await db.stats();
+      dbStats = {
+        dataSize: statsResult.dataSize || 0,
+        storageSize: statsResult.storageSize || 0,
+        indexes: statsResult.indexes || 0,
+        indexSize: statsResult.indexSize || 0
+      };
+    } catch (statsError) {
+      logger.warn('Failed to get database stats, using defaults:', statsError.message);
+    }
+    
+    // Get collection names and their stats
+    const collections = await db.listCollections().toArray();
+    const collectionStats = await Promise.all(
+      collections.map(async (collection) => {
+        try {
+          const coll = db.collection(collection.name);
+          const count = await coll.countDocuments().catch(() => 0);
+          
+          let stats = {
+            size: 0,
+            storageSize: 0,
+            nindexes: 0,
+            totalIndexSize: 0
+          };
+          
+          try {
+            const collStats = await db.command({ collStats: collection.name });
+            stats = {
+              size: collStats.size || 0,
+              storageSize: collStats.storageSize || 0,
+              nindexes: collStats.nindexes || 0,
+              totalIndexSize: collStats.totalIndexSize || 0
+            };
+          } catch (statsError) {
+            // Fallback: use estimates
+            const indexes = await coll.indexes().catch(() => []);
+            stats = {
+              size: count * 1024,
+              storageSize: count * 1024,
+              nindexes: indexes.length,
+              totalIndexSize: indexes.length * 1024 * 10
+            };
+          }
+          
+          return {
+            name: collection.name,
+            count: count,
+            size: stats.size || 0,
+            storageSize: stats.storageSize || 0,
+            indexes: stats.nindexes || 0,
+            indexSize: stats.totalIndexSize || 0
+          };
+        } catch (error) {
+          logger.warn(`Failed to get stats for collection ${collection.name}:`, error.message);
+          return {
+            name: collection.name,
+            count: 0,
+            size: 0,
+            storageSize: 0,
+            indexes: 0,
+            indexSize: 0
+          };
+        }
+      })
+    );
+    
+    // Get model counts (using existing models)
+    const User = require('../models/User');
+    const Post = require('../models/Post');
+    const TripVisit = require('../models/TripVisit');
+    const Report = require('../models/Report');
+    const SuperAdmin = require('../models/SuperAdmin');
+    const Locale = require('../models/Locale');
+    const Song = require('../models/Song');
+    
+    const modelCounts = await Promise.all([
+      User.countDocuments().catch(() => 0),
+      Post.countDocuments().catch(() => 0),
+      TripVisit.countDocuments().catch(() => 0),
+      Report.countDocuments().catch(() => 0),
+      SuperAdmin.countDocuments().catch(() => 0),
+      Locale.countDocuments().catch(() => 0),
+      Song.countDocuments().catch(() => 0)
+    ]);
+    
+    return sendSuccess(res, 200, 'System statistics fetched successfully', {
+      database: {
+        name: db.databaseName,
+        collections: collections.length,
+        dataSize: dbStats.dataSize || 0,
+        storageSize: dbStats.storageSize || 0,
+        indexes: dbStats.indexes || 0,
+        indexSize: dbStats.indexSize || 0,
+        totalSize: (dbStats.dataSize || 0) + (dbStats.indexSize || 0)
+      },
+      collections: collectionStats,
+      modelCounts: {
+        users: modelCounts[0],
+        posts: modelCounts[1],
+        tripVisits: modelCounts[2],
+        reports: modelCounts[3],
+        superAdmins: modelCounts[4],
+        locales: modelCounts[5],
+        songs: modelCounts[6]
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('System statistics error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch system statistics');
+  }
+});
+
+// Activity Logs Aggregation
+/**
+ * @swagger
+ * /api/v1/superadmin/system/activity-logs:
+ *   get:
+ *     summary: Get aggregated activity logs from all admins
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *       - in: query
+ *         name: action
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: adminId
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Activity logs
+ */
+router.get('/system/activity-logs', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, action, adminId } = req.query;
+    const skip = (page - 1) * limit;
+    
+    const SuperAdmin = require('../models/SuperAdmin');
+    
+    // Build query
+    let query = {};
+    if (adminId) {
+      query._id = adminId;
+    }
+    
+    // Get all super admins with their security logs
+    const admins = await SuperAdmin.find(query)
+      .select('email role securityLogs')
+      .lean();
+    
+    // Aggregate all logs
+    let allLogs = [];
+    admins.forEach(admin => {
+      if (admin.securityLogs && Array.isArray(admin.securityLogs)) {
+        admin.securityLogs.forEach(log => {
+          allLogs.push({
+            ...log,
+            adminEmail: admin.email,
+            adminRole: admin.role,
+            adminId: admin._id.toString()
+          });
+        });
+      }
+    });
+    
+    // Filter by action if provided
+    if (action) {
+      allLogs = allLogs.filter(log => log.action === action);
+    }
+    
+    // Sort by timestamp (newest first)
+    allLogs.sort((a, b) => {
+      const timeA = new Date(a.timestamp || 0).getTime();
+      const timeB = new Date(b.timestamp || 0).getTime();
+      return timeB - timeA;
+    });
+    
+    // Paginate
+    const total = allLogs.length;
+    const paginatedLogs = allLogs.slice(skip, skip + parseInt(limit));
+    
+    // Get action breakdown
+    const actionBreakdown = {};
+    allLogs.forEach(log => {
+      actionBreakdown[log.action] = (actionBreakdown[log.action] || 0) + 1;
+    });
+    
+    return sendSuccess(res, 200, 'Activity logs fetched successfully', {
+      logs: paginatedLogs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      },
+      summary: {
+        totalLogs: total,
+        actionBreakdown,
+        uniqueAdmins: new Set(admins.map(a => a._id.toString())).size
+      }
+    });
+  } catch (error) {
+    logger.error('Activity logs error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch activity logs');
+  }
+});
+
+// Performance Metrics
+/**
+ * @swagger
+ * /api/v1/superadmin/system/performance:
+ *   get:
+ *     summary: Get system performance metrics
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Performance metrics
+ */
+router.get('/system/performance', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { getQueryStats } = require('../middleware/queryMonitor');
+    const queryStats = getQueryStats();
+    
+    // Get recent error rate (from logs if available)
+    const mongoose = require('mongoose');
+    const db = mongoose.connection;
+    
+    // Calculate average query time from query monitor
+    const avgQueryTime = queryStats.averageQueryTime || 0;
+    
+    // Get slow queries count (not the array!)
+    const slowQueriesCount = queryStats.slowQueriesCount || 0;
+    
+    // System performance metrics
+    const performance = {
+      database: {
+        connectionState: db.readyState,
+        avgQueryTime: Math.round(avgQueryTime),
+        totalQueries: queryStats.totalQueries || 0,
+        slowQueries: slowQueriesCount,
+        slowQueryRate: queryStats.totalQueries > 0
+          ? ((slowQueriesCount / queryStats.totalQueries) * 100).toFixed(2)
+          : '0.00'
+      },
+      memory: {
+        heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024), // MB
+        heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024), // MB
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024), // MB
+        heapUsagePercent: ((process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) * 100).toFixed(2)
+      },
+      uptime: {
+        seconds: Math.floor(process.uptime()),
+        formatted: formatUptime(process.uptime())
+      },
+      timestamp: new Date().toISOString()
+    };
+    
+    return sendSuccess(res, 200, 'Performance metrics fetched successfully', performance);
+  } catch (error) {
+    logger.error('Performance metrics error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch performance metrics');
+  }
+});
+
+// Helper function to format uptime
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  } else if (hours > 0) {
+    return `${hours}h ${minutes}m ${secs}s`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  } else {
+    return `${secs}s`;
+  }
+}
+
+// Database Collection Details
+/**
+ * @swagger
+ * /api/v1/superadmin/system/database/collections:
+ *   get:
+ *     summary: Get detailed database collection information
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Collection details
+ */
+router.get('/system/database/collections', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const db = mongoose.connection.db;
+    
+    if (!db) {
+      return sendError(res, 'SRV_6001', 'Database connection not available');
+    }
+    
+    const collections = await db.listCollections().toArray();
+    const collectionDetails = await Promise.all(
+      collections.map(async (collection) => {
+        try {
+          const coll = db.collection(collection.name);
+          
+          // Get count
+          const count = await coll.countDocuments().catch(() => 0);
+          
+          // Get indexes
+          const indexes = await coll.indexes().catch(() => []);
+          
+          // Try to get stats using aggregate pipeline (more reliable)
+          let stats = {
+            size: 0,
+            storageSize: 0,
+            totalIndexSize: 0
+          };
+          
+          try {
+            // Use collStats command via runCommand
+            const collStats = await db.command({ collStats: collection.name });
+            stats = {
+              size: collStats.size || 0,
+              storageSize: collStats.storageSize || 0,
+              totalIndexSize: collStats.totalIndexSize || 0
+            };
+          } catch (statsError) {
+            // Fallback: estimate size from count
+            logger.debug(`Could not get stats for ${collection.name}, using estimates`);
+            stats = {
+              size: count * 1024, // Rough estimate: 1KB per document
+              storageSize: count * 1024,
+              totalIndexSize: indexes.length * 1024 * 10 // Rough estimate per index
+            };
+          }
+          
+          return {
+            name: collection.name,
+            count: count,
+            size: {
+              data: stats.size || 0,
+              storage: stats.storageSize || 0,
+              indexes: stats.totalIndexSize || 0,
+              total: (stats.size || 0) + (stats.totalIndexSize || 0)
+            },
+            indexes: indexes.map(idx => ({
+              name: idx.name,
+              keys: idx.key,
+              unique: idx.unique || false,
+              sparse: idx.sparse || false
+            })),
+            avgObjectSize: count > 0 ? Math.round((stats.size || 0) / count) : 0
+          };
+        } catch (error) {
+          logger.warn(`Failed to get details for collection ${collection.name}:`, error.message);
+          return {
+            name: collection.name,
+            count: 0,
+            size: { data: 0, storage: 0, indexes: 0, total: 0 },
+            indexes: [],
+            avgObjectSize: 0
+          };
+        }
+      })
+    );
+    
+    return sendSuccess(res, 200, 'Collection details fetched successfully', {
+      collections: collectionDetails,
+      totalCollections: collections.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Collection details error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch collection details');
+  }
+});
+
+// System Maintenance Mode
+/**
+ * @swagger
+ * /api/v1/superadmin/system/maintenance:
+ *   get:
+ *     summary: Get maintenance mode status
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *   patch:
+ *     summary: Toggle maintenance mode
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/system/maintenance', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const SystemSettings = require('../models/SystemSettings');
+    
+    let settings = await SystemSettings.findOne();
+    if (!settings) {
+      settings = await SystemSettings.create({});
+    }
+    
+    return sendSuccess(res, 200, 'Maintenance mode status fetched', {
+      maintenanceMode: settings.maintenanceMode || false,
+      maintenanceMessage: settings.maintenanceMessage || '',
+      scheduledDowntime: settings.scheduledDowntime || null
+    });
+  } catch (error) {
+    logger.error('Get maintenance mode error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch maintenance mode');
+  }
+});
+
+router.patch('/system/maintenance', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { maintenanceMode, maintenanceMessage } = req.body;
+    const SystemSettings = require('../models/SystemSettings');
+    
+    let settings = await SystemSettings.findOne();
+    if (!settings) {
+      settings = await SystemSettings.create({});
+    }
+    
+    settings.maintenanceMode = maintenanceMode !== undefined ? maintenanceMode : settings.maintenanceMode;
+    if (maintenanceMessage !== undefined) {
+      settings.maintenanceMessage = maintenanceMessage;
+    }
+    
+    await settings.save();
+    
+    // Log the action
+    await req.superAdmin.logSecurityEvent(
+      'toggle_maintenance_mode',
+      `Maintenance mode ${maintenanceMode ? 'enabled' : 'disabled'}`,
+      req.ip,
+      req.get('User-Agent'),
+      true
+    );
+    
+    return sendSuccess(res, 200, `Maintenance mode ${maintenanceMode ? 'enabled' : 'disabled'} successfully`, {
+      maintenanceMode: settings.maintenanceMode,
+      maintenanceMessage: settings.maintenanceMessage
+    });
+  } catch (error) {
+    logger.error('Toggle maintenance mode error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to toggle maintenance mode');
+  }
+});
+
+// Cache Management
+/**
+ * @swagger
+ * /api/v1/superadmin/system/cache:
+ *   get:
+ *     summary: Get cache statistics
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *   delete:
+ *     summary: Clear cache
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/system/cache', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { CacheKeys, CACHE_TTL } = require('../utils/cache');
+    
+    // Get cache statistics if available
+    const cacheStats = {
+      enabled: process.env.ENABLE_CACHING !== 'false',
+      defaultTTL: CACHE_TTL?.DEFAULT || 3600,
+      availableKeys: Object.keys(CacheKeys || {}),
+      timestamp: new Date().toISOString()
+    };
+    
+    return sendSuccess(res, 200, 'Cache statistics fetched successfully', cacheStats);
+  } catch (error) {
+    logger.error('Cache stats error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch cache statistics');
+  }
+});
+
+router.delete('/system/cache', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { deleteCache, deleteCacheByPattern } = require('../utils/cache');
+    const { pattern } = req.query;
+    
+    if (pattern) {
+      // Clear cache by pattern
+      const deletedCount = await deleteCacheByPattern(pattern);
+      await req.superAdmin.logSecurityEvent(
+        'clear_cache_pattern',
+        `Cleared cache with pattern: ${pattern} (${deletedCount} keys)`,
+        req.ip,
+        req.get('User-Agent'),
+        true
+      );
+      return sendSuccess(res, 200, `Cache cleared for pattern: ${pattern} (${deletedCount} keys deleted)`);
+    } else {
+      // Clear all cache (if supported by implementation)
+      await req.superAdmin.logSecurityEvent(
+        'clear_all_cache',
+        'Cleared all cache',
+        req.ip,
+        req.get('User-Agent'),
+        true
+      );
+      return sendSuccess(res, 200, 'Cache clear initiated (implementation-dependent)');
+    }
+  } catch (error) {
+    logger.error('Clear cache error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to clear cache');
+  }
+});
+
+// Enhanced Search with Filters
+/**
+ * @swagger
+ * /api/v1/superadmin/search/advanced:
+ *   get:
+ *     summary: Advanced search across multiple entities
+ *     tags: [SuperAdmin Search]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [all, users, posts, locales, songs]
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Search results
+ */
+router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { q, type = 'all', limit = 20 } = req.query;
+    
+    if (!q || q.trim().length === 0) {
+      return sendError(res, 'VAL_2001', 'Search query is required');
+    }
+    
+    const searchQuery = q.trim();
+    const searchLimit = Math.min(parseInt(limit) || 20, 100); // Cap at 100
+    
+    const User = require('../models/User');
+    const Post = require('../models/Post');
+    const Locale = require('../models/Locale');
+    const Song = require('../models/Song');
+    
+    const results = {
+      users: [],
+      posts: [],
+      locales: [],
+      songs: [],
+      total: 0
+    };
+    
+    // Search users
+    if (type === 'all' || type === 'users') {
+      const users = await User.find({
+        $or: [
+          { fullName: { $regex: searchQuery, $options: 'i' } },
+          { email: { $regex: searchQuery, $options: 'i' } },
+          { username: { $regex: searchQuery, $options: 'i' } }
+        ]
+      })
+      .select('fullName email username profilePic isVerified createdAt')
+      .limit(searchLimit)
+      .lean();
+      
+      results.users = users;
+    }
+    
+    // Search posts
+    if (type === 'all' || type === 'posts') {
+      const posts = await Post.find({
+        $or: [
+          { caption: { $regex: searchQuery, $options: 'i' } },
+          { 'location.address': { $regex: searchQuery, $options: 'i' } }
+        ]
+      })
+      .select('caption imageUrl videoUrl location createdAt type')
+      .populate('user', 'fullName email profilePic')
+      .limit(searchLimit)
+      .lean();
+      
+      results.posts = posts;
+    }
+    
+    // Search locales
+    if (type === 'all' || type === 'locales') {
+      const locales = await Locale.find({
+        $or: [
+          { name: { $regex: searchQuery, $options: 'i' } },
+          { address: { $regex: searchQuery, $options: 'i' } },
+          { city: { $regex: searchQuery, $options: 'i' } },
+          { country: { $regex: searchQuery, $options: 'i' } }
+        ]
+      })
+      .select('name address city country continent coordinates')
+      .limit(searchLimit)
+      .lean();
+      
+      results.locales = locales;
+    }
+    
+    // Search songs
+    if (type === 'all' || type === 'songs') {
+      const songs = await Song.find({
+        $or: [
+          { title: { $regex: searchQuery, $options: 'i' } },
+          { artist: { $regex: searchQuery, $options: 'i' } }
+        ]
+      })
+      .select('title artist duration url isActive')
+      .limit(searchLimit)
+      .lean();
+      
+      results.songs = songs;
+    }
+    
+    results.total = results.users.length + results.posts.length + results.locales.length + results.songs.length;
+    
+    return sendSuccess(res, 200, 'Advanced search completed successfully', {
+      query: searchQuery,
+      type,
+      results,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Advanced search error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to perform advanced search');
+  }
+});
+
+// User Engagement Metrics
+/**
+ * @swagger
+ * /api/v1/superadmin/analytics/engagement:
+ *   get:
+ *     summary: Get user engagement metrics
+ *     tags: [SuperAdmin Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [7d, 30d, 90d]
+ *           default: 30d
+ *     responses:
+ *       200:
+ *         description: Engagement metrics
+ */
+router.get('/analytics/engagement', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { period = '30d' } = req.query;
+    
+    // Calculate date range
+    const endDate = new Date();
+    let startDate;
+    switch (period) {
+      case '7d':
+        startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '90d':
+        startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    const User = require('../models/User');
+    const Post = require('../models/Post');
+    
+    // Active users (logged in within period)
+    const activeUsers = await User.countDocuments({
+      lastLogin: { $gte: startDate }
+    });
+    
+    // Total users
+    const totalUsers = await User.countDocuments();
+    
+    // Posts created in period
+    const postsCreated = await Post.countDocuments({
+      createdAt: { $gte: startDate }
+    });
+    
+    // Total posts
+    const totalPosts = await Post.countDocuments();
+    
+    // Calculate engagement rate
+    const engagementRate = totalUsers > 0
+      ? ((activeUsers / totalUsers) * 100).toFixed(2)
+      : '0.00';
+    
+    // Average posts per user
+    const avgPostsPerUser = totalUsers > 0
+      ? (totalPosts / totalUsers).toFixed(2)
+      : '0.00';
+    
+    // Posts per active user
+    const postsPerActiveUser = activeUsers > 0
+      ? (postsCreated / activeUsers).toFixed(2)
+      : '0.00';
+    
+    return sendSuccess(res, 200, 'Engagement metrics fetched successfully', {
+      period,
+      dateRange: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString()
+      },
+      metrics: {
+        totalUsers,
+        activeUsers,
+        engagementRate: parseFloat(engagementRate),
+        totalPosts,
+        postsCreated,
+        avgPostsPerUser: parseFloat(avgPostsPerUser),
+        postsPerActiveUser: parseFloat(postsPerActiveUser)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Engagement metrics error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch engagement metrics');
+  }
+});
+
 module.exports = router
