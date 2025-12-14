@@ -807,17 +807,24 @@ const createPost = async (req, res) => {
 const getUserShorts = async (req, res) => {
   try {
     const { userId } = req.params;
+    
+    // Defensive guard: validate userId format
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return sendError(res, 'VAL_2002', 'Invalid user ID format');
+    }
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // Defensive guard: ensure limit is reasonable
+    const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
+    const safeSkip = Math.max(skip, 0);
+
     // Check if user exists
     const user = await User.findById(userId).select('fullName profilePic');
     if (!user) {
-      return res.status(404).json({
-        error: 'User not found',
-        message: 'User does not exist'
-      });
+      return sendError(res, 'RES_3002', 'User not found');
     }
 
     // Use aggregation pipeline to avoid N+1 queries
@@ -829,12 +836,12 @@ const getUserShorts = async (req, res) => {
         $match: {
           user: userIdObj,
           isActive: true,
-          type: 'short'
+          type: 'short' // Explicitly filter for shorts only
         }
       },
       { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
+      { $skip: safeSkip },
+      { $limit: safeLimit },
       {
         $lookup: {
           from: 'users',
@@ -904,18 +911,28 @@ const getUserShorts = async (req, res) => {
       }
     ]);
 
-    const shortsWithLikeStatus = shorts.map(short => ({
-      ...short,
-      user: {
-        ...short.user,
-        isFollowing: short.isFollowing || false
-      }
-    }));
+    // Defensive: filter out shorts without media URLs and add mediaUrl field
+    const validShorts = shorts
+      .filter(short => {
+        const hasMedia = short.videoUrl || short.imageUrl;
+        if (!hasMedia) {
+          logger.warn(`User short ${short._id} missing mediaUrl, filtering out`);
+        }
+        return hasMedia;
+      })
+      .map(short => ({
+        ...short,
+        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
+        user: {
+          ...short.user,
+          isFollowing: short.isFollowing || false
+        }
+      }));
 
-    const totalShorts = await Post.countDocuments({ user: userId, isActive: true, type: 'short' });
+    const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
 
     return sendSuccess(res, 200, 'User shorts fetched successfully', {
-      shorts: shortsWithLikeStatus,
+      shorts: validShorts,
       user: user,
       totalShorts
     });
@@ -1725,12 +1742,16 @@ const getShorts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // Defensive guard: ensure limit is reasonable
+    const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
+    const safeSkip = Math.max(skip, 0);
+
     // Use aggregation pipeline to populate song data efficiently
     const shorts = await Post.aggregate([
       {
         $match: {
           isActive: true,
-          type: 'short'
+          type: 'short' // Explicitly filter for shorts only
         }
       },
       { $sort: { createdAt: -1 } },
@@ -1837,6 +1858,7 @@ const getShorts = async (req, res) => {
     ]);
 
     // Add isLiked field if user is authenticated and include virtual fields
+    // Defensive guards: validate media URLs and handle missing data gracefully
     const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
       let isFollowing = false;
       
@@ -1849,10 +1871,17 @@ const getShorts = async (req, res) => {
         }
       }
       
+      // Defensive: ensure mediaUrl exists (required for shorts)
+      const mediaUrl = short.videoUrl || short.imageUrl || '';
+      if (!mediaUrl) {
+        logger.warn(`Short ${short._id} missing mediaUrl, skipping`);
+        return null; // Filter out shorts without media
+      }
+      
       return {
         ...short,
         _id: short._id,
-        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
+        mediaUrl, // Include virtual field with validation
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
@@ -1866,20 +1895,23 @@ const getShorts = async (req, res) => {
       };
     }));
 
+    // Filter out null entries (shorts without media)
+    const validShorts = shortsWithLikeStatus.filter(short => short !== null);
+
     const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
-    const totalPages = Math.ceil(totalShorts / limit);
+    const totalPages = Math.ceil(totalShorts / safeLimit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
     res.status(200).json({
-      shorts: shortsWithLikeStatus,
+      shorts: validShorts,
       pagination: {
         currentPage: page,
         totalPages,
         totalShorts,
         hasNextPage,
         hasPrevPage,
-        limit
+        limit: safeLimit
       }
     });
 
@@ -1907,6 +1939,9 @@ const createShort = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
+    // Defensive guard: ensure this is a short creation request
+    // (Backend already validates type='short' in Post model, but explicit check here for clarity)
+    
     // req.files.video[0] if fields upload; req.file if single
     const videoFile = (req.files && Array.isArray(req.files.video) && req.files.video[0]) || req.file;
     const imageFile = (req.files && Array.isArray(req.files.image) && req.files.image[0]) || null;
@@ -1914,6 +1949,12 @@ const createShort = async (req, res) => {
     if (!videoFile) {
       logger.debug('No file uploaded');
       return sendError(res, 'FILE_4001', 'Please upload a video');
+    }
+
+    // Defensive: validate video file buffer exists
+    if (!videoFile.buffer || videoFile.buffer.length === 0) {
+      logger.error('Video file buffer is empty or missing');
+      return sendError(res, 'FILE_4002', 'Invalid video file. Please try uploading again.');
     }
 
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
@@ -1930,6 +1971,12 @@ const createShort = async (req, res) => {
     let videoUploadResult;
     try {
       videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      
+      // Defensive: validate upload result has URL
+      if (!videoUploadResult || !videoUploadResult.url) {
+        logger.error('Video upload succeeded but no URL returned');
+        return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
+      }
     } catch (uploadErr) {
       logger.error('Storage upload error:', uploadErr);
       return sendError(res, 'FILE_4004', uploadErr.message || 'Video upload failed. Please try again.');

@@ -17,6 +17,8 @@ The Shorts menu provides a TikTok-style vertical video feed where users can watc
 - **Backend** (`backend/src/controllers/postController.js`, `backend/src/routes/shortsRoutes.js`): Serves shorts feed, handles engagement, video storage
 - **superAdmin** (`superAdmin/src/pages/TravelContent.jsx`): Moderates shorts (activate/deactivate/flag/delete)
 
+**Cross-Module Context**: Shorts are created from the Post tab using "Short mode" (see Post spec). Viewing history and engagement on shorts contributes to TripScore only when the upload has trusted GPS metadata (same rules as posts). Saved shorts appear later under the Profile → SAVED tab, alongside saved photo posts.
+
 ---
 
 ## 2. Screen & Navigation Map (Frontend)
@@ -31,11 +33,12 @@ The Shorts menu provides a TikTok-style vertical video feed where users can watc
 - Tab navigation from bottom bar (Shorts icon)
 - Deep link: `/(tabs)/shorts`
 - Navigation from other screens (tap on short video)
-- Navigation from profile (tap on short in profile grid)
+- Navigation from profile (tap on short in profile grid): Tapping a short thumbnail in Profile → SHORTS opens the Shorts feed anchored at that short, using the same vertical feed but with an initial index
+- From Profile → SAVED tab when tapping on a saved short (opens Shorts feed anchored at that short)
 
 **Exit Points**:
 - Tab navigation → Switch to other tabs
-- Back button → Returns to previous screen
+- Back button → Returns to previous screen (if opened from Profile or Saved, returns to originating screen)
 - Tap on user → Navigate to profile
 - Swipe down → Close (if opened from detail view)
 
@@ -223,6 +226,7 @@ The Shorts menu provides a TikTok-style vertical video feed where users can watc
 3. Load comments: `GET /api/v1/posts/:id` (to get full post with comments)
 4. User types comment and submits
 5. Call API: `POST /api/v1/posts/:id/comments` with `{ text: string }`
+   - Note: Shorts use the same comments endpoint as photo posts (POST /api/v1/posts/:id/comments), so validation rules are identical to the Home feed
 6. On success: Add comment to local state, increment `commentsCount`
 7. Track analytics: `trackEngagement('comment', 'short', shortId)`
 8. Trigger haptic feedback
@@ -238,11 +242,12 @@ The Shorts menu provides a TikTok-style vertical video feed where users can watc
 2. Toggle save state in AsyncStorage (`savedShorts` array)
 3. Update local state `isSaved`
 4. Emit event: `savedEvents.emitChanged()`
+   - These saved shorts are later surfaced in the Profile → SAVED tab, using the same savedShorts AsyncStorage key as defined in the Profile spec
 5. Show toast: "Saved to favorites!" or "Removed from saved"
 
 **Validations**:
 - Like: Post must exist, user must be authenticated
-- Comment: Text length 1-500 characters, post must allow comments
+- Comment: Text length 1–1000 characters (same as posts), post must allow comments
 - Share: Post must be active
 - Save: No validation (client-side only)
 
@@ -256,6 +261,7 @@ The Shorts menu provides a TikTok-style vertical video feed where users can watc
 - Comment: Comment appears in modal, count increments
 - Share: Native share sheet opens
 - Save: Bookmark icon fills, toast shown
+  - Saved shorts remain local to the device (no server sync), same as saved posts
 
 ---
 
@@ -671,7 +677,7 @@ interface Short {
 - Sends notification to creator (if not own short)
 
 **Comment Rules**:
-- Max length: 500 characters
+- Max length: 1000 characters (same as posts, shared endpoint)
 - Min length: 1 character
 - Comments disabled if `commentsDisabled === true`
 - Extracts mentions and creates notifications
@@ -690,7 +696,7 @@ interface Short {
 - Thumbnail: Optional (auto-generated if missing)
 
 **Location & TripScore**:
-- Same logic as posts:
+- Shorts follow the exact same TripScore pipeline as photo posts. On upload, the backend evaluates the source (taatom_camera_live, gallery_exif, etc.) and sets a trustLevel on the generated TripVisit. Only high and medium trust visits contribute to TripScore, as described in the Profile spec. The source → trust mapping is identical to posts (see Post spec section 3.3 Location Extraction & Verification):
   - `taatom_camera_live` → `'high'` trust
   - `gallery_exif` → `'medium'` trust
   - `gallery_no_exif` → `'low'` trust
@@ -703,6 +709,16 @@ interface Short {
 - End time: `song.endTime` or 60 seconds (whichever comes first)
 - Volume: `song.volume` (0-1, default: 0.5)
 - Syncs with video playback (pause/resume together)
+
+### 6.5 Cross-Module Behaviour
+
+Shorts reuse the same posts collection and core controllers as photo posts, with `type: 'short'` used to differentiate them.
+
+Comment creation, likes, and view tracking share the same endpoints as Home feed posts (`/api/v1/posts/:id/...`), so rate limits and validation rules are identical.
+
+TripVisits created from shorts follow the same trust-level and deduplication rules used for TripScore in the Profile spec.
+
+Saved shorts integrate with the Profile → SAVED tab via the shared `savedShorts` AsyncStorage key.
 
 ---
 
@@ -743,7 +759,7 @@ interface Short {
 
 **Short Visibility**:
 - Only active, non-archived, non-hidden shorts appear in feed
-- User privacy settings don't affect shorts visibility (all active shorts shown)
+- **Current behaviour**: Profile visibility settings (profileVisibility in the Profile spec) do not hide a user's active shorts from the Shorts feed. This may differ from how photo posts are filtered in other parts of the app.
 - Blocked users' shorts may be filtered (inferred)
 
 **Content Filtering**:
@@ -785,6 +801,8 @@ interface Short {
 - `trackEngagement('share', 'short', shortId)` - Fired on share
 - `trackEngagement('follow', 'short', creatorId)` - Fired on follow
 
+Event naming for shorts mirrors the Home feed (trackScreenView, trackPostView, trackEngagement) so dashboards can combine or compare performance of photo posts vs shorts consistently.
+
 ### 9.2 Metrics & KPIs
 
 **User Metrics**:
@@ -805,6 +823,8 @@ interface Short {
 - Retention (users returning to shorts feed)
 - Creator growth (shorts creators gaining followers)
 
+Wherever possible, metrics are defined in a way that can be compared against the Home feed (e.g. engagement rate, DAU touching Shorts vs DAU touching Home).
+
 ---
 
 ## 10. Edge Cases, Limits & Known Constraints
@@ -812,7 +832,7 @@ interface Short {
 ### 10.1 Explicit Limits
 
 **Video Duration**:
-- Max: 60 minutes (3600 seconds)
+- Max: 60 minutes (3600 seconds) - **Current app-level limit; infrastructure or business rules may choose to enforce a much smaller recommended duration for 'short-form' content in the future.**
 - Min: No explicit minimum (inferred: 1 second)
 
 **Pagination**:
@@ -822,7 +842,7 @@ interface Short {
 
 **Comment Length**:
 - Min: 1 character
-- Max: 500 characters
+- Max: 1000 characters (same as posts, shared endpoint)
 
 **File Size**:
 - No explicit limit (unlimited uploads)
@@ -858,7 +878,7 @@ interface Short {
 **Video Quality**:
 - Quality adaptation is basic (high/low only)
 - No adaptive bitrate streaming (ABR)
-- Quality check uses Google favicon (may be blocked in some regions)
+- Network probing uses a lightweight request to a public favicon (same approach as the Home feed), which may fail in certain networks even when CDN video URLs are accessible. This can cause Shorts to fall back to 'low' quality unnecessarily.
 
 **Memory Management**:
 - Videos unloaded 3 positions away (may still use significant memory)
@@ -874,6 +894,12 @@ interface Short {
 - Music stops at 60 seconds even if video is longer
 - Music doesn't loop (plays once)
 - Music may not sync perfectly with video (inferred)
+
+**Privacy**:
+- Profile privacy (e.g. followers-only / private) does not currently apply to shorts in the Shorts feed. This is a documented limitation and should be revisited before GA if users expect consistent privacy across posts and shorts.
+
+**Saved Shorts**:
+- Saved shorts are stored only in local AsyncStorage ('savedShorts') and are not synced across devices, consistent with saved posts and saved locales.
 
 **TODO/FIXME** (inferred):
 - No explicit error boundary for shorts feed
