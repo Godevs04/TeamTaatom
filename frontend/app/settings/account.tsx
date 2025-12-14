@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -9,11 +9,11 @@ import {
   Switch
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage } from '../../services/auth';
-import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
+import { useSettings } from '../../context/SettingsContext';
 import { useAlert } from '../../context/AlertContext';
 import { createLogger } from '../../utils/logger';
 import { TextInput } from 'react-native';
@@ -22,32 +22,55 @@ const logger = createLogger('AccountSettings');
 
 export default function AccountSettingsScreen() {
   const [user, setUser] = useState<any>(null);
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [updatingKey, setUpdatingKey] = useState<string | null>(null);
+  
+  // Settings State Single Source of Truth: Use SettingsContext
+  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
+  
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+  
+  // Toggle Interaction Safety: Per-toggle guards
+  const updatingKeysRef = useRef<Set<string>>(new Set());
+  
   const router = useRouter();
   const { theme } = useTheme();
   const { showError, showSuccess, showConfirm, showOptions } = useAlert();
 
+  // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
-    loadData();
+    isMountedRef.current = true;
+    loadUserData();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const loadData = async () => {
+  // Navigation & Lifecycle Safety: Refresh settings on focus
+  useFocusEffect(
+    useCallback(() => {
+      isMountedRef.current = true;
+      refreshSettings();
+      return () => {
+        // Screen blurred - cleanup
+      };
+    }, [refreshSettings])
+  );
+
+  const loadUserData = useCallback(async () => {
     try {
       const userData = await getUserFromStorage();
-      const settingsData = await getSettings();
-      setUser(userData);
-      setSettings(settingsData.settings);
+      if (isMountedRef.current) {
+        setUser(userData);
+      }
     } catch (err) {
-      showError('Failed to load account settings');
-    } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        showError('Failed to load user data');
+      }
     }
-  };
+  }, [showError]);
 
-  const updateSetting = async (key: string, value: any) => {
+  // Toggle Interaction Safety: Wrapper with per-toggle guard
+  const handleUpdateSetting = useCallback(async (key: string, value: any) => {
     if (!settings) return;
     
     // Validate input
@@ -61,48 +84,51 @@ export default function AccountSettingsScreen() {
       return;
     }
     
-    setUpdating(true);
-    setUpdatingKey(key);
-    try {
-      const updatedSettings = {
-        ...settings.account,
-        [key]: value
-      };
-      
-      const response = await updateSettingCategory('account', updatedSettings);
-      setSettings(response.settings);
-      logger.debug(`Setting ${key} updated successfully`);
-    } catch (err: any) {
-      logger.error(`Failed to update setting ${key}`, err);
-      showError(err.message || 'Failed to update setting');
-    } finally {
-      setUpdating(false);
-      setUpdatingKey(null);
+    // Prevent re-entry while API call is in-flight
+    if (updatingKeysRef.current.has(key)) {
+      logger.debug(`Update already in progress for ${key}, skipping`);
+      return;
     }
-  };
+    
+    updatingKeysRef.current.add(key);
+    
+    try {
+      await updateSetting('account', key, value);
+      if (isMountedRef.current) {
+        logger.debug(`Setting ${key} updated successfully`);
+      }
+    } catch (err: any) {
+      if (isMountedRef.current) {
+        logger.error(`Failed to update setting ${key}`, err);
+        showError(err.message || 'Failed to update setting');
+      }
+    } finally {
+      updatingKeysRef.current.delete(key);
+    }
+  }, [settings, updateSetting, showError]);
 
   const handleLanguageChange = () => {
     showOptions(
       'Select Language',
       [
         { text: 'English', icon: 'flag-outline', onPress: () => {
-          updateSetting('language', 'en');
+          handleUpdateSetting('language', 'en');
           showSuccess('Language updated to English');
         }},
         { text: 'Spanish', icon: 'flag-outline', onPress: () => {
-          updateSetting('language', 'es');
+          handleUpdateSetting('language', 'es');
           showSuccess('Language updated to Spanish');
         }},
         { text: 'French', icon: 'flag-outline', onPress: () => {
-          updateSetting('language', 'fr');
+          handleUpdateSetting('language', 'fr');
           showSuccess('Language updated to French');
         }},
         { text: 'German', icon: 'flag-outline', onPress: () => {
-          updateSetting('language', 'de');
+          handleUpdateSetting('language', 'de');
           showSuccess('Language updated to German');
         }},
         { text: 'Chinese', icon: 'flag-outline', onPress: () => {
-          updateSetting('language', 'zh');
+          handleUpdateSetting('language', 'zh');
           showSuccess('Language updated to Chinese');
         }},
       ],
@@ -118,15 +144,15 @@ export default function AccountSettingsScreen() {
       'Data Usage Preference',
       [
         { text: 'Low', icon: 'cellular-outline', onPress: () => {
-          updateSetting('dataUsage', 'low');
+          handleUpdateSetting('dataUsage', 'low');
           showSuccess('Data usage set to Low');
         }},
         { text: 'Medium', icon: 'cellular-outline', onPress: () => {
-          updateSetting('dataUsage', 'medium');
+          handleUpdateSetting('dataUsage', 'medium');
           showSuccess('Data usage set to Medium');
         }},
         { text: 'High', icon: 'cellular-outline', onPress: () => {
-          updateSetting('dataUsage', 'high');
+          handleUpdateSetting('dataUsage', 'high');
           showSuccess('Data usage set to High');
         }},
       ],
@@ -136,7 +162,10 @@ export default function AccountSettingsScreen() {
     );
   };
 
-  if (loading) {
+  // Screen Load Performance: Memoize loading state
+  const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);
+
+  if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Account Settings" />
@@ -216,7 +245,7 @@ export default function AccountSettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleLanguageChange}
-            disabled={updating && updatingKey === 'language'}
+            disabled={updatingKeysRef.current.has('language')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="language-outline" size={20} color={theme.colors.text} />
@@ -225,7 +254,7 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             <View style={styles.settingRight}>
-              {updating && updatingKey === 'language' ? (
+              {updatingKeysRef.current.has('language') ? (
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               ) : (
                 <>
@@ -243,7 +272,7 @@ export default function AccountSettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleDataUsageChange}
-            disabled={updating && updatingKey === 'dataUsage'}
+            disabled={updatingKeysRef.current.has('dataUsage')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="cellular-outline" size={20} color={theme.colors.text} />
@@ -252,7 +281,7 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             <View style={styles.settingRight}>
-              {updating && updatingKey === 'dataUsage' ? (
+              {updatingKeysRef.current.has('dataUsage') ? (
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               ) : (
                 <>
