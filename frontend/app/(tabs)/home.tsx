@@ -58,11 +58,45 @@ export default function HomeScreen() {
   const errorCountRef = useRef(0);
   const isFetchingMessagesRef = useRef(false);
   const lastMessageFetchRef = useRef(0);
+  
+  // Request guards for pull-to-refresh and pagination race safety
+  const isRefreshingRef = useRef(false);
+  const isPaginatingRef = useRef(false);
+  
+  // View tracking de-duplication: track last viewed post ID and timestamp
+  const lastViewedPostIdRef = useRef<string | null>(null);
+  const lastViewTimeRef = useRef<number>(0);
+  const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  
+  // Track visible index for conditional image rendering
+  const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
+    // Request guards: prevent overlapping refresh and pagination
+    if (shouldAppend) {
+      // Pagination request
+      if (isPaginatingRef.current || isRefreshingRef.current) {
+        logger.debug('Pagination blocked: refresh or pagination already in progress');
+        return;
+      }
+      isPaginatingRef.current = true;
+    } else {
+      // Refresh request
+      if (isRefreshingRef.current || isPaginatingRef.current) {
+        logger.debug('Refresh blocked: refresh or pagination already in progress');
+        return;
+      }
+      isRefreshingRef.current = true;
+    }
+    
     // Prevent multiple simultaneous calls
     if (isFetchingRef.current && !shouldAppend) {
       logger.debug('Already fetching posts, skipping...');
+      if (shouldAppend) {
+        isPaginatingRef.current = false;
+      } else {
+        isRefreshingRef.current = false;
+      }
       return;
     }
     
@@ -75,7 +109,12 @@ export default function HomeScreen() {
       const response = await getPosts(pageNum, postsPerPage);
       
       if (shouldAppend) {
-        setPosts(prev => [...prev, ...response.posts]);
+        // Feed de-duplication: merge items by unique _id, never append duplicates
+        setPosts(prev => {
+          const existingIds = new Set(prev.map(p => p._id));
+          const newPosts = response.posts.filter(p => !existingIds.has(p._id));
+          return [...prev, ...newPosts];
+        });
       } else {
         setPosts(response.posts);
       }
@@ -160,6 +199,12 @@ export default function HomeScreen() {
       // For pagination errors, silently fail - user can retry by scrolling
     } finally {
       isFetchingRef.current = false;
+      // Clear request guards
+      if (shouldAppend) {
+        isPaginatingRef.current = false;
+      } else {
+        isRefreshingRef.current = false;
+      }
     }
   }, [isOnline]);
 
@@ -297,6 +342,18 @@ export default function HomeScreen() {
     trackScreenView('home');
   }, []); // Empty deps - only run once on mount
 
+  // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
+  useFocusEffect(
+    useCallback(() => {
+      // Clear visible index when screen loses focus
+      return () => {
+        setVisibleIndex(null);
+        lastViewedPostIdRef.current = null;
+        lastViewTimeRef.current = 0;
+      };
+    }, [])
+  );
+
   // Refresh unseen count when screen comes into focus
   useFocusEffect(
     useCallback(() => {
@@ -305,20 +362,30 @@ export default function HomeScreen() {
   );
 
   const handleRefresh = useCallback(async () => {
+    // Request guard: prevent refresh if already refreshing or paginating
+    if (isRefreshingRef.current || isPaginatingRef.current) {
+      logger.debug('Refresh blocked: already in progress');
+      return;
+    }
+    
     // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
     setRefreshing(true);
-    await Promise.all([
-      fetchPosts(1, false),
-      fetchUnseenMessageCount()
-    ]);
-    setRefreshing(false);
+    try {
+      await Promise.all([
+        fetchPosts(1, false),
+        fetchUnseenMessageCount()
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchPosts, fetchUnseenMessageCount]);
 
   // Throttle load more for web performance
+  // Request guard: prevent pagination if already paginating or refreshing
   const handleLoadMore = useCallback(
     throttle(async () => {
-      if (!loading && hasMore) {
+      if (!loading && hasMore && !isPaginatingRef.current && !isRefreshingRef.current) {
         await fetchPosts(page + 1, true);
       }
     }, 1000),
@@ -410,6 +477,61 @@ export default function HomeScreen() {
 
   const renderHeader = () => <AnimatedHeader unseenMessageCount={unseenMessageCount} />;
 
+  // Memoize keyExtractor and renderItem at top level (before conditional returns)
+  // MUST be defined before conditional returns to follow Rules of Hooks
+  const keyExtractor = useCallback((item: PostType) => item._id, []);
+  
+  // Track viewable items for conditional image rendering and analytics
+  // View tracking de-duplication: prevent duplicate view events within 2 seconds
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
+    if (viewableItems.length > 0) {
+      const visibleItem = viewableItems[0];
+      const newVisibleIndex = visibleItem.index;
+      if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
+        setVisibleIndex(newVisibleIndex);
+        
+        // View tracking de-duplication: only track if different post or enough time passed
+        if (visibleItem.item) {
+          const postId = visibleItem.item._id;
+          const now = Date.now();
+          
+          if (
+            lastViewedPostIdRef.current !== postId ||
+            (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
+          ) {
+            trackPostView(postId, {
+              type: 'photo',
+              source: 'home_feed'
+            });
+            lastViewedPostIdRef.current = postId;
+            lastViewTimeRef.current = now;
+          }
+        }
+      }
+    }
+  }, []);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50, // Item is considered visible when 50% is on screen
+    minimumViewTime: 200, // Minimum time item must be visible (ms)
+  }).current;
+
+  // Conditional image rendering: only render images within 2 indices of visible
+  // This drastically reduces memory usage without changing UX
+  const renderItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
+    const distanceFromVisible = visibleIndex !== null ? Math.abs(index - visibleIndex) : 0;
+    const shouldRenderImage = distanceFromVisible <= 2;
+    
+    return (
+      <OptimizedPhotoCard 
+        post={item} 
+        onRefresh={handleRefresh}
+        isVisible={shouldRenderImage}
+        key={item._id}
+      />
+    );
+  }, [visibleIndex, handleRefresh]);
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -465,7 +587,8 @@ export default function HomeScreen() {
         
         <FlatList
         data={posts}
-        keyExtractor={(item) => item._id}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
         showsVerticalScrollIndicator={false}
@@ -501,21 +624,20 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
-        renderItem={({ item, index }) => (
-          <OptimizedPhotoCard 
-            post={item} 
-            onRefresh={handleRefresh}
-            isVisible={true}
-            key={item._id}
-          />
-        )}
-        // Virtual scrolling optimizations (both web and mobile)
+        // Track viewable items for conditional image rendering and analytics
+        // View tracking de-duplication: prevent duplicate view events within 2 seconds
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        // Virtual scrolling optimizations for image feed performance
+        // removeClippedSubviews: Unmount off-screen items to free memory (critical for image-heavy feed)
+        // initialNumToRender: Only render 6 items initially for faster first paint
+        // maxToRenderPerBatch: Render 4 items per batch to prevent scroll jank
+        // windowSize: Keep 7 screen heights of items in memory (3.5 above + 3.5 below)
         removeClippedSubviews={true}
-        maxToRenderPerBatch={isWeb ? 5 : 3}
-        updateCellsBatchingPeriod={50}
-        initialNumToRender={isWeb ? 3 : 2}
-        windowSize={isWeb ? 5 : 3}
-        getItemLayout={undefined} // Let FlatList calculate dynamically
+        initialNumToRender={6}
+        maxToRenderPerBatch={4}
+        windowSize={7}
+        getItemLayout={undefined} // Let FlatList calculate dynamically (variable height items)
         // Performance optimizations
         maintainVisibleContentPosition={undefined}
         legacyImplementation={false}
