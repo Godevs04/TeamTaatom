@@ -13,6 +13,7 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
+const { sendNotificationToUser } = require('../utils/sendNotification');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -548,6 +549,19 @@ const toggleFollow = async (req, res) => {
           }
         });
 
+        // Send push notification
+        await sendNotificationToUser({
+          userId: id.toString(),
+          title: 'New Follow Request',
+          body: `${currentUser.fullName} wants to follow you`,
+          data: {
+            type: 'follow_request',
+            fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the requester)
+            entityId: currentUserId.toString(), // Keep for backward compatibility
+            senderId: currentUserId.toString() // Keep for backward compatibility
+          }
+        }).catch(err => logger.error('Error sending push notification for follow request:', err));
+
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -598,6 +612,19 @@ const toggleFollow = async (req, res) => {
             followerProfilePic: currentUser.profilePic
           }
         });
+
+        // Send push notification
+        await sendNotificationToUser({
+          userId: id.toString(),
+          title: 'New Follower',
+          body: `${currentUser.fullName} started following you`,
+          data: {
+            type: 'follow',
+            fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the person who followed)
+            entityId: currentUserId.toString(), // Keep for backward compatibility
+            senderId: currentUserId.toString() // Keep for backward compatibility
+          }
+        }).catch(err => logger.error('Error sending push notification for follow:', err));
 
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
@@ -1023,6 +1050,19 @@ const approveFollowRequest = async (req, res) => {
               approvedByProfilePic: user.profilePic
             }
           });
+
+          // Send push notification
+          await sendNotificationToUser({
+            userId: requesterId.toString(),
+            title: 'Follow Request Approved',
+            body: `${user.fullName} approved your follow request`,
+            data: {
+              type: 'follow_approved',
+              fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the approver)
+              entityId: currentUserId.toString(), // Keep for backward compatibility
+              senderId: currentUserId.toString() // Keep for backward compatibility
+            }
+          }).catch(err => logger.error('Error sending push notification for follow approval:', err));
         } catch (notificationError) {
           logger.error('Error creating follow approval notification:', notificationError);
           // Don't fail the entire request if notification creation fails
