@@ -15,6 +15,7 @@ const { extractMentions } = require('../utils/mentionExtractor');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
+const { sendNotificationToUser } = require('../utils/sendNotification');
 
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
@@ -1225,6 +1226,20 @@ const toggleLike = async (req, res) => {
           
           logger.debug('Like notification created successfully:', notification._id);
 
+          // Send push notification
+          await sendNotificationToUser({
+            userId: post.user._id.toString(),
+            title: 'New Like',
+            body: `${req.user.fullName} liked your post`,
+            data: {
+              type: 'like',
+              postId: post._id.toString(), // Frontend expects postId
+              entityId: post._id.toString(), // Keep for backward compatibility
+              fromUserId: req.user._id.toString(), // Frontend expects fromUserId
+              senderId: req.user._id.toString() // Keep for backward compatibility
+            }
+          }).catch(err => logger.error('Error sending push notification for like:', err));
+
           // Emit real-time notification
           const io = getIO();
           if (io) {
@@ -1349,6 +1364,21 @@ const addComment = async (req, res) => {
               comment: newComment._id,
               metadata: { text: text ? text.substring(0, 100) : '' }
             });
+
+            // Send push notification for mention
+            await sendNotificationToUser({
+              userId: mentionedUserId.toString(),
+              title: 'You were mentioned',
+              body: `${req.user.fullName} mentioned you in a comment`,
+              data: {
+                type: 'post_mention',
+                postId: post._id.toString(), // Frontend expects postId
+                entityId: post._id.toString(), // Keep for backward compatibility
+                fromUserId: req.user._id.toString(), // Frontend expects fromUserId
+                senderId: req.user._id.toString(), // Keep for backward compatibility
+                metadata: { text: text ? text.substring(0, 100) : '' }
+              }
+            }).catch(err => logger.error(`Error sending push notification for mention to user ${mentionedUserId}:`, err));
           } catch (error) {
             logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
           }
@@ -1375,6 +1405,20 @@ const addComment = async (req, res) => {
         });
         
         logger.debug('✅ Comment notification created successfully:', notification._id);
+
+        // Send push notification
+        await sendNotificationToUser({
+          userId: post.user._id.toString(),
+          title: 'New Comment',
+          body: `${req.user.fullName} commented on your post`,
+          data: {
+            type: 'comment',
+            postId: post._id.toString(), // Frontend expects postId
+            entityId: post._id.toString(), // Keep for backward compatibility
+            fromUserId: req.user._id.toString(), // Frontend expects fromUserId
+            senderId: req.user._id.toString() // Keep for backward compatibility
+          }
+        }).catch(err => logger.error('Error sending push notification for comment:', err));
 
         // Emit real-time notification
         const io = getIO();
