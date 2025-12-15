@@ -4,7 +4,8 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
-import { updateExpoPushToken } from '../services/profile';
+import { updateFCMPushToken } from '../services/profile';
+import { fcmService } from '../services/fcm';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
 import { AlertProvider } from '../context/AlertContext';
@@ -12,8 +13,7 @@ import { ScrollProvider } from '../context/ScrollContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
+// Removed expo-notifications - using native FCM instead
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
@@ -212,53 +212,50 @@ function RootLayoutInner() {
     // Skip push notifications on web (requires VAPID keys)
     if (Platform.OS === 'web') return;
     
-    async function registerForPushNotifications() {
+    // Initialize FCM and register push token
+    async function initializeFCM() {
       try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus !== 'granted') {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Push notification permissions not granted');
-          }
+        // Skip FCM on web platform
+        if (Platform.OS === 'web') {
           return;
         }
-        // Get projectId from app.json extra
-        const projectId =
-          (Constants.expoConfig?.extra?.EXPO_PROJECT_ID as string) ||
-          ((Constants.manifest as any)?.extra?.EXPO_PROJECT_ID as string);
-        const tokenData = await Notifications.getExpoPushTokenAsync(
-          projectId ? { projectId } : undefined
-        );
-        const expoPushToken = tokenData.data;
-        if (expoPushToken) {
+
+        // Initialize FCM service
+        await fcmService.initialize();
+
+        // Get FCM token
+        const fcmToken = await fcmService.getToken();
+        if (fcmToken) {
           const user = await getUserFromStorage();
           if (user && user._id) {
-            await updateExpoPushToken(user._id, expoPushToken);
+            await updateFCMPushToken(user._id, fcmToken);
             if (process.env.NODE_ENV === 'development') {
-              console.log('Expo push token registered:', expoPushToken);
+              console.log('FCM token registered:', fcmToken.substring(0, 30) + '...');
             }
           }
         }
-        if (Platform.OS === 'android') {
-          Notifications.setNotificationChannelAsync('default', {
-            name: 'default',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-          });
-        }
-      } catch (err) {
+
+        // Set up notification opened handler
+        fcmService.setupNotificationOpenedHandler((data) => {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Notification opened with data:', data);
+          }
+          // Handle navigation based on notification data
+          // You can use router.push(data.screen) here if needed
+        });
+      } catch (err: any) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Error registering for push notifications:', err);
+          console.error('Error initializing FCM:', err);
+        }
+        // FCM might not be available in Expo Go - that's okay
+        if (err.message?.includes('Native module') || err.message?.includes('not found')) {
+          console.warn('FCM native module not available. Use a development build for full FCM support.');
         }
       }
     }
+
     if (isAuthenticated) {
-      registerForPushNotifications();
+      initializeFCM();
     }
   }, [isAuthenticated]);
 

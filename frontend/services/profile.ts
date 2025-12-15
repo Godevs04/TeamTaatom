@@ -139,15 +139,20 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
   }
 };
 
-// Update Expo push token
-export const updateExpoPushToken = async (userId: string, expoPushToken: string): Promise<void> => {
+// Update FCM push token
+export const updateFCMPushToken = async (userId: string, fcmToken: string): Promise<void> => {
   try {
-    await api.put(`/api/v1/profile/${userId}/push-token`, { expoPushToken });
+    await api.put(`/api/v1/profile/${userId}/push-token`, { 
+      expoPushToken: fcmToken // Backend still uses expoPushToken field name for backward compatibility
+    });
   } catch (error: any) {
-    logger.error('updateExpoPushToken', error.response?.data || error.message || error);
-    throw new Error(error.response?.data?.error || 'Failed to update Expo push token');
+    logger.error('updateFCMPushToken', error.response?.data || error.message || error);
+    throw new Error(error.response?.data?.error || 'Failed to update FCM push token');
   }
 };
+
+// Legacy: Keep for backward compatibility (deprecated)
+export const updateExpoPushToken = updateFCMPushToken;
 
 // Get follow requests
 export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
