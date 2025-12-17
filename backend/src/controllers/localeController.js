@@ -191,6 +191,8 @@ const uploadLocale = async (req, res) => {
       storageKey: storageKey, // Store storage key
       cloudinaryKey: storageKey, // Backward compatibility
       cloudinaryUrl: uploadResult.url, // Store URL
+      imageKey: storageKey, // Set imageKey for backward compatibility (prevents null duplicate key error)
+      imageUrl: uploadResult.url, // Set imageUrl for backward compatibility
       createdBy: req.superAdmin._id,
       displayOrder: requestedOrder,
       isActive: true // Explicitly set to active
