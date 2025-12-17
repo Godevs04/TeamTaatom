@@ -1,6 +1,7 @@
 const Song = require('../models/Song');
 const { uploadSong, deleteSong } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
+const { generateSignedUrl, getStorageKeyFromDocument } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -33,16 +34,36 @@ const getSongs = async (req, res) => {
     }
 
     const songs = await Song.find(query)
-      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(validatedLimit)
       .lean();
     
-    // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to s3Url
-    const mappedSongs = songs.map(song => ({
-      ...song,
-      s3Url: song.cloudinaryUrl || song.s3Url // Ensure s3Url is populated for backward compatibility
+    // Generate signed URLs dynamically for all songs
+    const mappedSongs = await Promise.all(songs.map(async (song) => {
+      const storageKey = song.storageKey || song.cloudinaryKey || song.s3Key;
+      let signedUrl = null;
+      
+      if (storageKey) {
+        try {
+          signedUrl = await generateSignedUrl(storageKey, 'AUDIO');
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for song:', { 
+            songId: song._id, 
+            storageKey, 
+            error: error.message 
+          });
+        }
+      } else {
+        logger.warn('Song missing storage key:', { songId: song._id });
+      }
+      
+      return {
+        ...song,
+        s3Url: signedUrl, // Dynamically generated URL
+        cloudinaryUrl: signedUrl // Backward compatibility
+      };
     }));
 
     const total = await Song.countDocuments(query);
@@ -68,17 +89,34 @@ const getSongs = async (req, res) => {
 const getSongById = async (req, res) => {
   try {
     const song = await Song.findById(req.params.id)
-      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
       .lean();
     
-    // Ensure backward compatibility
-    if (song) {
-      song.s3Url = song.cloudinaryUrl || song.s3Url;
-    }
-
     if (!song) {
       return sendError(res, 'RES_3001', 'Song not found');
     }
+
+    // Generate signed URL dynamically
+    const storageKey = song.storageKey || song.cloudinaryKey || song.s3Key;
+    let signedUrl = null;
+    
+    if (storageKey) {
+      try {
+        signedUrl = await generateSignedUrl(storageKey, 'AUDIO');
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for song:', { 
+          songId: song._id, 
+          storageKey, 
+          error: error.message 
+        });
+      }
+    } else {
+      logger.warn('Song missing storage key:', { songId: song._id });
+    }
+    
+    // Add dynamically generated URLs
+    song.s3Url = signedUrl;
+    song.cloudinaryUrl = signedUrl; // Backward compatibility
 
     return sendSuccess(res, 200, 'Song fetched successfully', { song });
   } catch (error) {
@@ -133,32 +171,49 @@ const uploadSongFile = async (req, res) => {
       extension
     });
     
-    const uploadResult = await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
-    logger.debug('Storage upload successful:', { key: storageKey, url: uploadResult.url });
+    await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
+    logger.debug('Storage upload successful:', { key: storageKey });
 
-    // Save to database
+    // Save to database - ONLY store storage key, NOT signed URL
     const song = new Song({
       title,
       artist,
       duration: parseInt(duration) || 0,
       genre: genre || 'General',
-      storageKey: storageKey, // Store storage key
+      storageKey: storageKey, // Store ONLY storage key
       cloudinaryKey: storageKey, // Backward compatibility
-      cloudinaryUrl: uploadResult.url, // Store URL
+      s3Key: storageKey, // Set s3Key to prevent null duplicate key error
+      // DO NOT store cloudinaryUrl or s3Url - they will be generated dynamically
       uploadedBy: req.superAdmin._id,
       isActive: true // Explicitly set to active
     });
 
     await song.save();
 
-    // Return song with all fields for frontend
+    // Return song with dynamically generated signed URL
     const songResponse = await Song.findById(song._id)
-      .select('title artist duration cloudinaryUrl s3Url thumbnailUrl genre _id isActive createdAt usageCount uploadDate')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
       .lean();
     
-    // Ensure backward compatibility
+    // Generate fresh signed URL dynamically
     if (songResponse) {
-      songResponse.s3Url = songResponse.cloudinaryUrl || songResponse.s3Url;
+      const storageKeyForUrl = songResponse.storageKey || songResponse.cloudinaryKey || songResponse.s3Key;
+      if (storageKeyForUrl) {
+        try {
+          const signedUrl = await generateSignedUrl(storageKeyForUrl, 'AUDIO');
+          songResponse.s3Url = signedUrl;
+          songResponse.cloudinaryUrl = signedUrl; // Backward compatibility
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for song response:', { songId: song._id, error: error.message });
+          // Fallback: return null URLs if generation fails
+          songResponse.s3Url = null;
+          songResponse.cloudinaryUrl = null;
+        }
+      } else {
+        logger.warn('Song missing storage key:', { songId: song._id });
+        songResponse.s3Url = null;
+        songResponse.cloudinaryUrl = null;
+      }
     }
 
     return sendSuccess(res, 201, 'Song uploaded successfully', { song: songResponse });
@@ -347,4 +402,5 @@ module.exports = {
   toggleSongStatus,
   updateSong
 };
+
 

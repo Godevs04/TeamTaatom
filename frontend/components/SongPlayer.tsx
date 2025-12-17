@@ -42,14 +42,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     }
   }, [post.song]);
 
-  // Initialize audio mode once
-  useEffect(() => {
-    Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-    }).catch(err => console.error('Error setting audio mode:', err));
-  }, []);
+  // Audio mode is now set globally in _layout.tsx
 
   // Cleanup on unmount
   useEffect(() => {
@@ -65,16 +58,33 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     };
   }, []);
 
-  const loadAndPlaySong = useCallback(async () => {
-    if (!song?.s3Url) {
-      console.log('No song URL available');
+  // Helper function to fetch fresh signed URL if needed
+  const fetchFreshSignedUrl = useCallback(async (): Promise<string | null> => {
+    if (!song?._id) return null;
+    
+    try {
+      const { getSongById } = await import('../services/songs');
+      const freshSong = await getSongById(song._id);
+      return freshSong.s3Url || (freshSong as any).cloudinaryUrl || null;
+    } catch (error) {
+      console.error('Failed to fetch fresh signed URL:', error);
+      return null;
+    }
+  }, [song?._id]);
+
+  const loadAndPlaySong = useCallback(async (forcePlay: boolean = false, retryCount: number = 0) => {
+    // Get audio URL - try s3Url first, then cloudinaryUrl as fallback
+    let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl;
+    
+    if (!audioUrlRaw) {
+      console.log('No song URL available', { song });
       return;
     }
 
     try {
       setIsLoading(true);
       
-      // Stop and unload existing sound
+      // Cleanup old sound
       if (soundRef.current) {
         try {
           await soundRef.current.unloadAsync();
@@ -84,59 +94,49 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         soundRef.current = null;
       }
 
-      console.log('Loading song:', song.s3Url);
-
       // Clean and validate URL
-      let audioUrl = song.s3Url.trim();
-      // Ensure URL is properly formatted
+      let audioUrl = audioUrlRaw.trim();
       if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
         console.error('Invalid audio URL:', audioUrl);
         throw new Error('Invalid audio URL format');
       }
 
-      console.log('Attempting to load audio from:', audioUrl);
+      console.log('🎵 Playing audio URL:', audioUrl);
+      console.log('   URL starts with https:', audioUrl.startsWith('https://'));
+      console.log('   URL length:', audioUrl.length);
 
-      // Load new sound with proper error handling
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { 
-          uri: audioUrl,
-        },
+      // Determine if we should play immediately
+      const shouldPlayNow = forcePlay || autoPlay;
+
+      // 🔴 CRITICAL: Use streaming pattern (no download, no timeout waiting)
+      const newSound = new Audio.Sound();
+
+      // Load with streaming - shouldPlay triggers immediate streaming
+      await newSound.loadAsync(
+        { uri: audioUrl },
         {
-          shouldPlay: autoPlay,
+          shouldPlay: shouldPlayNow, // Stream and play immediately
+          progressUpdateIntervalMillis: 500,
           isLooping: true,
           volume: isMuted ? 0 : volume,
-          positionMillis: startTime * 1000, // Convert seconds to milliseconds
+          positionMillis: startTime * 1000,
         },
-        (status) => {
-          // Immediate status callback
-          if (status.isLoaded) {
-            setIsPlaying(status.isPlaying);
-            setIsLoading(false);
-            console.log('Audio loaded successfully');
-          } else if (status.error) {
-            console.error('Playback status error:', status.error);
-            setIsLoading(false);
-          }
-        }
+        false // 🔴 MUST be false (no preload blocking - enables streaming)
       );
 
       soundRef.current = newSound;
       setSound(newSound);
-      setIsPlaying(autoPlay);
-      setIsLoading(false);
-
+      
       // Set up playback status listener
-      newSound.setOnPlaybackStatusUpdate((status) => {
+      newSound.setOnPlaybackStatusUpdate((status: any) => {
         if (status.isLoaded) {
           setIsPlaying(status.isPlaying);
           setIsLoading(false);
           
           // Handle 60-second loop if endTime is set
           if (endTime && status.positionMillis >= endTime * 1000) {
-            // Loop back to startTime
             newSound.setPositionAsync(startTime * 1000).catch(() => {});
           } else if (status.didJustFinish && !status.isLooping) {
-            // If no endTime, restart from startTime
             if (startTime > 0) {
               newSound.setPositionAsync(startTime * 1000).catch(() => {});
               newSound.playAsync().catch(() => {});
@@ -147,41 +147,48 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         } else if (status.error) {
           console.error('Playback error:', status.error);
           setIsLoading(false);
-          // Try to provide more helpful error message
-          const errorObj = status.error as any;
-          const errorMsg = typeof errorObj === 'string' ? errorObj : errorObj?.message || '';
-          const errorCode = errorObj?.code;
-          if (errorMsg.includes('-1102') || errorCode === -1102) {
-            console.error('Audio file not accessible.');
-            console.error('Please check:');
-            console.error('1. The file exists at:', song.s3Url);
-            console.error('2. Network connectivity');
-            console.error('3. File permissions');
-          }
         }
       });
-    } catch (error: any) {
-      console.error('Error loading song:', error);
+
       setIsLoading(false);
-      
-      // Provide more helpful error messages
-      const errorMessage = typeof error === 'string' ? error : error?.message || '';
-      const errorCode = (error as any)?.code;
-      if (errorMessage.includes('-1102') || errorCode === -1102) {
-        console.error('❌ NSURLErrorDomain -1102: Audio file not accessible');
-        console.error('This error typically means the audio file cannot be accessed from the app.');
-        console.error('');
-        console.error('🔧 TROUBLESHOOTING:');
-        console.error('1. Verify the file exists at the URL:');
-        console.error('   URL:', song.s3Url);
-        console.error('');
-        console.error('2. Check network connectivity');
-        console.error('3. Verify file permissions');
-        console.error('');
-        console.error('💡 To test: Open the URL in a browser to see if it loads');
-      } else {
-        console.error('Error loading song:', error);
+      if (shouldPlayNow) {
+        setIsPlaying(true);
       }
+      
+      console.log('✅ Audio streaming started successfully');
+    } catch (error: any) {
+      console.error('❌ Error loading song:', error);
+      setIsLoading(false);
+      setIsPlaying(false);
+      
+      // Handle signed URL expiry - retry once with fresh URL
+      const errorMessage = typeof error === 'string' ? error : error?.message || '';
+      const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('60');
+      const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+      const isExpired = errorMessage.includes('expired') || errorMessage.includes('ExpiredRequest');
+      
+      if ((isTimeout || is403 || isExpired) && retryCount === 0) {
+        console.log('🔄 URL may be expired, fetching fresh URL and retrying...');
+        const freshUrl = await fetchFreshSignedUrl();
+        if (freshUrl) {
+          // Update song object with fresh URL
+          if (song) {
+            (song as any).s3Url = freshUrl;
+            (song as any).cloudinaryUrl = freshUrl;
+          }
+          // Retry once with fresh URL
+          return loadAndPlaySong(forcePlay, 1);
+        }
+      }
+      
+      // Log error details for debugging
+      console.error('🔍 Error Details:', {
+        message: errorMessage,
+        code: (error as any)?.code,
+        url: audioUrlRaw
+      });
+      
+      throw error;
     }
   }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime]);
 
@@ -189,7 +196,8 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // For home page (showPlayPause=true), don't auto-play
   useEffect(() => {
     // For shorts: sync with video playback (autoPlay prop changes with video state)
-    if (isVisible && !showPlayPause && song?.s3Url) {
+    const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
+    if (isVisible && !showPlayPause && audioUrl) {
       if (autoPlay) {
         // Video is playing - play song
         if (!soundRef.current) {
@@ -219,26 +227,47 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong]);
 
   const togglePlayPause = useCallback(async () => {
+    console.log('Toggle play/pause - soundRef exists:', !!soundRef.current);
+    
     if (!soundRef.current) {
-      await loadAndPlaySong();
+      console.log('No sound loaded, loading and playing...');
+      await loadAndPlaySong(true); // Force play when user clicks play button
       return;
     }
 
     try {
       const status = await soundRef.current.getStatusAsync();
+      console.log('Current playback status:', status);
+      
       if (status.isLoaded) {
-        if (status.isPlaying) {
+        const isCurrentlyPlaying = 'isPlaying' in status && status.isPlaying;
+        if (isCurrentlyPlaying) {
+          console.log('Pausing playback...');
           await soundRef.current.pauseAsync();
           setIsPlaying(false);
         } else {
+          console.log('Starting playback...');
+          // Ensure volume is set correctly before playing
+          await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
           await soundRef.current.playAsync();
           setIsPlaying(true);
+          console.log('Playback started');
         }
+      } else {
+        console.error('Sound status error, reloading:', status);
+        // If there's an error, reload the sound
+        await loadAndPlaySong(true);
       }
     } catch (error) {
       console.error('Error toggling playback:', error);
+      // On error, try to reload and play
+      try {
+        await loadAndPlaySong(true);
+      } catch (reloadError) {
+        console.error('Error reloading song:', reloadError);
+      }
     }
-  }, [loadAndPlaySong]);
+  }, [loadAndPlaySong, isMuted, volume]);
 
   const toggleMute = useCallback(async () => {
     if (!soundRef.current) return;
@@ -285,9 +314,10 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     return null;
   }
 
-  // Check if song has required data
-  if (!song.s3Url) {
-    console.warn('SongPlayer: Song missing s3Url', song);
+  // Check if song has required data - try s3Url first, then cloudinaryUrl as fallback
+  const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
+  if (!audioUrl) {
+    console.warn('SongPlayer: Song missing audio URL', song);
     return null;
   }
 

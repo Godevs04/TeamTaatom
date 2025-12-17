@@ -38,10 +38,20 @@ class ImageCacheManager {
   }
 
   private async loadImage(url: string): Promise<void> {
+    // Skip prefetch for R2 signed URLs (Cloudflare R2) as they may fail due to CORS
+    // React Native's Image component can load them directly via GET requests
+    if (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) {
+      // Mark as cached immediately for R2 URLs - let Image component handle loading
+      return Promise.resolve();
+    }
+
     try {
       await Image.prefetch(url);
     } catch (error) {
-      console.warn('Failed to prefetch image:', url, error);
+      // Only log warnings for non-R2 URLs to reduce noise
+      if (!url.includes('r2.cloudflarestorage.com') && !url.includes('cloudflarestorage.com')) {
+        console.warn('Failed to prefetch image:', url, error);
+      }
       // Don't throw error, just log it
     }
   }

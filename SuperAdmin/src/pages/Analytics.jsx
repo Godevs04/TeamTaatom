@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { LineChartComponent, AreaChartComponent, BarChartComponent, PieChartComponent } from '../components/Charts/index.jsx'
-import { Calendar, Download, Filter, RefreshCw, TrendingUp, Users, Eye, AlertTriangle } from 'lucide-react'
+import { Calendar, Download, Filter, RefreshCw, TrendingUp, Users, Eye, AlertTriangle, Activity } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getAnalyticsSummary,
@@ -12,6 +12,7 @@ import {
   getRecentEvents,
   getUserRetention
 } from '../services/analytics'
+import { api } from '../services/api'
 import logger from '../utils/logger'
 
 const Analytics = () => {
@@ -22,6 +23,7 @@ const Analytics = () => {
   const [dropOffs, setDropOffs] = useState([])
   const [recentEvents, setRecentEvents] = useState([])
   const [retention, setRetention] = useState([])
+  const [engagementMetrics, setEngagementMetrics] = useState(null)
   
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
   const [selectedChart, setSelectedChart] = useState('timeseries')
@@ -56,6 +58,21 @@ const Analytics = () => {
     return { start: start.toISOString(), end: end.toISOString() }
   }
 
+  // Fetch engagement metrics
+  const fetchEngagementMetrics = useCallback(async () => {
+    try {
+      const response = await api.get('/api/v1/superadmin/analytics/engagement', {
+        params: { period: selectedPeriod }
+      })
+      if (response.data && response.data.data) {
+        setEngagementMetrics(response.data.data)
+      }
+    } catch (error) {
+      logger.error('Failed to fetch engagement metrics:', error)
+      // Don't show toast for engagement metrics failure, it's optional
+    }
+  }, [selectedPeriod])
+  
   // Fetch all analytics data
   const fetchAllData = async () => {
     setLoading(true)
@@ -87,6 +104,9 @@ const Analytics = () => {
       setDropOffs(dropOffsData.dropOffs || [])
       setRecentEvents(eventsData.events || [])
       setRetention(retentionData.retention || [])
+      
+      // Fetch engagement metrics separately
+      fetchEngagementMetrics()
     } catch (error) {
       logger.error('Failed to fetch analytics data:', error)
       toast.error('Failed to fetch analytics data')
@@ -263,6 +283,51 @@ const Analytics = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Engagement Metrics */}
+      {engagementMetrics && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-600" />
+              User Engagement Metrics
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <p className="text-sm font-medium text-gray-600 mb-1">Total Users</p>
+                <p className="text-2xl font-bold text-gray-900">{engagementMetrics.metrics?.totalUsers?.toLocaleString() || 0}</p>
+              </div>
+              <div className="p-4 bg-green-50 rounded-lg">
+                <p className="text-sm font-medium text-gray-600 mb-1">Active Users</p>
+                <p className="text-2xl font-bold text-gray-900">{engagementMetrics.metrics?.activeUsers?.toLocaleString() || 0}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {engagementMetrics.metrics?.engagementRate || 0}% engagement rate
+                </p>
+              </div>
+              <div className="p-4 bg-purple-50 rounded-lg">
+                <p className="text-sm font-medium text-gray-600 mb-1">Posts Created</p>
+                <p className="text-2xl font-bold text-gray-900">{engagementMetrics.metrics?.postsCreated?.toLocaleString() || 0}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {engagementMetrics.metrics?.postsPerActiveUser || 0} per active user
+                </p>
+              </div>
+              <div className="p-4 bg-orange-50 rounded-lg">
+                <p className="text-sm font-medium text-gray-600 mb-1">Avg Posts/User</p>
+                <p className="text-2xl font-bold text-gray-900">{engagementMetrics.metrics?.avgPostsPerUser || 0}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Total: {engagementMetrics.metrics?.totalPosts?.toLocaleString() || 0} posts
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-gray-500">
+              Period: {engagementMetrics.period} | 
+              Date Range: {new Date(engagementMetrics.dateRange?.start).toLocaleDateString()} - {new Date(engagementMetrics.dateRange?.end).toLocaleDateString()}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card>

@@ -1,6 +1,7 @@
 const Locale = require('../models/Locale');
 const { uploadLocaleImage, deleteLocaleImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
+const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -64,16 +65,36 @@ const getLocales = async (req, res) => {
     }
 
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt latitude longitude spotTypes')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt latitude longitude spotTypes storageKey cloudinaryKey imageKey')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
       .lean();
     
-    // Map to ensure backward compatibility - use cloudinaryUrl if available, fallback to imageUrl
-    const mappedLocales = locales.map(locale => ({
-      ...locale,
-      imageUrl: locale.cloudinaryUrl || locale.imageUrl // Ensure imageUrl is populated for backward compatibility
+    // Generate signed URLs dynamically for all locales
+    const mappedLocales = await Promise.all(locales.map(async (locale) => {
+      const storageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
+      let signedUrl = null;
+      
+      if (storageKey) {
+        try {
+          signedUrl = await generateSignedUrl(storageKey, 'LOCALE');
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for locale:', { 
+            localeId: locale._id, 
+            storageKey, 
+            error: error.message 
+          });
+        }
+      } else {
+        logger.warn('Locale missing storage key:', { localeId: locale._id });
+      }
+      
+      return {
+        ...locale,
+        imageUrl: signedUrl, // Dynamically generated URL
+        cloudinaryUrl: signedUrl // Backward compatibility
+      };
     }));
 
     const total = await Locale.countDocuments(query);
@@ -99,17 +120,34 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt storageKey cloudinaryKey imageKey')
       .lean();
-    
-    // Ensure backward compatibility
-    if (locale) {
-      locale.imageUrl = locale.cloudinaryUrl || locale.imageUrl;
-    }
 
     if (!locale) {
       return sendError(res, 'RES_3001', 'Locale not found');
     }
+
+    // Generate signed URL dynamically
+    const storageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
+    let signedUrl = null;
+    
+    if (storageKey) {
+      try {
+        signedUrl = await generateSignedUrl(storageKey, 'LOCALE');
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for locale:', { 
+          localeId: locale._id, 
+          storageKey, 
+          error: error.message 
+        });
+      }
+    } else {
+      logger.warn('Locale missing storage key:', { localeId: locale._id });
+    }
+    
+    // Add dynamically generated URLs
+    locale.imageUrl = signedUrl;
+    locale.cloudinaryUrl = signedUrl; // Backward compatibility
 
     return sendSuccess(res, 200, 'Locale fetched successfully', { locale });
   } catch (error) {
@@ -164,8 +202,8 @@ const uploadLocale = async (req, res) => {
       extension
     });
     
-    const uploadResult = await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
-    logger.debug('Storage upload successful:', { key: storageKey, url: uploadResult.url });
+    await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
+    logger.debug('Storage upload successful:', { key: storageKey });
 
     // Validate displayOrder - check for conflicts
     const requestedOrder = parseInt(displayOrder) || 0;
@@ -180,7 +218,7 @@ const uploadLocale = async (req, res) => {
       }
     }
 
-    // Save to database
+    // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
       name: name.trim(),
       country: country.trim(),
@@ -188,9 +226,10 @@ const uploadLocale = async (req, res) => {
       stateProvince: stateProvince ? stateProvince.trim() : '',
       stateCode: stateCode ? stateCode.trim() : '',
       description: description ? description.trim() : '',
-      storageKey: storageKey, // Store storage key
+      storageKey: storageKey, // Store ONLY storage key
       cloudinaryKey: storageKey, // Backward compatibility
-      cloudinaryUrl: uploadResult.url, // Store URL
+      imageKey: storageKey, // Set imageKey for backward compatibility (prevents null duplicate key error)
+      // DO NOT store cloudinaryUrl or imageUrl - they will be generated dynamically
       createdBy: req.superAdmin._id,
       displayOrder: requestedOrder,
       isActive: true // Explicitly set to active
@@ -198,14 +237,32 @@ const uploadLocale = async (req, res) => {
 
     await locale.save();
 
-    // Return locale with all fields for frontend
+    // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode description cloudinaryUrl imageUrl isActive displayOrder _id createdAt')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt storageKey cloudinaryKey imageKey')
       .lean();
     
-    // Ensure backward compatibility
+    // Generate signed URL dynamically
     if (localeResponse) {
-      localeResponse.imageUrl = localeResponse.cloudinaryUrl || localeResponse.imageUrl;
+      const storageKeyForUrl = localeResponse.storageKey || localeResponse.cloudinaryKey || localeResponse.imageKey;
+      if (storageKeyForUrl) {
+        try {
+          const signedUrl = await generateSignedUrl(storageKeyForUrl, 'LOCALE');
+          localeResponse.imageUrl = signedUrl;
+          localeResponse.cloudinaryUrl = signedUrl; // Backward compatibility
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for locale response:', { 
+            localeId: locale._id, 
+            error: error.message 
+          });
+          localeResponse.imageUrl = null;
+          localeResponse.cloudinaryUrl = null;
+        }
+      } else {
+        logger.warn('Locale missing storage key:', { localeId: locale._id });
+        localeResponse.imageUrl = null;
+        localeResponse.cloudinaryUrl = null;
+      }
     }
 
     return sendSuccess(res, 201, 'Locale uploaded successfully', { locale: localeResponse });

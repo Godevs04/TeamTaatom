@@ -39,7 +39,13 @@ const postSchema = new mongoose.Schema({
   imageUrl: {
     type: String,
     required: function() {
-      return this.type !== 'short';
+      // If type is 'short', imageUrl is not required
+      if (this.type === 'short') {
+        return false;
+      }
+      // For 'photo' type, imageUrl is required only if storageKey/storageKeys are not present
+      // This allows backward compatibility with old posts while supporting new storage-key-only posts
+      return !(this.storageKey || (this.storageKeys && this.storageKeys.length > 0));
     }
   },
   videoUrl: {

@@ -52,7 +52,9 @@ const localeSchema = new mongoose.Schema({
   // Legacy fields for backward compatibility (deprecated, use storageKey/cloudinaryKey)
   imageKey: {
     type: String,
-    sparse: true
+    sparse: true,
+    unique: true,
+    required: false
   },
   imageUrl: {
     type: String,
@@ -81,6 +83,8 @@ localeSchema.index({ countryCode: 1 });
 localeSchema.index({ name: 1 }); // For faster regex searches
 localeSchema.index({ country: 1 }); // For faster regex searches
 localeSchema.index({ displayOrder: 1 });
+// Sparse unique index on imageKey to prevent duplicate null values (allows multiple nulls)
+localeSchema.index({ imageKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Locale', localeSchema);
 

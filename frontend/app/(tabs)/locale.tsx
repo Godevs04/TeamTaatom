@@ -165,6 +165,9 @@ export default function LocaleScreen() {
     };
   }, []);
 
+  // Fetch key tracking to prevent duplicate fetches
+  const lastFetchKeyRef = useRef<string | null>(null);
+  
   // Pagination & Filter Race Safety: Load locales with request guards
   const loadAdminLocales = useCallback(async (forceRefresh = false) => {
     // Request Guard: Prevent duplicate calls
@@ -172,6 +175,18 @@ export default function LocaleScreen() {
       logger.debug('loadAdminLocales already in progress, skipping');
       return;
     }
+    
+    // Generate fetch key from params
+    const fetchKey = `${searchQuery}|${filters.countryCode}|${filters.spotTypes.join(',')}|${currentPageRef.current}`;
+    
+    // LAST FETCH KEY LOCK: If same key, return immediately
+    if (!forceRefresh && fetchKey === lastFetchKeyRef.current) {
+      logger.debug('loadAdminLocales skipped: same fetchKey', fetchKey);
+      return;
+    }
+    
+    // Update fetch key BEFORE starting fetch
+    lastFetchKeyRef.current = fetchKey;
     
     isSearchingRef.current = true;
     
@@ -231,6 +246,7 @@ export default function LocaleScreen() {
         if (forceRefresh || currentPageRef.current === 1) {
           // Fresh load - replace all
           setAdminLocales(newLocales);
+          // Apply filters will be triggered by useEffect when adminLocales changes
         } else {
           // Pagination - merge and deduplicate
           setAdminLocales(prev => {
@@ -240,11 +256,9 @@ export default function LocaleScreen() {
             // Add new locales (will overwrite duplicates)
             newLocales.forEach(locale => localeMap.set(locale._id, locale));
             return Array.from(localeMap.values());
+            // Apply filters will be triggered by useEffect when adminLocales changes
           });
         }
-        
-        // Apply client-side filters
-        applyFilters(forceRefresh || currentPageRef.current === 1 ? newLocales : adminLocales);
       } else {
         if (isMountedRef.current) {
           setAdminLocales([]);
@@ -267,10 +281,10 @@ export default function LocaleScreen() {
       }
       isSearchingRef.current = false;
     }
-  }, [searchQuery, filters, adminLocales]);
+  }, [searchQuery, filters.countryCode, filters.spotTypes]); // Removed adminLocales to prevent circular dependency
   
   // Apply client-side filters (for spot types that API doesn't support)
-  const applyFilters = (locales: Locale[]) => {
+  const applyFilters = useCallback((locales: Locale[]) => {
     let filtered = [...locales];
     
     // Filter by spot types (if multiple selected, show locales that match any)
@@ -304,14 +318,16 @@ export default function LocaleScreen() {
     });
     
     setFilteredLocales(filtered);
-  };
+  }, [filters.spotTypes, searchQuery]);
   
-  // Update filtered locales when filters change
+  // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   useEffect(() => {
     if (adminLocales.length > 0) {
       applyFilters(adminLocales);
+    } else {
+      setFilteredLocales([]);
     }
-  }, [filters, searchQuery]);
+  }, [adminLocales, applyFilters]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -323,15 +339,13 @@ export default function LocaleScreen() {
   // Listen for bookmark changes from detail page
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
-      // Reload saved locales and refresh bookmark status
+      // Reload saved locales (lightweight operation)
       loadSavedLocales();
-      // Reload admin locales to update bookmark indicators
-      if (adminLocales.length > 0) {
-        loadAdminLocales(true);
-      }
+      // DO NOT reload admin locales here - it causes loops
+      // Bookmark status is handled client-side, no need to refetch
     });
     return unsubscribe;
-  }, [adminLocales.length]);
+  }, [loadSavedLocales]);
 
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
@@ -390,12 +404,13 @@ export default function LocaleScreen() {
       // Only refresh saved locales (lightweight)
       loadSavedLocales();
       
-      // Only refresh admin locales if we have data (prevent unnecessary refetch)
-      if (adminLocales.length > 0 && !isSearchingRef.current) {
-        // Refresh to update bookmark indicators
+      // Only refresh admin locales if we have NO data (initial load)
+      // DO NOT refresh if we already have data - causes loops
+      if (adminLocales.length === 0 && !isSearchingRef.current) {
+        // Initial load only
         loadAdminLocales(true);
       }
-    }, [adminLocales.length, loadSavedLocales, loadAdminLocales])
+    }, [loadSavedLocales, loadAdminLocales]) // Removed adminLocales.length to prevent loops
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -602,6 +617,8 @@ export default function LocaleScreen() {
     setShowFilterModal(false);
     // Reset pagination cleanly when filters change
     currentPageRef.current = 1;
+    // Reset fetch key to force new fetch
+    lastFetchKeyRef.current = null;
     // Reload locales with filters applied
     loadAdminLocales(true);
   }, [loadAdminLocales]);
@@ -618,17 +635,16 @@ export default function LocaleScreen() {
       searchAbortControllerRef.current.abort();
     }
     
-    // Only search if we have locales loaded or it's the initial load
-    if (adminLocales.length > 0 || loading) {
-      // Set up new debounce timer
-      searchDebounceTimerRef.current = setTimeout(() => {
-        if (isMountedRef.current && !isSearchingRef.current) {
-          // Reset pagination on new search
-          currentPageRef.current = 1;
-          loadAdminLocales(true);
-        }
-      }, SEARCH_DEBOUNCE_MS);
-    }
+    // Set up new debounce timer - always trigger on searchQuery change
+    searchDebounceTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current && !isSearchingRef.current) {
+        // Reset pagination on new search
+        currentPageRef.current = 1;
+        // Reset fetch key to force new fetch
+        lastFetchKeyRef.current = null;
+        loadAdminLocales(true);
+      }
+    }, SEARCH_DEBOUNCE_MS);
     
     return () => {
       if (searchDebounceTimerRef.current) {

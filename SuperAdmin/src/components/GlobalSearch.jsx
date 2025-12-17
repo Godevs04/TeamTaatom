@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, X, Users, MessageSquare, FileText, Clock } from 'lucide-react'
+import { Search, X, Users, MessageSquare, FileText, Clock, MapPin, Music } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRealTime } from '../context/RealTimeContext'
 import { formatDistanceToNow } from 'date-fns'
@@ -8,7 +8,7 @@ import logger from '../utils/logger'
 const GlobalSearch = () => {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState({ users: [], posts: [], total: 0 })
+  const [results, setResults] = useState({ users: [], posts: [], locales: [], songs: [], total: 0 })
   const [isLoading, setIsLoading] = useState(false)
   const [searchHistory, setSearchHistory] = useState([])
   const [selectedType, setSelectedType] = useState('all')
@@ -20,7 +20,9 @@ const GlobalSearch = () => {
   const searchTypes = [
     { value: 'all', label: 'All', icon: Search },
     { value: 'users', label: 'Users', icon: Users },
-    { value: 'posts', label: 'Posts', icon: MessageSquare }
+    { value: 'posts', label: 'Posts', icon: MessageSquare },
+    { value: 'locales', label: 'Locales', icon: FileText },
+    { value: 'songs', label: 'Songs', icon: FileText }
   ]
 
   useEffect(() => {
@@ -55,8 +57,32 @@ const GlobalSearch = () => {
 
     setIsLoading(true)
     try {
-      const searchResults = await globalSearch(query, selectedType)
-      setResults(searchResults)
+      // Try advanced search first (if available), fallback to basic search
+      try {
+        const { api } = await import('../services/api')
+        const response = await api.get('/api/v1/superadmin/search/advanced', {
+          params: { q: query.trim(), type: selectedType, limit: 20 }
+        })
+        if (response.data && response.data.data) {
+          const advancedResults = response.data.data.results
+          setResults({
+            users: advancedResults.users || [],
+            posts: advancedResults.posts || [],
+            locales: advancedResults.locales || [],
+            songs: advancedResults.songs || [],
+            total: advancedResults.total || 0
+          })
+        } else {
+          // Fallback to basic search
+          const searchResults = await globalSearch(query, selectedType)
+          setResults(searchResults)
+        }
+      } catch (advancedError) {
+        // Fallback to basic search if advanced search fails
+        logger.debug('Advanced search not available, using basic search:', advancedError)
+        const searchResults = await globalSearch(query, selectedType)
+        setResults(searchResults)
+      }
       
       // Add to search history
       if (query.trim() && !searchHistory.includes(query.trim())) {
@@ -78,7 +104,7 @@ const GlobalSearch = () => {
 
   const clearSearch = () => {
     setQuery('')
-    setResults({ users: [], posts: [], total: 0 })
+    setResults({ users: [], posts: [], locales: [], songs: [], total: 0 })
     inputRef.current?.focus()
   }
 
@@ -86,6 +112,8 @@ const GlobalSearch = () => {
     switch (type) {
       case 'user': return Users
       case 'post': return MessageSquare
+      case 'locale': return MapPin
+      case 'song': return Music
       default: return FileText
     }
   }
