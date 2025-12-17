@@ -22,6 +22,7 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import * as Sentry from '@sentry/react-native';
+import { Audio } from 'expo-av';
 
 // Initialize Sentry with environment variables
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN;
@@ -69,6 +70,17 @@ function RootLayoutInner() {
   
   // Apply web optimizations
   useWebOptimizations();
+
+  // Global Audio Mode Setup (MANDATORY for iOS streaming)
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,   // 🔴 REQUIRED for iOS
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    }).catch(err => console.error('Error setting audio mode:', err));
+  }, []);
 
   useEffect(() => {
     let unsubFeed: (() => void) | null = null;

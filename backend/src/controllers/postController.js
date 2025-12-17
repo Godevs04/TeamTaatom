@@ -6,7 +6,9 @@ const Notification = require('../models/Notification');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
 const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
-const { buildMediaKey, uploadObject, deleteObject, getDownloadUrl } = require('../services/storage');
+const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
+const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
+const Song = require('../models/Song');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
@@ -112,6 +114,9 @@ const getPosts = async (req, res) => {
                   cloudinaryUrl: 1, 
                   s3Url: 1, 
                   thumbnailUrl: 1, 
+                  storageKey: 1,
+                  cloudinaryKey: 1,
+                  s3Key: 1,
                   _id: 1 
                 } 
               },
@@ -181,17 +186,79 @@ const getPosts = async (req, res) => {
         type: 'photo' 
       }).lean();
 
-      return { posts, totalPosts };
+      // Generate signed URLs dynamically for posts and songs
+      const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {
+        // Generate image URLs from storage keys
+        if (post.storageKeys && post.storageKeys.length > 0) {
+          try {
+            const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+            post.imageUrl = imageUrls[0] || null; // Primary image
+            post.images = imageUrls; // All images
+          } catch (error) {
+            logger.warn('Failed to generate image URLs for post:', { 
+              postId: post._id, 
+              error: error.message 
+            });
+            post.imageUrl = null;
+            post.images = [];
+          }
+        } else if (post.storageKey) {
+          // Fallback for single storage key
+          try {
+            const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+            post.imageUrl = imageUrl;
+            post.images = imageUrl ? [imageUrl] : [];
+          } catch (error) {
+            logger.warn('Failed to generate image URL for post:', { 
+              postId: post._id, 
+              error: error.message 
+            });
+            post.imageUrl = null;
+            post.images = [];
+          }
+        } else {
+          // Legacy: try to use existing imageUrl if no storage key
+          // This is for backward compatibility with old posts
+          if (!post.imageUrl) {
+            post.imageUrl = null;
+            post.images = [];
+          }
+        }
+
+        // Generate song URL if present
+        if (post.song?.songId) {
+          const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
+          if (storageKey) {
+            try {
+              const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+              post.song.songId.s3Url = songUrl;
+              post.song.songId.cloudinaryUrl = songUrl;
+            } catch (error) {
+              logger.warn('Failed to generate URL for song in post:', { 
+                postId: post._id, 
+                songId: post.song.songId._id, 
+                storageKey,
+                error: error.message 
+              });
+              post.song.songId.s3Url = null;
+              post.song.songId.cloudinaryUrl = null;
+            }
+          }
+        }
+        return post;
+      }));
+
+      return { posts: postsWithFreshUrls, totalPosts };
     }, CACHE_TTL.POST_LIST);
 
     const { posts, totalPosts } = result;
 
-    // Defensive guards: filter out posts with missing image URLs or author data
-    // This prevents broken images from reaching the Home feed
+    // Defensive guards: filter out posts with missing storage keys or author data
+    // Note: imageUrl is now generated dynamically, so we check for storageKey instead
     const validPosts = posts.filter(post => {
-      // Must have image URL (required for Home feed)
-      if (!post.imageUrl || typeof post.imageUrl !== 'string' || post.imageUrl.trim() === '') {
-        logger.warn(`Post ${post._id} missing imageUrl, filtering out`);
+      // Must have storage key (required for generating image URL)
+      if (!post.storageKey && (!post.storageKeys || post.storageKeys.length === 0)) {
+        logger.warn(`Post ${post._id} missing storageKey, filtering out`);
         return false;
       }
       
@@ -418,6 +485,9 @@ const getPostById = async (req, res) => {
                   cloudinaryUrl: 1, 
                   s3Url: 1, 
                   thumbnailUrl: 1, 
+                  storageKey: 1,
+                  cloudinaryKey: 1,
+                  s3Key: 1,
                   _id: 1 
                 } 
               },
@@ -597,7 +667,6 @@ const createPost = async (req, res) => {
     }
 
     // Upload all images to Sevalla Object Storage
-    const imageUrls = [];
     const storageKeys = [];
     
     // Store storage keys in request for cleanup if post creation fails
@@ -614,25 +683,9 @@ const createPost = async (req, res) => {
           extension
         });
         
-        const uploadResult = await uploadObject(file.buffer, storageKey, file.mimetype);
+        await uploadObject(file.buffer, storageKey, file.mimetype);
+        logger.debug(`Image ${i + 1} uploaded successfully:`, { storageKey });
         
-        // Defensive: validate upload result has URL
-        if (!uploadResult || !uploadResult.url) {
-          logger.error(`Image upload succeeded but no URL returned for file ${i}`);
-          // Clean up any successfully uploaded images
-          if (storageKeys.length > 0) {
-            await Promise.all(
-              storageKeys.map(key => 
-                deleteObject(key).catch(err => 
-                  logger.error('Error cleaning up failed upload:', err)
-                )
-              )
-            );
-          }
-          return sendError(res, 'FILE_4005', 'Image upload completed but URL is missing. Please try again.');
-        }
-        
-        imageUrls.push(uploadResult.url);
         storageKeys.push(storageKey);
       }
     } catch (uploadError) {
@@ -675,12 +728,14 @@ const createPost = async (req, res) => {
       mentionUserIds.push(...mentionedUsers.map(u => u._id));
     }
 
-    // Create post with multiple images
+    // Generate signed URLs for response (NOT stored in DB)
+    const signedUrls = await generateSignedUrls(storageKeys, 'IMAGE');
+    
+    // Create post with multiple images - ONLY store storage keys, NOT signed URLs
     const post = new Post({
       user: req.user._id,
       caption,
-      imageUrl: imageUrls[0], // Keep first image as primary for backward compatibility
-      images: imageUrls, // Store all images
+      // DO NOT store imageUrl or images - they will be generated dynamically
       storageKey: storageKeys[0], // Primary storage key
       storageKeys: storageKeys, // All storage keys
       cloudinaryPublicIds: storageKeys, // Backward compatibility: use storageKeys as cloudinaryPublicIds
@@ -779,6 +834,26 @@ const createPost = async (req, res) => {
       .populate('user', 'fullName profilePic')
       .lean();
 
+    // Generate signed URLs dynamically for response
+    if (populatedPost.storageKeys && populatedPost.storageKeys.length > 0) {
+      try {
+        const signedUrls = await generateSignedUrls(populatedPost.storageKeys, 'IMAGE');
+        populatedPost.imageUrl = signedUrls[0] || null; // Primary image
+        populatedPost.images = signedUrls; // All images
+      } catch (error) {
+        logger.warn('Failed to generate signed URLs for post response:', { 
+          postId: populatedPost._id, 
+          error: error.message 
+        });
+        populatedPost.imageUrl = null;
+        populatedPost.images = [];
+      }
+    } else {
+      logger.warn('Post missing storage keys:', { postId: populatedPost._id });
+      populatedPost.imageUrl = null;
+      populatedPost.images = [];
+    }
+
     // Create mention notifications
     if (mentionUserIds.length > 0) {
       Promise.all(
@@ -820,9 +895,10 @@ const createPost = async (req, res) => {
       });
     }
 
+    // Return populated post with dynamically generated URLs
     return sendSuccess(res, 201, 'Post created successfully', {
       post: {
-        ...post.toObject(),
+        ...populatedPost,
         isLiked: false,
         likesCount: 0,
         commentsCount: 0
@@ -1082,6 +1158,9 @@ const getUserPosts = async (req, res) => {
                   cloudinaryUrl: 1, 
                   s3Url: 1, 
                   thumbnailUrl: 1, 
+                  storageKey: 1,
+                  cloudinaryKey: 1,
+                  s3Key: 1,
                   _id: 1 
                 } 
               },
