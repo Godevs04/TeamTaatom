@@ -79,6 +79,7 @@ const Locales = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCountryCode, setSelectedCountryCode] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const currentPageRef = useRef(1) // Ref to track current page for fetch operations
   const [totalPages, setTotalPages] = useState(1)
   const [totalLocales, setTotalLocales] = useState(0)
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -109,6 +110,7 @@ const Locales = () => {
   const lastFetchKeyRef = useRef(null) // Track last fetch key to prevent duplicates
   const debounceTimeoutRef = useRef(null) // Track debounce timer for cleanup
   const trackedFetchKeysRef = useRef(new Set()) // Track analytics events per fetchKey
+  const hasInitialFetchRef = useRef(false) // Track if initial fetch has been performed
   const FETCH_LIMIT = 20 // Fixed limit for fetchKey consistency
   const [formData, setFormData] = useState({
     name: '',
@@ -133,6 +135,11 @@ const Locales = () => {
   // Lifecycle safety
   useEffect(() => {
     isMountedRef.current = true
+    // Reset fetch tracking on mount to ensure fresh fetch
+    hasInitialFetchRef.current = false
+    lastFetchKeyRef.current = null
+    isFetchingRef.current = false
+    
     return () => {
       isMountedRef.current = false
       // Clear debounce timer
@@ -193,13 +200,22 @@ const Locales = () => {
 
   // Shared fetch function - used by both automatic and manual fetches
   // Handles 304 responses as complete no-ops
-  const performFetch = useCallback(async (fetchKey, params) => {
+  const performFetch = useCallback(async (fetchKey, params, forceFetch = false) => {
     const { searchQuery: sq, selectedCountryCode: scc, currentPage: cp } = params
     
-    // Hard guard: if already fetching, abort
-    if (isFetchingRef.current) {
+    // Hard guard: if already fetching, abort (unless forcing)
+    if (isFetchingRef.current && !forceFetch) {
       console.debug('[Locales] Fetch blocked: already in progress')
       return
+    }
+    
+    // If forcing, abort any in-flight requests and reset guards
+    if (forceFetch) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      isFetchingRef.current = false
+      console.debug('[Locales] Force fetch: resetting guards')
     }
     
     // Abort previous request if exists
@@ -248,8 +264,19 @@ const Locales = () => {
         return
       }
       
-      if (result && result.locales) {
-        const minimalLocales = result.locales.map(locale => ({
+        // Handle both response structures: direct data or nested in data property
+        const locales = result.locales || result.data?.locales || []
+        const pagination = result.pagination || result.data?.pagination
+        
+        console.debug('[Locales] Response parsed:', { 
+          hasLocales: !!locales, 
+          localesCount: locales?.length || 0,
+          resultKeys: Object.keys(result),
+          pagination: pagination ? { totalPages: pagination.totalPages, total: pagination.total } : null
+        })
+        
+        if (locales && Array.isArray(locales)) {
+          const minimalLocales = locales.map(locale => ({
           _id: locale._id,
           name: locale.name,
           country: locale.country,
@@ -266,9 +293,10 @@ const Locales = () => {
           fullDataLoaded: false
         }))
         
+        console.debug('[Locales] Setting locales:', minimalLocales.length)
         setLocales(minimalLocales)
-        setTotalPages(result.pagination?.totalPages || 1)
-        setTotalLocales(result.pagination?.total || 0)
+        setTotalPages(pagination?.totalPages || 1)
+        setTotalLocales(pagination?.total || 0) 
         cachedLocalesRef.current = minimalLocales
         
         // Analytics: track only once per fetchKey on successful 200 response
@@ -278,7 +306,13 @@ const Locales = () => {
           // Example: trackListViewed(fetchKey) - but NOT depending on locales state
         }
       } else {
-        logger.error('Unexpected response structure:', result)
+        logger.error('Unexpected response structure:', { result, locales, pagination })
+        console.error('[Locales] Failed to parse response:', { 
+          result, 
+          hasLocales: !!locales, 
+          localesType: typeof locales,
+          isArray: Array.isArray(locales)
+        })
         if (isMountedRef.current) {
           setLocales([])
           setTotalPages(1)
@@ -315,19 +349,40 @@ const Locales = () => {
     }
   }, [])
   
+  // Sync currentPageRef with currentPage state
+  useEffect(() => {
+    currentPageRef.current = currentPage
+  }, [currentPage])
+  
   // Load locales function - used for manual calls (refresh, etc.)
-  const loadLocales = useCallback(async (force = false) => {
-    // Hard guard: prevent duplicate concurrent calls
+  const loadLocales = useCallback(async (force = false, pageOverride = null) => {
+    console.debug('[Locales] loadLocales called:', { force, pageOverride, isFetching: isFetchingRef.current })
+    
+    // Hard guard: prevent duplicate concurrent calls (but allow force)
     if (isFetchingRef.current && !force) {
       console.debug('[Locales] Fetch skipped: already in progress')
       return
     }
     
-    // Generate fetchKey
-    const fetchKey = `${searchQuery}|${selectedCountryCode}|${currentPage}|${FETCH_LIMIT}`
+    // If forcing, reset fetch guard
+    if (force) {
+      isFetchingRef.current = false
+    }
     
-    // LAST FETCH KEY LOCK: if same key, return immediately
-    if (fetchKey === lastFetchKeyRef.current) {
+    // Use pageOverride if provided, otherwise use current page from ref (for immediate updates)
+    const pageToUse = pageOverride !== null ? pageOverride : currentPageRef.current
+    
+    // Generate fetchKey
+    // If forcing, add timestamp to make key unique and bypass cache
+    const fetchKey = force 
+      ? `${searchQuery}|${selectedCountryCode}|${pageToUse}|${FETCH_LIMIT}|${Date.now()}`
+      : `${searchQuery}|${selectedCountryCode}|${pageToUse}|${FETCH_LIMIT}`
+    
+    console.debug('[Locales] Generated fetchKey:', { fetchKey, lastKey: lastFetchKeyRef.current, force })
+    
+    // LAST FETCH KEY LOCK: if same key, return immediately (unless forcing)
+    // When forcing, fetchKey includes timestamp so it will always be different
+    if (fetchKey === lastFetchKeyRef.current && !force) {
       console.debug('[Locales] Fetch skipped (same key)', fetchKey)
       return
     }
@@ -335,29 +390,40 @@ const Locales = () => {
     // Update lastFetchKeyRef BEFORE starting fetch
     lastFetchKeyRef.current = fetchKey
     
-    const params = { searchQuery, selectedCountryCode, currentPage }
-    await performFetch(fetchKey, params)
-  }, [searchQuery, selectedCountryCode, currentPage, performFetch])
+    const params = { searchQuery, selectedCountryCode, currentPage: pageToUse }
+    console.debug('[Locales] Calling performFetch with params:', params, 'force:', force)
+    await performFetch(fetchKey, params, force)
+  }, [searchQuery, selectedCountryCode, performFetch])
   
   // SINGLE useEffect - depends ONLY on fetchKey string
   useEffect(() => {
     if (!isMountedRef.current) return
     
     // HARD ISOLATE FETCH TRIGGER: Create fetchKey string
-    const fetchKey = `${searchQuery}|${selectedCountryCode}|${currentPage}|${FETCH_LIMIT}`
+    // Use currentPageRef to get the latest page value immediately
+    const fetchKey = `${searchQuery}|${selectedCountryCode}|${currentPageRef.current}|${FETCH_LIMIT}`
     
-    // LAST FETCH KEY LOCK: If fetchKey === lastFetchKeyRef.current → RETURN immediately
-    if (fetchKey === lastFetchKeyRef.current) {
+    // ALWAYS fetch on initial mount (first render)
+    const isInitialFetch = !hasInitialFetchRef.current
+    
+    // LAST FETCH KEY LOCK: If fetchKey === lastFetchKeyRef.current → RETURN immediately (unless initial fetch)
+    if (fetchKey === lastFetchKeyRef.current && !isInitialFetch) {
       console.debug('[Locales] Fetch skipped (same key)', fetchKey)
       return
     }
     
-    // ISFETCHING HARD GUARD: If isFetchingRef.current === true → RETURN
-    if (isFetchingRef.current) {
+    // ISFETCHING HARD GUARD: If isFetchingRef.current === true → RETURN (unless initial fetch)
+    if (isFetchingRef.current && !isInitialFetch) {
       console.debug('[Locales] Fetch skipped: already in progress')
       // Update lastFetchKeyRef to prevent retry on next render
       lastFetchKeyRef.current = fetchKey
       return
+    }
+    
+    // Mark that initial fetch is being attempted
+    if (isInitialFetch) {
+      hasInitialFetchRef.current = true
+      console.debug('[Locales] Initial fetch triggered')
     }
     
     // Update lastFetchKeyRef BEFORE starting debounce or request
@@ -368,7 +434,97 @@ const Locales = () => {
       clearTimeout(debounceTimeoutRef.current)
     }
     
-    // Debounce safety: Apply debounce (≈400ms)
+    // For initial fetch, execute immediately without debounce
+    if (isInitialFetch) {
+      console.debug('[Locales] Initial fetch - executing immediately without debounce')
+      // Execute fetch immediately using inline logic
+      const params = { searchQuery, selectedCountryCode, currentPage: currentPageRef.current }
+      const { searchQuery: sq, selectedCountryCode: scc, currentPage: cp } = params
+      
+      // Set fetching flag
+      isFetchingRef.current = true
+      if (isMountedRef.current) {
+        setLoading(true)
+      }
+      
+      // Abort previous request if exists
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      abortControllerRef.current = new AbortController()
+      
+      // Make API call immediately
+      import('../services/api').then(({ default: api }) => {
+        const paramsObj = new URLSearchParams()
+        if (sq) paramsObj.append('search', sq)
+        if (scc && scc !== 'all') paramsObj.append('countryCode', scc)
+        paramsObj.append('page', cp.toString())
+        paramsObj.append('limit', FETCH_LIMIT.toString())
+        paramsObj.append('includeInactive', 'true')
+        
+        return api.get(`/api/v1/locales?${paramsObj.toString()}`, {
+          signal: abortControllerRef.current.signal,
+          validateStatus: (status) => status === 200 || status === 304
+        })
+      }).then((response) => {
+        if (abortControllerRef.current?.signal?.aborted || !isMountedRef.current) {
+          return
+        }
+        
+        if (response.status === 304) {
+          console.debug('[Locales] Initial fetch ignored (304)')
+          return
+        }
+        
+        const result = response.data
+        const locales = result.locales || result.data?.locales || []
+        const pagination = result.pagination || result.data?.pagination
+        
+        console.debug('[Locales] Initial fetch response:', { 
+          hasLocales: !!locales, 
+          localesCount: locales?.length || 0 
+        })
+        
+        if (locales && Array.isArray(locales)) {
+          const minimalLocales = locales.map(locale => ({
+            _id: locale._id,
+            name: locale.name,
+            country: locale.country,
+            countryCode: locale.countryCode,
+            stateProvince: locale.stateProvince,
+            stateCode: locale.stateCode,
+            displayOrder: locale.displayOrder,
+            createdAt: locale.createdAt,
+            isActive: locale.isActive,
+            imageUrl: locale.imageUrl,
+            latitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.latitude : null,
+            longitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.longitude : null,
+            description: null,
+            fullDataLoaded: false
+          }))
+          
+          setLocales(minimalLocales)
+          setTotalPages(pagination?.totalPages || 1)
+          setTotalLocales(pagination?.total || 0)
+          cachedLocalesRef.current = minimalLocales
+        }
+      }).catch((error) => {
+        if (abortControllerRef.current?.signal?.aborted || error.name === 'AbortError' || error.name === 'CanceledError' || !isMountedRef.current) {
+          return
+        }
+        logger.error('[Locales] Initial fetch error:', error)
+        handleError(error, toast, 'Failed to load locales')
+      }).finally(() => {
+        if (isMountedRef.current) {
+          setLoading(false)
+        }
+        isFetchingRef.current = false
+      })
+      
+      return
+    }
+    
+    // Debounce safety: Apply debounce (≈400ms) for subsequent fetches
     debounceTimeoutRef.current = setTimeout(() => {
       if (!isMountedRef.current) {
         console.debug('[Locales] Fetch aborted: component unmounted')
@@ -376,7 +532,8 @@ const Locales = () => {
       }
       
       // Re-check fetchKey after debounce - strict comparison
-      const latestFetchKey = `${searchQuery}|${selectedCountryCode}|${currentPage}|${FETCH_LIMIT}`
+      // Use currentPageRef to get the latest page value
+      const latestFetchKey = `${searchQuery}|${selectedCountryCode}|${currentPageRef.current}|${FETCH_LIMIT}`
       
       // If fetchKey reverted during debounce, cancel fetch
       if (latestFetchKey !== lastFetchKeyRef.current) {
@@ -393,7 +550,7 @@ const Locales = () => {
       console.debug('[Locales] Fetch start', latestFetchKey)
       
       // Inline fetch to avoid callback dependency
-      const params = { searchQuery, selectedCountryCode, currentPage }
+      const params = { searchQuery, selectedCountryCode, currentPage: currentPageRef.current }
       const { searchQuery: sq, selectedCountryCode: scc, currentPage: cp } = params
       
       // Hard guard: if already fetching, abort
@@ -440,14 +597,26 @@ const Locales = () => {
         }
         
         // Only process 200 responses
+        // Backend sends: { success: true, message, locales: [...], pagination: {...} }
         const result = response.data
         
         if (abortControllerRef.current?.signal?.aborted || !isMountedRef.current) {
           return
         }
         
-        if (result && result.locales) {
-          const minimalLocales = result.locales.map(locale => ({
+        // Handle both response structures: direct data or nested in data property
+        const locales = result.locales || result.data?.locales || []
+        const pagination = result.pagination || result.data?.pagination
+        
+        console.debug('[Locales] Response received:', { 
+          hasLocales: !!locales, 
+          localesCount: locales?.length || 0,
+          resultKeys: Object.keys(result),
+          pagination 
+        })
+        
+        if (locales && Array.isArray(locales)) {
+          const minimalLocales = locales.map(locale => ({
             _id: locale._id,
             name: locale.name,
             country: locale.country,
@@ -465,8 +634,8 @@ const Locales = () => {
           }))
           
           setLocales(minimalLocales)
-          setTotalPages(result.pagination?.totalPages || 1)
-          setTotalLocales(result.pagination?.total || 0)
+          setTotalPages(pagination?.totalPages || 1)
+          setTotalLocales(pagination?.total || 0)
           cachedLocalesRef.current = minimalLocales
           
           // Analytics: track only once per fetchKey on successful 200 response
@@ -674,10 +843,16 @@ const Locales = () => {
           file: null 
         })
       })
-      // Force refresh after upload - generate new fetchKey to trigger fetch
+      // Force refresh after upload - reset page to 1 and clear fetchKey to trigger fetch
       // This is intentional - new locale added, need to refresh list
+      setCurrentPage(1)
+      currentPageRef.current = 1
       lastFetchKeyRef.current = null
-      await loadLocales(true)
+      trackedFetchKeysRef.current.clear() // Clear tracked keys to allow re-fetch
+      isFetchingRef.current = false // Reset fetch guard
+      // Fetch immediately with page 1 override
+      console.debug('[Locales] Triggering refresh after upload')
+      await loadLocales(true, 1)
     } catch (error) {
       handleError(error, toast, 'Failed to upload locale')
       logger.error('Upload error:', error)
@@ -699,10 +874,13 @@ const Locales = () => {
       toast.success('Locale deleted successfully')
       setShowDeleteModal(false)
       setLocaleToDelete(null)
-      // Force refresh after delete - generate new fetchKey to trigger fetch
+      // Force refresh after delete - reset page to 1 and clear fetchKey to trigger fetch
       // This is intentional - locale deleted, need to refresh list
+      setCurrentPage(1)
+      currentPageRef.current = 1
       lastFetchKeyRef.current = null
-      loadLocales(true)
+      // Fetch immediately with page 1 override
+      await loadLocales(true, 1)
     } catch (error) {
       handleError(error, toast, 'Failed to delete locale')
       logger.error('Delete error:', error)
@@ -951,10 +1129,13 @@ const Locales = () => {
           displayOrder: '0' 
         })
       })
-      // Force refresh after upload - generate new fetchKey to trigger fetch
-      // This is intentional - new locale added, need to refresh list
+      // Force refresh after update - reset page to 1 and clear fetchKey to trigger fetch
+      // This is intentional - locale updated, need to refresh list
+      setCurrentPage(1)
+      currentPageRef.current = 1
       lastFetchKeyRef.current = null
-      await loadLocales(true)
+      // Fetch immediately with page 1 override
+      await loadLocales(true, 1)
     } catch (error) {
       handleError(error, toast, 'Failed to update locale')
       logger.error('Update error:', error)
@@ -1202,7 +1383,28 @@ const Locales = () => {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={loadLocales}
+              onClick={async () => {
+                console.debug('[Locales] Refresh button clicked')
+                // Clear all fetch tracking
+                lastFetchKeyRef.current = null
+                hasInitialFetchRef.current = false
+                isFetchingRef.current = false
+                trackedFetchKeysRef.current.clear()
+                
+                // Abort any in-flight requests
+                if (abortControllerRef.current) {
+                  abortControllerRef.current.abort()
+                }
+                
+                // Clear debounce timer
+                if (debounceTimeoutRef.current) {
+                  clearTimeout(debounceTimeoutRef.current)
+                  debounceTimeoutRef.current = null
+                }
+                
+                // Force refresh with current page
+                await loadLocales(true, currentPageRef.current)
+              }}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-lg transition-all shadow-lg hover:shadow-xl disabled:opacity-50"
             >
