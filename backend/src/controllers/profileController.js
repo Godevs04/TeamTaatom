@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
+const { generateSignedUrl } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
@@ -230,8 +231,27 @@ const getProfile = async (req, res) => {
         return followingId !== id.toString();
       }).length : 0;
 
+    // Generate signed URL for profile picture dynamically
+    let profilePicUrl = null;
+    if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL:', { 
+          userId: user._id, 
+          error: error.message 
+        });
+        // Fallback to legacy URL if available
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      // Legacy: use existing profilePic if no storage key
+      profilePicUrl = user.profilePic;
+    }
+
     const profile = {
       ...user,
+      profilePic: profilePicUrl, // Dynamically generated URL
       postsCount: posts.length,
       followersCount,
       followingCount,
@@ -319,8 +339,11 @@ const updateProfile = async (req, res) => {
           extension
         });
 
-        const uploadResult = await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
-        profilePicUrl = uploadResult.url;
+        await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
+        logger.debug('Profile picture uploaded successfully:', { profilePicStorageKey });
+        
+        // Generate signed URL for response (NOT stored in DB)
+        profilePicUrl = await generateSignedUrl(profilePicStorageKey, 'PROFILE');
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
         logger.error('Upload error details:', {
