@@ -123,8 +123,11 @@ const SongRow = memo(({
           </button>
           <audio
             id={`audio-${song._id}`}
-            src={song.s3Url}
+            src={song.s3Url || song.cloudinaryUrl || ''}
             onEnded={() => onPlayPause(song)}
+            onError={(e) => {
+              logger.error('Audio element error:', { songId: song._id, error: e })
+            }}
             preload="none"
           />
           {/* Lightweight waveform preview */}
@@ -664,6 +667,17 @@ const Songs = () => {
   const handlePlayPause = useCallback((song) => {
     if (!isMountedRef.current) return
     
+    // Get the audio URL - try s3Url first, then cloudinaryUrl as fallback
+    const audioUrl = song.s3Url || song.cloudinaryUrl
+    
+    if (!audioUrl) {
+      logger.error('No audio URL available for song:', { songId: song._id, song })
+      if (isMountedRef.current) {
+        toast.error('Audio URL not available for this song')
+      }
+      return
+    }
+    
     if (playingAudio === song._id) {
       setPlayingAudio(null)
       // Stop audio if playing
@@ -673,16 +687,66 @@ const Songs = () => {
         audio.currentTime = 0
       }
     } else {
+      // Stop any currently playing audio
+      if (playingAudio) {
+        const currentAudio = document.getElementById(`audio-${playingAudio}`)
+        if (currentAudio) {
+          currentAudio.pause()
+          currentAudio.currentTime = 0
+        }
+      }
+      
       setPlayingAudio(song._id)
       // Play audio
       const audio = document.getElementById(`audio-${song._id}`)
       if (audio) {
-        audio.play().catch(err => {
-          logger.error('Error playing audio:', err)
+        // Ensure the src is set correctly
+        if (audio.src !== audioUrl && audioUrl) {
+          audio.src = audioUrl
+        }
+        
+        // Add error handler
+        const handleError = (e) => {
+          logger.error('Error playing audio:', { 
+            songId: song._id, 
+            error: e, 
+            url: audioUrl,
+            audioError: audio.error 
+          })
           if (isMountedRef.current) {
-            toast.error('Failed to play audio')
+            setPlayingAudio(null)
+            toast.error('Failed to play audio. The file may be corrupted or inaccessible.')
+          }
+        }
+        
+        audio.addEventListener('error', handleError, { once: true })
+        
+        audio.play().catch(err => {
+          logger.error('Error playing audio:', { 
+            songId: song._id, 
+            error: err, 
+            url: audioUrl,
+            errorName: err.name,
+            errorMessage: err.message
+          })
+          if (isMountedRef.current) {
+            setPlayingAudio(null)
+            // Provide more specific error messages
+            if (err.name === 'NotSupportedError') {
+              toast.error('Audio format not supported or URL is invalid')
+            } else if (err.name === 'NotAllowedError') {
+              toast.error('Audio playback was blocked. Please interact with the page first.')
+            } else {
+              toast.error('Failed to play audio. Please check the audio file.')
+            }
           }
         })
+      } else {
+        logger.error('Audio element not found:', { songId: song._id })
+        if (isMountedRef.current) {
+          setPlayingAudio(null)
+          toast.error('Audio player not found')
+        }
       }
     }
   }, [playingAudio])
@@ -1558,11 +1622,18 @@ const Songs = () => {
                 <label className="block text-sm font-semibold text-gray-700">Audio Player</label>
                 <audio
                   controls
-                  src={previewSong.s3Url}
+                  src={previewSong.s3Url || previewSong.cloudinaryUrl || ''}
+                  onError={(e) => {
+                    logger.error('Preview audio error:', { songId: previewSong._id, error: e })
+                    toast.error('Failed to load audio preview')
+                  }}
                   className="w-full"
                 >
                   Your browser does not support the audio element.
                 </audio>
+                {(!previewSong.s3Url && !previewSong.cloudinaryUrl) && (
+                  <p className="text-sm text-red-600 mt-2">⚠️ No audio URL available for this song</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>

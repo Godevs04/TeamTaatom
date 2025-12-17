@@ -507,14 +507,20 @@ export default function PostScreen() {
             takenAt: locationResult.takenAt
           });
         } else {
-          logger.debug('Location extraction result: Not found, falling back to device location');
+          logger.debug('Location extraction result: Not found');
           setLocationMetadata({
             hasExifGps: false,
             takenAt: null,
             rawSource: 'none'
           });
           setIsFromCameraFlow(false);
-          await getLocation();
+          
+          // Show warning - user can manually enter location
+          Alert.alert(
+            'Location Not Detected',
+            'Unable to fetch location from photo. You can manually type the location, but Trip Score will not be calculated.',
+            [{ text: 'OK', style: 'default' }]
+          );
         }
       }
     } catch (error) {
@@ -627,14 +633,20 @@ export default function PostScreen() {
           takenAt: locationResult.takenAt
         });
       } else {
-        logger.debug('Location extraction result for video: Not found, falling back to device location');
+        logger.debug('Location extraction result for video: Not found');
         setLocationMetadata({
           hasExifGps: false,
           takenAt: null,
           rawSource: 'none'
         });
         setIsFromCameraFlow(false);
-        await getLocation();
+        
+        // Show warning - user can manually enter location
+        Alert.alert(
+          'Location Not Detected',
+          'Unable to fetch location from video. You can manually type the location, but Trip Score will not be calculated.',
+          [{ text: 'OK', style: 'default' }]
+        );
       }
     }
   };
@@ -697,8 +709,27 @@ export default function PostScreen() {
           if (locationResult.address) {
             setAddress(locationResult.address);
           }
+          // Store location metadata for TripScore v2
+          setLocationMetadata({
+            hasExifGps: locationResult.hasExifGps,
+            takenAt: locationResult.takenAt || null,
+            rawSource: locationResult.rawSource
+          });
+          setIsFromCameraFlow(true); // Camera capture
         } else {
-          await getLocation();
+          // No location found - show warning and let user enter manually
+          setLocationMetadata({
+            hasExifGps: false,
+            takenAt: null,
+            rawSource: 'none'
+          });
+          setIsFromCameraFlow(true);
+          
+          Alert.alert(
+            'Location Not Detected',
+            'Unable to fetch location from photo. You can manually type the location, but Trip Score will not be calculated.',
+            [{ text: 'OK', style: 'default' }]
+          );
         }
       }
     } catch (error) {
@@ -805,14 +836,20 @@ export default function PostScreen() {
           takenAt: locationResult.takenAt
         });
       } else {
-        logger.debug('Location extraction result for camera video: Not found, falling back to device location');
+        logger.debug('Location extraction result for camera video: Not found');
         setLocationMetadata({
           hasExifGps: false,
           takenAt: null,
           rawSource: 'none'
         });
         setIsFromCameraFlow(true); // Camera capture
-        await getLocation();
+        
+        // Show warning - user can manually enter location
+        Alert.alert(
+          'Location Not Detected',
+          'Unable to fetch location from video. You can manually type the location, but Trip Score will not be calculated.',
+          [{ text: 'OK', style: 'default' }]
+        );
       }
     }
   };
@@ -825,7 +862,7 @@ export default function PostScreen() {
   let lastAddress = "";
   let lastGeocodeTime = 0;
   
-  const getLocation = async () => {
+  const getLocation = async (): Promise<boolean> => {
     try {
       const currentLocation = await getCurrentLocation();
       if (currentLocation) {
@@ -854,9 +891,12 @@ export default function PostScreen() {
         } else {
           setAddress(lastAddress);
         }
+        return true; // Success
       }
+      return false; // No location returned
     } catch (error) {
-      logger.error("Error getting location", error);
+      logger.warn("Error getting location (non-critical)", error);
+      return false; // Failed
     }
   };
 

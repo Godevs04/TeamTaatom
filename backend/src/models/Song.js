@@ -36,6 +36,7 @@ const songSchema = new mongoose.Schema({
   // Legacy fields for backward compatibility (deprecated, use storageKey/cloudinaryKey)
   s3Key: {
     type: String,
+    unique: true,
     sparse: true
   },
   s3Url: {

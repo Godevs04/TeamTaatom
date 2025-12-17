@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
+const { generateSignedUrl } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
@@ -13,6 +14,7 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
+const { sendNotificationToUser } = require('../utils/sendNotification');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -229,8 +231,27 @@ const getProfile = async (req, res) => {
         return followingId !== id.toString();
       }).length : 0;
 
+    // Generate signed URL for profile picture dynamically
+    let profilePicUrl = null;
+    if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL:', { 
+          userId: user._id, 
+          error: error.message 
+        });
+        // Fallback to legacy URL if available
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      // Legacy: use existing profilePic if no storage key
+      profilePicUrl = user.profilePic;
+    }
+
     const profile = {
       ...user,
+      profilePic: profilePicUrl, // Dynamically generated URL
       postsCount: posts.length,
       followersCount,
       followingCount,
@@ -318,8 +339,11 @@ const updateProfile = async (req, res) => {
           extension
         });
 
-        const uploadResult = await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
-        profilePicUrl = uploadResult.url;
+        await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
+        logger.debug('Profile picture uploaded successfully:', { profilePicStorageKey });
+        
+        // Generate signed URL for response (NOT stored in DB)
+        profilePicUrl = await generateSignedUrl(profilePicStorageKey, 'PROFILE');
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
         logger.error('Upload error details:', {
@@ -548,6 +572,19 @@ const toggleFollow = async (req, res) => {
           }
         });
 
+        // Send push notification
+        await sendNotificationToUser({
+          userId: id.toString(),
+          title: 'New Follow Request',
+          body: `${currentUser.fullName} wants to follow you`,
+          data: {
+            type: 'follow_request',
+            fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the requester)
+            entityId: currentUserId.toString(), // Keep for backward compatibility
+            senderId: currentUserId.toString() // Keep for backward compatibility
+          }
+        }).catch(err => logger.error('Error sending push notification for follow request:', err));
+
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -598,6 +635,19 @@ const toggleFollow = async (req, res) => {
             followerProfilePic: currentUser.profilePic
           }
         });
+
+        // Send push notification
+        await sendNotificationToUser({
+          userId: id.toString(),
+          title: 'New Follower',
+          body: `${currentUser.fullName} started following you`,
+          data: {
+            type: 'follow',
+            fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the person who followed)
+            entityId: currentUserId.toString(), // Keep for backward compatibility
+            senderId: currentUserId.toString() // Keep for backward compatibility
+          }
+        }).catch(err => logger.error('Error sending push notification for follow:', err));
 
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
@@ -1023,6 +1073,19 @@ const approveFollowRequest = async (req, res) => {
               approvedByProfilePic: user.profilePic
             }
           });
+
+          // Send push notification
+          await sendNotificationToUser({
+            userId: requesterId.toString(),
+            title: 'Follow Request Approved',
+            body: `${user.fullName} approved your follow request`,
+            data: {
+              type: 'follow_approved',
+              fromUserId: currentUserId.toString(), // Frontend expects fromUserId (the approver)
+              entityId: currentUserId.toString(), // Keep for backward compatibility
+              senderId: currentUserId.toString() // Keep for backward compatibility
+            }
+          }).catch(err => logger.error('Error sending push notification for follow approval:', err));
         } catch (notificationError) {
           logger.error('Error creating follow approval notification:', notificationError);
           // Don't fail the entire request if notification creation fails
