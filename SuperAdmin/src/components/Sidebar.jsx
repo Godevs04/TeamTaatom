@@ -17,6 +17,7 @@ import {
   Database,
   Music,
   Globe,
+  Server,
 } from 'lucide-react'
 
 const navItems = [
@@ -33,6 +34,7 @@ const navItems = [
   { name: 'Logs', href: '/logs', icon: FileText, permission: 'canViewLogs' },
   { name: 'Feature Flags', href: '/feature-flags', icon: Zap, permission: 'canManageSettings' },
   { name: 'Settings', href: '/settings', icon: Settings, permission: 'canManageSettings' },
+  { name: 'System', href: '/system', icon: Server, permission: 'canManageSettings' },
 ]
 
 const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {

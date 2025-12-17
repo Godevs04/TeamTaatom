@@ -71,7 +71,8 @@ export class LocationExtractionService {
       logger.warn('No location found in photo metadata');
       return null;
     } catch (error) {
-      logger.error('Location extraction failed', error);
+      // Don't log as error - this is expected in many cases (permissions, no GPS data, etc.)
+      logger.warn('Location extraction failed (non-critical)', error);
       return null;
     }
   }
@@ -171,7 +172,8 @@ export class LocationExtractionService {
 
       return null;
     } catch (error) {
-      logger.error('EXIF extraction failed', error);
+      // Don't log as error - this is expected in many cases (permissions, no GPS data, etc.)
+      logger.warn('EXIF extraction failed (non-critical)', error);
       return null;
     }
   }
@@ -225,7 +227,8 @@ export class LocationExtractionService {
 
       return null;
     } catch (error) {
-      logger.error('Asset ID location extraction failed', error);
+      // Don't log as error - this is expected in many cases (permissions, no GPS data, etc.)
+      logger.warn('Asset ID location extraction failed (non-critical)', error);
       return null;
     }
   }
@@ -324,7 +327,8 @@ export class LocationExtractionService {
 
       return null;
     } catch (error) {
-      logger.error('Filename location extraction failed', error);
+      // Don't log as error - this is expected in many cases (permissions, no GPS data, etc.)
+      logger.warn('Filename location extraction failed (non-critical)', error);
       return null;
     }
   }
