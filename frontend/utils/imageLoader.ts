@@ -16,13 +16,26 @@ export const loadImageWithFallback = async (
     retryDelay = 1000
   } = options;
 
-  // Strategy 1: Try original URL
+  // For R2 signed URLs (Cloudflare R2), skip prefetch as it may fail due to CORS
+  // React Native's Image component will handle loading directly
+  if (imageUrl.includes('r2.cloudflarestorage.com') || imageUrl.includes('cloudflarestorage.com')) {
+    // Return URL directly - let Image component handle loading
+    return imageUrl;
+  }
+
+  // Strategy 1: Try original URL (for Cloudinary and other URLs)
   try {
-    await Image.prefetch(imageUrl);
+    // Use a timeout wrapper for prefetch
+    const prefetchPromise = Image.prefetch(imageUrl);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Prefetch timeout')), timeout);
+    });
+    
+    await Promise.race([prefetchPromise, timeoutPromise]);
     return imageUrl;
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('Original image failed, trying optimized version');
+      console.warn('Original image prefetch failed, trying optimized version');
     }
   }
 
@@ -31,27 +44,37 @@ export const loadImageWithFallback = async (
   if (imageUrl.includes('cloudinary.com')) {
     try {
       const optimizedUrl = generateOptimizedCloudinaryUrl(imageUrl);
-      await Image.prefetch(optimizedUrl);
+      const prefetchPromise = Image.prefetch(optimizedUrl);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Prefetch timeout')), timeout);
+      });
+      
+      await Promise.race([prefetchPromise, timeoutPromise]);
       return optimizedUrl;
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Optimized image failed, trying smaller version');
+        console.warn('Optimized image prefetch failed, trying smaller version');
       }
     }
 
     // Strategy 3: Try even smaller version
     try {
       const smallUrl = generateSmallCloudinaryUrl(imageUrl);
-      await Image.prefetch(smallUrl);
+      const prefetchPromise = Image.prefetch(smallUrl);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Prefetch timeout')), timeout);
+      });
+      
+      await Promise.race([prefetchPromise, timeoutPromise]);
       return smallUrl;
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Small image failed, using original as fallback');
+        console.warn('Small image prefetch failed, using original as fallback');
       }
     }
   }
 
-  // Fallback: Return original URL
+  // Fallback: Return original URL (let Image component handle it)
   return imageUrl;
 };
 

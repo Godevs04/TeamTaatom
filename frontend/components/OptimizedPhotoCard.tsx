@@ -275,6 +275,9 @@ function PhotoCard({
       return;
     }
 
+    // Reset retry count when image URL changes
+    imageRetryCountRef.current = 0;
+
     setImageLoading(true);
     setImageError(false);
     setImageUri(null);
@@ -282,7 +285,17 @@ function PhotoCard({
     // Progressive loading strategy
     const loadImage = async () => {
       try {
-        // Use progressive loading with multiple strategies
+        // For R2 URLs, skip prefetch and use directly
+        // For other URLs, try prefetch with fallback
+        if (post.imageUrl.includes('r2.cloudflarestorage.com') || post.imageUrl.includes('cloudflarestorage.com')) {
+          // R2 URLs: Use directly without prefetch
+          setImageUri(post.imageUrl);
+          setImageLoading(false);
+          setImageError(false);
+          return;
+        }
+
+        // Use progressive loading with multiple strategies for non-R2 URLs
         // Web: Faster timeout, fewer retries for better UX
         const timeout = isWeb ? 5000 : 8000;
         const retries = isWeb ? 1 : 2;
@@ -293,16 +306,23 @@ function PhotoCard({
           retryDelay: 1000
         });
         
+        // Even if prefetch fails, set the URI and let Image component try loading directly
         setImageUri(optimizedUrl);
         setImageLoading(false);
         setImageError(false);
         
       } catch (error) {
+        // Don't set error immediately - try using the original URL directly
+        // React Native's Image component can load images even if prefetch fails
         if (process.env.NODE_ENV === 'development') {
-          logger.error('Image loading failed', error, { postId: post._id });
+          logger.warn('Image prefetch failed, using direct URL', { postId: post._id, error });
         }
-        setImageError(true);
+        
+        // Set the original URL and let Image component handle loading
+        // Only set error if Image component's onError is called
+        setImageUri(post.imageUrl);
         setImageLoading(false);
+        setImageError(false);
       }
     };
 
