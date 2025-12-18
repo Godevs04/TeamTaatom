@@ -1663,27 +1663,31 @@ const deletePost = async (req, res) => {
       return sendError(res, 'AUTH_1006', 'You can only delete your own posts');
     }
 
+    // Store post data for socket events before deletion
+    const postId = post._id;
+    const userId = post.user.toString();
+
     // Invalidate cache before deletion
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCache(CacheKeys.userPosts(userId, 1, 20));
 
-    // Cascade delete all related data
-    await cascadeDeletePost(post._id, post);
+    // Cascade delete all related data FIRST (before deleting the post)
+    await cascadeDeletePost(postId, post);
 
-    // Soft delete (mark as inactive)
-    post.isActive = false;
-    await post.save();
+    // Hard delete - completely remove the post from database
+    await Post.findByIdAndDelete(postId);
+    logger.info(`Hard deleted post ${postId} from database`);
 
     // Emit socket events
     const io = getIO();
     if (io) {
       const nsp = io.of('/app');
-      const followers = await getFollowers(post.user);
-      const audience = [post.user.toString(), ...followers];
+      const followers = await getFollowers(userId);
+      const audience = [userId, ...followers];
       nsp.emitInvalidateFeed(audience);
-      nsp.emitInvalidateProfile(post.user.toString());
-      nsp.emitEvent('post:deleted', audience, { postId: post._id });
+      nsp.emitInvalidateProfile(userId);
+      nsp.emitEvent('post:deleted', audience, { postId });
     }
 
     return sendSuccess(res, 200, 'Post deleted successfully');

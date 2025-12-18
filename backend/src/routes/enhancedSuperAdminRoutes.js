@@ -1160,13 +1160,19 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
 router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const Post = require('../models/Post')
+    const { cascadeDeletePost } = require('../utils/cascadeDelete')
     const post = await Post.findById(req.params.id)
     
     if (!post) {
       return sendError(res, 'RES_3001', 'Post not found')
     }
     
+    // Cascade delete all related data FIRST (before deleting the post)
+    await cascadeDeletePost(post._id, post)
+    
+    // Hard delete - completely remove the post from database
     await Post.findByIdAndDelete(req.params.id)
+    logger.info(`Hard deleted post ${post._id} from database by admin ${req.superAdmin._id}`)
     
     await req.superAdmin.logSecurityEvent(
       'content_deleted',
