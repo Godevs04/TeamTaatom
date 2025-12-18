@@ -113,13 +113,53 @@ const cascadeDeletePost = async (postId, post = null) => {
     const commentsDeleted = await Comment.deleteMany({ post: postId });
     logger.debug(`Deleted ${commentsDeleted.deletedCount} standalone comments for post ${postId}`);
 
-    // Update user's total likes count
+    // Delete TripVisits related to this post
+    try {
+      await deleteTripVisitForContent(postId, 'post');
+      logger.debug(`Deleted TripVisits for post ${postId}`);
+    } catch (error) {
+      logger.error(`Error deleting TripVisits for post ${postId}:`, error);
+    }
+
+    // Delete video storage if it's a short
+    if (post.type === 'short' && post.videoUrl) {
+      // Extract storage key from videoUrl if it's a storage URL
+      // Video storage keys might be in storageKey or need to be extracted from videoUrl
+      if (post.storageKey && post.storageKey.includes('video')) {
+        try {
+          await deleteObject(post.storageKey);
+          logger.debug(`Deleted video storage object: ${post.storageKey}`);
+        } catch (error) {
+          logger.error(`Error deleting video storage object ${post.storageKey}:`, error);
+        }
+      }
+    }
+
+    // Note: Embedded comments and likes in Post model are automatically removed when post is soft-deleted
+    // They don't need explicit deletion as they're part of the post document
+    // However, we should update user stats for embedded comments
+    if (post.comments && post.comments.length > 0) {
+      // Get unique comment authors
+      const commentUserIds = [...new Set(post.comments.map(c => c.user.toString()))];
+      // Decrement comment counts for users who commented
+      await User.updateMany(
+        { _id: { $in: commentUserIds } },
+        { $inc: { totalComments: -1 } }
+      );
+      logger.debug(`Updated comment counts for ${commentUserIds.length} users`);
+    }
+
+    // Update user's total likes count (decrement for each like)
     if (post.likes && post.likes.length > 0) {
       await User.findByIdAndUpdate(post.user, {
         $inc: { totalLikes: -post.likes.length }
       });
-      logger.debug(`Updated user ${post.user} totalLikes`);
+      logger.debug(`Updated user ${post.user} totalLikes (decremented by ${post.likes.length})`);
     }
+
+    // Note: Song reference in post.song.songId is just a reference, not ownership
+    // Songs are shared resources, so we don't delete them when a post is deleted
+    // The song will remain available for other posts
 
     logger.info(`Successfully cascade deleted post ${postId}`);
   } catch (error) {
