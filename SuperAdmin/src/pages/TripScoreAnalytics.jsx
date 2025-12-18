@@ -394,7 +394,17 @@ const TripScoreAnalytics = () => {
   
   // Export handler with safety checks
   const handleExport = useCallback((section = null) => {
-    if (!stats || isExporting) return
+    // For verification section, check pendingReviews instead of stats
+    if (section === 'verification') {
+      if (!pendingReviews || pendingReviews.length === 0 || isExporting) {
+        if (!isExporting && isMountedRef.current) {
+          toast.error('No pending reviews to export')
+        }
+        return
+      }
+    } else {
+      if (!stats || isExporting) return
+    }
     
     setIsExporting(true)
     setExportSection(section)
@@ -482,10 +492,33 @@ const TripScoreAnalytics = () => {
             ])
           ]
         }
+      } else if (section === 'verification' && pendingReviews.length > 0) {
+        csvData = [
+          ['User', 'Email', 'Location', 'City', 'Country', 'Continent', 'Source', 'Reason', 'Uploaded At', 'Created At'],
+          ...pendingReviews.map(review => [
+            review.user?.fullName || review.user?.username || 'Unknown',
+            review.user?.email || 'N/A',
+            review.location?.address || 'Unknown',
+            review.location?.city || 'Unknown',
+            review.location?.country || 'Unknown',
+            review.location?.continent || 'Unknown',
+            review.source?.replace(/_/g, ' ') || 'Unknown',
+            review.verificationReason === 'no_exif' ? 'No EXIF GPS data' :
+            review.verificationReason === 'manual_location' ? 'Manual location only' :
+            review.verificationReason === 'suspicious_pattern' ? 'Suspicious travel pattern' :
+            'Requires review',
+            new Date(review.uploadedAt).toLocaleString(),
+            new Date(review.createdAt).toLocaleString()
+          ])
+        ]
       }
       
       if (csvData.length === 0) {
-        toast.error('No data available to export')
+        if (isMountedRef.current) {
+          toast.error('No data available to export')
+        }
+        setIsExporting(false)
+        setExportSection(null)
         return
       }
       
@@ -513,7 +546,7 @@ const TripScoreAnalytics = () => {
         setExportSection(null)
       }
     }
-  }, [stats, topUsers, suspiciousVisits, continentBreakdown, detailedLocations, locationsGroupBy, isExporting])
+  }, [stats, topUsers, suspiciousVisits, continentBreakdown, detailedLocations, locationsGroupBy, pendingReviews, isExporting])
   
   // Navigate with breadcrumb tracking
   const handleViewChange = useCallback((viewId, viewLabel) => {
@@ -1001,11 +1034,15 @@ const TripScoreAnalytics = () => {
               <div className="relative">
                 <button 
                   onClick={() => handleExport(selectedView === 'overview' ? null : selectedView)}
-                  disabled={!stats || loading || isExporting}
+                  disabled={
+                    (selectedView === 'verification' 
+                      ? (!pendingReviews || pendingReviews.length === 0)
+                      : !stats) || loading || isExporting
+                  }
                   className="px-4 py-2.5 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-                  {isExporting ? 'Exporting...' : `Export${selectedView !== 'overview' ? ` ${selectedView}` : ''}`}
+                  {isExporting ? 'Exporting...' : `Export${selectedView !== 'overview' ? ` ${selectedView === 'verification' ? ' verification' : ` ${selectedView}`}` : ''}`}
                 </button>
               </div>
             </div>
