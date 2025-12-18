@@ -2,11 +2,17 @@ const TripVisit = require('../models/TripVisit');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const Chat = require('../models/Chat');
+const mongoose = require('mongoose');
 const { 
   TRUSTED_TRUST_LEVELS,
+  VERIFIED_STATUSES,
   MAX_REALISTIC_SPEED_KMH, 
   MIN_DISTANCE_FOR_SPEED_CHECK_KM 
 } = require('../config/tripScoreConfig');
+
+// Static Taatom Official system user ID (must exist in DB for chat system)
+const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
 
 /**
  * TripVisit Service - TripScore v2
@@ -242,13 +248,13 @@ const assignTrustLevel = async (visitData, userPreviousVisits = []) => {
  */
 const getUserPreviousVisits = async (userId, limit = 10) => {
   try {
-    // Only fetch trusted visits (high/medium) for fraud detection
-    // Only TripVisits with trustLevel in ['high','medium'] contribute to TripScore.
-    // Low/unverified/suspicious visits are excluded from scoring.
+    // Only fetch verified visits for fraud detection
+    // Only TripVisits with verificationStatus in ['auto_verified','approved'] contribute to TripScore.
+    // Pending/rejected visits are excluded from scoring.
     return await TripVisit.find({
       user: userId,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS }
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
     .sort({ takenAt: -1, uploadedAt: -1 })
     .limit(limit)
@@ -285,30 +291,43 @@ const findExistingVisit = async (userId, lat, lng, tolerance = 0.001) => {
  */
 const createTripVisitFromPost = async (post, metadata = {}) => {
   try {
-    // Validate post has location
-    if (!post.location || 
-        !post.location.coordinates ||
-        post.location.coordinates.latitude === 0 ||
-        post.location.coordinates.longitude === 0) {
-      logger.debug('Post has no valid location, skipping TripVisit creation');
+    // Validate post has location data (address or coordinates)
+    // Scenario 5: No location object at all - skip TripVisit creation
+    if (!post.location) {
+      logger.debug('[TripVisit Debug] Scenario 5: Post has no location object, skipping TripVisit creation');
       return null;
     }
     
-    // Check if visit already exists (deduplication)
-    const existingVisit = await findExistingVisit(
-      post.user,
-      post.location.coordinates.latitude,
-      post.location.coordinates.longitude
-    );
+    // Extract coordinates - may be 0,0 for manual locations
+    const lat = post.location.coordinates?.latitude ?? 0;
+    const lng = post.location.coordinates?.longitude ?? 0;
+    const address = post.location.address || 'Unknown Location';
     
-    if (existingVisit) {
-      logger.debug('Visit already exists for this location, updating instead');
-      return await updateTripVisitFromPost(post, metadata, existingVisit._id);
+    // Check if coordinates are valid (not 0,0)
+    const hasValidCoords = 
+      typeof lat === 'number' &&
+      typeof lng === 'number' &&
+      !(lat === 0 && lng === 0);
+    
+    // Scenario 5: Only skip if BOTH coordinates are missing/0 AND address is completely empty/null
+    // If location object exists, create TripVisit (even with 0,0 and "Unknown Location" = manual location needs review)
+    if (!hasValidCoords && (!post.location.address || post.location.address.trim() === '')) {
+      logger.debug('[TripVisit Debug] Scenario 5: Post has no meaningful location data (no address and no valid coordinates), skipping TripVisit creation');
+      return null;
     }
     
-    const lat = post.location.coordinates.latitude;
-    const lng = post.location.coordinates.longitude;
-    const address = post.location.address || 'Unknown Location';
+    // If we have location object but coordinates are 0,0, treat as manual location (Scenario 3)
+    // This will create TripVisit with pending_review status
+    
+    // Check if visit already exists (deduplication) - only if we have valid coordinates
+    let existingVisit = null;
+    if (hasValidCoords) {
+      existingVisit = await findExistingVisit(post.user, lat, lng);
+      if (existingVisit) {
+        logger.debug('Visit already exists for this location, updating instead');
+        return await updateTripVisitFromPost(post, metadata, existingVisit._id);
+      }
+    }
     
     // Determine continent
     let continent = getContinentFromLocation(address);
@@ -326,13 +345,67 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     const previousVisits = await getUserPreviousVisits(post.user.toString());
     
     // Assign trust level
-    const trustLevel = await assignTrustLevel({
+    let trustLevel = await assignTrustLevel({
       source,
       lat,
       lng,
       takenAt: metadata.takenAt || post.createdAt,
       uploadedAt: post.createdAt
     }, previousVisits);
+    
+    // Set verification status based on source and coordinates (Hybrid TripScore Verification System)
+    let verificationStatus = 'auto_verified';
+    let verificationReason = null;
+    
+    // Priority 1: Check for suspicious patterns (regardless of source)
+    if (trustLevel === 'suspicious') {
+      verificationStatus = 'pending_review';
+      verificationReason = 'suspicious_pattern';
+    }
+    // Priority 2: Manual location (0,0 coordinates) - but NOT if it has EXIF GPS (Scenario 2)
+    else if (!hasValidCoords && source !== 'gallery_exif') {
+      verificationStatus = 'pending_review';
+      verificationReason = 'manual_location';
+      // Override trust level for manual locations
+      trustLevel = 'unverified';
+    }
+    // Priority 3: Taatom camera with live GPS (Scenario 1)
+    else if (source === 'taatom_camera_live') {
+      verificationStatus = 'auto_verified';
+    }
+    // Priority 4: Gallery with EXIF GPS (Scenario 2) - auto-verified even if coords are 0,0
+    else if (source === 'gallery_exif') {
+      verificationStatus = 'auto_verified';
+    }
+    // Priority 5: All other cases (gallery_no_exif, manual_only) - pending review
+    else {
+      verificationStatus = 'pending_review';
+      verificationReason = source === 'manual_only'
+        ? 'manual_location'
+        : 'no_exif';
+    }
+    
+    // [TripVisit Debug] - Temporary debug logs for verification
+    logger.info('[TripVisit Debug]', {
+      postId: post._id?.toString(),
+      userId: post.user?.toString(),
+      source,
+      trustLevel,
+      verificationStatus,
+      verificationReason,
+      lat,
+      lng,
+      hasValidCoords,
+      fromCamera: metadata.fromCamera,
+      hasExifGps: metadata.hasExifGps,
+      address: post.location?.address,
+      scenario: !hasValidCoords ? 'Scenario 3 (Manual Location)' :
+                source === 'taatom_camera_live' ? 'Scenario 1 (Taatom Camera)' :
+                source === 'gallery_exif' && trustLevel !== 'suspicious' ? 'Scenario 2 (Gallery EXIF)' :
+                trustLevel === 'suspicious' ? 'Scenario 4 (Suspicious Pattern)' :
+                source === 'gallery_no_exif' ? 'Scenario 5 (Gallery No EXIF)' :
+                'Unknown'
+    });
     
     // Calculate distance from previous visit if applicable
     let distanceFromPrevious = null;
@@ -368,6 +441,8 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       address,
       source,
       trustLevel,
+      verificationStatus,
+      verificationReason,
       takenAt: metadata.takenAt || post.createdAt,
       uploadedAt: post.createdAt,
       isActive: post.isActive !== false,
@@ -381,7 +456,14 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     });
     
     await tripVisit.save();
-    logger.debug(`Created TripVisit for post ${post._id}: ${source} -> ${trustLevel}`);
+    logger.debug(`Created TripVisit for post ${post._id}: ${source} -> ${trustLevel}, verificationStatus: ${verificationStatus}`);
+    
+    // Send notification if pending review (fire-and-forget)
+    if (verificationStatus === 'pending_review') {
+      sendPendingReviewNotification(post.user, tripVisit).catch(err => {
+        logger.error('Failed to send pending review notification:', err);
+      });
+    }
     
     return tripVisit;
   } catch (error) {
@@ -400,16 +482,25 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
  */
 const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = null) => {
   try {
-    if (!post.location || 
-        !post.location.coordinates ||
-        post.location.coordinates.latitude === 0 ||
-        post.location.coordinates.longitude === 0) {
-      // If post no longer has valid location, deactivate visit
+    // Validate post has location data (address or coordinates)
+    if (!post.location || (!post.location.address && !post.location.coordinates)) {
+      // If post no longer has location data, deactivate visit
       if (existingVisitId) {
         await TripVisit.findByIdAndUpdate(existingVisitId, { isActive: false });
       }
       return null;
     }
+    
+    // Extract coordinates - may be 0,0 for manual locations
+    const lat = post.location.coordinates?.latitude ?? 0;
+    const lng = post.location.coordinates?.longitude ?? 0;
+    const address = post.location.address || 'Unknown Location';
+    
+    // Check if coordinates are valid (not 0,0)
+    const hasValidCoords = 
+      typeof lat === 'number' &&
+      typeof lng === 'number' &&
+      !(lat === 0 && lng === 0);
     
     let tripVisit;
     if (existingVisitId) {
@@ -419,24 +510,20 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
         return await createTripVisitFromPost(post, metadata);
       }
     } else {
-      // Try to find existing visit
-      const existing = await findExistingVisit(
-        post.user,
-        post.location.coordinates.latitude,
-        post.location.coordinates.longitude
-      );
-      if (existing) {
-        tripVisit = existing;
+      // Try to find existing visit - only if we have valid coordinates
+      if (hasValidCoords) {
+        const existing = await findExistingVisit(post.user, lat, lng);
+        if (existing) {
+          tripVisit = existing;
+        } else {
+          // Create new visit
+          return await createTripVisitFromPost(post, metadata);
+        }
       } else {
-        // Create new visit
+        // Manual location - create new visit
         return await createTripVisitFromPost(post, metadata);
       }
     }
-    
-    // Update visit data
-    const lat = post.location.coordinates.latitude;
-    const lng = post.location.coordinates.longitude;
-    const address = post.location.address || 'Unknown Location';
     
     let continent = getContinentFromLocation(address);
     if (continent === 'Unknown') {
@@ -448,13 +535,45 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     
     // Re-evaluate trust level
     const previousVisits = await getUserPreviousVisits(post.user.toString());
-    const trustLevel = await assignTrustLevel({
+    let trustLevel = await assignTrustLevel({
       source,
       lat,
       lng,
       takenAt: metadata.takenAt || post.createdAt,
       uploadedAt: post.createdAt
     }, previousVisits);
+    
+    // Set verification status based on source and coordinates (Hybrid TripScore Verification System)
+    let verificationStatus = 'auto_verified';
+    let verificationReason = null;
+    
+    // Priority 1: Check for suspicious patterns (regardless of source)
+    if (trustLevel === 'suspicious') {
+      verificationStatus = 'pending_review';
+      verificationReason = 'suspicious_pattern';
+    }
+    // Priority 2: Manual location (0,0 coordinates) - but NOT if it has EXIF GPS (Scenario 2)
+    else if (!hasValidCoords && source !== 'gallery_exif') {
+      verificationStatus = 'pending_review';
+      verificationReason = 'manual_location';
+      // Override trust level for manual locations
+      trustLevel = 'unverified';
+    }
+    // Priority 3: Taatom camera with live GPS (Scenario 1)
+    else if (source === 'taatom_camera_live') {
+      verificationStatus = 'auto_verified';
+    }
+    // Priority 4: Gallery with EXIF GPS (Scenario 2) - auto-verified even if coords are 0,0
+    else if (source === 'gallery_exif') {
+      verificationStatus = 'auto_verified';
+    }
+    // Priority 5: All other cases (gallery_no_exif, manual_only) - pending review
+    else {
+      verificationStatus = 'pending_review';
+      verificationReason = source === 'manual_only'
+        ? 'manual_location'
+        : 'no_exif';
+    }
     
     // Update visit
     tripVisit.lat = lat;
@@ -464,6 +583,8 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     tripVisit.address = address;
     tripVisit.source = source;
     tripVisit.trustLevel = trustLevel;
+    tripVisit.verificationStatus = verificationStatus;
+    tripVisit.verificationReason = verificationReason;
     tripVisit.uploadedAt = post.createdAt;
     tripVisit.isActive = post.isActive !== false;
     
@@ -523,6 +644,101 @@ const deleteTripVisitForContent = async (postId, contentType = 'post') => {
     logger.debug(`Deactivated TripVisits for ${contentType} ${postId}`);
   } catch (error) {
     logger.error('Error deleting TripVisit:', error);
+  }
+};
+
+/**
+ * Send pending review notification via chat
+ * Fire-and-forget, does not block TripVisit creation
+ */
+const sendPendingReviewNotification = async (userId, tripVisit) => {
+  try {
+    // Get or create TAATOM_OFFICIAL system user
+    let officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
+                       await User.findOne({ email: 'official@taatom.com' }) || 
+                       await User.findOne({ username: 'taatom_official' });
+    
+    if (!officialUser) {
+      // Create TAATOM_OFFICIAL system user if it doesn't exist
+      try {
+        const crypto = require('crypto');
+        officialUser = await User.create({
+          _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
+          email: 'official@taatom.com',
+          username: 'taatom_official',
+          fullName: 'Taatom Official',
+          password: crypto.randomBytes(32).toString('hex'), // Random password, never used
+          isVerified: true,
+          isActive: true,
+          isSystem: true // Mark as system user
+        });
+        logger.info('Created TAATOM_OFFICIAL system user for notifications');
+      } catch (createError) {
+        // If user already exists (race condition), fetch it
+        if (createError.code === 11000) {
+          officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
+                         await User.findOne({ email: 'official@taatom.com' }) ||
+                         await User.findOne({ username: 'taatom_official' });
+        }
+        if (!officialUser) {
+          logger.error('Failed to create/find TAATOM_OFFICIAL user:', createError);
+          return; // Skip notification if user creation fails
+        }
+      }
+    }
+    
+    // Ensure user has verified status for UI display
+    if (!officialUser.isVerified) {
+      officialUser.isVerified = true;
+      await officialUser.save();
+    }
+
+    const message = '👋 Your recent post is under verification to confirm the trip location.\nWe\'ll notify you shortly.';
+
+    // Get or create chat
+    let chat = await Chat.findOne({ 
+      participants: { $all: [officialUser._id, userId] } 
+    });
+
+    if (!chat) {
+      chat = await Chat.create({ 
+        participants: [officialUser._id, userId], 
+        messages: [] 
+      });
+    }
+
+    // Add message
+    const chatMessage = {
+      sender: officialUser._id,
+      text: message,
+      timestamp: new Date(),
+      seen: false
+    };
+
+    chat.messages.push(chatMessage);
+    await chat.save();
+
+    // Emit socket event if available
+    try {
+      const { getIO } = require('../socket');
+      const io = getIO();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        nsp.to(`user:${userId}`).emit('message:new', { 
+          chatId: chat._id, 
+          message: {
+            ...chatMessage,
+            _id: chat.messages[chat.messages.length - 1]._id
+          }
+        });
+      }
+    } catch (socketError) {
+      logger.debug('Socket not available for pending review notification:', socketError);
+    }
+
+    logger.debug(`Pending review notification sent to user ${userId}`);
+  } catch (error) {
+    logger.error('Error sending pending review notification:', error);
   }
 };
 

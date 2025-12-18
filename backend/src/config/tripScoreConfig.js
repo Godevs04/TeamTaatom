@@ -8,8 +8,16 @@
 /**
  * Trust levels that contribute to TripScore calculations
  * Only visits with trustLevel in ['high', 'medium'] are counted by default
+ * @deprecated Use VERIFIED_STATUSES for TripScore calculation instead
  */
 const TRUSTED_TRUST_LEVELS = ['high', 'medium'];
+
+/**
+ * Verification statuses that contribute to TripScore calculations
+ * Only visits with verificationStatus in ['auto_verified', 'approved'] are counted
+ * This replaces trustLevel filtering for TripScore v2.1 (Hybrid Verification System)
+ */
+const VERIFIED_STATUSES = ['auto_verified', 'approved'];
 
 /**
  * Low trust level weight (0 = excluded, 0.2 = 20% weight, etc.)
@@ -47,6 +55,7 @@ const MIN_DISTANCE_FOR_SPEED_CHECK_KM = 100; // Minimum distance (km) to trigger
 
 module.exports = {
   TRUSTED_TRUST_LEVELS,
+  VERIFIED_STATUSES,
   LOW_TRUST_WEIGHT,
   ALLOW_LOW_TRUST,
   ALLOW_SUSPICIOUS_TRUST,
