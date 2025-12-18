@@ -1090,24 +1090,53 @@ export default function PostScreen() {
       // Wait a moment to show 100% progress
       setTimeout(() => {
         clearUploadState();
-        Alert.alert('Success!', 'Your post has been shared.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              setSelectedImages([]);
-              setLocation(null);
-              setAddress('');
-              setLocationMetadata(null);
-              setSelectedSong(null);
-              setAudioChoice(null);
-              setSongStartTime(0);
-              setSongEndTime(60);
-              // Update existing posts state
-              setHasExistingPosts(true);
-              router.replace('/(tabs)/home');
+        
+        // Check if post requires verification (pending review)
+        const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
+        
+        if (requiresVerification) {
+          Alert.alert(
+            'Success!', 
+            'Your post has been shared.\n\nThis post is under verification. We\'ll notify you shortly.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  setSelectedImages([]);
+                  setLocation(null);
+                  setAddress('');
+                  setLocationMetadata(null);
+                  setSelectedSong(null);
+                  setAudioChoice(null);
+                  setSongStartTime(0);
+                  setSongEndTime(60);
+                  // Update existing posts state
+                  setHasExistingPosts(true);
+                  router.replace('/(tabs)/home');
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Success!', 'Your post has been shared.', [
+            {
+              text: 'OK',
+              onPress: () => {
+                setSelectedImages([]);
+                setLocation(null);
+                setAddress('');
+                setLocationMetadata(null);
+                setSelectedSong(null);
+                setAudioChoice(null);
+                setSongStartTime(0);
+                setSongEndTime(60);
+                // Update existing posts state
+                setHasExistingPosts(true);
+                router.replace('/(tabs)/home');
+              },
             },
-          },
-        ]);
+          ]);
+        }
       }, 500);
       
     } catch (error: any) {
@@ -1286,26 +1315,56 @@ export default function PostScreen() {
       // Clear draft on successful post
       await clearDraft();
       
-      Alert.alert('Success!', 'Your short has been uploaded.', [
-        {
-          text: 'OK',
-          onPress: () => {
-            clearUploadState();
-            setSelectedVideo(null);
-            setVideoThumbnail(null);
-            setLocation(null);
-            setLocationMetadata(null);
-            setSelectedSong(null);
-            setAudioChoice(null);
-            setSongStartTime(0);
-            setSongEndTime(60);
-            // Update existing shorts state
-            setHasExistingShorts(true);
-            setAddress('');
-            router.replace('/(tabs)/home');
+      // Check if short requires verification (pending review)
+      const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
+      
+      if (requiresVerification) {
+        Alert.alert(
+          'Success!', 
+          'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                clearUploadState();
+                setSelectedVideo(null);
+                setVideoThumbnail(null);
+                setLocation(null);
+                setLocationMetadata(null);
+                setSelectedSong(null);
+                setAudioChoice(null);
+                setSongStartTime(0);
+                setSongEndTime(60);
+                // Update existing shorts state
+                setHasExistingShorts(true);
+                setAddress('');
+                router.replace('/(tabs)/home');
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Success!', 'Your short has been uploaded.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+              setSelectedVideo(null);
+              setVideoThumbnail(null);
+              setLocation(null);
+              setLocationMetadata(null);
+              setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
+              // Update existing shorts state
+              setHasExistingShorts(true);
+              setAddress('');
+              router.replace('/(tabs)/home');
+            },
           },
-        },
-      ]);
+        ]);
+      }
     } catch (error: any) {
       logger.error('Short creation failed', error);
       

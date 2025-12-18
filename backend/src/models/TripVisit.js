@@ -82,6 +82,30 @@ const tripVisitSchema = new mongoose.Schema({
     default: true,
     index: true
   },
+  // Verification status (Hybrid TripScore Verification System)
+  verificationStatus: {
+    type: String,
+    enum: ['auto_verified', 'pending_review', 'approved', 'rejected'],
+    default: 'auto_verified', // Default to auto_verified for backward compatibility
+    index: true
+  },
+  verificationReason: {
+    type: String,
+    enum: ['no_exif', 'manual_location', 'suspicious_pattern'],
+    required: false,
+    default: null
+  },
+  reviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User', // Admin user
+    required: false,
+    default: null
+  },
+  reviewedAt: {
+    type: Date,
+    required: false,
+    default: null
+  },
   // Metadata for fraud detection
   metadata: {
     exifAvailable: {
@@ -114,6 +138,8 @@ tripVisitSchema.index({ user: 1, continent: 1, country: 1 });
 tripVisitSchema.index({ user: 1, takenAt: 1 });
 tripVisitSchema.index({ user: 1, trustLevel: 1 });
 tripVisitSchema.index({ user: 1, isActive: 1, trustLevel: 1 });
+tripVisitSchema.index({ user: 1, isActive: 1, verificationStatus: 1 }); // For TripScore calculation
+tripVisitSchema.index({ verificationStatus: 1, isActive: 1 }); // For admin review queries
 tripVisitSchema.index({ user: 1, lat: 1, lng: 1 }); // For deduplication
 
 // Index for unique location per user (for deduplication)
@@ -133,9 +159,10 @@ tripVisitSchema.statics.findVisitByLocation = function(userId, lat, lng, toleran
 
 /**
  * Instance method to check if visit should count towards TripScore
+ * Updated to use verificationStatus instead of trustLevel
  */
 tripVisitSchema.methods.countsTowardsScore = function() {
-  return this.isActive && ['high', 'medium'].includes(this.trustLevel);
+  return this.isActive && ['auto_verified', 'approved'].includes(this.verificationStatus);
 };
 
 module.exports = mongoose.model('TripVisit', tripVisitSchema);
