@@ -35,6 +35,11 @@ const {
   getContinentBreakdown,
   getDetailedLocations
 } = require('../controllers/tripScoreAnalyticsController')
+const {
+  getPendingReviews,
+  approveTripVisit,
+  rejectTripVisit
+} = require('../controllers/adminTripVerificationController')
 
 // Alias for clarity
 const authenticateSuperAdmin = verifySuperAdminToken
@@ -1155,13 +1160,19 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
 router.delete('/posts/:id', authenticateSuperAdmin, async (req, res) => {
   try {
     const Post = require('../models/Post')
+    const { cascadeDeletePost } = require('../utils/cascadeDelete')
     const post = await Post.findById(req.params.id)
     
     if (!post) {
       return sendError(res, 'RES_3001', 'Post not found')
     }
     
+    // Cascade delete all related data FIRST (before deleting the post)
+    await cascadeDeletePost(post._id, post)
+    
+    // Hard delete - completely remove the post from database
     await Post.findByIdAndDelete(req.params.id)
+    logger.info(`Hard deleted post ${post._id} from database by admin ${req.superAdmin._id}`)
     
     await req.superAdmin.logSecurityEvent(
       'content_deleted',
@@ -1775,6 +1786,84 @@ router.get('/tripscore/continents', checkPermission('canViewAnalytics'), getCont
  *         description: Forbidden
  */
 router.get('/tripscore/locations', checkPermission('canViewAnalytics'), getDetailedLocations)
+
+// TripScore Verification endpoints
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/review/pending:
+ *   get:
+ *     summary: Get pending TripScore reviews
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Pending reviews fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.get('/tripscore/review/pending', checkPermission('canViewAnalytics'), getPendingReviews)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/review/{tripVisitId}/approve:
+ *   post:
+ *     summary: Approve a TripVisit
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tripVisitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: TripVisit approved successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.post('/tripscore/review/:tripVisitId/approve', checkPermission('canViewAnalytics'), approveTripVisit)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/review/{tripVisitId}/reject:
+ *   post:
+ *     summary: Reject a TripVisit
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tripVisitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: TripVisit rejected successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.post('/tripscore/review/:tripVisitId/reject', checkPermission('canViewAnalytics'), rejectTripVisit)
 
 // Feature flags management
 /**
