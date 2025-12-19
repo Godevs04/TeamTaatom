@@ -37,7 +37,10 @@ import {
   getSuspiciousVisits,
   getTrustTimeline,
   getContinentBreakdown,
-  getDetailedLocations
+  getDetailedLocations,
+  getPendingReviews,
+  approveTripVisit,
+  rejectTripVisit
 } from '../services/tripScoreAnalytics'
 import logger from '../utils/logger'
 
@@ -60,10 +63,17 @@ const TripScoreAnalytics = () => {
   const [locationsPagination, setLocationsPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 })
   const [locationsGroupBy, setLocationsGroupBy] = useState('location') // location, user, country, state
   
+  // Pending verification state
+  const [pendingReviews, setPendingReviews] = useState([])
+  const [pendingReviewsPagination, setPendingReviewsPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 })
+  const [reviewActionLoading, setReviewActionLoading] = useState(null)
+  const [selectedReview, setSelectedReview] = useState(null) // For view modal
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false)
+  
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
   const [loading, setLoading] = useState(false)
   const [suspiciousPage, setSuspiciousPage] = useState(1)
-  const [selectedView, setSelectedView] = useState('overview') // overview, users, fraud, geography, locations
+  const [selectedView, setSelectedView] = useState('overview') // overview, users, fraud, geography, locations, verification
   const [previousStats, setPreviousStats] = useState(null) // For comparison
   
   // Enhanced filtering options
@@ -297,6 +307,35 @@ const TripScoreAnalytics = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page])
   
+  // Fetch pending reviews (separate from main data fetch)
+  const fetchPendingReviews = useCallback(async () => {
+    if (!isMountedRef.current) return
+    
+    try {
+      setLoading(true)
+      const response = await getPendingReviews({ 
+        page: pendingReviewsPagination.page, 
+        limit: pendingReviewsPagination.limit 
+      })
+      
+      if (isMountedRef.current && response) {
+        // Response is already unwrapped by service (response.data from axios)
+        setPendingReviews(response.reviews || [])
+        setPendingReviewsPagination(response.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 })
+      }
+    } catch (error) {
+      logger.error('Failed to fetch pending reviews:', error)
+      if (isMountedRef.current) {
+        setDataErrors(prev => ({ ...prev, pendingReviews: error.message || 'Failed to load' }))
+        toast.error('Failed to fetch pending reviews')
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false)
+      }
+    }
+  }, [pendingReviewsPagination.page, pendingReviewsPagination.limit])
+
   // Lazy load sections when view changes
   useEffect(() => {
     if (!isMountedRef.current) return
@@ -306,9 +345,31 @@ const TripScoreAnalytics = () => {
       // Trigger fetch if needed (some views need specific data)
       if (selectedView === 'locations' && detailedLocations.length === 0) {
         fetchAllData(abortControllerRef.current?.signal)
+      } else if (selectedView === 'verification' && pendingReviews.length === 0) {
+        fetchPendingReviews()
+      } else if (selectedView === 'overview' || selectedView === 'users' || selectedView === 'fraud' || selectedView === 'geography') {
+        // Refresh main analytics when switching to these tabs
+        fetchAllData(abortControllerRef.current?.signal)
       }
     }
-  }, [selectedView, loadedSections, detailedLocations.length, fetchAllData])
+  }, [selectedView, loadedSections, detailedLocations.length, pendingReviews.length, fetchAllData, fetchPendingReviews])
+  
+  // Fetch pending reviews when pagination changes
+  useEffect(() => {
+    if (selectedView === 'verification' && loadedSections.has('verification')) {
+      fetchPendingReviews()
+    }
+  }, [pendingReviewsPagination.page, selectedView, loadedSections, fetchPendingReviews])
+  
+  // Sync all tabs when data changes (e.g., after approve/reject)
+  useEffect(() => {
+    if (!isMountedRef.current) return
+    
+    // If we're on overview and pending reviews change, refresh overview stats
+    if (selectedView === 'overview' && pendingReviewsPagination.total > 0) {
+      // Stats will be updated when fetchAllData is called
+    }
+  }, [pendingReviewsPagination.total, selectedView])
 
   const handleRefresh = useCallback(async () => {
     if (!isMountedRef.current || isFetchingRef.current) return
@@ -317,15 +378,33 @@ const TripScoreAnalytics = () => {
     const cacheKey = `${selectedPeriod}-${suspiciousPage}-${locationsGroupBy}-${locationsPagination.page}`
     analyticsCacheRef.current.delete(cacheKey)
     
-    await fetchAllData(abortControllerRef.current?.signal)
-    if (isMountedRef.current) {
-      toast.success('TripScore analytics data refreshed successfully')
+    // Refresh data based on current view
+    if (selectedView === 'verification') {
+      await fetchPendingReviews()
+      if (isMountedRef.current) {
+        toast.success('Pending reviews refreshed successfully')
+      }
+    } else {
+      await fetchAllData(abortControllerRef.current?.signal)
+      if (isMountedRef.current) {
+        toast.success('TripScore analytics data refreshed successfully')
+      }
     }
-  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page, fetchAllData])
+  }, [selectedPeriod, suspiciousPage, locationsGroupBy, locationsPagination.page, selectedView, fetchAllData, fetchPendingReviews])
   
   // Export handler with safety checks
   const handleExport = useCallback((section = null) => {
-    if (!stats || isExporting) return
+    // For verification section, check pendingReviews instead of stats
+    if (section === 'verification') {
+      if (!pendingReviews || pendingReviews.length === 0 || isExporting) {
+        if (!isExporting && isMountedRef.current) {
+          toast.error('No pending reviews to export')
+        }
+        return
+      }
+    } else {
+      if (!stats || isExporting) return
+    }
     
     setIsExporting(true)
     setExportSection(section)
@@ -413,10 +492,33 @@ const TripScoreAnalytics = () => {
             ])
           ]
         }
+      } else if (section === 'verification' && pendingReviews.length > 0) {
+        csvData = [
+          ['User', 'Email', 'Location', 'City', 'Country', 'Continent', 'Source', 'Reason', 'Uploaded At', 'Created At'],
+          ...pendingReviews.map(review => [
+            review.user?.fullName || review.user?.username || 'Unknown',
+            review.user?.email || 'N/A',
+            review.location?.address || 'Unknown',
+            review.location?.city || 'Unknown',
+            review.location?.country || 'Unknown',
+            review.location?.continent || 'Unknown',
+            review.source?.replace(/_/g, ' ') || 'Unknown',
+            review.verificationReason === 'no_exif' ? 'No EXIF GPS data' :
+            review.verificationReason === 'manual_location' ? 'Manual location only' :
+            review.verificationReason === 'suspicious_pattern' ? 'Suspicious travel pattern' :
+            'Requires review',
+            new Date(review.uploadedAt).toLocaleString(),
+            new Date(review.createdAt).toLocaleString()
+          ])
+        ]
       }
       
       if (csvData.length === 0) {
-        toast.error('No data available to export')
+        if (isMountedRef.current) {
+          toast.error('No data available to export')
+        }
+        setIsExporting(false)
+        setExportSection(null)
         return
       }
       
@@ -444,7 +546,7 @@ const TripScoreAnalytics = () => {
         setExportSection(null)
       }
     }
-  }, [stats, topUsers, suspiciousVisits, continentBreakdown, detailedLocations, locationsGroupBy, isExporting])
+  }, [stats, topUsers, suspiciousVisits, continentBreakdown, detailedLocations, locationsGroupBy, pendingReviews, isExporting])
   
   // Navigate with breadcrumb tracking
   const handleViewChange = useCallback((viewId, viewLabel) => {
@@ -478,6 +580,99 @@ const TripScoreAnalytics = () => {
       }
     }
   }, [breadcrumbs])
+  
+  // Handle approve TripVisit
+  const handleApprove = useCallback(async (tripVisitId) => {
+    if (reviewActionLoading) return
+    
+    try {
+      setReviewActionLoading(tripVisitId)
+      await approveTripVisit(tripVisitId)
+      
+      // Optimistically update UI
+      setPendingReviews(prev => prev.filter(r => r._id !== tripVisitId))
+      setPendingReviewsPagination(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }))
+      
+      toast.success('TripVisit approved successfully')
+      
+      // Refresh all data to sync all tabs
+      setTimeout(() => {
+        fetchPendingReviews().catch(err => logger.error('Failed to refresh pending reviews:', err))
+        // Also refresh main analytics if on overview
+        if (selectedView === 'overview') {
+          fetchAllData(abortControllerRef.current?.signal).catch(err => logger.error('Failed to refresh analytics:', err))
+        }
+      }, 500)
+    } catch (error) {
+      logger.error('Failed to approve TripVisit:', error)
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to approve TripVisit'
+      toast.error(errorMessage)
+      
+      // Refresh list on error to sync state
+      fetchPendingReviews().catch(err => logger.error('Failed to refresh pending reviews:', err))
+    } finally {
+      setReviewActionLoading(null)
+    }
+  }, [reviewActionLoading, fetchPendingReviews, selectedView, fetchAllData])
+  
+  // Handle reject TripVisit
+  const handleReject = useCallback(async (tripVisitId) => {
+    if (reviewActionLoading) return
+    
+    try {
+      setReviewActionLoading(tripVisitId)
+      await rejectTripVisit(tripVisitId)
+      
+      // Optimistically update UI
+      setPendingReviews(prev => prev.filter(r => r._id !== tripVisitId))
+      setPendingReviewsPagination(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }))
+      
+      toast.success('TripVisit rejected successfully')
+      
+      // Refresh all data to sync all tabs
+      setTimeout(() => {
+        fetchPendingReviews().catch(err => logger.error('Failed to refresh pending reviews:', err))
+        // Also refresh main analytics if on overview
+        if (selectedView === 'overview') {
+          fetchAllData(abortControllerRef.current?.signal).catch(err => logger.error('Failed to refresh analytics:', err))
+        }
+      }, 500)
+    } catch (error) {
+      logger.error('Failed to reject TripVisit:', error)
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to reject TripVisit'
+      toast.error(errorMessage)
+      
+      // Refresh list on error to sync state
+      fetchPendingReviews().catch(err => logger.error('Failed to refresh pending reviews:', err))
+    } finally {
+      setReviewActionLoading(null)
+    }
+  }, [reviewActionLoading, fetchPendingReviews, selectedView, fetchAllData])
+  
+  // Handle view review details
+  const handleViewReview = useCallback((review) => {
+    setSelectedReview(review)
+    setIsViewModalOpen(true)
+  }, [])
+  
+  // Close view modal
+  const handleCloseViewModal = useCallback(() => {
+    setIsViewModalOpen(false)
+    setSelectedReview(null)
+  }, [])
+  
+  // Handle approve/reject from modal
+  const handleApproveFromModal = useCallback(async () => {
+    if (!selectedReview) return
+    await handleApprove(selectedReview._id)
+    handleCloseViewModal()
+  }, [selectedReview, handleApprove, handleCloseViewModal])
+  
+  const handleRejectFromModal = useCallback(async () => {
+    if (!selectedReview) return
+    await handleReject(selectedReview._id)
+    handleCloseViewModal()
+  }, [selectedReview, handleReject, handleCloseViewModal])
   
   // Calculate trend indicators (spikes/drops)
   const calculateTrends = useMemo(() => {
@@ -839,11 +1034,15 @@ const TripScoreAnalytics = () => {
               <div className="relative">
                 <button 
                   onClick={() => handleExport(selectedView === 'overview' ? null : selectedView)}
-                  disabled={!stats || loading || isExporting}
+                  disabled={
+                    (selectedView === 'verification' 
+                      ? (!pendingReviews || pendingReviews.length === 0)
+                      : !stats) || loading || isExporting
+                  }
                   className="px-4 py-2.5 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download className={`w-4 h-4 ${isExporting ? 'animate-bounce' : ''}`} />
-                  {isExporting ? 'Exporting...' : `Export${selectedView !== 'overview' ? ` ${selectedView}` : ''}`}
+                  {isExporting ? 'Exporting...' : `Export${selectedView !== 'overview' ? ` ${selectedView === 'verification' ? ' verification' : ` ${selectedView}`}` : ''}`}
                 </button>
               </div>
             </div>
@@ -953,7 +1152,8 @@ const TripScoreAnalytics = () => {
           { id: 'users', label: 'Top Users', icon: Award },
           { id: 'fraud', label: 'Fraud Monitor', icon: AlertTriangle },
           { id: 'geography', label: 'Geography', icon: Globe },
-          { id: 'locations', label: 'Detailed Locations', icon: MapPin }
+          { id: 'locations', label: 'Detailed Locations', icon: MapPin },
+          { id: 'verification', label: 'Pending Verification', icon: Clock }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -966,7 +1166,7 @@ const TripScoreAnalytics = () => {
           >
             <tab.icon className="w-4 h-4" />
             {tab.label}
-            {dataErrors[tab.id === 'overview' ? 'stats' : tab.id === 'users' ? 'topUsers' : tab.id === 'fraud' ? 'suspiciousVisits' : tab.id === 'geography' ? 'continentBreakdown' : 'detailedLocations'] && (
+            {dataErrors[tab.id === 'overview' ? 'stats' : tab.id === 'users' ? 'topUsers' : tab.id === 'fraud' ? 'suspiciousVisits' : tab.id === 'geography' ? 'continentBreakdown' : tab.id === 'locations' ? 'detailedLocations' : 'pendingReviews'] && (
               <AlertCircle className="w-3 h-3 text-red-500 absolute -top-1 -right-1" />
             )}
           </button>
@@ -1872,6 +2072,200 @@ const TripScoreAnalytics = () => {
         </>
       )}
       
+      {/* Pending Verification View */}
+      {selectedView === 'verification' && loadedSections.has('verification') && (
+        <>
+          {dataErrors.pendingReviews && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3 mb-4">
+              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+              <div>
+                <p className="text-sm font-semibold text-yellow-800">Pending reviews data unavailable</p>
+                <p className="text-xs text-yellow-700">{dataErrors.pendingReviews}</p>
+              </div>
+            </div>
+          )}
+          <Card className="border-0 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-amber-50 to-orange-50">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-600" />
+                Pending Verification
+                {pendingReviewsPagination.total > 0 && (
+                  <span className="ml-auto px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold">
+                    {pendingReviewsPagination.total} Pending
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pendingReviews.length > 0 ? (
+                <>
+                  <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-blue-900">Review Required</p>
+                        <p className="text-sm text-blue-700 mt-1">
+                          These posts require manual verification. Approve if location is valid, reject if not.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            User
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Location
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Source
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Reason
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Uploaded At
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {pendingReviews.map((review) => (
+                          <motion.tr
+                            key={review._id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            className="hover:bg-amber-50/50 transition-colors"
+                          >
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                {review.user?.profilePic ? (
+                                  <img
+                                    className="h-10 w-10 rounded-full ring-2 ring-amber-200"
+                                    src={review.user.profilePic}
+                                    alt={review.user.fullName}
+                                  />
+                                ) : (
+                                  <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center ring-2 ring-amber-200">
+                                    <Users className="w-5 h-5 text-amber-600" />
+                                  </div>
+                                )}
+                                <div className="ml-3">
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {review.user?.fullName || review.user?.username || 'Unknown'}
+                                  </div>
+                                  <div className="text-sm text-gray-500">{review.user?.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-sm font-medium text-gray-900">{review.location?.address || 'Unknown'}</div>
+                              <div className="text-sm text-gray-500">
+                                {review.location?.city && `${review.location.city}, `}
+                                {review.location?.country}, {review.location?.continent}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                {review.source?.replace(/_/g, ' ') || 'Unknown'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-700">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-amber-500" />
+                                {review.verificationReason === 'no_exif' && 'No EXIF GPS data'}
+                                {review.verificationReason === 'manual_location' && 'Manual location only'}
+                                {review.verificationReason === 'suspicious_pattern' && 'Suspicious travel pattern'}
+                                {!review.verificationReason && 'Requires review'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(review.uploadedAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleViewReview(review)}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                                  title="View Details"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => handleApprove(review._id)}
+                                  disabled={reviewActionLoading === review._id}
+                                  className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                                >
+                                  {reviewActionLoading === review._id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                  ) : (
+                                    <CheckCircle className="w-4 h-4" />
+                                  )}
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleReject(review._id)}
+                                  disabled={reviewActionLoading === review._id}
+                                  className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                                >
+                                  {reviewActionLoading === review._id ? (
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                  ) : (
+                                    <XCircle className="w-4 h-4" />
+                                  )}
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Pagination */}
+                  <div className="mt-4 flex justify-between items-center">
+                    <div className="text-sm text-gray-500">
+                      Showing {((pendingReviewsPagination.page - 1) * pendingReviewsPagination.limit) + 1} to {Math.min(pendingReviewsPagination.page * pendingReviewsPagination.limit, pendingReviewsPagination.total)} of {pendingReviewsPagination.total} results
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPendingReviewsPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                        disabled={pendingReviewsPagination.page === 1}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <span className="px-4 py-2 text-sm text-gray-700">
+                        Page {pendingReviewsPagination.page} of {pendingReviewsPagination.totalPages || 1}
+                      </span>
+                      <button
+                        onClick={() => setPendingReviewsPagination(prev => ({ ...prev, page: Math.min(prev.totalPages || 1, prev.page + 1) }))}
+                        disabled={pendingReviewsPagination.page >= (pendingReviewsPagination.totalPages || 1)}
+                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-300" />
+                  <p className="text-lg font-medium text-green-600">No pending reviews</p>
+                  <p className="text-sm text-gray-400 mt-2">All posts are verified or auto-verified</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+      
       {/* Loading placeholder for lazy-loaded sections */}
       {!loadedSections.has(selectedView) && (
         <div className="flex items-center justify-center h-64 bg-white rounded-xl shadow-lg">
@@ -1879,6 +2273,230 @@ const TripScoreAnalytics = () => {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <p className="text-gray-600">Loading {selectedView} data...</p>
           </div>
+        </div>
+      )}
+      
+      {/* View Review Modal */}
+      {isViewModalOpen && selectedReview && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+          >
+            <div className="sticky top-0 bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-4 border-b border-amber-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Clock className="w-6 h-6 text-amber-600" />
+                <h2 className="text-xl font-bold text-gray-900">Review Details</h2>
+                <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
+                  {selectedReview.verificationReason === 'no_exif' && 'No EXIF GPS'}
+                  {selectedReview.verificationReason === 'manual_location' && 'Manual Location'}
+                  {selectedReview.verificationReason === 'suspicious_pattern' && 'Suspicious Pattern'}
+                </span>
+              </div>
+              <button
+                onClick={handleCloseViewModal}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* User Information */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  User Information
+                </h3>
+                <div className="flex items-center gap-4">
+                  {selectedReview.user?.profilePic ? (
+                    <img
+                      className="h-16 w-16 rounded-full ring-2 ring-amber-200"
+                      src={selectedReview.user.profilePic}
+                      alt={selectedReview.user.fullName}
+                    />
+                  ) : (
+                    <div className="h-16 w-16 rounded-full bg-amber-100 flex items-center justify-center ring-2 ring-amber-200">
+                      <Users className="w-8 h-8 text-amber-600" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">
+                      {selectedReview.user?.fullName || selectedReview.user?.username || 'Unknown User'}
+                    </p>
+                    <p className="text-sm text-gray-600">{selectedReview.user?.email || 'No email'}</p>
+                    <p className="text-xs text-gray-500 mt-1">User ID: {selectedReview.user?._id || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Post Images */}
+              {selectedReview.post && (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4" />
+                    Post Content
+                  </h3>
+                  <div className="space-y-3">
+                    {selectedReview.post.caption && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Caption</p>
+                        <p className="text-sm text-gray-900 bg-white p-3 rounded border">{selectedReview.post.caption}</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      {selectedReview.post.images && selectedReview.post.images.length > 0 ? (
+                        selectedReview.post.images.map((imageUrl, idx) => (
+                          <div key={idx} className="relative rounded-lg overflow-hidden border-2 border-gray-200">
+                            <img
+                              src={imageUrl}
+                              alt={`Post image ${idx + 1}`}
+                              className="w-full h-48 object-cover"
+                              onError={(e) => {
+                                e.target.src = 'https://via.placeholder.com/400x400?text=Image+Not+Available'
+                              }}
+                            />
+                          </div>
+                        ))
+                      ) : selectedReview.post.imageUrl ? (
+                        <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
+                          <img
+                            src={selectedReview.post.imageUrl}
+                            alt="Post image"
+                            className="w-full h-48 object-cover"
+                            onError={(e) => {
+                              e.target.src = 'https://via.placeholder.com/400x400?text=Image+Not+Available'
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="col-span-2 text-center py-8 text-gray-400">
+                          <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>No image available</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Posted: {new Date(selectedReview.post.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Location Information */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <MapPin className="w-4 h-4" />
+                  Location Details
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Address</p>
+                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.address || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">City</p>
+                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.city || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Country</p>
+                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.country || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Continent</p>
+                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.continent || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Coordinates</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedReview.location?.coordinates?.latitude !== 0 && selectedReview.location?.coordinates?.longitude !== 0
+                        ? `${selectedReview.location.coordinates.latitude.toFixed(6)}, ${selectedReview.location.coordinates.longitude.toFixed(6)}`
+                        : 'Manual Location (0, 0)'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Uploaded At</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(selectedReview.uploadedAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Verification Details */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Verification Information
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Source</p>
+                    <span className="inline-flex px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                      {selectedReview.source?.replace(/_/g, ' ') || 'Unknown'}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Reason for Review</p>
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-500" />
+                      <span className="text-sm font-medium text-gray-900">
+                        {selectedReview.verificationReason === 'no_exif' && 'No EXIF GPS data'}
+                        {selectedReview.verificationReason === 'manual_location' && 'Manual location only'}
+                        {selectedReview.verificationReason === 'suspicious_pattern' && 'Suspicious travel pattern'}
+                        {!selectedReview.verificationReason && 'Requires review'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Created At</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {new Date(selectedReview.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Review ID</p>
+                    <p className="text-sm font-mono text-gray-600 text-xs break-all">{selectedReview._id}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+                <button
+                  onClick={handleCloseViewModal}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleRejectFromModal}
+                  disabled={reviewActionLoading === selectedReview._id}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {reviewActionLoading === selectedReview._id ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Reject
+                </button>
+                <button
+                  onClick={handleApproveFromModal}
+                  disabled={reviewActionLoading === selectedReview._id}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {reviewActionLoading === selectedReview._id ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
+                  Approve
+                </button>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>

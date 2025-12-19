@@ -82,10 +82,63 @@ export default function FollowersFollowingList() {
     }
     
     setFollowLoading(targetId);
+    
+    // Store previous state for rollback on error
+    const previousState = users.find(u => u._id === targetId);
+    const previousFollowing = previousState?.isFollowing ?? false;
+    
+    // Optimistic update
+    setUsers(prev => prev.map(u => 
+      u._id === targetId 
+        ? { ...u, isFollowing: !u.isFollowing } 
+        : u
+    ));
+    
     try {
-      await toggleFollow(targetId);
-      setUsers(prev => prev.map(u => u._id === targetId ? { ...u, isFollowing: !u.isFollowing } : u));
+      // Call API and use the response
+      const response = await toggleFollow(targetId);
+      
+      // Extract values from response
+      const isFollowingValue = Boolean(response.isFollowing);
+      const followRequestSentValue = Boolean(response.followRequestSent);
+      
+      // Update state with actual API response (source of truth)
+      setUsers(prev => prev.map(u => {
+        if (u._id === targetId) {
+          return {
+            ...u,
+            isFollowing: isFollowingValue,
+            // Update followersCount if provided (for the profile owner)
+            ...(response.followersCount !== undefined && { followersCount: response.followersCount })
+          };
+        }
+        return u;
+      }));
+      
+      // Show success message based on response
+      if (isFollowingValue) {
+        Alert.alert('Success', 'You are now following this user!');
+      } else if (followRequestSentValue) {
+        Alert.alert('Success', 'Follow request sent!');
+      } else {
+        Alert.alert('Success', 'You have unfollowed this user.');
+      }
+      
+      // Refresh the list to ensure consistency
+      // Only refresh if we're viewing someone's followers/following (not our own)
+      if (userId && userId !== targetId) {
+        setTimeout(() => {
+          fetchList(page, true);
+        }, 300);
+      }
     } catch (err: any) {
+      // Revert optimistic update on error
+      setUsers(prev => prev.map(u => 
+        u._id === targetId 
+          ? { ...u, isFollowing: previousFollowing } 
+          : u
+      ));
+      
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!err.isConflict && err.response?.status !== 409) {
         console.error('Error following/unfollowing user:', err);
@@ -95,6 +148,12 @@ export default function FollowersFollowingList() {
       
       // Check if it's a follow request already pending message or conflict error
       if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || err.isConflict) {
+        // Update state to show request sent
+        setUsers(prev => prev.map(u => 
+          u._id === targetId 
+            ? { ...u, isFollowing: false } // Not following yet, but request sent
+            : u
+        ));
         Alert.alert('Follow Request Pending', errorMessage);
       } else {
         Alert.alert('Error', errorMessage);

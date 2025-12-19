@@ -111,3 +111,46 @@ export const getDetailedLocations = async (options = {}) => {
   }
 }
 
+/**
+ * Get pending TripScore reviews
+ */
+export const getPendingReviews = async (options = {}) => {
+  try {
+    const { page = 1, limit = 20 } = options
+    
+    const params = { page, limit }
+    
+    const response = await api.get('/api/v1/superadmin/tripscore/review/pending', { params })
+    return response.data
+  } catch (error) {
+    logger.error('Failed to fetch pending reviews:', error)
+    throw error
+  }
+}
+
+/**
+ * Approve a TripVisit
+ */
+export const approveTripVisit = async (tripVisitId) => {
+  try {
+    const response = await api.post(`/api/v1/superadmin/tripscore/review/${tripVisitId}/approve`)
+    return response.data
+  } catch (error) {
+    logger.error('Failed to approve TripVisit:', error)
+    throw error
+  }
+}
+
+/**
+ * Reject a TripVisit
+ */
+export const rejectTripVisit = async (tripVisitId) => {
+  try {
+    const response = await api.post(`/api/v1/superadmin/tripscore/review/${tripVisitId}/reject`)
+    return response.data
+  } catch (error) {
+    logger.error('Failed to reject TripVisit:', error)
+    throw error
+  }
+}
+

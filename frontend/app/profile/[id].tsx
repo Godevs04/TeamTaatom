@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
+import { toggleFollow } from '../../services/profile';
 import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
@@ -14,6 +15,9 @@ import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
+
+// Follow state enum
+type FollowState = 'FOLLOWING' | 'REQUESTED' | 'FOLLOW';
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams();
@@ -25,11 +29,63 @@ export default function UserProfileScreen() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followRequestSent, setFollowRequestSent] = useState(false);
+  const [followState, setFollowState] = useState<FollowState>('FOLLOW');
   const [currentUser, setCurrentUser] = useState<any>(null);
   // Ref to track if we're in the middle of a follow/unfollow action
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
   const lastFollowApiResponse = useRef<{ isFollowing: boolean; followRequestSent: boolean } | null>(null);
+
+  // Helper function to derive followState from boolean flags
+  const deriveFollowState = useCallback((isFollowing: boolean, followRequestSent: boolean): FollowState => {
+    if (isFollowing === true) {
+      return 'FOLLOWING';
+    }
+    if (followRequestSent === true) {
+      return 'REQUESTED';
+    }
+    return 'FOLLOW';
+  }, []);
+
+  // Centralized helper function to apply follow state from API response
+  const applyFollowState = useCallback((response: {
+    isFollowing: boolean;
+    followRequestSent: boolean;
+    followersCount?: number;
+    followingCount?: number;
+  }) => {
+    const apiIsFollowing = Boolean(response.isFollowing);
+    const apiFollowRequestSent = Boolean(response.followRequestSent);
+
+    // Store API response in ref - this is the definitive source of truth
+    lastFollowApiResponse.current = {
+      isFollowing: apiIsFollowing,
+      followRequestSent: apiFollowRequestSent
+    };
+
+    // Update boolean flags from API response (source of truth)
+    setIsFollowing(apiIsFollowing);
+    setFollowRequestSent(apiFollowRequestSent);
+
+    // Compute and set derived followState
+    const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
+    setFollowState(derivedState);
+
+    // Update followers/following counts in profile if provided
+    if (response.followersCount !== undefined || response.followingCount !== undefined) {
+      setProfile((prevProfile: any) => {
+        if (!prevProfile) return prevProfile;
+        const updated: any = { ...prevProfile };
+        if (typeof response.followersCount === 'number') {
+          updated.followersCount = response.followersCount;
+        }
+        if (typeof response.followingCount === 'number') {
+          updated.followingCount = response.followingCount;
+        }
+        return updated;
+      });
+    }
+  }, [deriveFollowState]);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -208,23 +264,30 @@ export default function UserProfileScreen() {
       }
       setProfile(userProfile);
       
-      // CRITICAL: Use isFollowing directly from API response - backend calculates this correctly
-      // The backend returns isFollowing in the profile response, so we should trust it
-      const apiIsFollowing = Boolean(userProfile.isFollowing);
-      const apiFollowRequestSent = Boolean(userProfile.followRequestSent);
-      
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
-      // This prevents cached/stale profile data from overriding the correct follow state
+      // This prevents cached/stale profile data (including 304 responses) from overriding the correct follow state
       // The stored response is the definitive source of truth after a follow/unfollow action
       if (lastFollowApiResponse.current) {
         // We have a stored response from a follow action - this takes priority over profile fetch
-        setIsFollowing(lastFollowApiResponse.current.isFollowing);
-        setFollowRequestSent(lastFollowApiResponse.current.followRequestSent);
+        // DO NOT override with cached profile data
+        const storedIsFollowing = lastFollowApiResponse.current.isFollowing;
+        const storedFollowRequestSent = lastFollowApiResponse.current.followRequestSent;
+        setIsFollowing(storedIsFollowing);
+        setFollowRequestSent(storedFollowRequestSent);
+        // Compute and set derived followState
+        const derivedState = deriveFollowState(storedIsFollowing, storedFollowRequestSent);
+        setFollowState(derivedState);
         // Don't clear the ref here - let it expire naturally after the timeout
       } else if (!isFollowActionInProgress.current) {
         // No stored response and not in the middle of an action - use fresh API response
+        // CRITICAL: Use isFollowing directly from API response - backend calculates this correctly
+        const apiIsFollowing = Boolean(userProfile.isFollowing);
+        const apiFollowRequestSent = Boolean(userProfile.followRequestSent);
         setIsFollowing(apiIsFollowing);
         setFollowRequestSent(apiFollowRequestSent);
+        // Compute and set derived followState
+        const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
+        setFollowState(derivedState);
       }
       // If in the middle of an action but no stored response yet, preserve current state
     } catch (e) {
@@ -233,12 +296,14 @@ export default function UserProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, currentUser, followLoading]);
+  }, [id, currentUser, deriveFollowState]);
 
   useEffect(() => {
     setProfile(null);
     setLoading(true);
     setIsFollowing(false);
+    setFollowRequestSent(false);
+    setFollowState('FOLLOW');
     setShowWorldMap(false);
     // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
@@ -266,80 +331,52 @@ export default function UserProfileScreen() {
   );
 
   const handleFollow = async () => {
-    if (!profile) return;
+    // ✅ ALL GUARDS FIRST — NO STATE CHANGES ABOVE THIS
+    if (!profile?._id) return;
+    if (isFollowActionInProgress.current === true) return;
     
-    // Mark that a follow action is in progress
+    // ✅ ENTER CRITICAL SECTION (after all guards pass)
     isFollowActionInProgress.current = true;
-    
-    // Optimistic update - update UI immediately
-    const previousFollowing = isFollowing;
-    const previousRequestSent = followRequestSent;
-    const newFollowing = !isFollowing;
-    
-    // Update UI immediately for better UX
-    setIsFollowing(newFollowing);
-    if (!newFollowing) {
-      setFollowRequestSent(false);
-    }
-    
     setFollowLoading(true);
+    
     try {
-      const res = await api.post(`/api/v1/profile/${profile._id}/follow`);
+      // ✅ EVERYTHING ASYNC MUST BE INSIDE TRY
+      // Use the service function for consistency
+      const response = await toggleFollow(profile._id);
       
-      // CRITICAL: Get the state from API response - this is the source of truth
-      const apiIsFollowing = Boolean(res.data.isFollowing);
-      const apiFollowRequestSent = Boolean(res.data.followRequestSent);
-      const newFollowersCount = res.data.followersCount;
-      const newFollowingCount = res.data.followingCount;
-      
-      // Store API response in ref - this is the definitive source of truth
-      lastFollowApiResponse.current = {
-        isFollowing: apiIsFollowing,
-        followRequestSent: apiFollowRequestSent
-      };
-      
-      // Update state immediately and synchronously from API response
-      // Force immediate update - use direct assignment to ensure React sees the change
-      setIsFollowing(apiIsFollowing);
-      setFollowRequestSent(apiFollowRequestSent);
-      
-      // Update followers/following counts in profile immediately
-      setProfile((prevProfile: any) => {
-        const updated: any = { ...prevProfile };
-        if (typeof newFollowersCount === 'number') {
-          updated.followersCount = newFollowersCount;
-        }
-        if (typeof newFollowingCount === 'number') {
-          updated.followingCount = newFollowingCount;
-        }
-        return updated;
+      // Apply follow state from API response (source of truth)
+      applyFollowState({
+        isFollowing: Boolean(response.isFollowing),
+        followRequestSent: Boolean(response.followRequestSent ?? false),
+        followersCount: response.followersCount,
+        followingCount: response.followingCount
       });
       
-      // Force a microtask delay to ensure state updates are flushed
-      // This ensures React processes the state updates before any other code runs
-      await new Promise(resolve => setTimeout(resolve, 0));
-      
-      // Show success message after state is updated
-      if (apiIsFollowing) {
+      // Show success message based on API response
+      if (response.isFollowing) {
         showSuccess('You are now following this user!');
-      } else if (apiFollowRequestSent) {
+      } else if (response.followRequestSent) {
         showSuccess('Follow request sent!');
       } else {
         showSuccess('You have unfollowed this user.');
       }
+      
+      // Refresh profile data to get updated counts and ensure consistency
+      // Use a small delay to ensure the backend has processed the follow/unfollow
+      setTimeout(() => {
+        fetchProfile();
+      }, 500);
       
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that
       // Clear the ref after enough time has passed for cache to be invalidated
       setTimeout(() => {
         lastFollowApiResponse.current = null;
-      }, 5000); // Increased to 5 seconds to prevent cache override
+      }, 5000); // 5 seconds to prevent cache override
       
     } catch (e: any) {
-      // Revert optimistic update on error
-      setIsFollowing(previousFollowing);
-      setFollowRequestSent(previousRequestSent);
-      lastFollowApiResponse.current = null; // Clear ref on error
+      // Clear ref on error
+      lastFollowApiResponse.current = null;
       
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
@@ -348,17 +385,22 @@ export default function UserProfileScreen() {
       
       const errorMessage = e.response?.data?.message || e.message || 'Failed to update follow status';
       
+      // ❌ DO NOT RETURN FROM CATCH - all cleanup happens in finally
       // Check if it's a follow request already pending message or conflict error
-      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || e.isConflict) {
-        setFollowRequestSent(true);
+      if (e?.isConflict || e?.response?.status === 409 || errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent')) {
+        // For conflict errors, set followRequestSent to true
+        applyFollowState({
+          isFollowing: false,
+          followRequestSent: true
+        });
         showWarning('Follow Request Pending', errorMessage);
       } else {
-        showError(errorMessage);
+        showError(errorMessage || 'Something went wrong');
       }
     } finally {
-      setFollowLoading(false);
-      // Mark that follow action is complete
+      // ✅ ALWAYS EXECUTES - ensures cleanup happens even if errors occur
       isFollowActionInProgress.current = false;
+      setFollowLoading(false);
     }
   };
 
@@ -425,26 +467,26 @@ export default function UserProfileScreen() {
                     style={[
                       styles.actionButton,
                       { shadowColor: theme.colors.shadow },
-                      isFollowing 
+                      followState === 'FOLLOWING'
                         ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
                         : [styles.followButton, { backgroundColor: profileTheme.accent }]
                     ]}
                     onPress={handleFollow}
-                    disabled={followLoading}
+                    disabled={followLoading || followState === 'REQUESTED'}
                   >
                     {followLoading ? (
-                      <ActivityIndicator size="small" color={isFollowing ? profileTheme.accent : '#FFFFFF'} />
+                      <ActivityIndicator size="small" color={followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF'} />
                     ) : (
                       <Text style={[
                         styles.actionButtonText,
-                        { color: isFollowing ? profileTheme.accent : '#FFFFFF' }
+                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF' }
                       ]}>
-                        {isFollowing ? 'Following' : followRequestSent ? 'Request Sent' : 'Follow'}
+                        {followState === 'FOLLOWING' ? 'Following' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
                       </Text>
                     )}
                   </Pressable>
                   
-                  {isFollowing && (
+                  {followState === 'FOLLOWING' && (
                     <Pressable
                       style={[styles.actionButton, styles.messageButton, { backgroundColor: profileTheme.accent }]}
                       onPress={() => router.push(`/chat?userId=${profile._id}`)}

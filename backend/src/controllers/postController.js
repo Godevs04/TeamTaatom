@@ -69,7 +69,7 @@ const getPosts = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
             ]
           }
         },
@@ -95,7 +95,7 @@ const getPosts = async (req, res) => {
             foreignField: '_id',
             as: 'commentUsers',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
             ]
           }
         },
@@ -222,6 +222,47 @@ const getPosts = async (req, res) => {
           if (!post.imageUrl) {
             post.imageUrl = null;
             post.images = [];
+          }
+        }
+
+        // Generate signed URL for post author's profile picture
+        if (post.user && post.user.profilePicStorageKey) {
+          try {
+            post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile picture URL for post author:', { 
+              postId: post._id, 
+              userId: post.user._id,
+              error: error.message 
+            });
+            // Fallback to legacy URL if available
+            post.user.profilePic = post.user.profilePic || null;
+          }
+        } else if (post.user && post.user.profilePic) {
+          // Legacy: use existing profilePic if no storage key
+          // Keep the existing profilePic value
+        }
+
+        // Generate signed URLs for comment users' profile pictures
+        if (post.comments && post.comments.length > 0) {
+          for (const comment of post.comments) {
+            if (comment.user && comment.user.profilePicStorageKey) {
+              try {
+                comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
+              } catch (error) {
+                logger.warn('Failed to generate profile picture URL for comment user:', { 
+                  postId: post._id, 
+                  commentId: comment._id,
+                  userId: comment.user._id,
+                  error: error.message 
+                });
+                // Fallback to legacy URL if available
+                comment.user.profilePic = comment.user.profilePic || null;
+              }
+            } else if (comment.user && comment.user.profilePic) {
+              // Legacy: use existing profilePic if no storage key
+              // Keep the existing profilePic value
+            }
           }
         }
 
@@ -452,6 +493,7 @@ const getPostById = async (req, res) => {
                 $project: { 
                   fullName: 1, 
                   profilePic: 1,
+                  profilePicStorageKey: 1,
                   followers: 1 // Include followers for follow status check
                 } 
               }
@@ -466,7 +508,7 @@ const getPostById = async (req, res) => {
             foreignField: '_id',
             as: 'commentUsers',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
             ]
           }
         },
@@ -573,25 +615,126 @@ const getPostById = async (req, res) => {
     logger.info(finalMsg);
     console.log(finalMsg);
 
-    // Generate optimized image URL with WebP and progressive loading
-    let optimizedImageUrl = post.imageUrl;
-    if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+    // Generate dynamic image URLs from storage keys (same logic as getPosts)
+    if (post.storageKeys && post.storageKeys.length > 0) {
+      // Multiple images - generate URLs for all
       try {
-        const urlParts = post.imageUrl.split('/');
-        const publicIdWithExtension = urlParts[urlParts.length - 1];
-        const publicId = publicIdWithExtension.split('.')[0];
-        
-        optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
-          width: 1200,
-          height: 1200,
-          quality: 'auto:good',
-          format: 'auto', // Auto WebP when supported
-          flags: 'progressive' // Progressive loading
-        });
+        const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+        post.imageUrl = imageUrls[0] || null;
+        post.images = imageUrls;
       } catch (error) {
-        logger.warn('Failed to optimize image URL:', error);
+        logger.warn('Failed to generate image URLs for post:', { 
+          postId: post._id, 
+          error: error.message 
+        });
+        post.imageUrl = null;
+        post.images = [];
+      }
+    } else if (post.storageKey) {
+      // Fallback for single storage key
+      try {
+        const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+        post.imageUrl = imageUrl;
+        post.images = imageUrl ? [imageUrl] : [];
+      } catch (error) {
+        logger.warn('Failed to generate image URL for post:', { 
+          postId: post._id, 
+          error: error.message 
+        });
+        post.imageUrl = null;
+        post.images = [];
+      }
+    } else {
+      // Legacy: try to use existing imageUrl if no storage key
+      // This is for backward compatibility with old posts
+      if (!post.imageUrl) {
+        post.imageUrl = null;
+        post.images = [];
+      }
+      // For legacy Cloudinary URLs, optimize them
+      if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+        try {
+          const urlParts = post.imageUrl.split('/');
+          const publicIdWithExtension = urlParts[urlParts.length - 1];
+          const publicId = publicIdWithExtension.split('.')[0];
+          
+          post.imageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
+            width: 1200,
+            height: 1200,
+            quality: 'auto:good',
+            format: 'auto',
+            flags: 'progressive'
+          });
+        } catch (error) {
+          logger.warn('Failed to optimize Cloudinary URL:', error);
+        }
       }
     }
+
+    // Generate signed URL for post author's profile picture
+    if (post.user && post.user.profilePicStorageKey) {
+      try {
+        post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL for post author:', { 
+          postId: post._id, 
+          userId: post.user._id,
+          error: error.message 
+        });
+        // Fallback to legacy URL if available
+        post.user.profilePic = post.user.profilePic || null;
+      }
+    } else if (post.user && post.user.profilePic) {
+      // Legacy: use existing profilePic if no storage key
+      // Keep the existing profilePic value
+    }
+
+    // Generate signed URLs for comment users' profile pictures
+    if (post.comments && post.comments.length > 0) {
+      for (const comment of post.comments) {
+        if (comment.user && comment.user.profilePicStorageKey) {
+          try {
+            comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile picture URL for comment user:', { 
+              postId: post._id, 
+              commentId: comment._id,
+              userId: comment.user._id,
+              error: error.message 
+            });
+            // Fallback to legacy URL if available
+            comment.user.profilePic = comment.user.profilePic || null;
+          }
+        } else if (comment.user && comment.user.profilePic) {
+          // Legacy: use existing profilePic if no storage key
+          // Keep the existing profilePic value
+        }
+      }
+    }
+
+    // Generate song URL if present (same logic as getPosts)
+    if (post.song?.songId) {
+      const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
+      if (storageKey) {
+        try {
+          const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+          post.song.songId.s3Url = songUrl;
+          post.song.songId.cloudinaryUrl = songUrl;
+        } catch (error) {
+          logger.warn('Failed to generate URL for song in post:', { 
+            postId: post._id, 
+            songId: post.song.songId._id, 
+            storageKey,
+            error: error.message 
+          });
+          post.song.songId.s3Url = null;
+          post.song.songId.cloudinaryUrl = null;
+        }
+      }
+    }
+
+    // Use generated imageUrl (already set above)
+    const optimizedImageUrl = post.imageUrl;
 
     // Add isLiked and isFollowing fields if user is authenticated
     let isLiked = false;
@@ -987,15 +1130,16 @@ const getUserShorts = async (req, res) => {
           localField: 'user',
           foreignField: '_id',
           as: 'user',
-          pipeline: [
-            { 
-              $project: { 
-                fullName: 1, 
-                profilePic: 1,
-                followers: currentUserId ? { $cond: [{ $eq: ['$_id', currentUserId] }, '$followers', []] } : []
-              } 
-            }
-          ]
+            pipeline: [
+              { 
+                $project: { 
+                  fullName: 1, 
+                  profilePic: 1,
+                  profilePicStorageKey: 1,
+                  followers: currentUserId ? { $cond: [{ $eq: ['$_id', currentUserId] }, '$followers', []] } : []
+                } 
+              }
+            ]
         }
       },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
@@ -1006,7 +1150,7 @@ const getUserShorts = async (req, res) => {
           foreignField: '_id',
           as: 'commentUsers',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1 } }
+            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
           ]
         }
       },
@@ -1050,8 +1194,54 @@ const getUserShorts = async (req, res) => {
       }
     ]);
 
+    // Generate signed URLs for profile pictures
+    const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
+      // Generate signed URL for short author's profile picture
+      if (short.user && short.user.profilePicStorageKey) {
+        try {
+          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for short author:', { 
+            shortId: short._id, 
+            userId: short.user._id,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          short.user.profilePic = short.user.profilePic || null;
+        }
+      } else if (short.user && short.user.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        // Keep the existing profilePic value
+      }
+
+      // Generate signed URLs for comment users' profile pictures
+      if (short.comments && short.comments.length > 0) {
+        for (const comment of short.comments) {
+          if (comment.user && comment.user.profilePicStorageKey) {
+            try {
+              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
+            } catch (error) {
+              logger.warn('Failed to generate profile picture URL for comment user:', { 
+                shortId: short._id, 
+                commentId: comment._id,
+                userId: comment.user._id,
+                error: error.message 
+              });
+              // Fallback to legacy URL if available
+              comment.user.profilePic = comment.user.profilePic || null;
+            }
+          } else if (comment.user && comment.user.profilePic) {
+            // Legacy: use existing profilePic if no storage key
+            // Keep the existing profilePic value
+          }
+        }
+      }
+
+      return short;
+    }));
+
     // Defensive: filter out shorts without media URLs and add mediaUrl field
-    const validShorts = shorts
+    const validShorts = shortsWithProfilePics
       .filter(short => {
         const hasMedia = short.videoUrl || short.imageUrl;
         if (!hasMedia) {
@@ -1127,7 +1317,7 @@ const getUserPosts = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
             ]
           }
         },
@@ -1139,7 +1329,7 @@ const getUserPosts = async (req, res) => {
             foreignField: '_id',
             as: 'commentUsers',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
             ]
           }
         },
@@ -1229,7 +1419,54 @@ const getUserPosts = async (req, res) => {
     }, CACHE_TTL.POST_LIST);
 
     const { posts, totalPosts } = result;
-    const postsWithLikeStatus = posts.map(post => ({
+    
+    // Generate signed URLs for profile pictures
+    const postsWithProfilePics = await Promise.all(posts.map(async (post) => {
+      // Generate signed URL for post author's profile picture
+      if (post.user && post.user.profilePicStorageKey) {
+        try {
+          post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for post author:', { 
+            postId: post._id, 
+            userId: post.user._id,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          post.user.profilePic = post.user.profilePic || null;
+        }
+      } else if (post.user && post.user.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        // Keep the existing profilePic value
+      }
+
+      // Generate signed URLs for comment users' profile pictures
+      if (post.comments && post.comments.length > 0) {
+        for (const comment of post.comments) {
+          if (comment.user && comment.user.profilePicStorageKey) {
+            try {
+              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
+            } catch (error) {
+              logger.warn('Failed to generate profile picture URL for comment user:', { 
+                postId: post._id, 
+                commentId: comment._id,
+                userId: comment.user._id,
+                error: error.message 
+              });
+              // Fallback to legacy URL if available
+              comment.user.profilePic = comment.user.profilePic || null;
+            }
+          } else if (comment.user && comment.user.profilePic) {
+            // Legacy: use existing profilePic if no storage key
+            // Keep the existing profilePic value
+          }
+        }
+      }
+
+      return post;
+    }));
+
+    const postsWithLikeStatus = postsWithProfilePics.map(post => ({
       ...post,
       isLiked: post.isLiked || false
     }));
@@ -1603,27 +1840,31 @@ const deletePost = async (req, res) => {
       return sendError(res, 'AUTH_1006', 'You can only delete your own posts');
     }
 
+    // Store post data for socket events before deletion
+    const postId = post._id;
+    const userId = post.user.toString();
+
     // Invalidate cache before deletion
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCache(CacheKeys.userPosts(userId, 1, 20));
 
-    // Cascade delete all related data
-    await cascadeDeletePost(post._id, post);
+    // Cascade delete all related data FIRST (before deleting the post)
+    await cascadeDeletePost(postId, post);
 
-    // Soft delete (mark as inactive)
-    post.isActive = false;
-    await post.save();
+    // Hard delete - completely remove the post from database
+    await Post.findByIdAndDelete(postId);
+    logger.info(`Hard deleted post ${postId} from database`);
 
     // Emit socket events
     const io = getIO();
     if (io) {
       const nsp = io.of('/app');
-      const followers = await getFollowers(post.user);
-      const audience = [post.user.toString(), ...followers];
+      const followers = await getFollowers(userId);
+      const audience = [userId, ...followers];
       nsp.emitInvalidateFeed(audience);
-      nsp.emitInvalidateProfile(post.user.toString());
-      nsp.emitEvent('post:deleted', audience, { postId: post._id });
+      nsp.emitInvalidateProfile(userId);
+      nsp.emitEvent('post:deleted', audience, { postId });
     }
 
     return sendSuccess(res, 200, 'Post deleted successfully');
