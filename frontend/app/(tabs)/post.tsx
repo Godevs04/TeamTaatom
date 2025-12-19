@@ -26,7 +26,8 @@ import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
 import { createPost, createPostWithProgress, createShort, getPosts, getShorts } from "../../services/posts";
-import { getUserFromStorage } from "../../services/auth";
+import { getUserFromStorage, getCurrentUser } from "../../services/auth";
+import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
@@ -136,9 +137,54 @@ export default function PostScreen() {
   // Get user from storage and check existing content
   useEffect(() => {
     const loadUser = async () => {
-      const userData = await getUserFromStorage();
-      setUser(userData);
-      logger.debug('User loaded:', userData);
+      // Try to get fresh user data with signed profile picture URL
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser && currentUser !== 'network-error') {
+          // Fetch profile to get signed profile picture URL
+          try {
+            const profileResponse = await getProfile(currentUser._id);
+            if (profileResponse && profileResponse.profile && profileResponse.profile.profilePic) {
+              setUser({ ...currentUser, profilePic: profileResponse.profile.profilePic });
+              logger.debug('User loaded with profile picture:', { ...currentUser, profilePic: profileResponse.profile.profilePic });
+            } else {
+              setUser(currentUser);
+              logger.debug('User loaded from API:', currentUser);
+            }
+          } catch (profileError) {
+            // If profile fetch fails, use currentUser as is
+            setUser(currentUser);
+            logger.debug('User loaded from API (profile fetch failed):', currentUser);
+          }
+        } else {
+          // Fallback to stored user if API call fails
+          const userData = await getUserFromStorage();
+          if (userData && userData._id) {
+            // Try to fetch profile for stored user too
+            try {
+              const profileResponse = await getProfile(userData._id);
+              if (profileResponse && profileResponse.profile && profileResponse.profile.profilePic) {
+                setUser({ ...userData, profilePic: profileResponse.profile.profilePic });
+                logger.debug('User loaded from storage with profile:', { ...userData, profilePic: profileResponse.profile.profilePic });
+              } else {
+                setUser(userData);
+                logger.debug('User loaded from storage:', userData);
+              }
+            } catch (profileError) {
+              setUser(userData);
+              logger.debug('User loaded from storage (profile fetch failed):', userData);
+            }
+          } else {
+            setUser(userData);
+            logger.debug('User loaded from storage:', userData);
+          }
+        }
+      } catch (error) {
+        // Fallback to stored user on error
+        const userData = await getUserFromStorage();
+        setUser(userData);
+        logger.debug('User loaded from storage (fallback):', userData);
+      }
       
       // Check for existing content
       await checkExistingContent();
@@ -1443,6 +1489,11 @@ export default function PostScreen() {
                   height: '100%', 
                 borderRadius: 20, 
               }}
+              resizeMode="cover"
+              defaultSource={require('../../assets/avatars/male_avatar.png')}
+              onError={(error) => {
+                logger.warn('Profile picture load error:', error);
+              }}
             />
             </View>
             <View style={{ flex: 1 }}>
@@ -1542,9 +1593,9 @@ export default function PostScreen() {
           <>
             <View style={{ 
               alignItems: 'center', 
-              marginTop: theme.spacing.xl, 
-              marginBottom: theme.spacing.xl,
-              paddingVertical: theme.spacing.xl
+              marginTop: theme.spacing.md, 
+              marginBottom: theme.spacing.sm,
+              paddingVertical: theme.spacing.sm
             }}>
               <View style={{
                 width: 120,
@@ -1553,7 +1604,7 @@ export default function PostScreen() {
                 backgroundColor: theme.colors.primary + '15',
                 justifyContent: 'center',
                 alignItems: 'center',
-                marginBottom: theme.spacing.lg
+                marginBottom: theme.spacing.sm
               }}>
               <Ionicons 
                   name={postType === 'photo' ? "image" : "videocam"} 
@@ -1565,7 +1616,7 @@ export default function PostScreen() {
                 color: theme.colors.text, 
                 fontSize: theme.typography.h2.fontSize, 
                 fontWeight: '800', 
-                marginBottom: theme.spacing.sm, 
+                marginBottom: theme.spacing.xs, 
                 textAlign: 'center' 
               }}>
                 {(() => {
@@ -1582,7 +1633,7 @@ export default function PostScreen() {
                 color: theme.colors.textSecondary, 
                 fontSize: theme.typography.body.fontSize, 
                 textAlign: 'center', 
-                marginBottom: theme.spacing.xl,
+                marginBottom: theme.spacing.sm,
                 paddingHorizontal: theme.spacing.lg,
                 lineHeight: 22
               }}>
@@ -1600,7 +1651,8 @@ export default function PostScreen() {
             <View style={{ 
               flexDirection: "row", 
               justifyContent: "space-between", 
-              marginVertical: theme.spacing.lg,
+              marginTop: theme.spacing.sm,
+              marginBottom: theme.spacing.lg,
               gap: theme.spacing.md
             }}>
               <TouchableOpacity 
