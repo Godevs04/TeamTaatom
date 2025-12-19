@@ -114,10 +114,19 @@ export const toggleFollow = async (userId: string): Promise<{
   isFollowing: boolean;
   followersCount: number;
   followingCount: number;
+  followRequestSent?: boolean;
 }> => {
   try {
     const response = await api.post(`/api/v1/profile/${userId}/follow`);
-    return response.data;
+    // The backend sendSuccess spreads data directly, so response.data contains all fields
+    const data = response.data;
+    return {
+      message: data?.message || 'Success',
+      isFollowing: Boolean(data?.isFollowing ?? false),
+      followersCount: data?.followersCount ?? 0,
+      followingCount: data?.followingCount ?? 0,
+      followRequestSent: Boolean(data?.followRequestSent ?? false)
+    };
   } catch (error: any) {
     // Handle 409 (Conflict) as a special case for follow request already pending
     if (error.response?.status === 409) {
