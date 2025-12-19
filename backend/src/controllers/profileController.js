@@ -13,7 +13,7 @@ const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
-const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
+const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 
 // @desc    Get user profile
@@ -96,13 +96,13 @@ const getProfile = async (req, res) => {
         date: post.createdAt
       }));
 
-    // Calculate TripScore v2 based on TripVisit (unique, trusted visits)
-    // Only TripVisits with trustLevel in ['high','medium'] contribute to TripScore.
-    // Low/unverified/suspicious visits are excluded from scoring.
+    // Calculate TripScore v2.1 based on TripVisit (unique, verified visits)
+    // Only TripVisits with verificationStatus in ['auto_verified','approved'] contribute to TripScore.
+    // Pending/rejected visits are excluded from scoring.
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS }
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
     .select('lat lng continent country address uploadedAt')
     .lean()
@@ -1184,11 +1184,11 @@ const getTripScoreContinents = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get trusted visits (TripScore v2 - unique places only)
+    // Get verified visits (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS }
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
     .select('lat lng continent country address takenAt uploadedAt')
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
@@ -1286,11 +1286,11 @@ const getTripScoreCountries = async (req, res) => {
 
     const continentName = continent.toUpperCase();
     
-    // Get trusted visits for this continent (TripScore v2 - unique places only)
+    // Get verified visits for this continent (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      verificationStatus: { $in: VERIFIED_STATUSES },
       continent: continentName
     })
     .select('lat lng country address')
@@ -1354,11 +1354,11 @@ const getTripScoreCountryDetails = async (req, res) => {
     const { id } = req.params;
     const { country } = req.params;
 
-    // Get trusted visits for this country (TripScore v2 - unique places only)
+    // Get verified visits for this country (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      verificationStatus: { $in: VERIFIED_STATUSES },
       country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
     .select('lat lng address takenAt uploadedAt')
@@ -1436,11 +1436,11 @@ const getTripScoreLocations = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get trusted visits for this country (TripScore v2 - unique places only)
+    // Get verified visits for this country (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      verificationStatus: { $in: VERIFIED_STATUSES },
       country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
     .select('lat lng address takenAt uploadedAt')
