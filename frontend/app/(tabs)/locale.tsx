@@ -1399,7 +1399,7 @@ const createStyles = () => {
     },
     wideCard: {
       width: isTabletLocal ? screenWidth - theme.spacing.xxl * 2 : screenWidth - 40,
-      height: isTabletLocal ? 240 : 200,
+      height: isTabletLocal ? 200 : 160,
       alignSelf: 'center',
     },
   cardImage: {

@@ -1130,7 +1130,9 @@ export default function ChatModal() {
         } catch {}
       }
       logger.debug('Requesting chats for user:', myUserId);
-      const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+      // Use dynamic API URL detection for web
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
       const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
       socket.on('connect', () => {
         logger.debug('[SOCKET] connected to backend');
@@ -1222,7 +1224,9 @@ export default function ChatModal() {
           if (userData) {
             try { myUserId = JSON.parse(userData)._id; } catch {}
           }
-          const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+          // Use dynamic API URL detection for web
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
           const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
           socket.on('connect', () => {
             logger.debug('[SOCKET] connected to backend');
@@ -1291,7 +1295,9 @@ export default function ChatModal() {
           if (userData) {
             try { myUserId = JSON.parse(userData)._id; } catch {}
           }
-          const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+          // Use dynamic API URL detection for web
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
           fetch(`${API_BASE_URL}/chat`, {
             headers: {
               'Authorization': `Bearer ${token}`,

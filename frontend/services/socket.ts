@@ -1,10 +1,43 @@
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { API_BASE_URL, WS_PATH } from '../utils/config';
+import { getApiBaseUrl, WS_PATH } from '../utils/config';
 import logger from '../utils/logger';
 
+// Suppress WebSocket errors in web console for development
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  const originalError = console.error;
+  const wsErrorSuppressed = new Set<string>();
+  
+  // Override console.error to filter out noisy WebSocket errors
+  console.error = (...args: any[]) => {
+    const message = args.join(' ');
+    // Filter out common WebSocket connection errors that are expected in development
+    if (
+      message.includes('WebSocket connection to') ||
+      message.includes('TransportError') ||
+      message.includes('websocket error') ||
+      message.includes('ERR_CONNECTION_REFUSED') ||
+      message.includes('construct.js')
+    ) {
+      // Only log once per unique error to avoid spam
+      const errorKey = message.substring(0, 100); // Use first 100 chars as key
+      if (!wsErrorSuppressed.has(errorKey)) {
+        wsErrorSuppressed.add(errorKey);
+        originalError('[WebSocket] Connection errors suppressed. Backend may not be running.');
+        // Clear after 10 seconds to allow new errors
+        setTimeout(() => {
+          wsErrorSuppressed.delete(errorKey);
+        }, 10000);
+      }
+      return;
+    }
+    originalError.apply(console, args);
+  };
+}
+
 let socket: Socket | null = null;
+let lastConnectedUrl: string | null = null; // Track the URL used for the last connection
 const listeners: Record<string, Set<(...args: any[]) => void>> = {};
 
 // Message queue for offline/connection issues
@@ -35,12 +68,32 @@ const connectSocket = async () => {
   if (process.env.NODE_ENV === 'development') {
     logger.debug('Socket service - Attempting to connect...');
   }
+  
+  // CRITICAL: Get API URL dynamically FIRST (important for web auto-detection)
+  // Always get fresh URL to ensure correct IP - call getApiBaseUrl() fresh every time
+  const apiBaseUrl = getApiBaseUrl();
+  const fullUrl = apiBaseUrl + '/app';
+  
+  // CRITICAL: Check if socket is connected to the CORRECT URL
+  // If URL changed (e.g., IP changed), we MUST disconnect and reconnect
   if (socket && socket.connected) {
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Already connected');
+    if (lastConnectedUrl === fullUrl) {
+      // Same URL, socket is good
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug('Socket service - Already connected to correct URL');
+      }
+      return socket;
+    } else {
+      // URL changed! Must disconnect and reconnect
+      if (Platform.OS === 'web') {
+        console.log(`[Socket] 🔄 [WEB] URL changed! Disconnecting old socket (${lastConnectedUrl}) and reconnecting to: ${fullUrl}`);
+      }
+      socket.disconnect();
+      socket = null;
+      lastConnectedUrl = null;
     }
-    return socket;
   }
+  
   const token = await getToken();
   
   if (!token) {
@@ -54,16 +107,25 @@ const connectSocket = async () => {
     logger.debug('Socket service - Token retrieved:', !!token);
   }
   
-  // Clean up existing socket if any
+  // Clean up existing socket if any (if not already cleaned above)
   if (socket) {
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Disconnecting existing socket');
+    if (Platform.OS === 'web') {
+      console.log(`[Socket] 🧹 [WEB] Disconnecting existing socket before reconnecting`);
     }
     socket.disconnect();
     socket = null;
+    lastConnectedUrl = null;
   }
   
-  socket = io(API_BASE_URL + '/app', {
+  // Always log for web to help debug connection issues
+  if (Platform.OS === 'web') {
+    console.log(`[Socket] 🔌 [WEB] Connecting to: ${fullUrl}`);
+    console.log(`[Socket] 🔌 [WEB] Full WebSocket URL will be: ws://${apiBaseUrl.replace('http://', '')}/socket.io/`);
+  } else if (process.env.NODE_ENV === 'development') {
+    logger.debug(`Socket service - Connecting to: ${fullUrl}`);
+  }
+  
+  socket = io(fullUrl, {
     path: WS_PATH,
     transports: ['websocket', 'polling'], // Add polling as fallback for web
     autoConnect: false,
@@ -73,18 +135,23 @@ const connectSocket = async () => {
     reconnectionAttempts: 5,
     reconnectionDelay: 2000,
     reconnectionDelayMax: 10000,
-    forceNew: true,
+    forceNew: true, // CRITICAL: Force new connection to prevent URL caching
     timeout: 20000,
     extraHeaders: Platform.OS === 'web' 
       ? { Authorization: `Bearer ${token}` } 
       : { Authorization: `Bearer ${token}` },
   });
+  
+  // Store the URL we're connecting to
+  lastConnectedUrl = fullUrl;
 
   socket.on('connect', () => {
     connectionState = 'connected';
     reconnectAttempts = 0;
     
-    if (process.env.NODE_ENV === 'development') {
+    if (Platform.OS === 'web') {
+      console.log(`[Socket] ✅ [WEB] Connected successfully to: ${lastConnectedUrl}`);
+    } else if (process.env.NODE_ENV === 'development') {
       logger.debug('Socket service - Connected successfully to /app namespace');
     }
 
@@ -118,8 +185,20 @@ const connectSocket = async () => {
     connectionState = 'disconnected';
     
     // Only log if it's not an auth error (which is expected if no token)
+    // For web: Suppress connection refused errors in development (common when backend is not running)
+    const isConnectionRefused = err.message?.includes('ECONNREFUSED') || 
+                               err.message?.includes('connection refused') ||
+                               err.message?.includes('TransportError');
+    
     if (process.env.NODE_ENV === 'development' && err.message !== 'Invalid token') {
-      logger.error('socketService.connect', err);
+      if (Platform.OS === 'web' && isConnectionRefused) {
+        // For web, only log once to avoid spam
+        if (reconnectAttempts === 0) {
+          logger.debug('Socket connection refused (backend may not be running). Will retry silently.');
+        }
+      } else {
+        logger.error('socketService.connect', err);
+      }
     }
 
     // Retry connection with exponential backoff
@@ -137,7 +216,7 @@ const connectSocket = async () => {
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
     if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket event received:', event, args);
+      logger.debug(`Socket event received: ${event}`, { args });
     }
     if (listeners[event]) {
       listeners[event].forEach((cb) => cb(...args));
@@ -212,6 +291,7 @@ export const socketService = {
     if (socket) {
       socket.disconnect();
       socket = null;
+      lastConnectedUrl = null; // Clear stored URL
       connectionState = 'disconnected';
       reconnectAttempts = 0;
     }
@@ -235,7 +315,7 @@ export const socketService = {
     if (!listeners[event]) listeners[event] = new Set();
     listeners[event].add(cb);
     if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Total listeners for', event, ':', listeners[event].size);
+      logger.debug(`Socket service - Total listeners for ${event}: ${listeners[event].size}`);
     }
     if (!socket) await connectSocket();
   },
