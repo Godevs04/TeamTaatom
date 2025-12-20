@@ -8,6 +8,7 @@ import { useScroll } from '../../context/ScrollContext';
 const { width: screenWidth } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 const isTablet = screenWidth >= 768;
+const isIOS = Platform.OS === 'ios';
 
 export default function TabsLayout() {
   const { theme } = useTheme();
@@ -51,8 +52,10 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: isWeb ? 12 : 11,
+          fontSize: isTablet ? (isWeb ? 14 : 13) : (isWeb ? 12 : 11),
+          fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
           fontWeight: '600',
+          letterSpacing: isIOS ? 0.2 : 0,
         },
         tabBarIconStyle: {
           marginBottom: isWeb ? 0 : 4,
