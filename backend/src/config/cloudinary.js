@@ -36,7 +36,7 @@ const uploadImage = async (buffer, options = {}) => {
         },
         (error, result) => {
           if (error) {
-            console.error('Cloudinary upload error:', error);
+            logger.error('Cloudinary upload error:', error);
             reject(error);
           } else {
             resolve(result);
@@ -45,7 +45,7 @@ const uploadImage = async (buffer, options = {}) => {
       ).end(buffer);
     });
   } catch (error) {
-    console.error('Error uploading to Cloudinary:', error);
+    logger.error('Error uploading to Cloudinary:', error);
     throw error;
   }
 };
@@ -56,7 +56,7 @@ const deleteImage = async (publicId) => {
     const result = await cloudinary.uploader.destroy(publicId);
     return result;
   } catch (error) {
-    console.error('Error deleting from Cloudinary:', error);
+    logger.error('Error deleting from Cloudinary:', error);
     throw error;
   }
 };

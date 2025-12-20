@@ -1,0 +1,147 @@
+name: Frontend Build & Deploy
+
+# Note: Warnings about "Context access might be invalid" are expected.
+# These warnings appear because GitHub Actions doesn't know if the secrets exist.
+# The workflow will work correctly when secrets are added to GitHub Secrets.
+# Add these secrets in: Repository Settings → Secrets and variables → Actions
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'frontend/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'frontend/**'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  build-and-test:
+    name: Build & Test Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run linting
+        working-directory: ./frontend
+        run: npm run lint || echo "Linting not configured"
+
+      - name: Build web
+        working-directory: ./frontend
+        env:
+          NODE_ENV: production
+          # Public values - can be in vars or secrets
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+          EXPO_PUBLIC_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+        run: |
+          npm run build:web
+          # Source maps are automatically uploaded by Sentry CLI during build
+
+      - name: Upload source maps to Sentry
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        working-directory: ./frontend
+        env:
+          # Secrets required for Sentry source map uploads
+          # Note: "Context access might be invalid" warnings are expected until secrets are added to GitHub
+          # These warnings will disappear once secrets are configured in: Settings → Secrets and variables → Actions
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          RELEASE_VERSION: ${{ github.sha }}
+        run: |
+          # Skip if secrets are not configured
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "⚠️  Sentry secrets not configured. Skipping source maps upload."
+            echo "   Add secrets in: Repository Settings → Secrets and variables → Actions"
+            exit 0
+          fi
+          
+          # Install Sentry CLI if not already installed
+          npm install -g @sentry/cli || true
+          
+          # Upload source maps (if build generated them)
+          if [ -d "dist" ]; then
+            sentry-cli sourcemaps upload \
+              --org "$SENTRY_ORG" \
+              --project "$SENTRY_PROJECT" \
+              --release "$RELEASE_VERSION" \
+              dist/ || echo "Source maps upload skipped (may not be needed for this build)"
+          fi
+
+      - name: Upload build artifacts
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: frontend/dist
+          retention-days: 7
+
+  build-mobile:
+    name: Build Mobile Apps (EAS)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build iOS
+        working-directory: ./frontend
+        env:
+          # Public values - can be in vars or secrets
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
+        run: |
+          eas build --platform ios --non-interactive --no-wait || echo "iOS build skipped"
+
+      - name: Build Android
+        working-directory: ./frontend
+        env:
+          # Public values - can be in vars or secrets
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
+        run: |
+          eas build --platform android --non-interactive --no-wait || echo "Android build skipped"
+

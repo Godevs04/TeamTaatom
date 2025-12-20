@@ -1,6 +1,7 @@
 import api from './api';
 import { UserType, FollowRequestsResponse } from '../types/user';
 import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 export interface ProfileResponse {
   profile: UserType & {
@@ -61,7 +62,8 @@ export const getProfile = async (userId: string): Promise<ProfileResponse> => {
     const response = await api.get(`/api/v1/profile/${userId}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch profile');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -104,7 +106,8 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     return response.data;
   } catch (error: any) {
     logger.error('updateProfile', error.response?.data || error.message || error);
-    throw new Error(error.response?.data?.message || 'Failed to update profile');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -130,11 +133,13 @@ export const toggleFollow = async (userId: string): Promise<{
   } catch (error: any) {
     // Handle 409 (Conflict) as a special case for follow request already pending
     if (error.response?.status === 409) {
-      const conflictError = new Error(error.response?.data?.message || 'Follow request already pending');
+      const parsedError = parseError(error);
+      const conflictError = new Error(parsedError.userMessage);
       (conflictError as any).isConflict = true;
       throw conflictError;
     }
-    throw new Error(error.response?.data?.message || 'Failed to update follow status');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -144,7 +149,8 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
     const response = await api.get(`/api/v1/profile/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to search users');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -156,7 +162,8 @@ export const updateFCMPushToken = async (userId: string, fcmToken: string): Prom
     });
   } catch (error: any) {
     logger.error('updateFCMPushToken', error.response?.data || error.message || error);
-    throw new Error(error.response?.data?.error || 'Failed to update FCM push token');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -169,7 +176,8 @@ export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
     const response = await api.get('/api/v1/profile/follow-requests');
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch follow requests');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -179,7 +187,8 @@ export const approveFollowRequest = async (requestId: string): Promise<{ message
     const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/approve`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to approve follow request');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -189,7 +198,8 @@ export const rejectFollowRequest = async (requestId: string): Promise<{ message:
     const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/reject`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to reject follow request');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -199,7 +209,8 @@ export const toggleBlockUser = async (userId: string): Promise<{ message: string
     const response = await api.post(`/api/v1/profile/${userId}/block`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update block status');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -209,7 +220,8 @@ export const getBlockStatus = async (userId: string): Promise<{ isBlocked: boole
     const response = await api.get(`/api/v1/profile/${userId}/block-status`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get block status');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -219,7 +231,8 @@ export const getSuggestedUsers = async (limit: number = 10): Promise<SearchUsers
     const response = await api.get(`/api/v1/profile/suggested-users?limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch suggested users');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -263,7 +276,8 @@ export const getTripScoreContinents = async (userId: string): Promise<TripScoreC
     const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore continents');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -275,7 +289,8 @@ export const getTripScoreCountries = async (
     const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents/${continent}/countries`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore countries');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -287,7 +302,8 @@ export const getTripScoreCountryDetails = async (
     const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${country}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore country details');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -299,6 +315,7 @@ export const getTripScoreLocations = async (
     const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${country}/locations`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch TripScore locations');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };

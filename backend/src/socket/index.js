@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { getFollowers } = require('../utils/socketBus');
 const User = require('../models/User');
 const chatController = require('../controllers/chat.controller');
+const logger = require('../utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const WS_PATH = process.env.WS_PATH || '/socket.io';
@@ -12,7 +13,7 @@ let io;
 const onlineUsers = new Map(); // userId -> Set<socketId>
 
 function setupSocket(server) {
-  console.log('Setting up socket server...');
+  logger.log('Setting up socket server...');
   io = new Server(server, {
     path: WS_PATH,
     cors: {
@@ -23,7 +24,7 @@ function setupSocket(server) {
 
   // Set global reference for other modules
   global.socketIO = io;
-  console.log('Socket server initialized and set to global.socketIO');
+  logger.log('Socket server initialized and set to global.socketIO');
 
   const nsp = io.of('/app');
 
@@ -103,7 +104,7 @@ function setupSocket(server) {
 
     // Post interaction events
     socket.on('post:like', ({ postId, isLiked, likesCount }) => {
-      console.log('WebSocket - Post like event:', { postId, isLiked, likesCount, userId: socket.userId });
+      logger.debug('WebSocket - Post like event:', { postId, isLiked, likesCount, userId: socket.userId });
       // Broadcast to all users viewing this post
       nsp.emit('post:like:update', { 
         postId, 
@@ -115,7 +116,7 @@ function setupSocket(server) {
     });
 
     socket.on('post:comment', ({ postId, comment, commentsCount }) => {
-      console.log('WebSocket - Post comment event:', { postId, comment, commentsCount, userId: socket.userId });
+      logger.debug('WebSocket - Post comment event:', { postId, comment, commentsCount, userId: socket.userId });
       // Broadcast to all users viewing this post
       nsp.emit('post:comment:update', { 
         postId, 
@@ -127,7 +128,7 @@ function setupSocket(server) {
     });
 
     socket.on('post:save', ({ postId, isSaved }) => {
-      console.log('WebSocket - Post save event:', { postId, isSaved, userId: socket.userId });
+      logger.debug('WebSocket - Post save event:', { postId, isSaved, userId: socket.userId });
       // Broadcast to all users viewing this post
       nsp.emit('post:save:update', { 
         postId, 
@@ -139,7 +140,7 @@ function setupSocket(server) {
 
     // Call events
     socket.on('call:invite', ({ to, callId, callType, from }) => {
-      console.log('WebSocket - Call invite:', { from: from || socket.userId, to, callId, callType });
+      logger.debug('WebSocket - Call invite:', { from: from || socket.userId, to, callId, callType });
       emitToUser(to, 'call:incoming', { 
         from: from || socket.userId, 
         callId, 
@@ -149,7 +150,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:accept', ({ callId, to, from }) => {
-      console.log('WebSocket - Call accept:', { from: from || socket.userId, to, callId });
+      logger.debug('WebSocket - Call accept:', { from: from || socket.userId, to, callId });
       emitToUser(to, 'call:accepted', { 
         from: from || socket.userId, 
         callId,
@@ -158,7 +159,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:reject', ({ callId, to, from }) => {
-      console.log('WebSocket - Call reject:', { from: from || socket.userId, to, callId });
+      logger.debug('WebSocket - Call reject:', { from: from || socket.userId, to, callId });
       emitToUser(to, 'call:rejected', { 
         from: from || socket.userId, 
         callId,
@@ -167,7 +168,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:end', ({ callId, to, from }) => {
-      console.log('WebSocket - Call end:', { from: from || socket.userId, to, callId });
+      logger.debug('WebSocket - Call end:', { from: from || socket.userId, to, callId });
       emitToUser(to, 'call:ended', { 
         from: from || socket.userId, 
         callId,
@@ -176,7 +177,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:offer', ({ to, callId, offer }) => {
-      console.log('WebSocket - Call offer:', { from: socket.userId, to, callId });
+      logger.debug('WebSocket - Call offer:', { from: socket.userId, to, callId });
       emitToUser(to, 'call:offer', { 
         from: socket.userId, 
         callId, 
@@ -186,7 +187,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:answer', ({ to, callId, answer }) => {
-      console.log('WebSocket - Call answer:', { from: socket.userId, to, callId });
+      logger.debug('WebSocket - Call answer:', { from: socket.userId, to, callId });
       emitToUser(to, 'call:answer', { 
         from: socket.userId, 
         callId, 
@@ -196,7 +197,7 @@ function setupSocket(server) {
     });
 
     socket.on('call:ice-candidate', ({ to, callId, candidate }) => {
-      console.log('WebSocket - ICE candidate:', { from: socket.userId, to, callId });
+      logger.debug('WebSocket - ICE candidate:', { from: socket.userId, to, callId });
       emitToUser(to, 'call:ice-candidate', { 
         from: socket.userId, 
         callId, 
@@ -227,7 +228,7 @@ function setupSocket(server) {
 
   // Post interaction utilities
   nsp.emitPostLike = (postId, isLiked, likesCount, userId) => {
-    console.log('Emitting post like update:', { postId, isLiked, likesCount, userId });
+    logger.debug('Emitting post like update:', { postId, isLiked, likesCount, userId });
     nsp.emit('post:like:update', { 
       postId, 
       isLiked, 
@@ -238,7 +239,7 @@ function setupSocket(server) {
   };
 
   nsp.emitPostComment = (postId, comment, commentsCount, userId) => {
-    console.log('Emitting post comment update:', { postId, comment, commentsCount, userId });
+    logger.debug('Emitting post comment update:', { postId, comment, commentsCount, userId });
     nsp.emit('post:comment:update', { 
       postId, 
       comment, 
@@ -249,7 +250,7 @@ function setupSocket(server) {
   };
 
   nsp.emitPostSave = (postId, isSaved, userId) => {
-    console.log('Emitting post save update:', { postId, isSaved, userId });
+    logger.debug('Emitting post save update:', { postId, isSaved, userId });
     nsp.emit('post:save:update', { 
       postId, 
       isSaved, 
@@ -265,7 +266,7 @@ module.exports = {
   setupSocket, 
   getIO: () => {
     if (!io) {
-      console.error('Socket not initialized. Call setupSocket first.');
+      logger.error('Socket not initialized. Call setupSocket first.');
       return null;
     }
     return io;

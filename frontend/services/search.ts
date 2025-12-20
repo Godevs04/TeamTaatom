@@ -1,5 +1,6 @@
 import api from './api';
 import { PostType } from '../types/post';
+import { parseError } from '../utils/errorCodes';
 
 export interface AdvancedSearchParams {
   q?: string; // Text search in caption
@@ -42,7 +43,8 @@ export const searchPosts = async (params: AdvancedSearchParams): Promise<SearchP
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to search posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -60,7 +62,8 @@ export const searchByLocation = async (
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to search by location');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

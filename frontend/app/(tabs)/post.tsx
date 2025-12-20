@@ -44,6 +44,7 @@ import { SongSelector } from '../../components/SongSelector';
 import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
+import { validateAndSanitizeCaption } from '../../utils/sanitize';
 
 const logger = createLogger('PostScreen');
 
@@ -1091,9 +1092,17 @@ export default function PostScreen() {
         source = 'manual_only';
       }
 
+      // Sanitize caption before sending
+      const sanitizedCaption = validateAndSanitizeCaption(values.comment);
+      if (!sanitizedCaption) {
+        Alert.alert('Invalid Caption', 'Please enter a valid caption.');
+        setIsLoading(false);
+        return;
+      }
+
       const response = await createPostWithProgress({
         images: imagesData,
-        caption: values.comment,
+        caption: sanitizedCaption,
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
@@ -1349,7 +1358,7 @@ export default function PostScreen() {
           type: 'image/jpeg',
           name: 'thumbnail.jpg',
         } : undefined,
-        caption: values.caption,
+        caption: validateAndSanitizeCaption(values.caption) || '',
         // CRITICAL BUG FIX: Preserve both audio tracks
         // If background music is selected, send music data with volume 1.0
         // Backend should mix music with original video audio (video at 0.6, music at 1.0)

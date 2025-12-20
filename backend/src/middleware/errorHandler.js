@@ -2,24 +2,81 @@ const logger = require('../utils/logger');
 const { sendError, ERROR_CODES } = require('../utils/errorCodes');
 const Sentry = require('../instrument');
 
+/**
+ * Sanitize error details to prevent sensitive information leakage
+ * @param {object} details - Error details object
+ * @returns {object} Sanitized details
+ */
+const sanitizeErrorDetails = (details) => {
+  const sanitized = { ...details };
+  
+  // Remove sensitive fields
+  const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization', 'cookie'];
+  sensitiveFields.forEach(field => {
+    if (sanitized[field]) {
+      delete sanitized[field];
+    }
+  });
+
+  // Remove stack traces unless in development
+  if (process.env.NODE_ENV !== 'development' && sanitized.stack) {
+    delete sanitized.stack;
+  }
+
+  // Sanitize nested objects
+  Object.keys(sanitized).forEach(key => {
+    if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
+      sanitized[key] = sanitizeErrorDetails(sanitized[key]);
+    }
+  });
+
+  return sanitized;
+};
+
 const errorHandler = async (err, req, res, next) => {
   logger.error('Error:', err);
   
   // Note: Sentry's setupExpressErrorHandler already captures the error
   // We need to ensure it's flushed BEFORE sending response
   if (Sentry && process.env.SENTRY_DSN) {
-    // Add context to the already-captured error
+    // Add comprehensive context to the already-captured error
     Sentry.setContext('error_details', {
       errorCode: err.errorCode || 'SRV_6001',
       path: req.path,
       method: req.method,
+      query: req.query,
+      body: sanitizeErrorDetails(req.body), // Sanitize to remove sensitive data
+      ip: req.ip || req.connection?.remoteAddress,
+      userAgent: req.get('user-agent'),
     });
+
+    // Add user context if available
+    if (req.user) {
+      Sentry.setUser({
+        id: req.user._id?.toString() || req.user.id,
+        username: req.user.username,
+        email: req.user.email,
+      });
+    } else {
+      // Clear user context if not authenticated
+      Sentry.setUser(null);
+    }
+
+    // Add tags for better filtering
+    Sentry.setTag('error_code', err.errorCode || 'SRV_6001');
+    Sentry.setTag('http_method', req.method);
+    Sentry.setTag('http_path', req.path);
+    Sentry.setTag('authenticated', !!req.user);
+    
+    // Set error level based on status code
+    const level = err.status >= 500 ? 'error' : err.status >= 400 ? 'warning' : 'info';
+    Sentry.setLevel(level);
     
     // CRITICAL: Flush Sentry BEFORE sending response (await to ensure it's sent)
     try {
       await Sentry.flush(5000);
       if (process.env.NODE_ENV === 'development') {
-        console.log('✅ Sentry error flushed successfully');
+        logger.log('✅ Sentry error flushed successfully');
       }
     } catch (flushError) {
       logger.error('Failed to flush Sentry:', flushError);
@@ -109,13 +166,17 @@ const errorHandler = async (err, req, res, next) => {
   // Default error response
   else {
     customMessage = err.message || 'An unexpected error occurred. Please try again later.';
+    // NEVER include stack traces in production - only in development
     if (process.env.NODE_ENV === 'development') {
       details.stack = err.stack;
     }
   }
 
+  // Sanitize details to prevent sensitive information leakage
+  const sanitizedDetails = sanitizeErrorDetails(details);
+
   // Send response to client
-  return sendError(res, errorCode, customMessage, details);
+  return sendError(res, errorCode, customMessage, sanitizedDetails);
 };
 
 module.exports = errorHandler;
