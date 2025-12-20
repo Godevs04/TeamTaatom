@@ -58,18 +58,11 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       });
       const { token, user } = response.data;
       // Store token
-      // For web: Store in sessionStorage if token is returned (cross-origin fallback)
+      // Store token
+      // For web: Backend should set httpOnly cookie, but store in AsyncStorage for socket.io compatibility
       // For mobile: Store in AsyncStorage
       if (token) {
-        if (isWeb) {
-          // Web: Store in sessionStorage as fallback if cookie didn't work
-          if (typeof window !== 'undefined' && window.sessionStorage) {
-            window.sessionStorage.setItem('authToken', token);
-          }
-        } else {
-          // Mobile: Store in AsyncStorage
-          await AsyncStorage.setItem('authToken', token);
-        }
+        await AsyncStorage.setItem('authToken', token);
       }
       
       if (user) {

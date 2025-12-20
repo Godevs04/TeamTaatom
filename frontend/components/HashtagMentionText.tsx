@@ -3,6 +3,8 @@ import { Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-nat
 import { useTheme } from '../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { searchUsers } from '../services/profile';
+import { sanitizeTextContent, sanitizeHashtag, sanitizeMention } from '../utils/sanitize';
+import logger from '../utils/logger';
 
 interface HashtagMentionTextProps {
   text: string;
@@ -28,23 +30,37 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
   const [loadingMention, setLoadingMention] = useState<string | null>(null);
 
   const handleHashtagPress = (hashtag: string) => {
+    // Sanitize hashtag before processing
+    const sanitized = sanitizeHashtag(hashtag);
+    if (!sanitized || sanitized.length <= 1) {
+      logger.warn('Invalid hashtag:', hashtag);
+      return;
+    }
+    
     if (onHashtagPress) {
-      onHashtagPress(hashtag);
+      onHashtagPress(sanitized);
     } else {
-      router.push(`/hashtag/${hashtag.replace(/^#/, '')}`);
+      router.push(`/hashtag/${sanitized.replace(/^#/, '')}`);
     }
   };
 
   const handleMentionPress = async (username: string) => {
+    // Sanitize mention before processing
+    const sanitized = sanitizeMention(username);
+    if (!sanitized || sanitized.length === 0) {
+      logger.warn('Invalid mention:', username);
+      return;
+    }
+    
     if (onMentionPress) {
-      onMentionPress(username);
+      onMentionPress(sanitized);
       return;
     }
 
     try {
-      setLoadingMention(username);
+      setLoadingMention(sanitized);
       // Search for user by username
-      const response = await searchUsers(username, 1, 1);
+      const response = await searchUsers(sanitized, 1, 1);
       
       if (response.users && response.users.length > 0) {
         // Use the first result since searchUsers should already filter by username
@@ -54,64 +70,73 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
           router.push(`/profile/${user._id}`);
         } else {
           // Fallback to search if user not found
-          router.push(`/search?q=${encodeURIComponent(username)}`);
+          router.push(`/search?q=${encodeURIComponent(sanitized)}`);
         }
     } else {
         // Fallback to search if no users found
-        router.push(`/search?q=${encodeURIComponent(username)}`);
+        router.push(`/search?q=${encodeURIComponent(sanitized)}`);
       }
     } catch (error) {
-      console.error('Error searching for user:', error);
+      logger.error('Error searching for user:', error);
       // Fallback to search on error
-      router.push(`/search?q=${encodeURIComponent(username)}`);
+      router.push(`/search?q=${encodeURIComponent(sanitized)}`);
     } finally {
       setLoadingMention(null);
     }
   };
 
+  // Sanitize text before processing
+  const sanitizedText = sanitizeTextContent(text);
+  
   // Split text into parts (hashtags, mentions, and regular text)
   const parts: Array<{ text: string; type: 'text' | 'hashtag' | 'mention'; value?: string }> = [];
-  const combinedRegex = /(@[\w]+|#[\w\u{1F300}-\u{1F9FF}]+)/gu;
+  const combinedRegex = /(@[\w.]+|#[\w]+)/gu;
   let lastIndex = 0;
   let match;
 
-  while ((match = combinedRegex.exec(text)) !== null) {
+  while ((match = combinedRegex.exec(sanitizedText)) !== null) {
     // Add text before match
     if (match.index > lastIndex) {
       parts.push({
-        text: text.substring(lastIndex, match.index),
+        text: sanitizedText.substring(lastIndex, match.index),
         type: 'text',
       });
     }
-    // Add hashtag or mention
+    // Add hashtag or mention (sanitize values)
     const matchedText = match[0];
     if (matchedText.startsWith('#')) {
-      parts.push({
-        text: matchedText,
-        type: 'hashtag',
-        value: matchedText.replace(/^#/, ''),
-      });
+      const sanitizedHashtag = sanitizeHashtag(matchedText);
+      if (sanitizedHashtag && sanitizedHashtag.length > 1) {
+        parts.push({
+          text: sanitizedHashtag,
+          type: 'hashtag',
+          value: sanitizedHashtag.replace(/^#/, ''),
+        });
+      }
     } else if (matchedText.startsWith('@')) {
-      parts.push({
-        text: matchedText,
-        type: 'mention',
-        value: matchedText.substring(1), // Remove @
-      });
+      const sanitizedMention = sanitizeMention(matchedText);
+      if (sanitizedMention && sanitizedMention.length > 0) {
+        parts.push({
+          text: `@${sanitizedMention}`,
+          type: 'mention',
+          value: sanitizedMention,
+        });
+      }
     }
     lastIndex = match.index + matchedText.length;
   }
 
   // Add remaining text
-  if (lastIndex < text.length) {
+  if (lastIndex < sanitizedText.length) {
     parts.push({
-      text: text.substring(lastIndex),
+      text: sanitizedText.substring(lastIndex),
       type: 'text',
     });
   }
 
   // If no hashtags or mentions found, return plain text
   if (parts.length === 0 || parts.every(p => p.type === 'text')) {
-    return <Text style={[styles.text, { color: theme.colors.text }, style]}>{text}</Text>;
+    return <Text style={[styles.text, { color: theme.colors.text }, style]}>{sanitizedText}</Text>;
   }
 
   return (

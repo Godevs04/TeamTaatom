@@ -1,6 +1,7 @@
 import api from './api';
 import { NotificationResponse, MarkAsReadResponse } from '../types/notification';
 import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 // Get notifications
 export const getNotifications = async (page: number = 1, limit: number = 20): Promise<NotificationResponse> => {
@@ -8,7 +9,8 @@ export const getNotifications = async (page: number = 1, limit: number = 20): Pr
     const response = await api.get(`/api/v1/notifications?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch notifications');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -18,7 +20,8 @@ export const markNotificationAsRead = async (notificationId: string): Promise<Ma
     const response = await api.put(`/api/v1/notifications/${notificationId}/read`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to mark notification as read');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -28,7 +31,8 @@ export const markAllNotificationsAsRead = async (): Promise<MarkAsReadResponse> 
     const response = await api.put('/api/v1/notifications/read-all');
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to mark all notifications as read');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -38,7 +42,8 @@ export const getUnreadCount = async (): Promise<{ unreadCount: number }> => {
     const response = await api.get('/api/v1/notifications/unread-count');
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get unread count');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

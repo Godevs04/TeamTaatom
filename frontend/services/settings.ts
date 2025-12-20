@@ -1,5 +1,6 @@
 import api from './api';
 import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 export interface UserSettings {
   privacy: {
@@ -50,7 +51,8 @@ export const getSettings = async (): Promise<SettingsResponse> => {
     const response = await api.get('/api/v1/settings');
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch settings');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -60,7 +62,8 @@ export const updateSettings = async (settings: Partial<UserSettings>): Promise<S
     const response = await api.put('/api/v1/settings', { settings });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update settings');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -97,7 +100,8 @@ export const updateSettingCategory = async (category: 'privacy' | 'notifications
     } else if (error.response?.status === 500) {
       throw new Error('Server error. Please try again later.');
     } else {
-      throw new Error(error.response?.data?.message || 'Failed to update settings');
+      const parsedError = parseError(error);
+      throw new Error(parsedError.userMessage);
     }
   }
 };
@@ -108,6 +112,7 @@ export const resetSettings = async (): Promise<SettingsResponse> => {
     const response = await api.post('/api/v1/settings/reset');
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to reset settings');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };

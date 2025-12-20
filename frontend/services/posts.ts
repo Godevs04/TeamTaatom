@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 import { getApiUrl } from '../utils/config';
 import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 // Simple in-memory cache and rate-limit friendly helpers
 const postByIdCache = new Map<string, { data: any; expiresAt: number }>();
@@ -147,7 +148,8 @@ export const getPosts = async (page: number = 1, limit: number = 20): Promise<Po
         throw new Error(rateLimitInfo.message);
       }
     }
-    throw new Error(error.response?.data?.message || 'Failed to fetch posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -312,7 +314,8 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
 
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to create post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -338,7 +341,8 @@ export const getTravelMapData = async (userId: string): Promise<{
     const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch travel map data');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -348,7 +352,8 @@ export const getUserPosts = async (userId: string, page: number = 1, limit: numb
     const response = await api.get(`/api/v1/posts/user/${userId}?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch user posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -358,7 +363,8 @@ export const toggleLike = async (postId: string): Promise<{ message: string; isL
     const response = await api.post(`/api/v1/posts/${postId}/like`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update like status');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -368,7 +374,8 @@ export const addComment = async (postId: string, text: string): Promise<{ messag
     const response = await api.post(`/api/v1/posts/${postId}/comments`, { text });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to add comment');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -378,7 +385,8 @@ export const deleteComment = async (postId: string, commentId: string): Promise<
     const response = await api.delete(`/api/v1/posts/${postId}/comments/${commentId}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete comment');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -390,7 +398,8 @@ export const deletePost = async (postId: string): Promise<{ message: string }> =
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -401,7 +410,8 @@ export const archivePost = async (postId: string): Promise<{ message: string; po
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to archive post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -412,7 +422,8 @@ export const unarchivePost = async (postId: string): Promise<{ message: string; 
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to unarchive post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -422,7 +433,8 @@ export const hidePost = async (postId: string): Promise<{ message: string }> => 
     const response = await api.patch(`/api/v1/posts/${postId}/hide`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to hide post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -433,7 +445,8 @@ export const unhidePost = async (postId: string): Promise<{ message: string; pos
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to unhide post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -443,7 +456,8 @@ export const getArchivedPosts = async (page: number = 1, limit: number = 20): Pr
     const response = await api.get(`/api/v1/posts/archived?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch archived posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -453,7 +467,8 @@ export const getHiddenPosts = async (page: number = 1, limit: number = 20): Prom
     const response = await api.get(`/api/v1/posts/hidden?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch hidden posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -464,7 +479,8 @@ export const toggleComments = async (postId: string): Promise<{ message: string;
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to toggle comments');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -475,7 +491,8 @@ export const updatePost = async (postId: string, caption: string): Promise<{ mes
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update post');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -487,7 +504,8 @@ export const deleteShort = async (shortId: string): Promise<{ message: string }>
     postByIdCache.delete(shortId);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete short');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -497,7 +515,8 @@ export const getShorts = async (page: number = 1, limit: number = 20): Promise<S
     const response = await api.get(`/api/v1/shorts?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch shorts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -507,7 +526,8 @@ export const getUserShorts = async (userId: string, page: number = 1, limit: num
     const response = await api.get(`/api/v1/shorts/user/${userId}?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch user shorts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -602,7 +622,8 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to create short');
+      const parsedError = parseError({ response: { data: errorData } });
+      throw new Error(parsedError.userMessage);
     }
 
     const responseData = await response.json();
@@ -610,6 +631,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     return responseData;
   } catch (error: any) {
     logger.error('createShort', error);
-    throw new Error(error.message || 'Failed to create short');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };

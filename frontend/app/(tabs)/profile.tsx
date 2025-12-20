@@ -10,7 +10,9 @@ import {
   RefreshControl,
   Pressable,
   Animated,
-  useColorScheme
+  useColorScheme,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -36,8 +38,27 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
+import { theme } from '../../constants/theme';
 
 const logger = createLogger('ProfileScreen');
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 interface ProfileData extends UserType {
   postsCount: number;
@@ -1154,44 +1175,62 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1200 : 1000,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 20,
+    paddingBottom: isTablet ? 30 : 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: isTablet ? theme.spacing.xl : 20,
   },
   errorText: {
-    fontSize: 16,
-    marginBottom: 20,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
+    marginBottom: isTablet ? theme.spacing.xl : 20,
     textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   retryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 24,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    borderRadius: theme.borderRadius.md,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   retryButtonText: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   
   // Hero Header
   heroHeader: {
-    paddingTop: 60,
-    paddingBottom: 32,
-    paddingHorizontal: 20,
+    paddingTop: isTablet ? 80 : 60,
+    paddingBottom: isTablet ? theme.spacing.xl : 32,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
   },
   heroHeaderContent: {
     width: '100%',
@@ -1200,7 +1239,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: isTablet ? theme.spacing.xl : 24,
   },
   topActionsLeft: {
     flex: 1,
@@ -1208,12 +1247,12 @@ const styles = StyleSheet.create({
   topActionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   headerActionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: isTablet ? 48 : 40,
+    height: isTablet ? 48 : 40,
+    borderRadius: isTablet ? 24 : 20,
     justifyContent: 'center',
     alignItems: 'center',
     shadowOffset: { width: 0, height: 2 },
@@ -1241,8 +1280,8 @@ const styles = StyleSheet.create({
   
   // Profile Card
   profileCard: {
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: isTablet ? theme.borderRadius.xl : 24,
+    padding: isTablet ? theme.spacing.xl : 24,
     alignItems: 'center',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
@@ -1250,21 +1289,21 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   avatarContainer: {
-    marginBottom: 16,
+    marginBottom: isTablet ? theme.spacing.lg : 16,
   },
   avatarRing: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
+    width: isTablet ? 160 : 132,
+    height: isTablet ? 160 : 132,
+    borderRadius: isTablet ? 80 : 66,
     borderWidth: 3,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 3,
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: isTablet ? 148 : 120,
+    height: isTablet ? 148 : 120,
+    borderRadius: isTablet ? 74 : 60,
     borderWidth: 4,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -1272,17 +1311,25 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   profileName: {
-    fontSize: 28,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 28,
+    fontFamily: getFontFamily('800'),
     fontWeight: '800',
     marginBottom: 6,
     textAlign: 'center',
-    letterSpacing: 0.3,
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   memberSince: {
-    fontSize: 14,
-    marginBottom: 12,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('500'),
+    marginBottom: isTablet ? theme.spacing.md : 12,
     textAlign: 'center',
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   badge: {
     flexDirection: 'row',
@@ -1298,18 +1345,18 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    gap: 12,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 12,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   statCard: {
     flex: 1,
     width: '100%',
-    height: 110,
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 10,
+    height: isTablet ? 130 : 110,
+    borderRadius: isTablet ? theme.borderRadius.lg : 20,
+    paddingVertical: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: isTablet ? theme.spacing.md : 10,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 2 },
@@ -1319,25 +1366,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: isTablet ? 44 : 36,
+    height: isTablet ? 44 : 36,
+    borderRadius: isTablet ? 22 : 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
   },
   statValue: {
-    fontSize: 22,
+    fontSize: isTablet ? 28 : 22,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     marginBottom: 4,
     letterSpacing: 0.3,
     textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 10,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     letterSpacing: 1,
     textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   
   // Section Cards

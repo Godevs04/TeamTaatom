@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { getUserFromStorage } from './auth';
 import { getApiUrl } from '../utils/config';
 import logger from '../utils/logger';
+import * as Sentry from '@sentry/react-native';
 
 interface ErrorContext {
   userId?: string;
@@ -19,12 +20,21 @@ class CrashReportingService {
   async initialize() {
     if (this.isInitialized) return;
 
-    // Get Sentry DSN from environment or config
-    // For now, we'll use a simple error logging service
-    // In production, replace with actual Sentry initialization
+    // Get Sentry DSN from environment
+    const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN;
+    this.sentryDsn = sentryDsn || null;
     
     const user = await getUserFromStorage();
     this.userId = user?._id || null;
+
+    // Set user context in Sentry if available
+    if (this.userId && Sentry) {
+      Sentry.setUser({
+        id: this.userId,
+        username: (user as any)?.username,
+        email: (user as any)?.email,
+      });
+    }
 
     // Set up global error handlers
     this.setupErrorHandlers();
@@ -43,6 +53,7 @@ class CrashReportingService {
           this.captureException(error, {
             isFatal,
             type: 'unhandled_error',
+            level: isFatal ? 'fatal' : 'error',
           });
           
           if (originalHandler) {
@@ -52,16 +63,20 @@ class CrashReportingService {
       }
     }
 
-    // Handle console errors
-    const originalError = console.error;
-    console.error = (...args: any[]) => {
-      if (args[0] instanceof Error) {
-        this.captureException(args[0], {
-          type: 'console_error',
-        });
-      }
-      originalError(...args);
-    };
+    // Handle console errors - only in development to avoid performance impact
+    // Note: In production, logger.error already handles Sentry integration
+    if (process.env.NODE_ENV === 'development' || __DEV__) {
+      const originalError = console.error;
+      console.error = (...args: any[]) => {
+        if (args[0] instanceof Error) {
+          this.captureException(args[0], {
+            type: 'console_error',
+            level: 'error',
+          });
+        }
+        originalError(...args);
+      };
+    }
   }
 
   async captureException(error: Error, context?: ErrorContext) {
@@ -69,32 +84,76 @@ class CrashReportingService {
       await this.initialize();
     }
 
-    const errorReport = {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-      platform: Platform.OS,
-      userId: this.userId,
-      timestamp: new Date().toISOString(),
-      context: {
-        ...context,
-        appVersion: Constants.expoConfig?.version || '1.0.0',
-      },
-    };
+    // Add context to Sentry
+    if (Sentry && this.sentryDsn) {
+      try {
+        // Set additional context
+        Sentry.setContext('error_details', {
+          platform: Platform.OS,
+          appVersion: Constants.expoConfig?.version || '1.0.0',
+          ...context,
+        });
+
+        // Set tags for better filtering
+        if (context?.screen) {
+          Sentry.setTag('screen', context.screen);
+        }
+        if (context?.action) {
+          Sentry.setTag('action', context.action);
+        }
+        if (context?.type) {
+          Sentry.setTag('error_type', context.type);
+        }
+        if (context?.level) {
+          Sentry.setTag('level', context.level);
+        }
+
+        // Capture exception with Sentry
+        Sentry.captureException(error, {
+          level: (context?.level as any) || 'error',
+          tags: {
+            platform: Platform.OS,
+            ...(context?.screen && { screen: context.screen }),
+            ...(context?.action && { action: context.action }),
+          },
+        });
+      } catch (sentryError) {
+        // Sentry failed - log but don't break the app
+        logger.error('Failed to send error to Sentry', sentryError);
+      }
+    }
 
     // Log to console in development
     if (process.env.NODE_ENV === 'development') {
-      logger.error('[Crash Report]', errorReport);
+      logger.error('[Crash Report]', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        platform: Platform.OS,
+        userId: this.userId,
+        context,
+      });
     }
 
-    // Send to backend for logging/storage
+    // Also send to backend for logging/storage (fallback)
     try {
       await fetch(getApiUrl('/api/v1/analytics/errors'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(errorReport),
+        body: JSON.stringify({
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+          platform: Platform.OS,
+          userId: this.userId,
+          timestamp: new Date().toISOString(),
+          context: {
+            ...context,
+            appVersion: Constants.expoConfig?.version || '1.0.0',
+          },
+        }),
       }).catch(() => {
         // Silently fail - don't break the app
       });
@@ -108,41 +167,100 @@ class CrashReportingService {
       await this.initialize();
     }
 
-    const report = {
-      message,
-      level,
-      platform: Platform.OS,
-      userId: this.userId,
-      timestamp: new Date().toISOString(),
-      context: {
-        ...context,
-        appVersion: Constants.expoConfig?.version || '1.0.0',
-      },
-    };
+    // Send to Sentry
+    if (Sentry && this.sentryDsn) {
+      try {
+        // Set context
+        if (context) {
+          Sentry.setContext('message_details', {
+            platform: Platform.OS,
+            appVersion: Constants.expoConfig?.version || '1.0.0',
+            ...context,
+          });
 
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug(`[Crash Report ${level.toUpperCase()}]`, report);
+          // Set tags
+          if (context.screen) {
+            Sentry.setTag('screen', context.screen);
+          }
+          if (context.action) {
+            Sentry.setTag('action', context.action);
+          }
+        }
+
+        // Capture message with Sentry
+        Sentry.captureMessage(message, {
+          level: level as any,
+          tags: {
+            platform: Platform.OS,
+            ...(context?.screen && { screen: context.screen }),
+            ...(context?.action && { action: context.action }),
+          },
+        });
+      } catch (sentryError) {
+        logger.error('Failed to send message to Sentry', sentryError);
+      }
     }
 
+    if (process.env.NODE_ENV === 'development') {
+      logger.debug(`[Crash Report ${level.toUpperCase()}]`, {
+        message,
+        level,
+        platform: Platform.OS,
+        userId: this.userId,
+        context,
+      });
+    }
+
+    // Also send to backend (fallback)
     try {
       await fetch(getApiUrl('/api/v1/analytics/errors'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(report),
+        body: JSON.stringify({
+          message,
+          level,
+          platform: Platform.OS,
+          userId: this.userId,
+          timestamp: new Date().toISOString(),
+          context: {
+            ...context,
+            appVersion: Constants.expoConfig?.version || '1.0.0',
+          },
+        }),
       }).catch(() => {});
     } catch (err) {
       // Silently fail
     }
   }
 
-  setUser(userId: string) {
+  setUser(userId: string, userData?: { username?: string; email?: string }) {
     this.userId = userId;
+    
+    // Update Sentry user context
+    if (Sentry && this.sentryDsn) {
+      Sentry.setUser({
+        id: userId,
+        username: userData?.username,
+        email: userData?.email,
+      });
+    }
   }
 
   addBreadcrumb(message: string, category: string, data?: Record<string, any>) {
-    // For now, just log in development
+    // Add breadcrumb to Sentry for better error context
+    if (Sentry && this.sentryDsn) {
+      Sentry.addBreadcrumb({
+        message,
+        category,
+        level: 'info',
+        data,
+        timestamp: Date.now() / 1000, // Sentry expects seconds
+      });
+    }
+
+    // Log in development
     if (process.env.NODE_ENV === 'development') {
       logger.debug(`[Breadcrumb] ${category}: ${message}`, data);
     }

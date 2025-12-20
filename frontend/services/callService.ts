@@ -1,6 +1,7 @@
 import { socketService } from './socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
+import logger from '../utils/logger';
 
 export interface CallState {
   isCallActive: boolean;
@@ -44,27 +45,27 @@ class CallService {
   private pendingRemoteIceCandidates: any[] = [];
 
   constructor() {
-    console.log('📞 CallService constructor - ready to initialize');
+    logger.debug('📞 CallService constructor - ready to initialize');
   }
 
   // Initialize the call service
   async initialize(): Promise<void> {
-    console.log('📞 CallService initializing...');
+    logger.debug('📞 CallService initializing...');
     await this.bootstrapWebRTC();
     await this.setupSocketListeners();
     await this.initializeAudio();
-    console.log('📞 CallService initialized successfully');
+    logger.debug('📞 CallService initialized successfully');
   }
 
   // Initialize audio permissions and settings
   private async initializeAudio(): Promise<void> {
     try {
-      console.log('📞 Initializing audio...');
+      logger.debug('📞 Initializing audio...');
       
       // Request audio permissions
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
-        console.warn('📞 Audio permission not granted');
+        logger.warn('📞 Audio permission not granted');
         return;
       }
 
@@ -78,9 +79,9 @@ class CallService {
       });
 
       this.isAudioInitialized = true;
-      console.log('📞 Audio initialized successfully');
+      logger.debug('📞 Audio initialized successfully');
     } catch (error) {
-      console.error('📞 Error initializing audio:', error);
+      logger.error('📞 Error initializing audio:', error);
     }
   }
 
@@ -101,82 +102,82 @@ class CallService {
   }
 
   private async setupSocketListeners() {
-    console.log('📞 Setting up call service socket listeners...');
+    logger.debug('📞 Setting up call service socket listeners...');
     
     // Ensure socket is connected
     await socketService.connect();
-    console.log('📞 Socket connected, setting up listeners');
+    logger.debug('📞 Socket connected, setting up listeners');
     
     // Listen for incoming calls
     await socketService.subscribe('call:incoming', (data: any) => {
-      console.log('📞 Incoming call received:', data);
+      logger.debug('📞 Incoming call received:', data);
       this.handleIncomingCall(data);
     });
 
     // Listen for call accepted
     await socketService.subscribe('call:accepted', (data: any) => {
-      console.log('📞 Call accepted:', data);
+      logger.debug('📞 Call accepted:', data);
       this.handleCallAccepted(data);
     });
 
     // Listen for call rejected
     await socketService.subscribe('call:rejected', (data: any) => {
-      console.log('📞 Call rejected:', data);
+      logger.debug('📞 Call rejected:', data);
       this.handleCallRejected(data);
     });
 
     // Listen for call ended
     await socketService.subscribe('call:ended', (data: any) => {
-      console.log('📞 Call ended:', data);
+      logger.debug('📞 Call ended:', data);
       this.handleCallEnded(data);
     });
 
     // WebRTC signaling events
     await socketService.subscribe('call:offer', async (data: any) => {
-      console.log('📞 Signaling - offer received', !!data?.offer);
+      logger.debug('📞 Signaling - offer received', !!data?.offer);
       await this.onOfferReceived(data);
     });
     await socketService.subscribe('call:answer', async (data: any) => {
-      console.log('📞 Signaling - answer received', !!data?.answer);
+      logger.debug('📞 Signaling - answer received', !!data?.answer);
       await this.onAnswerReceived(data);
     });
     await socketService.subscribe('call:ice-candidate', async (data: any) => {
-      console.log('📞 Signaling - candidate received', !!data?.candidate);
+      logger.debug('📞 Signaling - candidate received', !!data?.candidate);
       await this.onIceCandidateReceived(data);
     });
 
     // Listen for mute state changes
     await socketService.subscribe('call:mute', (data: any) => {
-      console.log('📞 Mute state changed:', data);
+      logger.debug('📞 Mute state changed:', data);
       this.handleMuteChange(data);
     });
 
     // Listen for video state changes
     await socketService.subscribe('call:video', (data: any) => {
-      console.log('📞 Video state changed:', data);
+      logger.debug('📞 Video state changed:', data);
       this.handleVideoChange(data);
     });
 
     // Listen for camera switch
     await socketService.subscribe('call:camera-switch', (data: any) => {
-      console.log('📞 Camera switched:', data);
+      logger.debug('📞 Camera switched:', data);
       this.handleCameraSwitch(data);
     });
     
-    console.log('📞 All call socket listeners set up successfully');
+    logger.debug('📞 All call socket listeners set up successfully');
   }
 
   async startCall(otherUserId: string, callType: 'voice' | 'video'): Promise<void> {
     try {
-      console.log(`📞 Starting ${callType} call with ${otherUserId}`);
+      logger.debug(`📞 Starting ${callType} call with ${otherUserId}`);
       
       // Ensure socket is connected
       await socketService.connect();
-      console.log('📞 Socket connected for call start');
+      logger.debug('📞 Socket connected for call start');
       
       // Get current user ID
       const currentUserId = await this.getCurrentUserId();
-      console.log('📞 Current user ID:', currentUserId);
+      logger.debug('📞 Current user ID:', currentUserId);
       
       const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
@@ -200,7 +201,7 @@ class CallService {
       }
 
       // Send call invitation
-      console.log('📞 Sending call invitation:', {
+      logger.debug('📞 Sending call invitation:', {
         to: otherUserId,
         callId,
         callType,
@@ -214,7 +215,7 @@ class CallService {
         from: currentUserId,
       });
       
-      console.log('📞 Call invitation sent successfully');
+      logger.debug('📞 Call invitation sent successfully');
 
       // Establish WebRTC and send SDP offer if available
       await this.ensurePeerConnection(callType);
@@ -223,26 +224,26 @@ class CallService {
       // Simulate call ringing for 10 seconds
       setTimeout(() => {
         if (this.callState.isOutgoingCall) {
-          console.log('📞 Call timed out - no answer');
+          logger.debug('📞 Call timed out - no answer');
           this.endCall();
         }
       }, 10000);
       
     } catch (error) {
-      console.error('📞 Error starting call:', error);
+      logger.error('📞 Error starting call:', error);
       this.endCall();
     }
   }
 
   async acceptCall(): Promise<void> {
     try {
-      console.log('Accepting call');
+      logger.debug('Accepting call');
       
       // Get current user ID
       const currentUserId = await this.getCurrentUserId();  
       
       // Send call accepted
-      console.log('Sending call accepted:', {
+      logger.debug('Sending call accepted:', {
         callId: this.callState.callId,
         to: this.callState.otherUserId,
         from: currentUserId,
@@ -272,19 +273,19 @@ class CallService {
       this.startCallTimer();
 
     } catch (error) {
-      console.error('Error accepting call:', error);
+      logger.error('Error accepting call:', error);
       this.rejectCall();
     }
   }
 
   async rejectCall(): Promise<void> {
-    console.log('Rejecting call');
+    logger.debug('Rejecting call');
     
     // Get current user ID
     try {
       const currentUserId = await this.getCurrentUserId();
       
-      console.log('Sending call rejected:', {
+      logger.debug('Sending call rejected:', {
         callId: this.callState.callId,
         to: this.callState.otherUserId,
         from: currentUserId,
@@ -296,21 +297,21 @@ class CallService {
         from: currentUserId,
       });
     } catch (error) {
-      console.error('Error getting user ID for reject:', error);
+      logger.error('Error getting user ID for reject:', error);
     }
 
     this.endCall();
   }
 
   async endCall(): Promise<void> {
-    console.log('Ending call');
+    logger.debug('Ending call');
     
     if (this.callState.callId) {
       // Get current user ID
       try {
         const currentUserId = await this.getCurrentUserId();
         
-        console.log('Sending call ended:', {
+        logger.debug('Sending call ended:', {
           callId: this.callState.callId,
           to: this.callState.otherUserId,
           from: currentUserId,
@@ -322,7 +323,7 @@ class CallService {
           from: currentUserId,
         });
       } catch (error) {
-        console.error('Error getting user ID for end call:', error);
+        logger.error('Error getting user ID for end call:', error);
       }
     }
 
@@ -345,7 +346,7 @@ class CallService {
   }
 
   private async handleIncomingCall(data: any): Promise<void> {
-    console.log('📞 Handling incoming call:', data);
+    logger.debug('📞 Handling incoming call:', data);
     
     this.updateCallState({
       isIncomingCall: true,
@@ -358,11 +359,11 @@ class CallService {
     });
     
     // Auto-show incoming call screen
-    console.log('📞 Incoming call state updated, should show call screen');
+    logger.debug('📞 Incoming call state updated, should show call screen');
   }
 
   private async handleCallAccepted(data: any): Promise<void> {
-    console.log('📞 Call accepted by other user:', data);
+    logger.debug('📞 Call accepted by other user:', data);
     
     this.updateCallState({
       isOutgoingCall: false,
@@ -375,7 +376,7 @@ class CallService {
     this.startCallTimer();
     // Do not play simulated audio; real audio will flow via WebRTC when available
     
-    console.log('📞 Call is now active, timer started');
+    logger.debug('📞 Call is now active, timer started');
   }
 
   // Start audio simulation for active call
@@ -387,29 +388,29 @@ class CallService {
   }
 
   private async handleCallRejected(data: any): Promise<void> {
-    console.log('📞 Call rejected by other user:', data);
+    logger.debug('📞 Call rejected by other user:', data);
     this.endCall();
   }
 
   private async handleCallEnded(data: any): Promise<void> {
-    console.log('📞 Call ended by other user:', data);
+    logger.debug('📞 Call ended by other user:', data);
     this.endCall();
   }
 
   private async handleMuteChange(data: any): Promise<void> {
-    console.log('📞 Other user mute state changed:', data);
+    logger.debug('📞 Other user mute state changed:', data);
     // In a real implementation, you would update the UI to show the other user's mute state
     // For now, we'll just log it
   }
 
   private async handleVideoChange(data: any): Promise<void> {
-    console.log('📞 Other user video state changed:', data);
+    logger.debug('📞 Other user video state changed:', data);
     // In a real implementation, you would update the UI to show the other user's video state
     // For now, we'll just log it
   }
 
   private async handleCameraSwitch(data: any): Promise<void> {
-    console.log('📞 Other user switched camera:', data);
+    logger.debug('📞 Other user switched camera:', data);
     // In a real implementation, you would update the UI to show the camera switch
     // For now, we'll just log it
   }
@@ -444,7 +445,7 @@ class CallService {
       this.localStream = null;
       this.remoteStream = null;
     } catch (e) {
-      console.log('📞 Error cleaning up WebRTC:', e);
+      logger.debug('📞 Error cleaning up WebRTC:', e);
     }
     
     this.updateCallState({
@@ -473,9 +474,9 @@ class CallService {
         this.sound = null;
       }
       
-      console.log('📞 Audio resources cleaned up');
+      logger.debug('📞 Audio resources cleaned up');
     } catch (error) {
-      console.error('📞 Error cleaning up audio:', error);
+      logger.error('📞 Error cleaning up audio:', error);
     }
   }
 
@@ -498,10 +499,10 @@ class CallService {
     try {
       await socketService.connect();
       const isConnected = socketService.isConnected();
-      console.log('📞 Socket connection test:', isConnected ? 'SUCCESS' : 'FAILED');
+      logger.debug('📞 Socket connection test:', isConnected ? 'SUCCESS' : 'FAILED');
       return isConnected;
     } catch (error) {
-      console.error('📞 Socket connection test failed:', error);
+      logger.error('📞 Socket connection test failed:', error);
       return false;
     }
   }
@@ -521,7 +522,7 @@ class CallService {
     try {
       return this.isInitialized() && socketService.isConnected();
     } catch (error) {
-      console.error('📞 Error checking if call service is working:', error);
+      logger.error('📞 Error checking if call service is working:', error);
       return false;
     }
   }
@@ -554,11 +555,11 @@ class CallService {
           userId: currentUserId
         });
       } catch (error) {
-        console.error('📞 Error getting user ID for mute:', error);
+        logger.error('📞 Error getting user ID for mute:', error);
       }
     }
     
-    console.log(`📞 Microphone ${newMuteState ? 'muted' : 'unmuted'}`);
+    logger.debug(`📞 Microphone ${newMuteState ? 'muted' : 'unmuted'}`);
     return newMuteState;
   }
 
@@ -603,11 +604,11 @@ class CallService {
           this.recording = new Audio.Recording();
           await this.recording.prepareToRecordAsync(recordingOptions);
           await this.recording.startAsync();
-          console.log('📞 Microphone recording started');
+          logger.debug('📞 Microphone recording started');
         }
       }
     } catch (error) {
-      console.error('📞 Error controlling microphone:', error);
+      logger.error('📞 Error controlling microphone:', error);
     }
   }
 
@@ -625,17 +626,17 @@ class CallService {
           userId: currentUserId
         });
       } catch (error) {
-        console.error('📞 Error getting user ID for video toggle:', error);
+        logger.error('📞 Error getting user ID for video toggle:', error);
       }
     }
     
-    console.log(`📞 Video ${newVideoState ? 'enabled' : 'disabled'}`);
+    logger.debug(`📞 Video ${newVideoState ? 'enabled' : 'disabled'}`);
     return newVideoState;
   }
 
   async switchCamera(): Promise<void> {
     // Simulate camera switch with visual feedback
-    console.log('📞 Switching camera (simulated)');
+    logger.debug('📞 Switching camera (simulated)');
     
     // Emit camera switch to other user
     if (this.callState.isCallActive) {
@@ -646,7 +647,7 @@ class CallService {
           userId: currentUserId
         });
       } catch (error) {
-        console.error('📞 Error getting user ID for camera switch:', error);
+        logger.error('📞 Error getting user ID for camera switch:', error);
       }
     }
     
@@ -672,19 +673,19 @@ class CallService {
         rnWebRTC = (eval('require') as any)?.('react-native-webrtc');
       } catch {}
       if (!rnWebRTC) {
-        console.log('📞 WebRTC module not found - running in fallback mode');
+        logger.debug('📞 WebRTC module not found - running in fallback mode');
         return;
       }
       this.RTCPeerConnectionImpl = rnWebRTC.RTCPeerConnection || rnWebRTC.default?.RTCPeerConnection;
       this.mediaDevicesImpl = rnWebRTC.mediaDevices || rnWebRTC.default?.mediaDevices;
       this.RTCViewImpl = rnWebRTC.RTCView || rnWebRTC.default?.RTCView;
       if (this.RTCPeerConnectionImpl && this.mediaDevicesImpl) {
-        console.log('📞 WebRTC available - signaling enabled');
+        logger.debug('📞 WebRTC available - signaling enabled');
       } else {
-        console.log('📞 WebRTC not fully available - will use fallback');
+        logger.debug('📞 WebRTC not fully available - will use fallback');
       }
     } catch (e) {
-      console.log('📞 WebRTC setup failed - fallback mode');
+      logger.debug('📞 WebRTC setup failed - fallback mode');
     }
   }
 
@@ -705,7 +706,7 @@ class CallService {
     };
 
     this.peerConnection.ontrack = (event: any) => {
-      console.log('📞 Remote track received');
+      logger.debug('📞 Remote track received');
       this.remoteStream = event.streams?.[0] || null;
       // Notify UI to refresh streams
       this.updateCallState({ callDuration: this.callState.callDuration });
@@ -718,7 +719,7 @@ class CallService {
       // Notify UI to refresh local preview
       this.updateCallState({ callDuration: this.callState.callDuration });
     } catch (e) {
-      console.error('📞 Failed to get local media:', e);
+      logger.error('📞 Failed to get local media:', e);
     }
   }
 
@@ -729,7 +730,7 @@ class CallService {
       await this.peerConnection.setLocalDescription(offer);
       await socketService.emit('call:offer', { to: toUserId, callId, offer });
     } catch (e) {
-      console.error('📞 Failed to create/send offer:', e);
+      logger.error('📞 Failed to create/send offer:', e);
     }
   }
 
@@ -740,7 +741,7 @@ class CallService {
       await this.peerConnection.setLocalDescription(answer);
       await socketService.emit('call:answer', { to: toUserId, callId, answer });
     } catch (e) {
-      console.error('📞 Failed to create/send answer:', e);
+      logger.error('📞 Failed to create/send answer:', e);
     }
   }
 
@@ -756,7 +757,7 @@ class CallService {
       await this.flushPendingCandidates();
       await this.createAndSendAnswer(data.from, data.callId);
     } catch (e) {
-      console.error('📞 Failed handling offer:', e);
+      logger.error('📞 Failed handling offer:', e);
     }
   }
 
@@ -767,7 +768,7 @@ class CallService {
       // Drain any queued ICE candidates for this remote description
       await this.flushPendingCandidates();
     } catch (e) {
-      console.error('📞 Failed handling answer:', e);
+      logger.error('📞 Failed handling answer:', e);
     }
   }
 
@@ -782,7 +783,7 @@ class CallService {
       const Ctor = (global as any)?.RTCIceCandidate;
       await this.peerConnection.addIceCandidate(Ctor ? new Ctor(data.candidate) : data.candidate);
     } catch (e) {
-      console.error('📞 Failed adding ice candidate:', e);
+      logger.error('📞 Failed adding ice candidate:', e);
     }
   }
 
@@ -794,7 +795,7 @@ class CallService {
       try {
         await this.peerConnection.addIceCandidate(Ctor ? new Ctor(cand) : cand);
       } catch (e) {
-        console.error('📞 Failed adding queued ice candidate:', e);
+        logger.error('📞 Failed adding queued ice candidate:', e);
       }
     }
   }

@@ -1,4 +1,5 @@
 import api from './api';
+import { parseError } from '../utils/errorCodes';
 
 export interface Hashtag {
   name: string;
@@ -29,7 +30,8 @@ export const searchHashtags = async (query: string, limit: number = 20): Promise
     });
     return response.data.hashtags || [];
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to search hashtags');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -46,7 +48,8 @@ export const getTrendingHashtags = async (
     });
     return response.data.hashtags || [];
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get trending hashtags');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -59,7 +62,8 @@ export const getHashtagDetails = async (hashtag: string): Promise<Hashtag> => {
     const response = await api.get(`/api/v1/hashtags/${hashtagName}`);
     return response.data.hashtag;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get hashtag details');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -78,7 +82,8 @@ export const getHashtagPosts = async (
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get hashtag posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

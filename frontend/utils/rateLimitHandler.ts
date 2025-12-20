@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import logger from './logger';
 
 export interface RateLimitError extends Error {
   response?: {
@@ -18,10 +19,10 @@ export const handleRateLimitError = (error: RateLimitError, context?: string) =>
   const retryAfter = error.response?.data?.retryAfter;
   const message = error.response?.data?.message || 'Too many requests. Please try again later.';
   
-  console.warn(`Rate limit error${context ? ` in ${context}` : ''}:`, message);
+  logger.warn(`Rate limit error${context ? ` in ${context}` : ''}:`, message);
   
   if (retryAfter) {
-    console.log(`Server suggests retrying after ${retryAfter} seconds`);
+    logger.debug(`Server suggests retrying after ${retryAfter} seconds`);
   }
   
   // You can customize this to show different UI based on context

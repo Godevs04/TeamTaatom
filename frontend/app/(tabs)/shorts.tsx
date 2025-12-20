@@ -35,9 +35,25 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
+import { theme } from '../../constants/theme';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const isTablet = SCREEN_WIDTH >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 const logger = createLogger('ShortsScreen');
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 /**
  * ShortsScreen - Vertical video feed with auto-play and swipe navigation
@@ -1333,65 +1349,97 @@ const styles = StyleSheet.create({
     backgroundColor: 'black',
     paddingTop: 0,
     marginTop: 0,
+    ...(isWeb && {
+      maxWidth: isTablet ? 800 : 600,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   loadingContent: {
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 32,
   },
   loadingSpinner: {
-    marginBottom: 16,
+    marginBottom: isTablet ? theme.spacing.lg : 16,
   },
   loadingTitle: {
-    fontSize: 24,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 24,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     color: 'white',
-    marginBottom: 8,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   loadingSubtitle: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 32,
   },
   emptyTitle: {
-    fontSize: 24,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 24,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     color: 'white',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: isTablet ? theme.spacing.lg : 16,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyDescription: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
+    lineHeight: isTablet ? 28 : 24,
+    marginBottom: isTablet ? theme.spacing.xl : 32,
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   createShortButton: {
-    borderRadius: 25,
+    borderRadius: isTablet ? 30 : 25,
     overflow: 'hidden',
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   createShortGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 24,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
   },
   createShortButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   shortItem: {
     width: '100%',
@@ -1457,25 +1505,29 @@ const styles = StyleSheet.create({
   },
   swipeHintText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
-    marginLeft: 6,
+    marginLeft: isTablet ? 8 : 6,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   rightActions: {
     position: 'absolute',
-    right: 16,
-    bottom: 120,
+    right: isTablet ? theme.spacing.lg : 16,
+    bottom: isTablet ? 140 : 120,
     alignItems: 'center',
     zIndex: 5,
   },
   profileButton: {
-    marginBottom: 20,
+    marginBottom: isTablet ? theme.spacing.xl : 20,
     position: 'relative',
   },
   profileImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: isTablet ? 60 : 50,
+    height: isTablet ? 60 : 50,
+    borderRadius: isTablet ? 30 : 25,
     borderWidth: 2,
     borderColor: 'white',
   },
@@ -1510,21 +1562,25 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   actionIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: isTablet ? 60 : 50,
+    height: isTablet ? 60 : 50,
+    borderRadius: isTablet ? 30 : 25,
     backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: isTablet ? 6 : 4,
   },
   likedContainer: {
     backgroundColor: 'rgba(255, 48, 64, 0.2)',
   },
   actionText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   bottomContent: {
     position: 'absolute',
@@ -1586,34 +1642,46 @@ const styles = StyleSheet.create({
   },
   username: {
     color: 'white',
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
-    marginRight: 8,
+    marginRight: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   followingBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: isTablet ? theme.spacing.sm : 8,
+    paddingVertical: isTablet ? 4 : 2,
+    borderRadius: isTablet ? 12 : 10,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.3)',
   },
   followingText: {
     color: 'white',
-    fontSize: 10,
+    fontSize: isTablet ? theme.typography.small.fontSize : 10,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   caption: {
     color: 'rgba(255,255,255,0.98)',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 10,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    lineHeight: isTablet ? 22 : 20,
+    marginBottom: isTablet ? theme.spacing.md : 10,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   tagsContainer: {
     flexDirection: 'row',

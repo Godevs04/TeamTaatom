@@ -14,8 +14,12 @@ const collectionRoutes = require('../collectionRoutes');
 const mentionRoutes = require('../mentionRoutes');
 const searchRoutes = require('../searchRoutes');
 const activityRoutes = require('../activityRoutes');
+const healthRoutes = require('../healthRoutes');
 
 const router = express.Router();
+
+// Health check routes (mounted under /api/v1/health)
+router.use('/health', healthRoutes);
 
 // Mount all routes under v1
 router.use('/auth', authRoutes);

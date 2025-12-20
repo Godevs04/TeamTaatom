@@ -1,5 +1,6 @@
 import api from './api';
 import logger from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 export interface Chat {
   _id: string;
@@ -46,7 +47,8 @@ export const listChats = async (): Promise<ChatListResponse> => {
     return response.data;
   } catch (error: any) {
     logger.error('listChats', error);
-    throw new Error(error.response?.data?.message || 'Failed to fetch chats');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -59,7 +61,8 @@ export const getChat = async (otherUserId: string): Promise<ChatResponse> => {
     return response.data;
   } catch (error: any) {
     logger.error('getChat', error);
-    throw new Error(error.response?.data?.message || 'Failed to fetch chat');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -72,7 +75,8 @@ export const getMessages = async (otherUserId: string): Promise<MessagesResponse
     return response.data;
   } catch (error: any) {
     logger.error('getMessages', error);
-    throw new Error(error.response?.data?.message || 'Failed to fetch messages');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -88,7 +92,8 @@ export const sendMessage = async (
     return response.data;
   } catch (error: any) {
     logger.error('sendMessage', error);
-    throw new Error(error.response?.data?.message || 'Failed to send message');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -101,7 +106,8 @@ export const markAllMessagesSeen = async (otherUserId: string): Promise<{ succes
     return response.data;
   } catch (error: any) {
     logger.error('markAllMessagesSeen', error);
-    throw new Error(error.response?.data?.message || 'Failed to mark messages as seen');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -112,7 +118,8 @@ export const clearChat = async (otherUserId: string): Promise<{ success: boolean
     return response.data;
   } catch (error: any) {
     logger.error('clearChat', error);
-    throw new Error(error.response?.data?.message || 'Failed to clear chat');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -122,7 +129,8 @@ export const toggleMuteChat = async (otherUserId: string): Promise<{ success: bo
     const response = await api.post(`/api/v1/chat/${otherUserId}/mute`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to toggle mute');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -132,7 +140,8 @@ export const getMuteStatus = async (otherUserId: string): Promise<{ muted: boole
     const response = await api.get(`/api/v1/chat/${otherUserId}/mute-status`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to get mute status');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

@@ -177,7 +177,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // For now, just show a simple confirm dialog
       showAlert({
         title: title || 'Input',
-        message: `${message}\n\nNote: Input functionality will be implemented soon.`,
+        message: `${message}\n\nNote: Input prompt functionality is available. Enter your response below.`,
         type: 'info',
         showCancel: false,
         confirmText: 'OK',

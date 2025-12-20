@@ -2,6 +2,7 @@ import api from './api';
 import { PostType } from '../types/post';
 import { UserType } from '../types/user';
 import { Collection } from './collections';
+import { parseError } from '../utils/errorCodes';
 
 export interface Activity {
   _id: string;
@@ -58,7 +59,8 @@ export const getActivityFeed = async (params: ActivityFeedParams = {}): Promise<
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch activity feed');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -77,7 +79,8 @@ export const getUserActivity = async (
     });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch user activity');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -88,7 +91,8 @@ export const updateActivityPrivacy = async (isPublic: boolean): Promise<void> =>
   try {
     await api.put('/api/v1/activity/privacy', { isPublic });
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update activity privacy');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

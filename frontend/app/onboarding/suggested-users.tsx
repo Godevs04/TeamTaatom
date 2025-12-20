@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 interface SuggestedUser {
   _id: string;
@@ -209,91 +224,139 @@ export default function SuggestedUsersOnboarding() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollContent: {
-    padding: 24,
+    padding: isTablet ? theme.spacing.xxl : 24,
+    ...(isWeb && {
+      minHeight: '100vh',
+    } as any),
   },
   header: {
-    marginBottom: 24,
+    marginBottom: isTablet ? theme.spacing.xl : 24,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 28,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    letterSpacing: isIOS ? -0.5 : 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   loadingContainer: {
-    gap: 12,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 48,
+    paddingVertical: isTablet ? theme.spacing.xxl : 48,
   },
   emptyText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: isTablet ? theme.spacing.lg : 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   usersList: {
-    gap: 12,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 8,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 12,
+    width: isTablet ? 80 : 60,
+    height: isTablet ? 80 : 60,
+    borderRadius: isTablet ? 40 : 30,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   userInfo: {
     flex: 1,
   },
   username: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   fullName: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
     marginBottom: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   followers: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   followButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    borderRadius: 20,
+    paddingVertical: isTablet ? theme.spacing.sm : 8,
+    paddingHorizontal: isTablet ? 24 : 20,
+    borderRadius: isTablet ? 24 : 20,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   followButtonText: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   footer: {
-    padding: 24,
-    gap: 12,
+    padding: isTablet ? theme.spacing.xl : 24,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   skipButton: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    ...(isWeb && {
+      cursor: 'pointer',
+    } as any),
   },
   skipText: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continueButton: {
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   gradient: {
-    paddingVertical: 16,
+    paddingVertical: isTablet ? theme.spacing.lg : 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

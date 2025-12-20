@@ -9,6 +9,7 @@ import {
   Alert,
   RefreshControl,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,21 @@ import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -131,19 +147,34 @@ export default function CollectionDetailScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+        <TouchableOpacity 
+          onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
+          style={styles.backButton}
+        >
+          <Ionicons name="chevron-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
           {collection.name}
         </Text>
         {isOwner && (
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => router.push(`/collections/create?id=${id}`)}>
-              <Ionicons name="create-outline" size={24} color={theme.colors.primary} />
+            <TouchableOpacity 
+              onPress={() => router.push(`/collections/create?id=${id}`)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+              style={styles.headerActionButton}
+            >
+              <Ionicons name="create-outline" size={isTablet ? 28 : 24} color={theme.colors.primary} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleDelete}>
-              <Ionicons name="trash-outline" size={24} color={theme.colors.error} />
+            <TouchableOpacity 
+              onPress={handleDelete}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+              style={styles.headerActionButton}
+            >
+              <Ionicons name="trash-outline" size={isTablet ? 28 : 24} color={theme.colors.error} />
             </TouchableOpacity>
           </View>
         )}
@@ -190,45 +221,76 @@ export default function CollectionDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
-    paddingTop: Platform.OS === 'ios' ? 12 : 20,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingTop: isAndroid ? (isTablet ? theme.spacing.xl + 8 : 20 + 8) : (isTablet ? theme.spacing.md : 12),
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
     borderBottomWidth: 1,
-    minHeight: 56,
+    minHeight: isAndroid ? (isTablet ? 72 : 64) : (isTablet ? 64 : 56),
+  },
+  backButton: {
+    // Minimum touch target: 44x44 for iOS, 48x48 for Android
+    minWidth: isAndroid ? 48 : 44,
+    minHeight: isAndroid ? 48 : 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: isTablet ? theme.spacing.sm : (isAndroid ? 10 : 8),
+    marginLeft: isTablet ? -theme.spacing.sm : -8,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   headerTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginHorizontal: 12,
+    marginHorizontal: isTablet ? theme.spacing.md : 12,
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 16,
+    gap: isTablet ? theme.spacing.lg : 16,
   },
   list: {
-    paddingBottom: 16,
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
   },
   removeButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 8,
-    gap: 6,
+    paddingVertical: isTablet ? theme.spacing.sm : 8,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    borderRadius: theme.borderRadius.sm,
+    gap: isTablet ? 8 : 6,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   removeButtonText: {
     color: 'white',
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });
 

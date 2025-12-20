@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +20,21 @@ import { getCollections, Collection } from '../../services/collections';
 import { getUserFromStorage } from '../../services/auth';
 import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 export default function CollectionsScreen() {
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -149,59 +165,87 @@ export default function CollectionsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
-    paddingTop: Platform.OS === 'ios' ? 12 : 20,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: Platform.OS === 'ios' ? (isTablet ? theme.spacing.md : 12) : (isTablet ? theme.spacing.lg : 16),
+    paddingTop: Platform.OS === 'ios' ? (isTablet ? theme.spacing.md : 12) : (isTablet ? theme.spacing.xl : 20),
     borderBottomWidth: 1,
-    minHeight: 56,
+    minHeight: isTablet ? 64 : 56,
   },
   backButton: {
-    padding: 8,
-    marginLeft: -8,
+    // Minimum touch target: 44x44 for iOS, 48x48 for Android
+    minWidth: Platform.OS === 'android' ? 48 : 44,
+    minHeight: Platform.OS === 'android' ? 48 : 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: isTablet ? theme.spacing.sm : 8,
+    marginLeft: isTablet ? -theme.spacing.sm : -8,
+    ...(Platform.OS === 'web' && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   addButton: {
-    padding: 8,
-    marginRight: -8,
+    // Minimum touch target: 44x44 for iOS, 48x48 for Android
+    minWidth: Platform.OS === 'android' ? 48 : 44,
+    minHeight: Platform.OS === 'android' ? 48 : 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: isTablet ? theme.spacing.sm : 8,
+    marginRight: isTablet ? -theme.spacing.sm : -8,
+    ...(Platform.OS === 'web' && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     flex: 1,
     textAlign: 'center',
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 20,
   },
   list: {
-    padding: 16,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   collectionCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
+    padding: isTablet ? theme.spacing.md : 12,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
-    marginBottom: 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
   },
   coverImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 12,
+    width: isTablet ? 80 : 60,
+    height: isTablet ? 80 : 60,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   coverPlaceholder: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 12,
+    width: isTablet ? 80 : 60,
+    height: isTablet ? 80 : 60,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: isTablet ? theme.spacing.md : 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -209,21 +253,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   collectionName: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   collectionDescription: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   collectionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: isTablet ? 6 : 4,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });
 

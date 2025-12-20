@@ -10,9 +10,10 @@ const authMiddleware = async (req, res, next) => {
     
     if (!token) {
       logger.warn('No token provided for path:', req.path);
+      // Use generic message to avoid revealing authentication flow
       return res.status(401).json({ 
         error: 'Access denied',
-        message: 'No token provided or invalid format' 
+        message: 'Authentication required' 
       });
     }
 
@@ -25,13 +26,13 @@ const authMiddleware = async (req, res, next) => {
       if (err.name === 'JsonWebTokenError') {
         return res.status(401).json({ 
           error: 'Access denied',
-          message: 'Invalid token' 
+          message: 'Your session is invalid. Please sign in again.' 
         });
       }
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({ 
           error: 'Access denied',
-          message: 'Token expired' 
+          message: 'Your session has expired. Please sign in again.' 
         });
       }
       return res.status(500).json({ 

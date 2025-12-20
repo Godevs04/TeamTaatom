@@ -7,11 +7,28 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   SafeAreaView,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 interface Continent {
   name: string;
@@ -55,7 +72,10 @@ export default function TripScoreContinentsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <SafeAreaView 
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        edges={['top']}
+      >
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
@@ -64,15 +84,20 @@ export default function TripScoreContinentsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top']}
+    >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
+          </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
           TripScore
         </Text>
@@ -135,62 +160,81 @@ export default function TripScoreContinentsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   backButton: {
-    padding: 8,
+    padding: isTablet ? theme.spacing.sm : 8,
   },
   headerTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     textAlign: 'center',
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   headerRight: {
-    width: 40,
+    width: isTablet ? 48 : 40,
   },
   content: {
     flex: 1,
   },
   totalScoreContainer: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 12,
+    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    padding: isTablet ? theme.spacing.xl : 24,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
   },
   totalScoreNumber: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: isTablet ? 64 : 48,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   totalScoreLabel: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continentsContainer: {
-    margin: 16,
+    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginTop: 0,
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   continentItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
@@ -201,26 +245,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   continentName: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continentScoreLabel: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continentScoreValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continentRight: {
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   continentDistance: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });

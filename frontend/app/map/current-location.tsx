@@ -7,10 +7,10 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
-  SafeAreaView,
   StatusBar,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
@@ -22,6 +22,131 @@ import { MapView, Marker, PROVIDER_GOOGLE } from '../../utils/mapsWrapper';
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+// Create styles function that uses the constants
+const createStyles = () => {
+  const isTabletLocal = screenWidth >= 768;
+  const isAndroidLocal = Platform.OS === 'android';
+  const isWebLocal = Platform.OS === 'web';
+
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: isTabletLocal ? 24 : 16,
+      paddingTop: isAndroidLocal ? (isTabletLocal ? 18 : 16) : (isTabletLocal ? 14 : 12),
+      paddingBottom: isTabletLocal ? 16 : 12,
+      borderBottomWidth: 1,
+      minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
+    },
+    backButton: {
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroidLocal ? 48 : 44,
+      minHeight: isAndroidLocal ? 48 : 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
+      marginLeft: isTabletLocal ? -10 : -8,
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
+    titleContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    watchingIndicator: {
+      marginLeft: 8,
+      padding: 2,
+      borderRadius: 10,
+      backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    },
+    refreshButton: {
+      padding: 8,
+    },
+    mapContainer: {
+      flex: 1,
+    },
+    map: {
+      width: '100%',
+      height: '100%',
+    },
+    centerContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    loadingText: {
+      fontSize: 16,
+      marginTop: 16,
+      textAlign: 'center',
+    },
+    errorText: {
+      fontSize: 16,
+      marginTop: 16,
+      textAlign: 'center',
+      marginBottom: 20,
+    },
+    retryButton: {
+      paddingHorizontal: 24,
+      paddingVertical: 12,
+      borderRadius: 8,
+    },
+    retryButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    locationInfo: {
+      padding: 16,
+      borderTopWidth: 1,
+    },
+    locationRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    locationText: {
+      fontSize: 14,
+      marginLeft: 8,
+      flex: 1,
+    },
+    markerContainer: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    customMarker: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: 'white',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+      elevation: 5,
+    },
+  });
+};
+
+const styles = createStyles();
 
 export default function CurrentLocationMap() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
@@ -316,7 +441,10 @@ export default function CurrentLocationMap() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top']}
+    >
       <StatusBar 
         barStyle={theme.colors.text === '#FFFFFF' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
@@ -327,6 +455,8 @@ export default function CurrentLocationMap() {
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
         >
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
@@ -420,107 +550,3 @@ const satelliteTheme = [
   { elementType: 'labels.text.fill', stylers: [{ color: '#2c3e50' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#ffffff' }] },
 ];
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 8,
-  },
-  titleContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  watchingIndicator: {
-    marginLeft: 8,
-    padding: 2,
-    borderRadius: 10,
-    backgroundColor: 'rgba(76, 175, 80, 0.2)',
-  },
-  refreshButton: {
-    padding: 8,
-  },
-  mapContainer: {
-    flex: 1,
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    fontSize: 16,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  errorText: {
-    fontSize: 16,
-    marginTop: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  locationInfo: {
-    padding: 16,
-    borderTopWidth: 1,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  locationText: {
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  markerContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  customMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-});

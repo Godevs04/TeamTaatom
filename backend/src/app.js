@@ -98,40 +98,59 @@ app.use(helmet({
   permittedCrossDomainPolicies: false, // Block Adobe Flash and Acrobat
 }));
 
+// CORS configuration - environment-aware
+const isProduction = process.env.NODE_ENV === 'production';
+const isDevelopment = process.env.NODE_ENV === 'development';
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    const allowedOrigins = [
+    // Production: Only allow specific domains
+    if (isProduction) {
+      const productionOrigins = [
+        process.env.FRONTEND_URL,
+        process.env.SUPERADMIN_URL,
+      ].filter(Boolean); // Remove undefined values
+      
+      if (productionOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      logger.warn(`CORS blocked origin in production: ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    }
+    
+    // Development: Allow localhost and local network
+    const devOrigins = [
       process.env.FRONTEND_URL || 'http://localhost:8081',
       process.env.SUPERADMIN_URL || 'http://localhost:5001',
       'http://localhost:5003',
       'http://localhost:8081',
       'http://x:8081',
       'http://x:3000',
-
-      /^http:\/\/192\.168\.\d+\.\d+:\d+$/, // Allow any local network IP
-      /^http:\/\/localhost:\d+$/, // Allow any localhost port
       'file://',
       'null'
     ];
     
-    // Check if origin matches any allowed pattern
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') {
-        return origin === allowed;
-      } else if (allowed instanceof RegExp) {
-        return allowed.test(origin);
-      }
-      return false;
-    });
+    // In development, also allow localhost with any port and local network IPs
+    const devPatterns = [
+      /^http:\/\/localhost:\d+$/,
+      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+    ];
     
-    if (isAllowed || process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Check exact matches first
+    if (devOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    
+    // Check patterns in development only
+    if (isDevelopment && devPatterns.some(pattern => pattern.test(origin))) {
+      return callback(null, true);
+    }
+    
+    // Default: reject
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -335,14 +354,9 @@ if (process.env.NODE_ENV === 'development') {
   }
 }
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    message: 'Taatom API is running!', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
+// Health check routes (before other routes for quick access)
+const healthRoutes = require('./routes/healthRoutes');
+app.use('/health', healthRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
