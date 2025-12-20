@@ -7,7 +7,9 @@ import {
   TouchableOpacity, 
   Alert, 
   ActivityIndicator,
-  Switch
+  Switch,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -19,6 +21,21 @@ import CustomAlert from '../../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../../components/CustomOptions';
 import { createLogger } from '../../utils/logger';
 import { getProfile } from '../../services/profile';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 const logger = createLogger('PrivacySettings');
 
@@ -507,6 +524,11 @@ export default function PrivacySettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollView: {
     flex: 1,
@@ -515,22 +537,27 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
+    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: isTablet ? theme.spacing.lg : 16,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
@@ -540,20 +567,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingText: {
-    marginLeft: 12,
+    marginLeft: isTablet ? theme.spacing.md : 12,
     flex: 1,
   },
   settingLabel: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingDescription: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
     marginTop: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingValue: {
-    fontSize: 14,
-    marginRight: 8,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    marginRight: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingRight: {
     flexDirection: 'row',

@@ -13,6 +13,7 @@ import {
   Modal,
   AppState,
   BackHandler,
+  Dimensions,
 } from "react-native";
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
@@ -42,8 +43,27 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
 import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
+import { theme } from '../../constants/theme';
 
 const logger = createLogger('PostScreen');
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 interface PostFormValues {
   comment: string;
@@ -2717,55 +2737,87 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: isTablet ? theme.spacing.xl : 20,
   },
   modalContent: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: 24,
-    padding: 28,
+    maxWidth: isTablet ? 500 : 400,
+    borderRadius: isTablet ? theme.borderRadius.xl : 24,
+    padding: isTablet ? theme.spacing.xxl : 28,
+    ...(isWeb && {
+      maxWidth: isTablet ? 600 : 500,
+    } as any),
   },
   modalTitle: {
-    fontSize: 24,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 24,
+    fontFamily: getFontFamily('800'),
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
+    letterSpacing: isIOS ? -0.5 : 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   modalDescription: {
-    fontSize: 15,
-    marginBottom: 8,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('400'),
+    marginBottom: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: isTablet ? 26 : 22,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   audioChoiceButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 16,
+    padding: isTablet ? theme.spacing.xl : 20,
+    borderRadius: isTablet ? theme.borderRadius.lg : 16,
+    marginBottom: isTablet ? theme.spacing.lg : 16,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   audioChoiceTextContainer: {
     flex: 1,
   },
   audioChoiceTitle: {
-    fontSize: 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     color: 'white',
-    marginBottom: 6,
+    marginBottom: isTablet ? 8 : 6,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   audioChoiceSubtitle: {
-    fontSize: 13,
+    fontSize: isTablet ? theme.typography.body.fontSize : 13,
+    fontFamily: getFontFamily('400'),
     color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 18,
+    lineHeight: isTablet ? 22 : 18,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   modalCancelButton: {
-    padding: 16,
-    borderRadius: 16,
+    padding: isTablet ? theme.spacing.lg : 16,
+    borderRadius: isTablet ? theme.borderRadius.lg : 16,
     borderWidth: 1.5,
     alignItems: 'center',
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   modalCancelText: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });

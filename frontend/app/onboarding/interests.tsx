@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,21 @@ import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 const INTERESTS = [
   { id: 'adventure', label: 'Adventure', icon: 'trail-sign' },
@@ -168,76 +183,108 @@ export default function InterestsOnboarding() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollContent: {
-    padding: 24,
+    padding: isTablet ? theme.spacing.xxl : 24,
+    ...(isWeb && {
+      minHeight: '100vh',
+    } as any),
   },
   header: {
-    marginBottom: 32,
+    marginBottom: isTablet ? theme.spacing.xl : 32,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 28,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    letterSpacing: isIOS ? -0.5 : 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   interestsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   interestCard: {
-    width: '47%',
-    padding: 16,
-    borderRadius: 12,
+    width: isTablet ? '31%' : '47%',
+    padding: isTablet ? theme.spacing.lg : 16,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
+    minHeight: isTablet ? 120 : 100,
     position: 'relative',
   },
   interestLabel: {
-    marginTop: 8,
-    fontSize: 14,
+    marginTop: isTablet ? theme.spacing.sm : 8,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('500'),
     textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   checkmark: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: isTablet ? theme.spacing.sm : 8,
+    right: isTablet ? theme.spacing.sm : 8,
+    width: isTablet ? 28 : 24,
+    height: isTablet ? 28 : 24,
+    borderRadius: isTablet ? 14 : 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   footer: {
-    padding: 24,
-    gap: 12,
+    padding: isTablet ? theme.spacing.xl : 24,
+    gap: isTablet ? theme.spacing.md : 12,
   },
   skipButton: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    ...(isWeb && {
+      cursor: 'pointer',
+    } as any),
   },
   skipText: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   continueButton: {
-    borderRadius: 12,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   gradient: {
-    paddingVertical: 16,
+    paddingVertical: isTablet ? theme.spacing.lg : 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   continueButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });
 
