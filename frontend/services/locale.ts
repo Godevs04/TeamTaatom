@@ -1,5 +1,6 @@
 import api from './api';
 import { createLogger } from '../utils/logger';
+import { parseError } from '../utils/errorCodes';
 
 const logger = createLogger('LocaleService');
 
@@ -71,7 +72,8 @@ export const getLocales = async (
     return response.data;
   } catch (error: any) {
     logger.error('Error fetching locales:', error);
-    throw new Error(error.response?.data?.message || 'Failed to fetch locales');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -86,7 +88,8 @@ export const getLocaleById = async (id: string): Promise<Locale> => {
     return response.data.locale;
   } catch (error: any) {
     logger.error('Error fetching locale:', error);
-    throw new Error(error.response?.data?.message || 'Failed to fetch locale');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

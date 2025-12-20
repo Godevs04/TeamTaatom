@@ -6,7 +6,9 @@ import {
   ScrollView, 
   TouchableOpacity, 
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -16,6 +18,21 @@ import { getFollowRequests, approveFollowRequest, rejectFollowRequest } from '..
 import CustomAlert from '../../components/CustomAlert';
 import { FollowRequest } from '../../types/user';
 import { createLogger } from '../../utils/logger';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 const logger = createLogger('FollowRequestsScreen');
 
@@ -201,6 +218,11 @@ export default function FollowRequestsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollView: {
     flex: 1,
@@ -209,32 +231,42 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 64,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 32,
+    paddingVertical: isTablet ? 80 : 64,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: isTablet ? theme.typography.h3.fontSize : 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginTop: isTablet ? theme.spacing.lg : 16,
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyMessage: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: isTablet ? 26 : 22,
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   requestsContainer: {
-    padding: 16,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   requestItem: {
-    borderRadius: 12,
-    marginBottom: 12,
-    padding: 16,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: isTablet ? theme.spacing.md : 12,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
   },
   requestContent: {
     flexDirection: 'row',
@@ -247,39 +279,55 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
+    borderRadius: isTablet ? 30 : 24,
     backgroundColor: 'rgba(0,0,0,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   userDetails: {
     flex: 1,
   },
   userName: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   userEmail: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
     marginBottom: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   requestDate: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: isTablet ? theme.spacing.sm : 8,
   },
   actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: isTablet ? 44 : 36,
+    height: isTablet ? 44 : 36,
+    borderRadius: isTablet ? 22 : 18,
     justifyContent: 'center',
     alignItems: 'center',
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   rejectButton: {
     backgroundColor: '#FF3B30',

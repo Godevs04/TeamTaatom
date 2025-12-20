@@ -9,18 +9,36 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Formik } from 'formik';
 import * as yup from 'yup';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 
-import { colors } from '../../constants/colors';
 import { theme } from '../../constants/theme';
 import { useAlert } from '../../context/AlertContext';
 import { verifyOTP, resendOTP } from '../../services/auth';
-import Card from '../../components/Card';
-import NavBar from '../../components/NavBar';
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 const verifyOtpSchema = yup.object().shape({
   otp: yup
@@ -92,6 +110,8 @@ const OTPInput: React.FC<OTPInputProps> = ({ value, onChange, error }) => {
             maxLength={1}
             selectTextOnFocus
             autoFocus={index === 0}
+            placeholder=""
+            placeholderTextColor={theme.colors.textSecondary}
           />
         ))}
       </View>
@@ -150,29 +170,41 @@ export default function VerifyOTPScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <NavBar
-        title="Verify Account"
-        showBackButton
-        onBackPress={() => router.back()}
-      />
-      
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoid}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          keyboardShouldPersistTaps="handled"
+    <LinearGradient
+      colors={[theme.colors.gradient.dark[0], theme.colors.gradient.dark[1]]}
+      style={styles.container}
+    >
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.navBar}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.navTitle}>Verify Account</Text>
+          <View style={styles.backButton} />
+        </View>
+        
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+          style={styles.keyboardAvoid}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
-          <Card style={styles.card}>
-            <View style={styles.header}>
-              <Text style={styles.title}>Check Your Email</Text>
-              <Text style={styles.subtitle}>
-                We've sent a 6-digit verification code to
-              </Text>
-              <Text style={styles.email}>{email}</Text>
-            </View>
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            bounces={!isWeb}
+          >
+            <View style={styles.contentContainer}>
+              <View style={styles.header}>
+                <Text style={styles.title}>Check Your Email</Text>
+                <Text style={styles.subtitle}>
+                  We've sent a 6-digit verification code to
+                </Text>
+                <Text style={styles.email}>{email}</Text>
+              </View>
 
             <Formik
               initialValues={{ otp: '' }}
@@ -196,7 +228,7 @@ export default function VerifyOTPScreen() {
                     disabled={!values.otp || values.otp.length !== 6 || isSubmitting}
                   >
                     {isSubmitting ? (
-                      <ActivityIndicator color={colors.white} />
+                      <ActivityIndicator color="#FFFFFF" />
                     ) : (
                       <Text style={styles.verifyButtonText}>Verify Account</Text>
                     )}
@@ -210,7 +242,7 @@ export default function VerifyOTPScreen() {
                       style={styles.resendButton}
                     >
                       {resendLoading ? (
-                        <ActivityIndicator size="small" color={colors.primary} />
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
                       ) : (
                         <Text style={[
                           styles.resendButtonText,
@@ -225,144 +257,262 @@ export default function VerifyOTPScreen() {
               )}
             </Formik>
 
-            <View style={styles.helpContainer}>
-              <Text style={styles.helpText}>
-                Check your spam folder if you don't see the email.
-              </Text>
-              <Text style={styles.helpText}>
-                The OTP will expire in 10 minutes.
-              </Text>
+              <View style={styles.helpContainer}>
+                <Text style={styles.helpText}>
+                  Check your spam folder if you don't see the email.
+                </Text>
+                <Text style={styles.helpText}>
+                  The OTP will expire in 10 minutes.
+                </Text>
+              </View>
             </View>
-          </Card>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  navBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: Platform.OS === 'ios' ? 10 : 16,
+    paddingBottom: 16,
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.colors.border,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  navTitle: {
+    flex: 1,
+    fontSize: isTablet ? 24 : 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    color: theme.colors.text,
+    textAlign: 'center',
+    letterSpacing: 0.3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   keyboardAvoid: {
     flex: 1,
   },
   scrollContainer: {
     flexGrow: 1,
-    padding: theme.spacing.lg,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: isTablet ? theme.spacing.xxl : theme.spacing.xl,
+    minHeight: isWeb ? screenHeight : screenHeight,
+    ...(isWeb && {
+      maxWidth: 1200,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
-  card: {
-    padding: theme.spacing.xl,
+  contentContainer: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    width: '100%',
+    maxWidth: isWeb ? 480 : isTablet ? 600 : 500,
+    alignSelf: 'center',
+    ...theme.shadows.large,
+    ...(isWeb && {
+      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+    } as any),
   },
   header: {
     alignItems: 'center',
-    marginBottom: theme.spacing.xl,
+    marginBottom: isTablet ? theme.spacing.xxl : theme.spacing.xl,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginBottom: theme.spacing.sm,
+    fontSize: isTablet ? 36 : isWeb ? 32 : 28,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.md,
+    textAlign: 'center',
+    letterSpacing: isIOS ? -0.3 : 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   subtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
+    fontFamily: getFontFamily('400'),
+    color: theme.colors.textSecondary,
     textAlign: 'center',
     marginBottom: theme.spacing.xs,
+    letterSpacing: 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   email: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    color: colors.primary,
+    color: theme.colors.primary,
+    textAlign: 'center',
+    marginTop: theme.spacing.xs,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   form: {
     marginBottom: theme.spacing.xl,
   },
   otpContainer: {
     marginBottom: theme.spacing.xl,
+    width: '100%',
   },
   otpLabel: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : theme.typography.body.fontSize,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    color: colors.text,
+    color: theme.colors.text,
     textAlign: 'center',
-    marginBottom: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
+    letterSpacing: 0.1,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   otpInputContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: theme.spacing.sm,
+    gap: isTablet ? theme.spacing.md : theme.spacing.sm,
+    marginBottom: theme.spacing.md,
   },
   otpInput: {
-    width: 45,
-    height: 55,
+    width: isTablet ? 60 : 50,
+    height: isTablet ? 70 : 60,
     borderWidth: 2,
-    borderColor: colors.border,
+    borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
     textAlign: 'center',
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
+    fontSize: isTablet ? 28 : 24,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    color: theme.colors.text,
+    backgroundColor: theme.colors.surfaceSecondary || theme.colors.surface,
+    ...theme.shadows.small,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
+    } as any),
   },
   otpInputFilled: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
+    borderColor: theme.colors.primary,
+    backgroundColor: `${theme.colors.primary}15`,
   },
   otpInputError: {
-    borderColor: colors.error,
+    borderColor: theme.colors.error,
+    borderWidth: 2.5,
   },
   errorText: {
-    color: colors.error,
-    fontSize: 14,
+    color: theme.colors.error,
+    fontSize: theme.typography.small.fontSize,
+    fontFamily: getFontFamily('400'),
     textAlign: 'center',
     marginTop: theme.spacing.sm,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   verifyButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: isTablet ? theme.spacing.lg : theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: theme.spacing.lg,
+    minHeight: isTablet ? 56 : 50,
+    ...theme.shadows.medium,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   verifyButtonDisabled: {
-    backgroundColor: colors.border,
+    backgroundColor: theme.colors.border,
+    opacity: 0.6,
+    ...(isWeb && {
+      cursor: 'not-allowed',
+    } as any),
   },
   verifyButtonText: {
-    color: colors.white,
-    fontSize: 16,
+    color: '#FFFFFF',
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    letterSpacing: 0.3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   resendContainer: {
     alignItems: 'center',
+    marginTop: theme.spacing.md,
   },
   resendText: {
-    fontSize: 14,
-    color: colors.textSecondary,
+    fontSize: theme.typography.body.fontSize,
+    fontFamily: getFontFamily('400'),
+    color: theme.colors.textSecondary,
     marginBottom: theme.spacing.xs,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
   resendButton: {
     paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
   },
   resendButtonText: {
-    fontSize: 16,
-    color: colors.primary,
+    fontSize: theme.typography.body.fontSize,
+    fontFamily: getFontFamily('600'),
+    color: theme.colors.primary,
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      cursor: 'pointer',
+    } as any),
   },
   resendButtonTextDisabled: {
-    color: colors.textSecondary,
+    color: theme.colors.textSecondary,
   },
   helpContainer: {
     alignItems: 'center',
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing.lg,
+    marginTop: theme.spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: theme.colors.border,
   },
   helpText: {
-    fontSize: 12,
-    color: colors.textSecondary,
+    fontSize: theme.typography.small.fontSize,
+    fontFamily: getFontFamily('400'),
+    color: theme.colors.textSecondary,
     textAlign: 'center',
     marginBottom: theme.spacing.xs,
+    lineHeight: 18,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
   },
 });

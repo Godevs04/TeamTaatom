@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -15,6 +15,26 @@ import CallScreen from '../../components/CallScreen';
 import ThreeDotMenu from '../../components/ThreeDotMenu';
 import { toggleBlockUser, getBlockStatus } from '../../services/profile';
 import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
+import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat }: { 
   otherUser: any, 
@@ -70,7 +90,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           setIsBlocked(blockStatus.isBlocked);
           setIsMuted(muteStatus.muted);
         } catch (error) {
-          console.error('Error fetching statuses:', error);
+          logger.error('Error fetching statuses:', error);
         }
       }
     };
@@ -80,9 +100,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
     const onMessageNew = (payload: any) => {
-      console.log('Received message:new event:', payload);
+      logger.debug('Received message:new event:', payload);
       if (payload.message && payload.chatId === chatId) {
-        console.log('Adding message to active chat:', payload.message);
+        logger.debug('Adding message to active chat:', payload.message);
         // Clear fallback timeout if it exists
         if ((window as any).messageFallbackTimeout) {
           clearTimeout((window as any).messageFallbackTimeout);
@@ -91,7 +111,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         // Append to active chat if open
         onSendMessage(payload.message);
       } else {
-        console.log('Message not for current chat or missing data:', { payload, chatId });
+        logger.debug('Message not for current chat or missing data:', { payload, chatId });
         // Optionally: update chat list preview/unread here
         // (You may want to trigger a chat list refresh or update state)
       }
@@ -149,9 +169,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   useEffect(() => {
     if (sortedMessages.length > 0) {
       const lastMsg = sortedMessages[sortedMessages.length - 1];
-      console.log('lastMsg:', lastMsg);
+      logger.debug('lastMsg:', lastMsg);
       if (lastMsg && lastMsg.sender !== otherUser._id) {
-        console.log('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: lastMsg._id, chatId });
+        logger.debug('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: lastMsg._id, chatId });
         socketService.emit('seen', { to: otherUser._id, messageId: lastMsg._id, chatId });
       }
     }
@@ -162,7 +182,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     if (sortedMessages.length > 0) {
       const unseen = sortedMessages.filter(m => m.sender === otherUser._id && !m.seen);
       unseen.forEach(msg => {
-        console.log('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: msg._id, chatId });
+        logger.debug('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: msg._id, chatId });
         socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
       });
     }
@@ -172,16 +192,16 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const handleSend = async () => {
     if (!input.trim()) return;
     const messageText = input;
-    console.log('Sending message:', messageText);
+        logger.debug('Sending message:', messageText);
     setInput(''); // Clear input immediately for better UX
     
     try {
       const res = await api.post(`/chat/${otherUser._id}/messages`, { text: messageText });
-      console.log('Message sent successfully:', res.data.message);
+      logger.debug('Message sent successfully:', res.data.message);
       
       // Add a fallback mechanism - if socket doesn't fire within 1 second, add the message manually
       const fallbackTimeout = setTimeout(() => {
-        console.log('Socket fallback: adding message manually');
+        logger.debug('Socket fallback: adding message manually');
         onSendMessage(res.data.message);
       }, 1000);
       
@@ -189,7 +209,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       (window as any).messageFallbackTimeout = fallbackTimeout;
       
     } catch (e) {
-      console.error('Error sending message:', e);
+      logger.error('Error sending message:', e);
       // Restore input on error
       setInput(messageText);
     }
@@ -199,13 +219,18 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     container: {
       flex: 1,
       backgroundColor: theme.colors.background,
+      ...(isWeb && {
+        maxWidth: isTablet ? 1200 : 1000,
+        alignSelf: 'center',
+        width: '100%',
+      } as any),
     },
     chatHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
+      paddingVertical: isTablet ? theme.spacing.lg : 16,
       backgroundColor: theme.colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
@@ -216,17 +241,24 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       elevation: 3,
     },
     headerBack: {
-      width: 44,
-      height: 44,
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroid ? 48 : (isTablet ? 52 : 44),
+      minHeight: isAndroid ? 48 : (isTablet ? 52 : 44),
+      width: isTablet ? 52 : (isAndroid ? 48 : 44),
+      height: isTablet ? 52 : (isAndroid ? 48 : 44),
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: 22,
+      borderRadius: isTablet ? 26 : (isAndroid ? 24 : 22),
       backgroundColor: theme.colors.background,
+      ...(isWeb && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
     },
     headerAvatarWrap: {
       position: 'relative',
-      width: 48,
-      height: 48,
+      width: isTablet ? 56 : 48,
+      height: isTablet ? 56 : 48,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -234,9 +266,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       position: 'absolute',
       bottom: 2,
       right: 2,
-      width: 14,
-      height: 14,
-      borderRadius: 7,
+      width: isTablet ? 18 : 14,
+      height: isTablet ? 18 : 14,
+      borderRadius: isTablet ? 9 : 7,
       backgroundColor: '#4cd137',
       borderWidth: 3,
       borderColor: theme.colors.surface,
@@ -245,21 +277,30 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      marginHorizontal: 8,
+      marginHorizontal: isTablet ? theme.spacing.md : 8,
       minWidth: 0,
     },
     chatName: {
-      fontSize: 18,
+      fontSize: isTablet ? 22 : 18,
+      fontFamily: getFontFamily('700'),
       fontWeight: '700',
       color: theme.colors.text,
       textAlign: 'center',
       maxWidth: '100%',
+      letterSpacing: isIOS ? 0.3 : 0.2,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     onlineStatus: {
-      fontSize: 12,
+      fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+      fontFamily: getFontFamily('500'),
       fontWeight: '500',
       marginTop: 2,
       textAlign: 'center',
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     headerActions: {
       flexDirection: 'row',
@@ -279,15 +320,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     },
     messagesContainer: {
       flex: 1,
-      paddingHorizontal: 16,
+      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
       backgroundColor: theme.colors.background,
     },
     bubble: {
-      marginVertical: 4,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 18,
-      maxWidth: '75%',
+      marginVertical: isTablet ? 6 : 4,
+      paddingHorizontal: isTablet ? theme.spacing.md : 14,
+      paddingVertical: isTablet ? theme.spacing.md : 10,
+      borderRadius: isTablet ? 22 : 18,
+      maxWidth: isTablet ? '70%' : '75%',
     },
     bubbleOwn: {
       alignSelf: 'flex-end',
@@ -303,18 +344,26 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     },
     bubbleText: {
       color: theme.colors.text,
-      fontSize: 15,
-      lineHeight: 20,
+      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontFamily: getFontFamily('400'),
+      lineHeight: isTablet ? 22 : 20,
       fontWeight: '400',
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     bubbleOwnText: {
       color: '#fff',
     },
     bubbleTime: {
-      fontSize: 10,
+      fontSize: isTablet ? theme.typography.small.fontSize : 10,
+      fontFamily: getFontFamily('400'),
       marginTop: 4,
       textAlign: 'right',
       opacity: 0.7,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     bubbleOwnTime: {
       color: '#fff',
@@ -344,8 +393,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+      paddingVertical: isTablet ? theme.spacing.md : 12,
       backgroundColor: theme.colors.surface,
       borderTopWidth: 1,
       borderTopColor: theme.colors.border,
@@ -355,29 +404,38 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.colors.background,
-      borderRadius: 20,
+      borderRadius: isTablet ? 24 : 20,
       borderWidth: 1,
       borderColor: theme.colors.border,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      marginRight: 8,
-      minHeight: 40,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+      paddingVertical: isTablet ? theme.spacing.sm : 8,
+      marginRight: isTablet ? theme.spacing.sm : 8,
+      minHeight: isTablet ? 50 : 40,
     },
     input: {
       flex: 1,
       color: theme.colors.text,
-      fontSize: 15,
-      lineHeight: 20,
+      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontFamily: getFontFamily('400'),
+      lineHeight: isTablet ? 22 : 20,
       maxHeight: 100,
       paddingVertical: 2,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+        outlineStyle: 'none',
+      } as any),
     },
     sendButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: isTablet ? 50 : 40,
+      height: isTablet ? 50 : 40,
+      borderRadius: isTablet ? 25 : 20,
       backgroundColor: theme.colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
+      ...(isWeb && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
     },
     sendButtonDisabled: {
       backgroundColor: theme.colors.textSecondary,
@@ -671,7 +729,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           <CallScreen
             visible={showGlobalCallScreen}
             onClose={() => {
-              console.log('📞 ChatWindow call screen onClose called');
+              logger.debug('📞 ChatWindow call screen onClose called');
               setShowGlobalCallScreen(false);
               // End the call if it's active
               if (globalCallState.isCallActive || globalCallState.isOutgoingCall) {
@@ -708,7 +766,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                 marginTop: 20 
               }}
               onPress={() => {
-                console.log('📞 Force close call screen from ChatWindow');
+                logger.debug('📞 Force close call screen from ChatWindow');
                 setShowGlobalCallScreen(false);
               }}
             >
@@ -723,7 +781,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
 }
 
 export default function ChatModal() {
-  console.log('ChatModal rendered');
+        logger.debug('ChatModal rendered');
   const { theme } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -757,7 +815,7 @@ export default function ChatModal() {
     
     try {
       setIsCalling(true);
-      console.log('📞 Starting voice call to:', otherUser._id);
+      logger.debug('📞 Starting voice call to:', otherUser._id);
       
       // Immediately show call screen for outgoing call
       setGlobalCallState({
@@ -776,14 +834,14 @@ export default function ChatModal() {
       
       // Check if call service is initialized
       if (!callService.isInitialized()) {
-        console.log('📞 Call service not initialized, initializing...');
+        logger.debug('📞 Call service not initialized, initializing...');
         await callService.initialize();
       }
       
       await callService.startCall(otherUser._id, 'voice');
-      console.log('📞 Voice call started successfully');
+      logger.debug('📞 Voice call started successfully');
     } catch (error) {
-      console.error('📞 Error starting voice call:', error);
+      logger.error('📞 Error starting voice call:', error);
       // Hide call screen on error
       setShowGlobalCallScreen(false);
       setForceRender(prev => prev + 1);
@@ -798,7 +856,7 @@ export default function ChatModal() {
     
     try {
       setIsCalling(true);
-      console.log('📞 Starting video call to:', otherUser._id);
+      logger.debug('📞 Starting video call to:', otherUser._id);
       
       // Immediately show call screen for outgoing call
       setGlobalCallState({
@@ -817,14 +875,14 @@ export default function ChatModal() {
       
       // Check if call service is initialized
       if (!callService.isInitialized()) {
-        console.log('📞 Call service not initialized, initializing...');
+        logger.debug('📞 Call service not initialized, initializing...');
         await callService.initialize();
       }
       
       await callService.startCall(otherUser._id, 'video');
-      console.log('📞 Video call started successfully');
+      logger.debug('📞 Video call started successfully');
     } catch (error) {
-      console.error('📞 Error starting video call:', error);
+      logger.error('📞 Error starting video call:', error);
       // Hide call screen on error
       setShowGlobalCallScreen(false);
       setForceRender(prev => prev + 1);
@@ -865,60 +923,60 @@ export default function ChatModal() {
       try {
         // Initialize call service
         await callService.initialize();
-        console.log('📞 Call service initialized in chat component');
+        logger.debug('📞 Call service initialized in chat component');
         
         // Debug call service state
         try {
           const debugInfo = callService.getDebugInfo();
-          console.log('📞 Call service debug info:', debugInfo);
+          logger.debug('📞 Call service debug info:', debugInfo);
         } catch (error) {
-          console.error('📞 Error getting debug info:', error);
+          logger.error('📞 Error getting debug info:', error);
         }
         
         // Check if call service is working
         const isWorking = callService.isWorking();
-        console.log('📞 Call service is working:', isWorking);
+        logger.debug('📞 Call service is working:', isWorking);
         
         // Test socket connection
         try {
           const socketTest = await callService.testSocketConnection();
-          console.log('📞 Socket connection test result:', socketTest);
+          logger.debug('📞 Socket connection test result:', socketTest);
         } catch (error) {
-          console.error('📞 Error testing socket connection:', error);
+          logger.error('📞 Error testing socket connection:', error);
         }
       } catch (error) {
-        console.error('📞 Failed to initialize call service:', error);
+        logger.error('📞 Failed to initialize call service:', error);
       }
     };
     
     initializeCallService();
     
     const unsubscribe = callService.onCallStateChange((state) => {
-      console.log('📞 Global call state changed:', state);
-      console.log('📞 Current showGlobalCallScreen:', showGlobalCallScreen);
-      console.log('📞 State otherUserId:', state.otherUserId);
+      logger.debug('📞 Global call state changed:', state);
+      logger.debug('📞 Current showGlobalCallScreen:', showGlobalCallScreen);
+      logger.debug('📞 State otherUserId:', state.otherUserId);
       setGlobalCallState(state);
       
       // Show call screen for incoming calls
       if (state.isIncomingCall) {
-        console.log('📞 Setting showGlobalCallScreen to TRUE for incoming call');
-        console.log('📞 Incoming call otherUserId:', state.otherUserId);
+        logger.debug('📞 Setting showGlobalCallScreen to TRUE for incoming call');
+        logger.debug('📞 Incoming call otherUserId:', state.otherUserId);
         setShowGlobalCallScreen(true);
         setForceRender(prev => prev + 1);
-        console.log('📞 Showing global call screen for incoming call');
+        logger.debug('📞 Showing global call screen for incoming call');
       } else if (state.isCallActive || state.isOutgoingCall) {
         // Keep call screen visible during active calls
-        console.log('📞 Setting showGlobalCallScreen to TRUE for active call');
-        console.log('📞 Active call otherUserId:', state.otherUserId);
+        logger.debug('📞 Setting showGlobalCallScreen to TRUE for active call');
+        logger.debug('📞 Active call otherUserId:', state.otherUserId);
         setShowGlobalCallScreen(true);
         setForceRender(prev => prev + 1);
-        console.log('📞 Keeping call screen visible for active call');
+        logger.debug('📞 Keeping call screen visible for active call');
       } else {
         // Hide call screen when no call is active
-        console.log('📞 Setting showGlobalCallScreen to FALSE - no active call');
+        logger.debug('📞 Setting showGlobalCallScreen to FALSE - no active call');
         setShowGlobalCallScreen(false);
         setForceRender(prev => prev + 1);
-        console.log('📞 Hiding call screen - no active call');
+        logger.debug('📞 Hiding call screen - no active call');
       }
     });
     
@@ -927,8 +985,8 @@ export default function ChatModal() {
 
   // Monitor showGlobalCallScreen state changes
   useEffect(() => {
-    console.log('📞 showGlobalCallScreen state changed to:', showGlobalCallScreen);
-    console.log('📞 globalCallState.otherUserId:', globalCallState.otherUserId);
+        logger.debug('📞 showGlobalCallScreen state changed to:', showGlobalCallScreen);
+        logger.debug('📞 globalCallState.otherUserId:', globalCallState.otherUserId);
   }, [showGlobalCallScreen, globalCallState.otherUserId]);
 
   // Helper to fetch chat and messages
@@ -936,7 +994,7 @@ export default function ChatModal() {
     setChatLoading(true);
     setError(null);
     try {
-      console.log('Opening chat with user:', user._id);
+      logger.debug('Opening chat with user:', user._id);
       
       // Check block status first
       try {
@@ -950,7 +1008,7 @@ export default function ChatModal() {
           return;
         }
       } catch (blockError) {
-        console.error('Error checking block status:', blockError);
+        logger.error('Error checking block status:', blockError);
         // Continue even if block check fails
       }
       
@@ -974,7 +1032,7 @@ export default function ChatModal() {
       try {
         await api.post(`/chat/${user._id}/mark-all-seen`);
       } catch (e) {
-        console.log('Failed to mark messages as seen:', e);
+        logger.debug('Failed to mark messages as seen:', e);
       }
       
       // Ensure chat data is properly structured
@@ -985,7 +1043,7 @@ export default function ChatModal() {
       
       // Ensure participants are properly populated
       if (!chat.participants || !Array.isArray(chat.participants)) {
-        console.warn('Chat participants not properly populated, using fallback');
+        logger.warn('Chat participants not properly populated, using fallback');
         chat.participants = [
           { _id: user._id, fullName: user.fullName, profilePic: user.profilePic }
         ];
@@ -1007,7 +1065,7 @@ export default function ChatModal() {
         return { ...prevChat, messages: updatedMsgs };
       }));
     } catch (e: any) {
-      console.error('Error opening chat with user:', e);
+      logger.error('Error opening chat with user:', e);
       
       // Handle specific error cases
       if (e.response?.status === 403) {
@@ -1060,7 +1118,7 @@ export default function ChatModal() {
 
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
-    console.log('Fetching chats useEffect running');
+        logger.debug('Fetching chats useEffect running');
     const loadChats = async () => {
       setLoading(true);
       const token = await AsyncStorage.getItem('authToken');
@@ -1071,15 +1129,15 @@ export default function ChatModal() {
           myUserId = JSON.parse(userData)._id;
         } catch {}
       }
-      console.log('Requesting chats for user:', myUserId);
+      logger.debug('Requesting chats for user:', myUserId);
       const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
       const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
       socket.on('connect', () => {
-        console.log('[SOCKET] connected to backend');
+        logger.debug('[SOCKET] connected to backend');
         socket.emit('test', { hello: 'world' });
       });
       socket.on('connect_error', (err) => {
-        console.log('[SOCKET] connect_error:', err);
+        logger.debug('[SOCKET] connect_error:', err);
       });
       fetch(`${API_BASE_URL}/chat`, {
         headers: {
@@ -1089,7 +1147,7 @@ export default function ChatModal() {
       })
         .then(res => res.json())
         .then(data => {
-          console.log('Fetch /chat data:', JSON.stringify(data, null, 2));
+          logger.debug('Fetch /chat data:', JSON.stringify(data, null, 2));
           let chats = data.chats || [];
           chats = chats.map((chat: any) => ({
             ...chat,
@@ -1128,7 +1186,7 @@ export default function ChatModal() {
           }
         })
         .catch(err => {
-          console.log('Fetch /chat error:', err);
+          logger.debug('Fetch /chat error:', err);
           setConversations([]);
           setUsers([]);
           setLoading(false);
@@ -1167,11 +1225,11 @@ export default function ChatModal() {
           const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
           const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
           socket.on('connect', () => {
-            console.log('[SOCKET] connected to backend');
+            logger.debug('[SOCKET] connected to backend');
             socket.emit('test', { hello: 'world' });
           });
           socket.on('connect_error', (err) => {
-            console.log('[SOCKET] connect_error:', err);
+            logger.debug('[SOCKET] connect_error:', err);
           });
           fetch(`${API_BASE_URL}/chat`, {
             headers: {
@@ -1181,7 +1239,7 @@ export default function ChatModal() {
           })
             .then(res => res.json())
             .then(data => {
-              console.log('Reloaded /chat data:', JSON.stringify(data, null, 2));
+              logger.debug('Reloaded /chat data:', JSON.stringify(data, null, 2));
               let chats = data.chats || [];
               chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
               
@@ -1377,7 +1435,7 @@ export default function ChatModal() {
                 profilePic: profileRes.data.profile.profilePic,
               };
             } catch (e) {
-              console.error('Failed to fetch user profile:', e);
+              logger.error('Failed to fetch user profile:', e);
             }
           } else if (blockedUserId) {
             // Fallback: try to fetch user by blockedUserId
@@ -1389,7 +1447,7 @@ export default function ChatModal() {
                 profilePic: profileRes.data.profile.profilePic,
               };
             } catch (e) {
-              console.error('Failed to fetch user profile:', e);
+              logger.error('Failed to fetch user profile:', e);
             }
           }
           
@@ -1477,19 +1535,24 @@ export default function ChatModal() {
     const other = c.participants.find((u: any) => u._id !== c.me);
     return other?.fullName?.toLowerCase().includes(search.trim().toLowerCase());
   });
-  console.log('Rendering chat inbox, conversations:', conversations);
+        logger.debug('Rendering chat inbox, conversations:', conversations);
 
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme.colors.background,
+      ...(isWeb && {
+        maxWidth: isTablet ? 1200 : 1000,
+        alignSelf: 'center',
+        width: '100%',
+      } as any),
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
+      paddingVertical: isTablet ? theme.spacing.lg : 16,
       backgroundColor: theme.colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
@@ -1500,22 +1563,27 @@ export default function ChatModal() {
       elevation: 3,
     },
     title: {
-      fontSize: 26,
+      fontSize: isTablet ? theme.typography.h1.fontSize : 26,
+      fontFamily: getFontFamily('800'),
       fontWeight: '800',
       color: theme.colors.text,
+      letterSpacing: isIOS ? -0.5 : 0,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
     },
     headerButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: isTablet ? 52 : 44,
+      height: isTablet ? 52 : 44,
+      borderRadius: isTablet ? 26 : 22,
       backgroundColor: theme.colors.background,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: 12,
+      marginLeft: isTablet ? theme.spacing.md : 12,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.1,
@@ -1523,16 +1591,16 @@ export default function ChatModal() {
       elevation: 2,
     },
     searchContainer: {
-      marginHorizontal: 16,
-      marginVertical: 12,
+      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+      marginVertical: isTablet ? theme.spacing.md : 12,
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.colors.surface,
-      borderRadius: 16,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      borderRadius: isTablet ? theme.borderRadius.lg : 16,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+      paddingVertical: isTablet ? theme.spacing.md : 12,
       borderWidth: 1,
       borderColor: theme.colors.border,
       shadowColor: '#000',
@@ -1543,10 +1611,15 @@ export default function ChatModal() {
     },
     searchInput: {
       flex: 1,
-      marginLeft: 12,
+      marginLeft: isTablet ? theme.spacing.md : 12,
       color: theme.colors.text,
-      fontSize: 16,
+      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 16,
+      fontFamily: getFontFamily('500'),
       fontWeight: '500',
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+        outlineStyle: 'none',
+      } as any),
     },
     chatList: {
       flex: 1,
@@ -1554,12 +1627,12 @@ export default function ChatModal() {
     chatItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
+      paddingVertical: isTablet ? theme.spacing.lg : 16,
       backgroundColor: theme.colors.surface,
-      marginHorizontal: 16,
-      marginVertical: 6,
-      borderRadius: 16,
+      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+      marginVertical: isTablet ? 8 : 6,
+      borderRadius: isTablet ? theme.borderRadius.lg : 16,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.05,
@@ -1568,20 +1641,20 @@ export default function ChatModal() {
     },
     avatarContainer: {
       position: 'relative',
-      marginRight: 16,
+      marginRight: isTablet ? theme.spacing.lg : 16,
     },
     avatar: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: isTablet ? 64 : 52,
+      height: isTablet ? 64 : 52,
+      borderRadius: isTablet ? 32 : 26,
     },
     onlineIndicator: {
       position: 'absolute',
       bottom: 2,
       right: 2,
-      width: 14,
-      height: 14,
-      borderRadius: 7,
+      width: isTablet ? 18 : 14,
+      height: isTablet ? 18 : 14,
+      borderRadius: isTablet ? 9 : 7,
       backgroundColor: '#4cd137',
       borderWidth: 3,
       borderColor: theme.colors.surface,
@@ -1591,16 +1664,24 @@ export default function ChatModal() {
       justifyContent: 'center',
     },
     chatName: {
-      fontSize: 17,
+      fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
+      fontFamily: getFontFamily('700'),
       fontWeight: '700',
       color: theme.colors.text,
       marginBottom: 4,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     lastMessage: {
-      fontSize: 14,
+      fontSize: isTablet ? theme.typography.body.fontSize : 14,
+      fontFamily: getFontFamily('500'),
       color: theme.colors.textSecondary,
       fontWeight: '500',
-      lineHeight: 18,
+      lineHeight: isTablet ? 20 : 18,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     unreadBadge: {
       backgroundColor: theme.colors.primary,
@@ -1696,7 +1777,8 @@ export default function ChatModal() {
 
   return (
     <>
-      {console.log('📞 ChatModal RENDER - showGlobalCallScreen:', showGlobalCallScreen, 'otherUserId:', globalCallState.otherUserId, 'forceRender:', forceRender)}
+      {/* Debug: ChatModal render state */}
+      {__DEV__ && logger.debug('📞 ChatModal RENDER', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
       {/* Global Call Screen - Always render when showGlobalCallScreen is true */}
       {showGlobalCallScreen && (
@@ -1713,7 +1795,7 @@ export default function ChatModal() {
             <CallScreen
               visible={showGlobalCallScreen}
               onClose={() => {
-                console.log('📞 Global call screen onClose called');
+                logger.debug('📞 Global call screen onClose called');
                 setShowGlobalCallScreen(false);
                 // End the call if it's active
                 if (globalCallState.isCallActive || globalCallState.isOutgoingCall) {
@@ -1750,7 +1832,7 @@ export default function ChatModal() {
                   marginTop: 20 
                 }}
                 onPress={() => {
-                  console.log('📞 Force close call screen');
+                  logger.debug('📞 Force close call screen');
                   setShowGlobalCallScreen(false);
                 }}
               >
@@ -1788,7 +1870,8 @@ export default function ChatModal() {
       )}
       
       {/* Debug info for call screen */}
-      {console.log('📞 Render check - showGlobalCallScreen:', showGlobalCallScreen, 'otherUserId:', globalCallState.otherUserId, 'forceRender:', forceRender)}
+      {/* Debug: Render check */}
+      {__DEV__ && logger.debug('📞 Render check', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
       <SafeAreaView style={styles.container}>
       {/* Enhanced Header */}
@@ -1839,7 +1922,12 @@ export default function ChatModal() {
           data={filtered}
           keyExtractor={item => item._id}
           renderItem={({ item }) => {
-            console.log('Chat:', item._id, 'Messages:', item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })));
+            if (__DEV__) {
+              logger.debug('Chat item', { 
+                chatId: item._id, 
+                messages: item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })) 
+              });
+            }
             let other = item.participants.find((u: any) => u._id !== item.me);
             // If participants is array of ObjectIds, fallback
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {

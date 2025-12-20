@@ -2,6 +2,7 @@
 // This file should be imported before any other modules
 
 const Sentry = require('@sentry/node');
+const logger = require('./utils/logger');
 
 // Get Sentry DSN from environment variables
 const SENTRY_DSN = process.env.SENTRY_DSN;
@@ -29,7 +30,7 @@ if (SENTRY_DSN) {
     beforeSend(event, hint) {
       // Log that we're sending the event
       if (process.env.NODE_ENV === 'development') {
-        console.log('📤 Sending error to Sentry:', event.message || event.exception?.values?.[0]?.value);
+        logger.log('📤 Sending error to Sentry:', event.message || event.exception?.values?.[0]?.value);
       }
       return event;
     },
@@ -54,10 +55,10 @@ if (SENTRY_DSN) {
     ],
   });
   
-  console.log('✅ Sentry initialized successfully');
+  logger.log('✅ Sentry initialized successfully');
 } else {
-  console.warn('⚠️  Sentry DSN not found. Sentry error tracking is disabled.');
-  console.warn('   Set SENTRY_DSN in your .env file to enable error tracking.');
+  logger.warn('⚠️  Sentry DSN not found. Sentry error tracking is disabled.');
+  logger.warn('   Set SENTRY_DSN in your .env file to enable error tracking.');
 }
 
 module.exports = Sentry;

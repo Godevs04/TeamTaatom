@@ -13,6 +13,7 @@ import { theme } from '../constants/theme';
 import { CommentType } from '../types/post';
 import { getUserFromStorage } from '../services/auth';
 import HashtagMentionText from './HashtagMentionText';
+import { validateAndSanitizeComment } from '../utils/sanitize';
 
 interface CommentBoxProps {
   comments: CommentType[];
@@ -28,9 +29,13 @@ export default function CommentBox({
   const [commentText, setCommentText] = useState('');
 
   const handleSubmit = () => {
-    if (commentText.trim()) {
-      onAddComment(commentText.trim());
+    // Sanitize comment before submitting
+    const sanitized = validateAndSanitizeComment(commentText);
+    if (sanitized) {
+      onAddComment(sanitized);
       setCommentText('');
+    } else {
+      Alert.alert('Invalid Comment', 'Please enter a valid comment.');
     }
   };
 

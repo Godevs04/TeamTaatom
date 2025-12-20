@@ -1,4 +1,5 @@
 import api from './api';
+import { parseError } from '../utils/errorCodes';
 
 export interface MentionUser {
   _id: string;
@@ -29,7 +30,8 @@ export const searchUsersForMention = async (
     });
     return response.data.users || [];
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to search users for mention');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

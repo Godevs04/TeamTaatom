@@ -119,7 +119,7 @@ const getPresignedUrl = (key, expiresIn = 3600) => {
       Expires: expiresIn
     });
   } catch (error) {
-    console.error('S3 presigned URL error:', error);
+    logger.error('S3 presigned URL error:', error);
     throw error;
   }
 };
@@ -132,7 +132,7 @@ const deleteSong = async (key) => {
       Key: key
     }).promise();
   } catch (error) {
-    console.error('S3 delete error:', error);
+    logger.error('S3 delete error:', error);
     throw error;
   }
 };
@@ -195,7 +195,7 @@ const deleteLocaleImage = async (key) => {
       Key: key
     }).promise();
   } catch (error) {
-    console.error('S3 locale image delete error:', error);
+    logger.error('S3 locale image delete error:', error);
     throw error;
   }
 };

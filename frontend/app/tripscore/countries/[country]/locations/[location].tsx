@@ -9,6 +9,8 @@ import {
   SafeAreaView,
   Image,
   Alert,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,6 +41,12 @@ interface LocationDetail {
 }
 
 export default function LocationDetailScreen() {
+  // Responsive dimensions (inside component to ensure they're accessible)
+  const { width: screenWidth } = Dimensions.get('window');
+  const isTabletLocal = screenWidth >= 768;
+  const isAndroidLocal = Platform.OS === 'android';
+  const isWebLocal = Platform.OS === 'web';
+  
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<LocationDetail | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
@@ -689,14 +697,19 @@ export default function LocationDetailScreen() {
   const displayLocationName = locationName?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top']}
+    >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
         >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          <Ionicons name="arrow-back" size={isTabletLocal ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
           {displayLocationName}
@@ -706,13 +719,15 @@ export default function LocationDetailScreen() {
             style={styles.bookmarkButton}
             onPress={handleBookmark}
             disabled={bookmarkLoading}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
             {bookmarkLoading ? (
               <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
             ) : (
               <Ionicons
                 name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                size={24}
+                size={isTabletLocal ? 28 : 24}
                 color={isBookmarked ? '#FFD700' : theme.colors.textSecondary}
               />
             )}
@@ -720,8 +735,10 @@ export default function LocationDetailScreen() {
           <TouchableOpacity
             style={styles.closeButton}
             onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
-            <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+            <Ionicons name="close" size={isTabletLocal ? 28 : 24} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -882,35 +899,54 @@ export default function LocationDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
+// Create styles function that uses the constants
+const createStyles = () => {
+  const { width: screenWidth } = Dimensions.get('window');
+  const isTabletLocal = screenWidth >= 768;
+  const isAndroidLocal = Platform.OS === 'android';
+  const isWebLocal = Platform.OS === 'web';
+
+  return StyleSheet.create({
+    container: {
+      flex: 1,
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  backButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: isTabletLocal ? 24 : 20,
+      paddingTop: isAndroidLocal ? (isTabletLocal ? 20 : 18) : (isTabletLocal ? 16 : 14),
+      paddingBottom: isTabletLocal ? 18 : 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 2,
+      elevation: 2,
+      minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
+    },
+    backButton: {
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroidLocal ? 48 : 44,
+      minHeight: isAndroidLocal ? 48 : 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
+      borderRadius: isTabletLocal ? 24 : 20,
+      marginLeft: isTabletLocal ? -10 : -8,
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
   headerTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -923,14 +959,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  bookmarkButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
-  closeButton: {
-    padding: 8,
-    borderRadius: 20,
-  },
+    bookmarkButton: {
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroidLocal ? 48 : 44,
+      minHeight: isAndroidLocal ? 48 : 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
+      borderRadius: isTabletLocal ? 24 : 20,
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
+    closeButton: {
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroidLocal ? 48 : 44,
+      minHeight: isAndroidLocal ? 48 : 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
+      borderRadius: isTabletLocal ? 24 : 20,
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
   content: {
     flex: 1,
   },
@@ -1120,4 +1174,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     opacity: 0.9,
   },
-});
+  });
+};
+
+const styles = createStyles();
