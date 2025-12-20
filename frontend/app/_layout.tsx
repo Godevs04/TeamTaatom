@@ -106,6 +106,9 @@ function RootLayoutInner() {
     let isMounted = true;
     async function setupSocket() {
       if (isAuthenticated) {
+        // CRITICAL: Always disconnect first to ensure fresh connection with correct URL
+        // This prevents reusing cached connections with wrong IP
+        await socketService.disconnect();
         await socketService.connect();
         // Subscribe to invalidate events for cache invalidation
         // These handlers will trigger refetch when backend signals data changes
@@ -129,10 +132,26 @@ function RootLayoutInner() {
       }
     }
     setupSocket();
+    
+    // For web: Reconnect on page visibility change to ensure correct URL
+    let visibilityHandler: (() => void) | null = null;
+    if (typeof document !== 'undefined') {
+      visibilityHandler = () => {
+        if (document.visibilityState === 'visible' && isAuthenticated) {
+          // Page became visible - reconnect to ensure correct URL
+          setupSocket();
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
+    
     return () => {
       if (unsubFeed) unsubFeed();
       if (unsubProfile) unsubProfile();
       socketService.disconnect();
+      if (visibilityHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
       isMounted = false;
     };
   }, [isAuthenticated]);

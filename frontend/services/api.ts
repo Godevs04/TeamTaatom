@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { createPerformanceInterceptor } from '../utils/performance';
-import { API_BASE_URL } from '../utils/config';
+import { getApiBaseUrl } from '../utils/config';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 
@@ -13,14 +13,23 @@ const REQUEST_DELAY = 100; // 100ms delay between requests
 // Store CSRF token in memory (updated from response headers)
 let csrfToken: string | null = null;
 
+// Create axios instance - baseURL will be updated dynamically in interceptor
+// Use getApiBaseUrl() to ensure fresh URL on every request
+const initialBaseUrl = getApiBaseUrl();
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: initialBaseUrl, // Get fresh URL at creation time
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Include cookies for web (httpOnly cookies)
 });
+
+// Log initial baseURL for debugging
+if (Platform.OS === 'web') {
+  console.log(`[API] 🚀 Initialized with baseURL: ${initialBaseUrl}`);
+  console.log(`[API] 🚀 Environment check - EXPO_PUBLIC_API_BASE_URL:`, process.env.EXPO_PUBLIC_API_BASE_URL);
+}
 
 // Add performance monitoring interceptor
 const performanceInterceptor = createPerformanceInterceptor();
@@ -31,8 +40,18 @@ api.interceptors.response.use(performanceInterceptor.response, performanceInterc
 api.interceptors.request.use(
   async (config) => {
     try {
+      // CRITICAL: Update baseURL dynamically on every request for web auto-detection
+      // This ensures we always use the correct IP, even if it changes
+      const dynamicBaseUrl = getApiBaseUrl();
+      if (config.baseURL !== dynamicBaseUrl) {
+        config.baseURL = dynamicBaseUrl;
+        if (process.env.NODE_ENV === 'development' && Platform.OS === 'web') {
+          console.log(`[API] 🔄 Updated baseURL to: ${dynamicBaseUrl}`);
+        }
+      }
+      
       // Log requests in development
-      logger.debug('API Request', { method: config.method?.toUpperCase(), url: config.url });
+      logger.debug('API Request', { method: config.method?.toUpperCase(), url: config.url, baseURL: config.baseURL });
       
       // Add throttling to prevent rate limiting
       const requestKey = `${config.method}-${config.url}`;
