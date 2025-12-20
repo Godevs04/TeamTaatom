@@ -7,7 +7,9 @@ import {
   TouchableOpacity, 
   Alert, 
   ActivityIndicator,
-  RefreshControl 
+  RefreshControl,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -17,6 +19,25 @@ import { getUserFromStorage } from '../../services/auth';
 import { useSettings } from '../../context/SettingsContext';
 import { useAlert } from '../../context/AlertContext';
 import { createLogger } from '../../utils/logger';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 // Get version from package.json
 let appVersion = '1.0.0';
@@ -325,6 +346,11 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollView: {
     flex: 1,
@@ -333,76 +359,101 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   headerContainer: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 12,
+    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    padding: isTablet ? theme.spacing.xl : 20,
+    borderRadius: theme.borderRadius.md,
   },
   userInfo: {
     alignItems: 'center',
   },
   userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: isTablet ? theme.typography.h3.fontSize : 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   userEmail: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   sectionsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 20,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: isTablet ? theme.spacing.xl : 20,
   },
   sectionItem: {
-    marginBottom: 12,
-    borderRadius: 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
+    borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
   },
   sectionContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: isTablet ? 56 : 48,
+    height: isTablet ? 56 : 48,
+    borderRadius: isTablet ? 28 : 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: isTablet ? theme.spacing.lg : 16,
   },
   sectionText: {
     flex: 1,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   sectionDescription: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    lineHeight: isTablet ? 22 : 20,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   resetContainer: {
-    marginHorizontal: 16,
-    marginBottom: 20,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: isTablet ? theme.spacing.xl : 20,
   },
   resetButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   resetButtonText: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   versionContainer: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: isTablet ? theme.spacing.xl : 20,
   },
   versionText: {
     fontSize: 12,

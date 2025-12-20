@@ -24,7 +24,9 @@ appJson.expo.extra = {
   GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_ID_IOS: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || appJson.expo.extra?.GOOGLE_CLIENT_ID_IOS || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_ID_ANDROID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || appJson.expo.extra?.GOOGLE_CLIENT_ID_ANDROID || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
-  GOOGLE_CLIENT_SECRET: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET || appJson.expo.extra?.GOOGLE_CLIENT_SECRET || '',
+  // SECURITY: GOOGLE_CLIENT_SECRET is intentionally NOT included here
+  // Client secrets should NEVER be exposed in the frontend bundle
+  // The secret should only be used on the backend server
   GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || appJson.expo.extra?.GOOGLE_REDIRECT_URI || '',
 };
 

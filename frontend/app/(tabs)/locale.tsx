@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   FlatList,
   Image,
@@ -15,7 +14,9 @@ import {
   Dimensions,
   Modal,
   ScrollView,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
@@ -29,10 +30,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { savedEvents } from '../../utils/savedEvents';
+import { theme } from '../../constants/theme';
 
 const logger = createLogger('LocaleScreen');
 
-const { width } = Dimensions.get('window');
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 interface LocationData {
   latitude: number;
@@ -112,6 +130,13 @@ export default function LocaleScreen() {
     spotTypes: [],
     searchRadius: '',
   });
+  
+  // Responsive dimensions (inside component to ensure they're accessible)
+  const { width: screenWidth } = Dimensions.get('window');
+  const isTabletLocal = screenWidth >= 768;
+  const isWebLocal = Platform.OS === 'web';
+  const isIOSLocal = Platform.OS === 'ios';
+  const isAndroidLocal = Platform.OS === 'android';
   
   // Navigation & Lifecycle Safety: Track mounted state
   const isMountedRef = useRef(true);
@@ -283,6 +308,55 @@ export default function LocaleScreen() {
     }
   }, [searchQuery, filters.countryCode, filters.spotTypes]); // Removed adminLocales to prevent circular dependency
   
+  // Bookmark Stability: Load saved locales with defensive parsing
+  const loadSavedLocales = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    try {
+      const saved = await AsyncStorage.getItem('savedLocales');
+      
+      // Defensive JSON parsing with recovery
+      let locales: Locale[] = [];
+      try {
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          locales = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (parseError) {
+        logger.warn('Failed to parse savedLocales, resetting', parseError);
+        // Recover corrupted storage by resetting
+        try {
+          await AsyncStorage.setItem('savedLocales', JSON.stringify([]));
+        } catch {}
+        locales = [];
+      }
+      
+      // Deduplicate by locale ID
+      const localeMap = new Map<string, Locale>();
+      locales.forEach(locale => {
+        if (locale && locale._id) {
+          localeMap.set(locale._id, locale);
+        }
+      });
+      const uniqueLocales = Array.from(localeMap.values());
+      
+      if (isMountedRef.current) {
+        setSavedLocales(uniqueLocales);
+        
+        // Update AsyncStorage if duplicates were found
+        if (uniqueLocales.length !== locales.length) {
+          try {
+            await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
+          } catch {}
+        }
+      }
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      logger.error('Error loading saved locales', error);
+      setSavedLocales([]);
+    }
+  }, []);
+  
   // Apply client-side filters (for spot types that API doesn't support)
   const applyFilters = useCallback((locales: Locale[]) => {
     let filtered = [...locales];
@@ -346,55 +420,6 @@ export default function LocaleScreen() {
     });
     return unsubscribe;
   }, [loadSavedLocales]);
-
-  // Bookmark Stability: Load saved locales with defensive parsing
-  const loadSavedLocales = useCallback(async () => {
-    if (!isMountedRef.current) return;
-    
-    try {
-      const saved = await AsyncStorage.getItem('savedLocales');
-      
-      // Defensive JSON parsing with recovery
-      let locales: Locale[] = [];
-      try {
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          locales = Array.isArray(parsed) ? parsed : [];
-        }
-      } catch (parseError) {
-        logger.warn('Failed to parse savedLocales, resetting', parseError);
-        // Recover corrupted storage by resetting
-        try {
-          await AsyncStorage.setItem('savedLocales', JSON.stringify([]));
-        } catch {}
-        locales = [];
-      }
-      
-      // Deduplicate by locale ID
-      const localeMap = new Map<string, Locale>();
-      locales.forEach(locale => {
-        if (locale && locale._id) {
-          localeMap.set(locale._id, locale);
-        }
-      });
-      const uniqueLocales = Array.from(localeMap.values());
-      
-      if (isMountedRef.current) {
-        setSavedLocales(uniqueLocales);
-        
-        // Update AsyncStorage if duplicates were found
-        if (uniqueLocales.length !== locales.length) {
-          try {
-            await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
-          } catch {}
-        }
-      }
-    } catch (error) {
-      if (!isMountedRef.current) return;
-      logger.error('Error loading saved locales', error);
-      setSavedLocales([]);
-    }
-  }, []);
 
   // Navigation & Lifecycle Safety: Refresh bookmark status on focus (prevent refetch loops)
   useFocusEffect(
@@ -884,20 +909,25 @@ export default function LocaleScreen() {
           { marginBottom: 16 }
         ]}
         onPress={() => {
-          // Navigate to locale detail
-          router.push({
-            pathname: '/tripscore/countries/[country]/locations/[location]',
-            params: {
-              country: locale.countryCode.toLowerCase(),
-              location: locale.name.toLowerCase().replace(/\s+/g, '-'),
-              userId: 'admin-locale',
-              imageUrl: locale.imageUrl,
-              latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
-              longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
-              description: locale.description || '',
-              spotTypes: locale.spotTypes?.join(', ') || '',
-            }
-          });
+          // Navigate to locale detail - Legacy flow
+          try {
+            router.push({
+              pathname: '/tripscore/countries/[country]/locations/[location]',
+              params: {
+                country: locale.countryCode.toLowerCase(),
+                location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+                userId: 'admin-locale',
+                imageUrl: locale.imageUrl || '',
+                latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
+                longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+                description: locale.description || '',
+                spotTypes: locale.spotTypes?.join(', ') || '',
+              }
+            });
+          } catch (error) {
+            logger.error('Error navigating to locale detail:', error);
+            Alert.alert('Error', 'Failed to open locale details');
+          }
         }}
       >
         {locale.imageUrl ? (
@@ -994,19 +1024,25 @@ export default function LocaleScreen() {
           { marginBottom: 16 }
         ]}
         onPress={() => {
-          router.push({
-            pathname: '/tripscore/countries/[country]/locations/[location]',
-            params: {
-              country: locale.countryCode.toLowerCase(),
-              location: locale.name.toLowerCase().replace(/\s+/g, '-'),
-              userId: 'admin-locale',
-              imageUrl: locale.imageUrl,
-              latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
-              longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
-              description: locale.description || '',
-              spotTypes: locale.spotTypes?.join(', ') || '',
-            }
-          });
+          // Navigate to locale detail - Legacy flow
+          try {
+            router.push({
+              pathname: '/tripscore/countries/[country]/locations/[location]',
+              params: {
+                country: locale.countryCode.toLowerCase(),
+                location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+                userId: 'admin-locale',
+                imageUrl: locale.imageUrl || '',
+                latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
+                longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+                description: locale.description || '',
+                spotTypes: locale.spotTypes?.join(', ') || '',
+              }
+            });
+          } catch (error) {
+            logger.error('Error navigating to locale detail:', error);
+            Alert.alert('Error', 'Failed to open locale details');
+          }
         }}
       >
         {locale.imageUrl ? (
@@ -1078,7 +1114,10 @@ export default function LocaleScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      edges={['top']}
+    >
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
@@ -1093,10 +1132,12 @@ export default function LocaleScreen() {
               activeTab === 'locale' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('locale')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
             <Ionicons 
               name="location-outline" 
-              size={18} 
+              size={isTabletLocal ? 20 : 18} 
               color={activeTab === 'locale' ? '#FFFFFF' : theme.colors.textSecondary} 
             />
             <Text style={[
@@ -1113,10 +1154,12 @@ export default function LocaleScreen() {
               activeTab === 'saved' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('saved')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
             <Ionicons 
               name="bookmark-outline" 
-              size={18} 
+              size={isTabletLocal ? 20 : 18} 
               color={activeTab === 'saved' ? '#FFFFFF' : theme.colors.textSecondary} 
             />
             <Text style={[
@@ -1143,8 +1186,10 @@ export default function LocaleScreen() {
           <TouchableOpacity 
             style={styles.filterButton}
             onPress={() => setShowFilterModal(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
-            <Ionicons name="options-outline" size={20} color={theme.colors.textSecondary} />
+            <Ionicons name="options-outline" size={isTabletLocal ? 24 : 20} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -1211,31 +1256,52 @@ export default function LocaleScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  topNavigation: {
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 0.5,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    borderRadius: 16,
-    padding: 6,
-  },
-  tabButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    flex: 1,
-    marginHorizontal: 3,
-  },
+// Create styles function that uses the constants
+const createStyles = () => {
+  const { width: screenWidth } = Dimensions.get('window');
+  const isTabletLocal = screenWidth >= 768;
+  const isWebLocal = Platform.OS === 'web';
+  const isIOSLocal = Platform.OS === 'ios';
+  const isAndroidLocal = Platform.OS === 'android';
+
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      ...(isWebLocal && {
+        maxWidth: isTabletLocal ? 1200 : 1000,
+        alignSelf: 'center',
+        width: '100%',
+      } as any),
+    },
+    topNavigation: {
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
+      paddingTop: isAndroidLocal ? (isTabletLocal ? theme.spacing.xl + 8 : 20 + 8) : (isTabletLocal ? theme.spacing.xl : 20),
+      paddingBottom: isTabletLocal ? theme.spacing.xl : 20,
+      borderBottomWidth: 0.5,
+      minHeight: isAndroidLocal ? (isTabletLocal ? 80 : 64) : (isTabletLocal ? 72 : 60),
+    },
+    tabContainer: {
+      flexDirection: 'row',
+      backgroundColor: 'rgba(0,0,0,0.08)',
+      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
+      padding: isTabletLocal ? 8 : 6,
+    },
+    tabButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
+      paddingVertical: isTabletLocal ? theme.spacing.md : (isAndroidLocal ? 16 : 14),
+      borderRadius: theme.borderRadius.md,
+      flex: 1,
+      marginHorizontal: isTabletLocal ? 4 : 3,
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minHeight: isAndroidLocal ? 48 : 44,
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
   activeTab: {
     shadowColor: '#000',
     shadowOffset: {
@@ -1246,25 +1312,30 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  tabText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
-    letterSpacing: 0.3,
-  },
-  searchContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 0,
-    width: '100%',
+    tabText: {
+      fontSize: isTabletLocal ? theme.typography.body.fontSize + 2 : 16,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
+      marginLeft: isTabletLocal ? theme.spacing.md : 10,
+      letterSpacing: isIOSLocal ? 0.3 : 0.2,
+      ...(isWebLocal && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
+    },
+    searchContainer: {
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 20,
+      paddingVertical: isTabletLocal ? theme.spacing.lg : 16,
+      alignItems: 'center',
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: theme.borderRadius.md,
+      paddingHorizontal: isTabletLocal ? theme.spacing.lg : 16,
+      paddingVertical: isTabletLocal ? theme.spacing.md : 10,
+      borderWidth: 0,
+      width: '100%',
+      maxWidth: isTabletLocal ? 800 : '100%',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -1274,35 +1345,44 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    marginLeft: 12,
-    fontWeight: '400',
-  },
-  filterButton: {
-    padding: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-  },
-  listContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 30,
-  },
-  row: {
-    justifyContent: 'space-between',
-    paddingHorizontal: 0,
-    marginBottom: 8,
-  },
-  firstRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  locationCard: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 12,
+    searchInput: {
+      flex: 1,
+      fontSize: isTabletLocal ? theme.typography.body.fontSize + 1 : 15,
+      fontFamily: getFontFamily('400'),
+      marginLeft: isTabletLocal ? theme.spacing.md : 12,
+      fontWeight: '400',
+      ...(isWebLocal && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+        outlineStyle: 'none',
+      } as any),
+    },
+    filterButton: {
+      padding: isTabletLocal ? theme.spacing.sm : 6,
+      borderRadius: theme.borderRadius.sm,
+      backgroundColor: 'rgba(0,0,0,0.05)',
+      ...(isWebLocal && {
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      } as any),
+    },
+    listContainer: {
+      paddingHorizontal: isTabletLocal ? theme.spacing.md : 12,
+      paddingBottom: isTabletLocal ? 40 : 30,
+    },
+    row: {
+      justifyContent: 'space-between',
+      paddingHorizontal: 0,
+      marginBottom: isTabletLocal ? theme.spacing.sm : 8,
+    },
+    firstRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: isTabletLocal ? theme.spacing.md : 12,
+    },
+    locationCard: {
+      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
+      overflow: 'hidden',
+      marginBottom: isTabletLocal ? theme.spacing.md : 12,
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: {
@@ -1313,15 +1393,15 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     backgroundColor: '#FFFFFF',
   },
-  halfCard: {
-    width: (width - 36) / 2,
-    height: 180,
-  },
-  wideCard: {
-    width: width - 40,
-    height: 200,
-    alignSelf: 'center',
-  },
+    halfCard: {
+      width: isTabletLocal ? (screenWidth - theme.spacing.xxl * 2 - theme.spacing.md) / 2 : (screenWidth - 36) / 2,
+      height: isTabletLocal ? 220 : 180,
+    },
+    wideCard: {
+      width: isTabletLocal ? screenWidth - theme.spacing.xxl * 2 : screenWidth - 40,
+      height: isTabletLocal ? 240 : 200,
+      alignSelf: 'center',
+    },
   cardImage: {
     width: '100%',
     height: '100%',
@@ -1357,22 +1437,31 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-    letterSpacing: 0.3,
-  },
-  savedIndicator: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 14,
-    padding: 6,
+    cardTitle: {
+      fontSize: isTabletLocal ? theme.typography.h3.fontSize : 18,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
+      color: '#FFFFFF',
+      textShadowColor: 'rgba(0,0,0,0.7)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 3,
+      letterSpacing: isIOSLocal ? 0.3 : 0.2,
+      ...(isWebLocal && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
+    },
+    savedIndicator: {
+      position: 'absolute',
+      top: isAndroidLocal ? 12 : 10,
+      right: isAndroidLocal ? 12 : 10,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      borderRadius: isTabletLocal ? 16 : 14,
+      padding: isTabletLocal ? 8 : (isAndroidLocal ? 8 : 6),
+      // Minimum touch target: 44x44 for iOS, 48x48 for Android
+      minWidth: isAndroidLocal ? 48 : 44,
+      minHeight: isAndroidLocal ? 48 : 44,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -1381,6 +1470,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3,
     elevation: 3,
+    zIndex: 10,
   },
   loadingIndicator: {
     position: 'absolute',
@@ -1603,17 +1693,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
   },
-  saveButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-});
+    saveButton: {
+      position: 'absolute',
+      top: 12,
+      right: 12,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 10,
+    },
+  });
+};
+
+const styles = createStyles();
 

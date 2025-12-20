@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -20,8 +21,25 @@ import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, h
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
 import { triggerRefreshHaptic } from '../utils/hapticFeedback';
+import { theme } from '../constants/theme';
 
-const { width } = Dimensions.get('window');
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 interface NotificationSection {
   title: string;
@@ -576,44 +594,64 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 40,
   },
   emptyTitle: {
-    fontSize: 28,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 28,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
-    marginTop: 20,
-    marginBottom: 12,
+    marginTop: isTablet ? theme.spacing.xl : 20,
+    marginBottom: isTablet ? theme.spacing.md : 12,
     textAlign: 'center',
+    letterSpacing: isIOS ? -0.3 : 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyMessage: {
-    fontSize: 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 17,
+    fontFamily: getFontFamily('400'),
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: isTablet ? 26 : 24,
     fontWeight: '400',
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   sectionHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 17,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     letterSpacing: 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   notificationItem: {
-    marginHorizontal: 16,
-    marginVertical: 4,
-    borderRadius: 16,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginVertical: isTablet ? 6 : 4,
+    borderRadius: isTablet ? theme.borderRadius.lg : 16,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 8,
     elevation: 3,
@@ -621,25 +659,25 @@ const styles = StyleSheet.create({
   notificationContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    paddingHorizontal: 16,
+    padding: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
   },
   notificationLeft: {
-    marginRight: 16,
+    marginRight: isTablet ? theme.spacing.lg : 16,
   },
   avatarContainer: {
     position: 'relative',
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
+    borderRadius: isTablet ? 30 : 24,
     borderWidth: 2,
   },
   avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
+    borderRadius: isTablet ? 30 : 24,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -648,9 +686,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: -2,
     right: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: isTablet ? 24 : 20,
+    height: isTablet ? 24 : 20,
+    borderRadius: isTablet ? 12 : 10,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -660,18 +698,26 @@ const styles = StyleSheet.create({
   },
   notificationText: {
     flex: 1,
-    marginRight: 12,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   notificationMessage: {
-    fontSize: 15,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    lineHeight: 20,
+    lineHeight: isTablet ? 22 : 20,
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   notificationTime: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
     opacity: 0.7,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   notificationRight: {
     alignItems: 'center',
@@ -679,7 +725,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   postThumbnailContainer: {
-    borderRadius: 12,
+    borderRadius: isTablet ? theme.borderRadius.md : 12,
     overflow: 'hidden',
     borderWidth: 2,
     shadowOffset: { width: 0, height: 1 },
@@ -688,16 +734,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   postThumbnail: {
-    width: 48,
-    height: 48,
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
   },
   unreadDot: {
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: isTablet ? 12 : 10,
+    height: isTablet ? 12 : 10,
+    borderRadius: isTablet ? 6 : 5,
     backgroundColor: '#FF3B30',
     borderWidth: 2,
     shadowOffset: { width: 0, height: 2 },
@@ -706,11 +752,15 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   footerLoader: {
-    paddingVertical: 24,
+    paddingVertical: isTablet ? theme.spacing.xl : 24,
     alignItems: 'center',
   },
   markAllText: {
-    fontSize: 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 17,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });
