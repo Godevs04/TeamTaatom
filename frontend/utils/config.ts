@@ -40,10 +40,9 @@ export const GOOGLE_CLIENT_ID_ANDROID =
   Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID_ANDROID ||
   GOOGLE_CLIENT_ID;
 
-export const GOOGLE_CLIENT_SECRET =
-  process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET ||
-  Constants.expoConfig?.extra?.GOOGLE_CLIENT_SECRET ||
-  '';
+// NOTE: GOOGLE_CLIENT_SECRET is intentionally NOT exported here
+// Client secrets should NEVER be exposed to the frontend bundle
+// The secret should only be used on the backend server
 
 export const GOOGLE_REDIRECT_URI =
   process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI ||

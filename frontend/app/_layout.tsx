@@ -23,6 +23,24 @@ import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import * as Sentry from '@sentry/react-native';
 import { Audio } from 'expo-av';
+import { validateEnvironmentVariables } from '../utils/envValidator';
+import logger from '../utils/logger';
+
+// Validate environment variables on app startup
+// This will throw an error in production if secrets are exposed
+if (typeof window !== 'undefined' || typeof global !== 'undefined') {
+  try {
+    validateEnvironmentVariables();
+  } catch (error) {
+    // In production, this will prevent the app from starting
+    // In development, log the error but allow the app to continue
+    if (process.env.NODE_ENV === 'production') {
+      throw error;
+    } else {
+      console.error('Environment validation error (development mode):', error);
+    }
+  }
+}
 
 // Initialize Sentry with environment variables
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN;
@@ -89,12 +107,20 @@ function RootLayoutInner() {
     async function setupSocket() {
       if (isAuthenticated) {
         await socketService.connect();
-        // Example: subscribe to invalidate events
+        // Subscribe to invalidate events for cache invalidation
+        // These handlers will trigger refetch when backend signals data changes
+        // Note: Currently these are placeholders. When a global state management system
+        // (e.g., React Query, Zustand, or Context API) is implemented, these handlers
+        // should trigger cache invalidation and refetch operations.
         const feedHandler = () => {
-          // TODO: trigger feed refetch (e.g., via context or query client)
+          // Future: Trigger feed refetch via global state management
+          // Example: queryClient.invalidateQueries(['posts']) or feedContext.refetch()
+          logger.debug('Feed invalidation event received - refetch will be implemented with state management');
         };
         const profileHandler = (userId: string) => {
-          // TODO: trigger profile refetch for userId
+          // Future: Trigger profile refetch for specific userId via global state management
+          // Example: queryClient.invalidateQueries(['profile', userId]) or profileContext.refetch(userId)
+          logger.debug(`Profile invalidation event received for user ${userId} - refetch will be implemented with state management`);
         };
         await socketService.subscribe('invalidate:feed', feedHandler);
         await socketService.subscribe('invalidate:profile', profileHandler);
@@ -127,7 +153,10 @@ function RootLayoutInner() {
         // Set user for analytics and crash reporting
         if (user && user !== 'network-error') {
           await analyticsService.setUser(user._id);
-          crashReportingService.setUser(user._id);
+          crashReportingService.setUser(user._id, {
+            username: user.username,
+            email: user.email,
+          });
           
           // Track user login/retention
           await analyticsService.trackRetention('app_open', {

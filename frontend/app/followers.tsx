@@ -8,6 +8,7 @@ import { toggleFollow } from '../services/profile';
 import api from '../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../constants/theme';
+import { parseError } from '../utils/errorCodes';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -79,8 +80,9 @@ export default function FollowersFollowingList() {
       
       setHasNextPage(response.data.pagination?.hasNextPage ?? false);
       setPage(pageToFetch);
-    } catch (err) {
-      Alert.alert('Error', 'Failed to load list');
+    } catch (err: any) {
+      const parsedError = parseError(err);
+      Alert.alert('Error', parsedError.userMessage || 'Failed to load list');
     } finally {
       setLoading(false);
       setLoadingMore(false);

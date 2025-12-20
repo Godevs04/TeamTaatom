@@ -151,14 +151,14 @@ router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
     let cleaned = false;
     const originalLength = user.followRequests.length;
     
-    console.log('🧹 Before cleanup - Follow requests:', user.followRequests.map(req => ({
+    logger.debug('🧹 Before cleanup - Follow requests:', user.followRequests.map(req => ({
       user: req.user.toString(),
       status: req.status
     })));
     
     user.followRequests = user.followRequests.filter(req => {
       if (req.user.toString() === user._id.toString()) {
-        console.log('🧹 Removing incorrect follow request with self ID:', req.user.toString());
+        logger.debug('🧹 Removing incorrect follow request with self ID:', req.user.toString());
         cleaned = true;
         return false;
       }
@@ -167,10 +167,10 @@ router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
     
     if (cleaned) {
       await user.save();
-      console.log(`🧹 Cleaned up follow requests: ${originalLength} -> ${user.followRequests.length}`);
+      logger.debug(`🧹 Cleaned up follow requests: ${originalLength} -> ${user.followRequests.length}`);
     }
     
-    console.log('🧹 After cleanup - Follow requests:', user.followRequests.map(req => ({
+    logger.debug('🧹 After cleanup - Follow requests:', user.followRequests.map(req => ({
       user: req.user.toString(),
       status: req.status
     })));
@@ -208,7 +208,7 @@ router.get('/follow-requests/cleanup-all', authMiddleware, async (req, res) => {
       
       if (user.followRequests.length !== originalLength) {
         await user.save();
-        console.log(`🧹 Cleaned user ${user.fullName}: ${originalLength} -> ${user.followRequests.length}`);
+        logger.debug(`🧹 Cleaned user ${user.fullName}: ${originalLength} -> ${user.followRequests.length}`);
       }
     }
     

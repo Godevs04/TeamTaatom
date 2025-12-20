@@ -92,15 +92,35 @@ const createError = (errorCode, customMessage = null, details = {}) => {
  */
 const sendError = (res, errorCode, customMessage = null, details = {}) => {
   const error = createError(errorCode, customMessage, details);
-  return res.status(error.status).json({
+  
+  // Ensure NODE_ENV is explicitly checked (default to production for safety)
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  // Build response object
+  const response = {
     success: false,
     error: {
       code: error.code,
       message: error.message,
-      ...(Object.keys(details).length > 0 && { details })
-    },
-    ...(process.env.NODE_ENV === 'development' && details.stack && { stack: details.stack })
-  });
+    }
+  };
+
+  // Only include details if they exist and are safe
+  if (Object.keys(details).length > 0) {
+    // Remove stack traces in production
+    const safeDetails = { ...details };
+    if (!isDevelopment && safeDetails.stack) {
+      delete safeDetails.stack;
+    }
+    response.error.details = safeDetails;
+  }
+
+  // NEVER include stack traces in production response
+  if (isDevelopment && details.stack) {
+    response.stack = details.stack;
+  }
+
+  return res.status(error.status).json(response);
 };
 
 /**

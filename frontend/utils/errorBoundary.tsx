@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { captureException } from '../services/crashReporting';
 import { useTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
+import * as Sentry from '@sentry/react-native';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -31,8 +32,19 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
     
+    // Add Sentry context for error boundary
+    if (Sentry) {
+      Sentry.setContext('error_boundary', {
+        level: this.props.level || 'component',
+        componentStack: errorInfo.componentStack,
+      });
+      Sentry.setTag('error_boundary_level', this.props.level || 'component');
+    }
+    
     // Log error to crash reporting
     captureException(error, {
+      screen: 'error_boundary',
+      action: `error_boundary_${this.props.level || 'component'}`,
       componentStack: errorInfo.componentStack,
       context: `error_boundary_${this.props.level || 'component'}`,
       errorInfo: errorInfo.componentStack,
@@ -83,9 +95,10 @@ function ErrorFallback({
   level?: string;
 }) {
   // Safely get theme, with fallback if not available
-  let theme;
+  let theme: { colors: { background: string; text: string; textSecondary: string; error: string; card: string; primary: string; border?: string } };
   try {
-    theme = useTheme();
+    const themeContext = useTheme();
+    theme = themeContext.theme as typeof theme;
   } catch {
     // Fallback theme if ThemeProvider is not available
     theme = {
@@ -96,6 +109,7 @@ function ErrorFallback({
         error: '#ff5252',
         card: '#F5F5F5',
         primary: '#0A84FF',
+        border: '#E0E0E0',
       },
     };
   }
@@ -114,7 +128,7 @@ function ErrorFallback({
       </Text>
       
       <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
-        {error.message || 'Something went wrong. Please try again.'}
+        {showDetails ? (error.message || 'Something went wrong. Please try again.') : 'Something went wrong. Please try again.'}
       </Text>
 
       {showDetails && errorInfo && (

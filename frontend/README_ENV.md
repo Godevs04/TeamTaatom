@@ -32,7 +32,9 @@ EXPO_PUBLIC_LOGO_IMAGE=https://res.cloudinary.com/dcvdqhqzc/image/upload/v175653
 EXPO_PUBLIC_GOOGLE_CLIENT_ID=your_google_client_id
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS=your_google_client_id_ios
 EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID=your_google_client_id_android
-EXPO_PUBLIC_GOOGLE_CLIENT_SECRET=your_google_client_secret
+# SECURITY WARNING: DO NOT use EXPO_PUBLIC_GOOGLE_CLIENT_SECRET
+# Client secrets should NEVER be exposed in the frontend bundle
+# The secret should only be used on the backend server
 EXPO_PUBLIC_GOOGLE_REDIRECT_URI=your_google_redirect_uri
 
 # Google Maps API Key
@@ -73,7 +75,7 @@ The configuration system uses the following priority order:
 - `EXPO_PUBLIC_GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS` - iOS-specific client ID (optional)
 - `EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID` - Android-specific client ID (optional)
-- `EXPO_PUBLIC_GOOGLE_CLIENT_SECRET` - Google OAuth client secret
+- ⚠️ **SECURITY**: `GOOGLE_CLIENT_SECRET` should NOT be exposed to frontend (backend only)
 - `EXPO_PUBLIC_GOOGLE_REDIRECT_URI` - Google OAuth redirect URI
 
 ### Google Maps
