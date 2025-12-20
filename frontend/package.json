@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "update-config": "node scripts/update-app-json.js",
     "prestart": "npm run update-config",
-    "build:web": "expo export:web",
+    "build:web": "expo export --platform web --output-dir dist --source-maps",
     "build:analyze": "node scripts/analyze-bundle.js",
     "postbuild:web": "npm run build:analyze",
     "upload-sourcemaps": "node scripts/upload-sourcemaps.js"
