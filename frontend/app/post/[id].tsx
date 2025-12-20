@@ -113,7 +113,7 @@ export default function PostDetail() {
         // Log view count for debugging
         logger.debug('Post loaded with viewsCount:', response.post?.viewsCount);
         
-        console.log('Post detail - Initial data loaded:', {
+        logger.debug('Post detail - Initial data loaded:', {
           postId: response.post?._id,
           apiIsLiked: response.post?.isLiked,
           apiLikesCount: response.post?.likesCount,
@@ -147,7 +147,7 @@ export default function PostDetail() {
             });
           } catch (analyticsError) {
             // Silently fail - don't break the app if analytics fails
-            console.warn('Analytics error:', analyticsError);
+            logger.warn('Analytics error:', analyticsError);
           }
         }
         
@@ -163,7 +163,7 @@ export default function PostDetail() {
         await loadSavedState(response.post?._id);
         
       } catch (err) {
-        console.error('Error loading initial data:', err);
+        logger.error('Error loading initial data:', err);
         setError('Failed to load post');
       } finally {
         setLoading(false);
@@ -177,7 +177,7 @@ export default function PostDetail() {
         trackScreenView('post_detail', { post_id: id });
       } catch (analyticsError) {
         // Silently fail - don't break the app if analytics fails
-        console.warn('Analytics error:', analyticsError);
+        logger.warn('Analytics error:', analyticsError);
       }
     }
   }, [id]);
@@ -190,7 +190,7 @@ export default function PostDetail() {
       const filteredPosts = response.posts.filter(p => p._id !== id);
       setRelatedPosts(filteredPosts.slice(0, 3));
     } catch (error) {
-      console.error('Error loading related posts:', error);
+      logger.error('Error loading related posts:', error);
     } finally {
       setLoadingRelated(false);
     }
@@ -202,17 +202,17 @@ export default function PostDetail() {
       const arr = stored ? JSON.parse(stored) : [];
       setIsBookmarked(Array.isArray(arr) && arr.includes(postId));
     } catch (error) {
-      console.error('Error loading saved state:', error);
+      logger.error('Error loading saved state:', error);
     }
   };
 
   // Initialize real-time posts service
   React.useEffect(() => {
-    console.log('Post detail - Initializing real-time service...');
+            logger.debug('Post detail - Initializing real-time service...');
     realtimePostsService.initialize().then(() => {
-      console.log('Post detail - Real-time service initialized');
+      logger.debug('Post detail - Real-time service initialized');
     }).catch((error) => {
-      console.error('Post detail - Failed to initialize real-time service:', error);
+      logger.error('Post detail - Failed to initialize real-time service:', error);
     });
   }, []);
 
@@ -240,7 +240,7 @@ export default function PostDetail() {
     if (!post) return;
 
     if (process.env.NODE_ENV === 'development') {
-      console.log('Post detail - Setting up WebSocket listeners for post:', post._id);
+      logger.debug('Post detail - Setting up WebSocket listeners for post:', post._id);
     }
 
     const unsubscribeLikes = realtimePostsService.subscribeToLikes((data) => {
@@ -263,7 +263,7 @@ export default function PostDetail() {
         }
         
         if (process.env.NODE_ENV === 'development') {
-          console.log('Post detail - WebSocket like update received:', data);
+          logger.debug('Post detail - WebSocket like update received:', data);
         }
         
         // Only update if the WebSocket data is more recent than our current state
@@ -274,7 +274,7 @@ export default function PostDetail() {
         // If the event is older than 5 seconds, it's likely stale data
         if (timeDiff > 5000) {
           if (process.env.NODE_ENV === 'development') {
-            console.log('Post detail - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
+            logger.debug('Post detail - Ignoring stale WebSocket event (older than 5s):', timeDiff + 'ms');
           }
           return;
         }
@@ -376,7 +376,7 @@ export default function PostDetail() {
       const newLikesCount = response.likesCount || 0;
       
       if (process.env.NODE_ENV === 'development') {
-        console.log('Post detail - Like toggle response:', {
+        logger.debug('Post detail - Like toggle response:', {
           postId: post!._id,
           response: response,
           processedIsLiked: newIsLiked,
@@ -408,7 +408,7 @@ export default function PostDetail() {
       }, 500);
       
     } catch (error) {
-      console.error('Error toggling like:', error);
+      logger.error('Error toggling like:', error);
       showCustomAlertMessage('Error', 'Failed to update like status.', 'error');
     } finally {
       setActionLoading(null);
@@ -440,7 +440,7 @@ export default function PostDetail() {
     } catch (error: any) {
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!error.isConflict && error.response?.status !== 409) {
-        console.error('Error toggling follow:', error);
+        logger.error('Error toggling follow:', error);
       }
       
       const errorMessage = error.response?.data?.message || error.message || 'Failed to update follow status.';
@@ -487,10 +487,10 @@ export default function PostDetail() {
         isBookmarked: newBookmarkState
       });
       
-      console.log(newBookmarkState ? 'Post saved' : 'Post unsaved', post!._id);
+      logger.debug(newBookmarkState ? 'Post saved' : 'Post unsaved', post!._id);
       
     } catch (error) {
-      console.error('Error bookmarking post:', error);
+      logger.error('Error bookmarking post:', error);
       showCustomAlertMessage('Error', 'Failed to save post.', 'error');
     } finally {
       setActionLoading(null);
@@ -513,7 +513,7 @@ export default function PostDetail() {
       const response = await getPostById(id as string);
       setComments(response.post?.comments || []);
     } catch (error) {
-      console.error('Error refreshing comments:', error);
+      logger.error('Error refreshing comments:', error);
     }
     
     setShowCommentModal(true);

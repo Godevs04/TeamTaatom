@@ -8,6 +8,7 @@
 
 import * as Location from 'expo-location';
 import { Platform } from 'react-native';
+import logger from './logger';
 
 // ============================================================================
 // CACHE AND RATE LIMITING
@@ -30,23 +31,23 @@ let pendingGeocodeRequest: Promise<string | null> | null = null;
  */
 export const geocodeAddress = async (address: string): Promise<{ latitude: number; longitude: number } | null> => {
   try {
-    console.log('🌍 Geocoding address via Google API:', address);
+    logger.debug('🌍 Geocoding address via Google API:', address);
     
     const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!GOOGLE_MAPS_API_KEY) {
-      console.error('❌ Google Maps API key not found in environment variables');
+      logger.error('❌ Google Maps API key not found in environment variables');
       return null;
     }
     
     const encodedAddress = encodeURIComponent(address);
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
     
-    console.log('🔗 API URL:', url);
+    logger.debug('🔗 API URL:', url);
     
     const response = await fetch(url);
     const data = await response.json();
     
-    console.log('📡 API Response Status:', data.status);
+    logger.debug('📡 API Response Status:', data.status);
     
     if (data.status === 'OK' && data.results && data.results.length > 0) {
       const location = data.results[0].geometry.location;
@@ -55,14 +56,14 @@ export const geocodeAddress = async (address: string): Promise<{ latitude: numbe
         longitude: location.lng
       };
       
-      console.log('✅ Geocoding SUCCESS:', address, coordinates);
+      logger.debug('✅ Geocoding SUCCESS:', address, coordinates);
       return coordinates;
     } else {
-      console.error('❌ Geocoding FAILED:', data.status, data.error_message);
+      logger.error('❌ Geocoding FAILED:', data.status, data.error_message);
       return null;
     }
   } catch (error) {
-    console.error('💥 Geocoding ERROR:', error);
+    logger.error('💥 Geocoding ERROR:', error);
     return null;
   }
 };
@@ -72,11 +73,11 @@ export const geocodeAddress = async (address: string): Promise<{ latitude: numbe
  */
 export const getLocationDetails = async (latitude: number, longitude: number): Promise<string | null> => {
   try {
-    console.log('🔄 Reverse geocoding coordinates:', { latitude, longitude });
+    logger.debug('🔄 Reverse geocoding coordinates:', { latitude, longitude });
     
     const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!GOOGLE_MAPS_API_KEY) {
-      console.error('❌ Google Maps API key not found in environment variables');
+      logger.error('❌ Google Maps API key not found in environment variables');
       return null;
     }
     
@@ -87,14 +88,14 @@ export const getLocationDetails = async (latitude: number, longitude: number): P
     
     if (data.status === 'OK' && data.results && data.results.length > 0) {
       const address = data.results[0].formatted_address;
-      console.log('✅ Reverse geocoding SUCCESS:', address);
+      logger.debug('✅ Reverse geocoding SUCCESS:', address);
       return address;
     } else {
-      console.error('❌ Reverse geocoding FAILED:', data.status, data.error_message);
+      logger.error('❌ Reverse geocoding FAILED:', data.status, data.error_message);
       return null;
     }
   } catch (error) {
-    console.error('💥 Reverse geocoding ERROR:', error);
+    logger.error('💥 Reverse geocoding ERROR:', error);
     return null;
   }
 };
@@ -130,7 +131,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
 
   // Rate limiting - if there's a pending request, return cached or unknown
   if (pendingGeocodeRequest) {
-    console.log('📋 Rate limit active, waiting for pending request...');
+    logger.debug('📋 Rate limit active, waiting for pending request...');
     try {
       return await pendingGeocodeRequest || 'Unknown Location';
     } catch {
@@ -141,7 +142,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
   // Check time since last geocode
   const timeSinceLastGeocode = now - lastGeocodeTime;
   if (timeSinceLastGeocode < GEOCODE_MIN_INTERVAL) {
-    console.log('⏳ Rate limiting geocode request...');
+    logger.debug('⏳ Rate limiting geocode request...');
     return cached?.result || 'Unknown Location';
   }
 
@@ -160,7 +161,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
           
           if (data.status === 'OK' && data.results && data.results.length > 0) {
             const address = data.results[0].formatted_address;
-            console.log('✅ Google reverse geocoding SUCCESS:', address);
+            logger.debug('✅ Google reverse geocoding SUCCESS:', address);
             
             // Cache the result
             geocodeCache.set(cacheKey, { result: address, timestamp: now });
@@ -174,7 +175,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
             return address;
           }
         } catch (googleError) {
-          console.log('⚠️ Google geocoding failed, trying fallback...', googleError);
+          logger.debug('⚠️ Google geocoding failed, trying fallback...', googleError);
         }
       }
 
@@ -199,7 +200,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
       return result;
       
     } catch (e: any) {
-      console.error('❌ All geocoding methods failed:', e.message);
+      logger.error('❌ All geocoding methods failed:', e.message);
       // Return unknown location but cache it to prevent repeated requests
       geocodeCache.set(cacheKey, { result: 'Unknown Location', timestamp: now });
       return 'Unknown Location';

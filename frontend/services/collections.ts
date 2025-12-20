@@ -1,5 +1,6 @@
 import api from './api';
 import { PostType } from '../types/post';
+import { parseError } from '../utils/errorCodes';
 
 export interface Collection {
   _id: string;
@@ -47,7 +48,8 @@ export const createCollection = async (data: CreateCollectionData): Promise<Coll
     const response = await api.post('/api/v1/collections', data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to create collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -60,7 +62,8 @@ export const getCollections = async (userId?: string): Promise<CollectionsRespon
     const response = await api.get('/api/v1/collections', { params });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch collections');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -72,7 +75,8 @@ export const getCollection = async (collectionId: string): Promise<CollectionRes
     const response = await api.get(`/api/v1/collections/${collectionId}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -87,7 +91,8 @@ export const updateCollection = async (
     const response = await api.put(`/api/v1/collections/${collectionId}`, data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to update collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -98,7 +103,8 @@ export const deleteCollection = async (collectionId: string): Promise<void> => {
   try {
     await api.delete(`/api/v1/collections/${collectionId}`);
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to delete collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -113,7 +119,8 @@ export const addPostToCollection = async (
     const response = await api.post(`/api/v1/collections/${collectionId}/posts`, { postId });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to add post to collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -128,7 +135,8 @@ export const removePostFromCollection = async (
     const response = await api.delete(`/api/v1/collections/${collectionId}/posts/${postId}`);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to remove post from collection');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -143,7 +151,8 @@ export const reorderCollectionPosts = async (
     const response = await api.put(`/api/v1/collections/${collectionId}/reorder`, { postIds });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to reorder posts');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 

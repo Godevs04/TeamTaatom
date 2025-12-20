@@ -4,6 +4,7 @@ import { UserType } from '../types/user';
 import logger from '../utils/logger';
 import { Platform } from 'react-native';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
+import { parseError } from '../utils/errorCodes';
 
 const isWeb = Platform.OS === 'web';
 
@@ -37,7 +38,8 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
     const response = await api.post('/api/v1/auth/signup', data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Sign up failed');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -58,7 +60,8 @@ export const verifyOTP = async (data: VerifyOTPData): Promise<AuthResponse> => {
     const response = await api.post('/api/v1/auth/verify-otp', data);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'OTP verification failed');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -68,7 +71,8 @@ export const resendOTP = async (email: string): Promise<AuthResponse> => {
     const response = await api.post('/api/v1/auth/resend-otp', { email });
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Failed to resend OTP');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -82,20 +86,16 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     const { token, user } = response.data;
     
     // Store token and user data
-    // For web: Store in both sessionStorage (for socket.io) and AsyncStorage (for consistency)
+    // For web: Rely on httpOnly cookies set by backend (most secure)
     // For mobile: Store in AsyncStorage
+    // NOTE: We no longer use sessionStorage as it's XSS vulnerable
+    // Socket.io will need to read token from cookies or use a different auth mechanism
     if (token) {
-      if (isWeb) {
-        // Web: Store in sessionStorage for socket.io access (can't read httpOnly cookies)
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem('authToken', token);
-        }
-        // Also store in AsyncStorage for consistency
-        await AsyncStorage.setItem('authToken', token);
-      } else {
+      if (!isWeb) {
         // Mobile: Store in AsyncStorage
         await AsyncStorage.setItem('authToken', token);
       }
+      // Web: Token is stored in httpOnly cookie by backend, no client-side storage needed
     }
     
     if (user) {
@@ -104,7 +104,9 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || 'Sign in failed');
+    // Use error code parser for user-friendly messages
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -113,8 +115,8 @@ let lastAuthError: string | null = null;
 // Get current user
 export const getCurrentUser = async (): Promise<UserType | null | 'network-error'> => {
   try {
-    // For web, check sessionStorage (fallback for cross-origin) or cookies (same origin)
-    // For mobile, check AsyncStorage
+    // For web: Rely solely on httpOnly cookies (set by backend)
+    // For mobile: Check AsyncStorage
     if (!isWeb) {
       // Mobile: Check AsyncStorage
       const token = await AsyncStorage.getItem('authToken');
@@ -122,6 +124,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
         return null;
       }
     }
+    // Web: No token check needed - backend uses httpOnly cookies
     
     const response = await api.get('/api/v1/auth/me');
     const user = response.data.user;
@@ -165,19 +168,10 @@ export const getUserFromStorage = async (): Promise<UserType | null> => {
 // Check if user is authenticated
 export const isAuthenticated = async (): Promise<boolean> => {
   try {
-    // For web, check sessionStorage or cookies via API call
-    // For mobile, check AsyncStorage
+    // For web: Rely solely on httpOnly cookies (set by backend)
+    // For mobile: Check AsyncStorage
     if (isWeb) {
-      // Check sessionStorage first (fallback for cross-origin)
-      if (typeof window !== 'undefined' && window.sessionStorage) {
-        const token = window.sessionStorage.getItem('authToken');
-        if (token) {
-          // Token exists, verify with API
-          const user = await getCurrentUser();
-          return user !== null && user !== 'network-error';
-        }
-      }
-      // No token in sessionStorage, try API call (cookies should be sent)
+      // Web: Just call API - backend uses httpOnly cookies
       const user = await getCurrentUser();
       return user !== null && user !== 'network-error';
     }
@@ -213,16 +207,10 @@ export const isAuthenticated = async (): Promise<boolean> => {
 // Initialize auth state on app launch
 export const initializeAuth = async (): Promise<UserType | null | 'network-error'> => {
   try {
-    // For web, sync token from AsyncStorage to sessionStorage for socket.io access
+    // For web: Rely solely on httpOnly cookies (set by backend)
+    // For mobile: Check AsyncStorage
     if (isWeb) {
-      try {
-        const token = await AsyncStorage.getItem('authToken');
-        if (token && typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem('authToken', token);
-        }
-      } catch (e) {
-        // Ignore errors
-      }
+      // Web: Just call API - backend uses httpOnly cookies
       return await getCurrentUser();
     }
     
@@ -283,11 +271,6 @@ export const signOut = async (): Promise<void> => {
         // Continue even if logout endpoint fails
         logger.warn('Logout endpoint failed, clearing local storage');
       }
-      
-      // Clear sessionStorage (fallback for cross-origin)
-      if (typeof window !== 'undefined' && window.sessionStorage) {
-        window.sessionStorage.removeItem('authToken');
-      }
     }
     
     // Clear local storage (mobile) or as fallback (web)
@@ -310,7 +293,8 @@ export const forgotPassword = async (email: string): Promise<AuthResponse> => {
       throw new Error('Email not found');
     }
     logger.error('forgotPassword', error);
-    throw new Error(error.response?.data?.message || 'An error occurred while processing your request');
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
   }
 };
 
@@ -319,11 +303,10 @@ export const getLastAuthError = () => lastAuthError;
 // Force refresh authentication state
 export const refreshAuthState = async (): Promise<UserType | null> => {
   try {
-    // For web, check sessionStorage or cookies (via API call)
-    // For mobile, check AsyncStorage
+    // For web: Rely solely on httpOnly cookies (set by backend)
+    // For mobile: Check AsyncStorage
     if (isWeb) {
-      // On web, tokens are in httpOnly cookies or sessionStorage
-      // Just call getCurrentUser - it will use cookies automatically
+      // Web: Just call API - backend uses httpOnly cookies
       const user = await getCurrentUser();
       if (user && user !== 'network-error') {
         // Successfully refreshed auth state

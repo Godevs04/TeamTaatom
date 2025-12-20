@@ -32,7 +32,7 @@ api.interceptors.request.use(
   async (config) => {
     try {
       // Log requests in development
-      logger.debug('API Request:', config.method?.toUpperCase(), config.url);
+      logger.debug('API Request', { method: config.method?.toUpperCase(), url: config.url });
       
       // Add throttling to prevent rate limiting
       const requestKey = `${config.method}-${config.url}`;
@@ -47,24 +47,16 @@ api.interceptors.request.use(
       
       requestQueue.set(requestKey, Date.now());
       
-      // For web, try cookies first (sent automatically), fallback to sessionStorage
-      // For mobile, get token from AsyncStorage
-      if (Platform.OS === 'web') {
-        // Check sessionStorage as fallback if cookie didn't work (cross-origin)
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-          const token = window.sessionStorage.getItem('authToken');
-          if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-          }
-        }
-        // Cookies are sent automatically with withCredentials: true
-      } else {
+      // For web: httpOnly cookies are sent automatically with withCredentials: true
+      // For mobile: Get token from AsyncStorage
+      if (Platform.OS !== 'web') {
         // Mobile: Get from AsyncStorage
         const token = await AsyncStorage.getItem('authToken');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
       }
+      // Web: Cookies are sent automatically with withCredentials: true - no manual token needed
       
       // Add platform header for backend to detect web vs mobile
       config.headers['X-Platform'] = Platform.OS;
@@ -85,7 +77,7 @@ api.interceptors.request.use(
         } else if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(config.method?.toUpperCase() || '')) {
           // For state-changing requests, we need CSRF token
           // If not found, log warning (but don't block - backend will handle it)
-          logger.warn('CSRF token not found for', config.method, config.url);
+          logger.warn('CSRF token not found', { method: config.method, url: config.url });
         }
       }
     } catch (error) {
@@ -132,7 +124,7 @@ api.interceptors.response.use(
     
     // Log non-200 responses
     if (response.status !== 200) {
-      logger.debug('API Response:', response.status, response.config.url);
+      logger.debug('API Response', { status: response.status, url: response.config.url });
     }
     
     return response;
@@ -145,9 +137,7 @@ api.interceptors.response.use(
       // Don't try to refresh if this IS the refresh endpoint (prevent infinite loop)
       if (originalRequest.url?.includes('/auth/refresh')) {
         // Refresh endpoint failed - clear auth
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.removeItem('authToken');
-        }
+        // Clear token from AsyncStorage (mobile) or rely on backend to clear httpOnly cookie (web)
         await AsyncStorage.removeItem('authToken');
         await AsyncStorage.removeItem('userData');
         return Promise.reject(error);
@@ -171,11 +161,8 @@ api.interceptors.response.use(
           
           if (token) {
             // Update token in storage
-            if (Platform.OS === 'web') {
-              if (typeof window !== 'undefined' && window.sessionStorage) {
-                window.sessionStorage.setItem('authToken', token);
-              }
-            }
+            // For web: Backend should set httpOnly cookie, but store in AsyncStorage for socket.io compatibility
+            // For mobile: Store in AsyncStorage
             await AsyncStorage.setItem('authToken', token);
             
             // Update socket token if connected
@@ -201,9 +188,8 @@ api.interceptors.response.use(
           }
           
           // Refresh failed - clear auth
-          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
-            window.sessionStorage.removeItem('authToken');
-          }
+          // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
+          // For mobile: Clear AsyncStorage
           await AsyncStorage.removeItem('authToken');
           await AsyncStorage.removeItem('userData');
           
@@ -262,9 +248,8 @@ api.interceptors.response.use(
       (error.config.url.includes('/auth/me') || error.config.url.includes('/auth/refresh'))
     ) {
       // Token expired or invalid, clear storage
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
-        window.sessionStorage.removeItem('authToken');
-      }
+      // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
+      // For mobile: Clear AsyncStorage
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
     }

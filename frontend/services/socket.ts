@@ -18,31 +18,17 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
 const getToken = async () => {
-  // For web, get token from sessionStorage (fallback) or cookies (sent automatically)
-  if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const token = window.sessionStorage.getItem('authToken');
-      if (token) {
-        return token;
-      }
-    }
-    // For web, try to get from AsyncStorage as well (might be stored there)
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (token && typeof window !== 'undefined' && window.sessionStorage) {
-        // Store in sessionStorage for socket.io access
-        window.sessionStorage.setItem('authToken', token);
-        return token;
-      }
-    } catch (e) {
-      // AsyncStorage might not be available on web
-    }
-    // For web, token should be in cookies (httpOnly), but socket.io can't access httpOnly cookies
-    // So we need to get it from sessionStorage or pass it explicitly
+  // For web: Socket.io cannot access httpOnly cookies, so we need to get token from AsyncStorage
+  // The token should be stored in AsyncStorage during sign-in (for socket.io compatibility)
+  // For mobile: Get from AsyncStorage
+  try {
+    const token = await AsyncStorage.getItem('authToken');
+    return token;
+  } catch (e) {
+    // AsyncStorage might not be available
+    logger.debug('Failed to get token from AsyncStorage for socket:', e);
     return null;
   }
-  // For mobile, get from AsyncStorage
-  return await AsyncStorage.getItem('authToken');
 };
   
 const connectSocket = async () => {

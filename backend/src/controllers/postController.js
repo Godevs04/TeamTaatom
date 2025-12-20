@@ -418,18 +418,18 @@ const getPostById = async (req, res) => {
             shouldIncrementViews = true;
             const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing another user's post (owner: ${postOwnerId}), will increment views`;
             logger.info(msg);
-            console.log(msg);
+            logger.debug(msg);
           } else {
             const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing own post (owner: ${postOwnerId}), skipping view increment`;
             logger.info(msg);
-            console.log(msg);
+            logger.debug(msg);
           }
         } else {
           // Anonymous user - allow view increment
           shouldIncrementViews = true;
           const msg = `[VIEW TRACKING] Post ${id} - Anonymous user viewing post, will increment views`;
           logger.info(msg);
-          console.log(msg);
+          logger.debug(msg);
         }
       }
     } catch (err) {
@@ -442,7 +442,7 @@ const getPostById = async (req, res) => {
       try {
         const incrementMsg = `[VIEW TRACKING] Post ${id} - Incrementing views, userId: ${userId || 'anonymous'}, postOwnerId: ${postOwnerId}`;
         logger.info(incrementMsg);
-        console.log(incrementMsg);
+        logger.debug(incrementMsg);
         
         const updateResult = await Post.findOneAndUpdate(
           { _id: id },
@@ -454,7 +454,7 @@ const getPostById = async (req, res) => {
           incrementedViews = updateResult.views;
           const successMsg = `[VIEW TRACKING] Post ${id} views incremented to ${incrementedViews}`;
           logger.info(successMsg);
-          console.log(successMsg);
+          logger.debug(successMsg);
           
           // Invalidate cache so fresh data is fetched
           await deleteCache(cacheKey).catch(() => {});
@@ -613,7 +613,7 @@ const getPostById = async (req, res) => {
     
     const finalMsg = `[VIEW TRACKING] Post ${id} final response - viewsCount: ${finalViewsCount}, incrementedViews: ${incrementedViews}, post.viewsCount: ${post.viewsCount}, post.views: ${post.views}`;
     logger.info(finalMsg);
-    console.log(finalMsg);
+    logger.debug(finalMsg);
 
     // Generate dynamic image URLs from storage keys (same logic as getPosts)
     if (post.storageKeys && post.storageKeys.length > 0) {
