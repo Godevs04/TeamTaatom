@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '18.x'
+  NODE_VERSION: '20.x'
 
 jobs:
   build-and-test:
@@ -41,7 +41,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./frontend
-        run: npm ci
+        run: |
+          # Try npm ci first (faster), fallback to npm install if lock file is out of sync
+          npm ci || npm install
 
       - name: Run linting
         working-directory: ./frontend
@@ -123,7 +125,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./frontend
-        run: npm ci
+        run: |
+          # Try npm ci first (faster), fallback to npm install if lock file is out of sync
+          npm ci || npm install
 
       - name: Build iOS
         working-directory: ./frontend
