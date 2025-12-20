@@ -6,7 +6,9 @@ import {
   ScrollView, 
   TouchableOpacity, 
   ActivityIndicator,
-  Switch
+  Switch,
+  Platform,
+  Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -14,6 +16,21 @@ import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { getSettings, updateSettingCategory, UserSettings } from '../../services/settings';
 import { useAlert } from '../../context/AlertContext';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 export default function AppearanceSettingsScreen() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -320,6 +337,11 @@ export default function AppearanceSettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   scrollView: {
     flex: 1,
@@ -328,22 +350,27 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
+    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
+    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: isTablet ? theme.spacing.lg : 16,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
@@ -353,60 +380,72 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingText: {
-    marginLeft: 12,
+    marginLeft: isTablet ? theme.spacing.md : 12,
     flex: 1,
   },
   settingLabel: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingDescription: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
     marginTop: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingValue: {
-    fontSize: 14,
-    marginRight: 8,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    marginRight: isTablet ? theme.spacing.sm : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   settingRight: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   toggleButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: isTablet ? 40 : 32,
+    height: isTablet ? 40 : 32,
+    borderRadius: isTablet ? 20 : 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   previewContainer: {
-    padding: 16,
-    borderRadius: 8,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
+    borderRadius: theme.borderRadius.sm,
   },
   previewCard: {
-    padding: 16,
-    borderRadius: 8,
+    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
+    borderRadius: theme.borderRadius.sm,
   },
   previewHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
   },
   previewAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
+    width: isTablet ? 50 : 40,
+    height: isTablet ? 50 : 40,
+    borderRadius: isTablet ? 25 : 20,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   previewText: {
     flex: 1,
   },
   previewContent: {
-    marginTop: 8,
+    marginTop: isTablet ? theme.spacing.sm : 8,
   },
   previewLine: {
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 6,
+    height: isTablet ? 10 : 8,
+    borderRadius: isTablet ? 5 : 4,
+    marginBottom: isTablet ? 8 : 6,
   },
 });

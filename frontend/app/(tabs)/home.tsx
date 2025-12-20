@@ -35,9 +35,23 @@ import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
+// isWeb is already imported from '../../utils/webOptimizations'
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 const logger = createLogger('HomeScreen');
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
@@ -397,81 +411,94 @@ export default function HomeScreen() {
       flex: 1,
       backgroundColor: theme.colors.background,
       ...(isWeb && {
-        maxWidth: 600,
+        maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
         width: '100%',
-      }),
+      } as any),
     },
     safeArea: {
       flex: 1,
       ...(isWeb && {
         width: '100%',
-      }),
+      } as any),
     },
-
     loadingContainer: {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.colors.background,
+      padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     },
     emptyContainer: {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      padding: theme.spacing.lg,
+      padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
       backgroundColor: theme.colors.background,
     },
     emptyImageContainer: {
       backgroundColor: theme.colors.surface,
       borderRadius: theme.borderRadius.xl,
-      padding: theme.spacing.lg,
+      padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
       marginBottom: theme.spacing.lg,
       alignItems: 'center',
       ...theme.shadows.medium,
     },
     emptyImage: {
-      width: 120,
-      height: 120,
+      width: isTablet ? 160 : 120,
+      height: isTablet ? 160 : 120,
       borderRadius: theme.borderRadius.lg,
       opacity: 0.8,
     },
     emptyTitle: {
-      fontSize: theme.typography.h2.fontSize,
+      fontSize: isTablet ? theme.typography.h1.fontSize : theme.typography.h2.fontSize,
+      fontFamily: getFontFamily('700'),
       fontWeight: '700',
       color: theme.colors.text,
       marginBottom: theme.spacing.sm,
       textAlign: 'center',
+      letterSpacing: isIOS ? -0.3 : 0,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     emptyDescription: {
-      fontSize: theme.typography.body.fontSize,
+      fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
+      fontFamily: getFontFamily('400'),
       color: theme.colors.textSecondary,
       textAlign: 'center',
-      lineHeight: 22,
-      maxWidth: 280,
+      lineHeight: isTablet ? 26 : 22,
+      maxWidth: isTablet ? 400 : 280,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
     postsContainer: {
       flex: 1,
     },
     postsList: {
       paddingHorizontal: 0,
-      paddingBottom: 20,
+      paddingBottom: isTablet ? 30 : 20,
     },
     loadMoreContainer: {
-      padding: theme.spacing.md,
+      padding: isTablet ? theme.spacing.lg : theme.spacing.md,
       alignItems: 'center',
     },
     offlineBanner: {
       backgroundColor: theme.colors.error + '20',
-      padding: theme.spacing.sm,
+      padding: isTablet ? theme.spacing.md : theme.spacing.sm,
       alignItems: 'center',
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.error,
     },
     offlineText: {
       color: theme.colors.error,
-      fontSize: theme.typography.small.fontSize,
+      fontSize: isTablet ? theme.typography.body.fontSize : theme.typography.small.fontSize,
+      fontFamily: getFontFamily('600'),
       fontWeight: '600',
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
     },
   });
 

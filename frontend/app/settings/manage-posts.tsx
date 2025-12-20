@@ -8,6 +8,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Image,
+  Platform,
+  Dimensions,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -17,7 +20,21 @@ import { getArchivedPosts, getHiddenPosts, unarchivePost, unhidePost } from '../
 import { PostType } from '../../types/post';
 import CustomAlert from '../../components/CustomAlert';
 import { createLogger } from '../../utils/logger';
-import { TextInput } from 'react-native';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  if (isIOS) return 'System';
+  return 'Roboto';
+};
 
 const logger = createLogger('ManagePosts');
 
@@ -408,31 +425,41 @@ export default function ManagePostsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    gap: isTablet ? theme.spacing.sm : 8,
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 8,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+    borderRadius: theme.borderRadius.md,
+    gap: isTablet ? theme.spacing.sm : 8,
   },
   tabText: {
-    fontSize: 15,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   scrollView: {
     flex: 1,
@@ -441,61 +468,86 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 80,
+    paddingVertical: isTablet ? 100 : 80,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginTop: 16,
+    marginTop: isTablet ? theme.spacing.lg : 16,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptySubtext: {
-    fontSize: 14,
-    marginTop: 8,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('400'),
+    marginTop: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 40,
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   postsContainer: {
-    padding: 16,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   postCard: {
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: isTablet ? theme.spacing.md : 12,
     overflow: 'hidden',
   },
   postContent: {
     flexDirection: 'row',
-    padding: 12,
+    padding: isTablet ? theme.spacing.md : 12,
   },
   postImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: 12,
+    width: isTablet ? 100 : 80,
+    height: isTablet ? 100 : 80,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   postInfo: {
     flex: 1,
     justifyContent: 'center',
   },
   postCaption: {
-    fontSize: 15,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   postDate: {
-    fontSize: 13,
+    fontSize: isTablet ? theme.typography.body.fontSize : 13,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   restoreButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 6,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+    gap: isTablet ? 8 : 6,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   restoreButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   searchContainer: {
     padding: 16,

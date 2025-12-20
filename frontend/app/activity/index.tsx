@@ -9,9 +9,10 @@ import {
   RefreshControl,
   ScrollView,
   Image,
-  SafeAreaView,
   Platform,
+  Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -21,6 +22,25 @@ import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
+import { theme } from '../../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 export default function ActivityFeedScreen() {
   const [activities, setActivities] = useState<ActivityType[]>([]);
@@ -232,65 +252,92 @@ export default function ActivityFeedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 12 : 16,
-    paddingTop: Platform.OS === 'ios' ? 12 : 20,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: Platform.OS === 'ios' ? (isTablet ? theme.spacing.md : 12) : (isTablet ? theme.spacing.lg : 16),
+    paddingTop: Platform.OS === 'ios' ? (isTablet ? theme.spacing.md : 12) : (isTablet ? theme.spacing.xl : 20),
     borderBottomWidth: 1,
-    minHeight: 56,
+    minHeight: isTablet ? 64 : 56,
   },
   backButton: {
-    padding: 8,
-    marginLeft: -8,
+    // Minimum touch target: 44x44 for iOS, 48x48 for Android
+    minWidth: isAndroid ? 48 : 44,
+    minHeight: isAndroid ? 48 : 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: isTablet ? theme.spacing.sm : 8,
+    marginLeft: isTablet ? -theme.spacing.sm : -8,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   placeholder: {
-    width: 40,
+    width: isTablet ? 48 : 40,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     flex: 1,
     textAlign: 'center',
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   filterContainer: {
     borderBottomWidth: 1,
   },
   filterScrollContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: isTablet ? theme.spacing.md : 8,
   },
   filterTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
-    minWidth: 80,
+    minWidth: isTablet ? 100 : 80,
   },
   filterText: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('500'),
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   filterTextActive: {
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 20,
   },
   list: {
-    padding: 16,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   activityItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   activityContent: {
@@ -299,27 +346,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: isTablet ? 50 : 40,
+    height: isTablet ? 50 : 40,
+    borderRadius: isTablet ? 25 : 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   activityText: {
     flex: 1,
   },
   activityMainText: {
-    fontSize: 14,
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('500'),
     marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   activityTime: {
-    fontSize: 12,
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   postThumbnail: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
+    width: isTablet ? 60 : 50,
+    height: isTablet ? 60 : 50,
+    borderRadius: isTablet ? theme.borderRadius.md : 8,
   },
 });
 

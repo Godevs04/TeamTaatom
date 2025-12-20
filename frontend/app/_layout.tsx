@@ -382,10 +382,28 @@ function RootLayoutInner() {
             contentStyle: { backgroundColor: theme.colors.background },
           }}
         >
-          {!isAuthenticated
-            ? <Stack.Screen name="(auth)" />
-            : <Stack.Screen name="(tabs)" />
-          }
+          {!isAuthenticated ? (
+            <>
+              <Stack.Screen name="(auth)" />
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
+              <Stack.Screen name="post" options={{ presentation: 'card' }} />
+              <Stack.Screen name="profile" options={{ presentation: 'card' }} />
+              <Stack.Screen name="search" options={{ presentation: 'card' }} />
+              <Stack.Screen name="followers" options={{ presentation: 'card' }} />
+              <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
+              <Stack.Screen name="activity" options={{ presentation: 'card' }} />
+              <Stack.Screen name="chat" options={{ presentation: 'card' }} />
+              <Stack.Screen name="collections" options={{ presentation: 'card' }} />
+              <Stack.Screen name="settings" options={{ presentation: 'card' }} />
+              <Stack.Screen name="hashtag" options={{ presentation: 'card' }} />
+              <Stack.Screen name="user-posts" options={{ presentation: 'card' }} />
+              <Stack.Screen name="map" options={{ presentation: 'card' }} />
+            </>
+          )}
         </Stack>
       </Suspense>
     </ResponsiveContainer>

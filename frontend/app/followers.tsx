@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, Alert, Platform, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -7,6 +7,25 @@ import { UserType } from '../types/user';
 import { toggleFollow } from '../services/profile';
 import api from '../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { theme } from '../constants/theme';
+
+// Responsive dimensions
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
+
+// Elegant font families for each platform
+const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
+  if (isWeb) {
+    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  }
+  if (isIOS) {
+    return 'System';
+  }
+  return 'Roboto';
+};
 
 export default function FollowersFollowingList() {
   const { theme } = useTheme();
@@ -326,6 +345,11 @@ const styles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    ...(isWeb && {
+      maxWidth: isTablet ? 1000 : 800,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
   },
   safeArea: {
     backgroundColor: theme.colors.surface,
@@ -333,63 +357,75 @@ const styles = (theme: any) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    // Minimum touch target: 44x44 for iOS, 48x48 for Android
+    minWidth: isAndroid ? 48 : (isTablet ? 48 : 44),
+    minHeight: isAndroid ? 48 : (isTablet ? 48 : 44),
+    width: isTablet ? 48 : (isAndroid ? 48 : 44),
+    height: isTablet ? 48 : (isAndroid ? 48 : 44),
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 20,
+    borderRadius: isTablet ? 24 : (isAndroid ? 24 : 22),
+    ...(Platform.OS === 'web' && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 20,
+    fontSize: isTablet ? 24 : 20,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     color: theme.colors.text,
-    letterSpacing: 0.3,
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   headerSpacer: {
-    width: 40,
+    width: isTablet ? 48 : 40,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   listContent: {
-    padding: 16,
-    paddingBottom: 32,
+    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingBottom: isTablet ? 40 : 32,
   },
   listContentEmpty: {
     flex: 1,
   },
   cardContainer: {
-    marginBottom: 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: isTablet ? theme.borderRadius.lg : 16,
+    padding: isTablet ? theme.spacing.lg : 14,
     ...theme.shadows.small,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.colors.border,
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 14,
+    marginRight: isTablet ? theme.spacing.md : 14,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
+    borderRadius: isTablet ? 35 : 28,
     backgroundColor: theme.colors.surfaceSecondary,
   },
   followingBadge: {
@@ -397,9 +433,9 @@ const styles = (theme: any) => StyleSheet.create({
     bottom: -2,
     right: -2,
     backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    width: 24,
-    height: 24,
+    borderRadius: isTablet ? 14 : 12,
+    width: isTablet ? 28 : 24,
+    height: isTablet ? 28 : 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -407,19 +443,27 @@ const styles = (theme: any) => StyleSheet.create({
   },
   userInfo: {
     flex: 1,
-    marginRight: 12,
+    marginRight: isTablet ? theme.spacing.md : 12,
   },
   name: {
-    fontSize: 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     color: theme.colors.text,
     marginBottom: 4,
     letterSpacing: 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   followingLabel: {
-    fontSize: 13,
+    fontSize: isTablet ? theme.typography.body.fontSize : 13,
+    fontFamily: getFontFamily('500'),
     color: theme.colors.textSecondary,
     fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   actionButtons: {
     flexDirection: 'row',
@@ -434,14 +478,18 @@ const styles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.surfaceSecondary,
   },
   followButton: {
-    borderRadius: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    minWidth: 90,
+    borderRadius: isTablet ? 24 : 20,
+    paddingHorizontal: isTablet ? 24 : 20,
+    paddingVertical: isTablet ? 12 : 10,
+    minWidth: isTablet ? 110 : 90,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
     ...theme.shadows.small,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
   },
   followButtonFollowing: {
     backgroundColor: theme.colors.surfaceSecondary,
@@ -450,12 +498,19 @@ const styles = (theme: any) => StyleSheet.create({
   },
   followButtonLoading: {
     opacity: 0.7,
+    ...(isWeb && {
+      cursor: 'not-allowed',
+    } as any),
   },
   followButtonText: {
-    fontSize: 15,
+    fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     color: '#FFFFFF',
     letterSpacing: 0.3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   followButtonTextFollowing: {
     color: theme.colors.primary,
@@ -468,31 +523,40 @@ const styles = (theme: any) => StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 48,
-    paddingTop: 100,
+    paddingHorizontal: isTablet ? theme.spacing.xxl : 48,
+    paddingTop: isTablet ? 120 : 100,
   },
   emptyIconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: isTablet ? 160 : 120,
+    height: isTablet ? 160 : 120,
+    borderRadius: isTablet ? 80 : 60,
     backgroundColor: theme.colors.surfaceSecondary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: isTablet ? theme.spacing.xl : 24,
   },
   emptyTitle: {
-    fontSize: 22,
+    fontSize: isTablet ? theme.typography.h1.fontSize : 22,
+    fontFamily: getFontFamily('700'),
     fontWeight: '700',
     color: theme.colors.text,
-    marginBottom: 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
     textAlign: 'center',
-    letterSpacing: 0.3,
+    letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   emptyMessage: {
-    fontSize: 16,
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
+    fontFamily: getFontFamily('400'),
     color: theme.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: isTablet ? 26 : 24,
     letterSpacing: 0.2,
+    maxWidth: isTablet ? 500 : 300,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });
