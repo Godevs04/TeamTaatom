@@ -168,14 +168,59 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', async (error) => {
   logger.error('Uncaught Exception:', error);
+  
+  // CRITICAL: Send to Sentry before shutdown
+  if (process.env.SENTRY_DSN) {
+    const Sentry = require('./instrument');
+    Sentry.captureException(error, {
+      tags: {
+        error_type: 'uncaughtException',
+        fatal: true,
+      },
+      level: 'fatal',
+    });
+    // Flush Sentry before shutdown
+    try {
+      await Sentry.flush(5000);
+      logger.log('✅ Uncaught exception sent to Sentry');
+    } catch (flushError) {
+      logger.error('Failed to flush Sentry:', flushError);
+    }
+  }
+  
   gracefulShutdown('uncaughtException');
 });
 
 // Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', async (reason, promise) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  
+  // CRITICAL: Send to Sentry before shutdown
+  if (process.env.SENTRY_DSN) {
+    const Sentry = require('./instrument');
+    const error = reason instanceof Error ? reason : new Error(String(reason));
+    Sentry.captureException(error, {
+      tags: {
+        error_type: 'unhandledRejection',
+        fatal: true,
+      },
+      level: 'error',
+      extra: {
+        promise: promise.toString(),
+        reason: reason,
+      },
+    });
+    // Flush Sentry before shutdown
+    try {
+      await Sentry.flush(5000);
+      logger.log('✅ Unhandled rejection sent to Sentry');
+    } catch (flushError) {
+      logger.error('Failed to flush Sentry:', flushError);
+    }
+  }
+  
   gracefulShutdown('unhandledRejection');
 });
 
