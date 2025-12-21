@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import React from 'react';
+import logger from './logger';
 
 export interface ImageCacheOptions {
   maxCacheSize?: number; // in MB
@@ -27,7 +28,7 @@ class ImageCacheManager {
         await FileSystem.makeDirectoryAsync(this.cacheDir, { intermediates: true });
       }
     } catch (error) {
-      console.error('Failed to initialize image cache:', error);
+      logger.error('Failed to initialize image cache:', error);
     }
   }
 
@@ -54,7 +55,7 @@ class ImageCacheManager {
       // Download and cache the image
       return await this.downloadAndCache(url, cachedPath, options);
     } catch (error) {
-      console.error('Error getting cached image:', error);
+      logger.error('Error getting cached image:', error);
       return url; // Fallback to original URL
     }
   }
@@ -78,7 +79,7 @@ class ImageCacheManager {
         throw new Error(`Download failed with status: ${downloadResult.status}`);
       }
     } catch (error) {
-      console.error('Error downloading image:', error);
+      logger.error('Error downloading image:', error);
       return url; // Fallback to original URL
     }
   }
@@ -148,7 +149,7 @@ class ImageCacheManager {
         );
       }
     } catch (error) {
-      console.error('Error cleaning up cache:', error);
+      logger.error('Error cleaning up cache:', error);
     }
   }
 
@@ -162,7 +163,7 @@ class ImageCacheManager {
         files.map(file => FileSystem.deleteAsync(`${this.cacheDir}${file}`))
       );
     } catch (error) {
-      console.error('Error clearing cache:', error);
+      logger.error('Error clearing cache:', error);
     }
   }
 
@@ -180,7 +181,7 @@ class ImageCacheManager {
       );
       return fileInfos.reduce((sum: number, size: number) => sum + size, 0);
     } catch (error) {
-      console.error('Error getting cache size:', error);
+      logger.error('Error getting cache size:', error);
       return 0;
     }
   }
@@ -194,7 +195,7 @@ class ImageCacheManager {
         urls.map(url => this.getCachedImageUri(url))
       );
     } catch (error) {
-      console.error('Error preloading images:', error);
+      logger.error('Error preloading images:', error);
     }
   }
 }
@@ -227,7 +228,7 @@ export const useCachedImage = (url: string | null) => {
         const uri = await imageCache.getCachedImageUri(url);
         setCachedUri(uri);
       } catch (err) {
-        console.error('Error loading cached image:', err);
+        logger.error('Error loading cached image:', err);
         setError(true);
         setCachedUri(url); // Fallback to original URL
       } finally {

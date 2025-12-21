@@ -28,6 +28,7 @@ import { UserType } from '../types/user';
 import { PostType } from '../types/post';
 import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
+import logger from '../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -90,7 +91,7 @@ export default function SearchScreen() {
         setSearchHistory(JSON.parse(history));
       }
     } catch (error) {
-      console.error('Error loading search history:', error);
+      logger.error('Error loading search history:', error);
     }
   };
 
@@ -105,7 +106,7 @@ export default function SearchScreen() {
       await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
       setSearchHistory(updatedHistory);
     } catch (error) {
-      console.error('Error saving search history:', error);
+      logger.error('Error saving search history:', error);
     }
   };
 
@@ -115,7 +116,7 @@ export default function SearchScreen() {
       await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
       setSearchHistory(updatedHistory);
     } catch (error) {
-      console.error('Error deleting search history:', error);
+      logger.error('Error deleting search history:', error);
     }
   };
 
@@ -124,7 +125,7 @@ export default function SearchScreen() {
       await AsyncStorage.removeItem('searchHistory');
       setSearchHistory([]);
     } catch (error) {
-      console.error('Error clearing search history:', error);
+      logger.error('Error clearing search history:', error);
     }
   };
 
@@ -184,7 +185,7 @@ export default function SearchScreen() {
       }
     } catch (error: any) {
       showError('Failed to search');
-      console.error('Search error:', error);
+      logger.error('Search error:', error);
     } finally {
       setLoading(false);
     }

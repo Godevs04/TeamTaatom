@@ -18,6 +18,7 @@ import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
 import { MapView, Marker, PROVIDER_GOOGLE } from '../../utils/mapsWrapper';
+import logger from '../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
@@ -171,7 +172,7 @@ export default function CurrentLocationMap() {
   const isPostLocation = hasValidCoordinates; // Use valid coordinates check
 
   // Debug: Log received parameters
-  console.log('Map parameters:', {
+  logger.debug('Map parameters:', {
     params,
     postLatitude,
     postLongitude,
@@ -182,15 +183,15 @@ export default function CurrentLocationMap() {
   });
   
   if (hasValidCoordinates) {
-    console.log('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
+    logger.debug('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
   } else {
-    console.warn('⚠️ Invalid coordinates in params, will use current location or geocoding');
+    logger.warn('⚠️ Invalid coordinates in params, will use current location or geocoding');
   }
 
   useEffect(() => {
     // CRITICAL: Use exact coordinates from params if valid (for locale flow)
     if (hasValidCoordinates) {
-      console.log('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
+      logger.debug('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
       setLocation({
         coords: {
           latitude: postLatitude!,
@@ -244,7 +245,7 @@ export default function CurrentLocationMap() {
       setLocation(currentLocation);
       setLoading(false);
     } catch (err) {
-      console.error('Error getting location:', err);
+      logger.error('Error getting location:', err);
       setError('Failed to get current location');
       setLoading(false);
     }
@@ -272,7 +273,7 @@ export default function CurrentLocationMap() {
 
       return subscription;
     } catch (err) {
-      console.error('Error watching location:', err);
+      logger.error('Error watching location:', err);
       setIsWatching(false);
     }
   };
@@ -384,7 +385,7 @@ export default function CurrentLocationMap() {
           scalesPageToFit={true}
           onError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            console.error('WebView error: ', nativeEvent);
+            logger.error('WebView error: ', nativeEvent);
           }}
         />
       );

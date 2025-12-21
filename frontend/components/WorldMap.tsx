@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import Constants from 'expo-constants';
 import { getTravelMapData } from '../services/posts';
+import logger from '../utils/logger';
 
 interface TravelMapData {
   locations: Array<{
@@ -94,7 +95,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
       const data = await getTravelMapData(userId);
       setTravelMapData(data.data);
     } catch (error) {
-      console.error('Error fetching travel map data:', error);
+      logger.error('Error fetching travel map data:', error);
       setMapError('Failed to load travel data');
     } finally {
       setLoading(false);
@@ -187,9 +188,9 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
   };
 
   // Debug logging
-  console.log('WorldMap - Travel map data:', travelMapData);
-  console.log('WorldMap - Display locations:', displayLocations);
-  console.log('WorldMap - Statistics:', statistics);
+  logger.debug('WorldMap - Travel map data:', travelMapData);
+  logger.debug('WorldMap - Display locations:', displayLocations);
+  logger.debug('WorldMap - Statistics:', statistics);
 
   // Validate locations have proper coordinates
   const validLocations = displayLocations.filter(loc => 
@@ -199,14 +200,14 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
     !isNaN(loc.latitude) && !isNaN(loc.longitude)
   );
 
-  console.log('WorldMap - Valid locations:', validLocations);
-  console.log('WorldMap - Valid locations count:', validLocations.length);
+  logger.debug('WorldMap - Valid locations:', validLocations);
+  logger.debug('WorldMap - Valid locations count:', validLocations.length);
 
   // Use valid locations from travel map data
   const finalLocations = validLocations;
 
-  console.log('WorldMap - Final locations:', finalLocations);
-  console.log('WorldMap - Final locations count:', finalLocations.length);
+  logger.debug('WorldMap - Final locations:', finalLocations);
+  logger.debug('WorldMap - Final locations count:', finalLocations.length);
 
   const getMapHTML = () => {
     // Calculate bounds to fit all locations
@@ -253,7 +254,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <script>
           try {
-            console.log('Starting map initialization...');
+            logger.debug('Starting map initialization...');
             
             // Create map
             const map = L.map('map').fitBounds([
@@ -267,11 +268,11 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               maxZoom: 18
             }).addTo(map);
             
-            console.log('Map created successfully');
+            logger.debug('Map created successfully');
             
             // Add dynamic markers based on travel map data
             const locations = ${JSON.stringify(finalLocations)};
-            console.log('Adding markers for locations:', locations);
+            logger.debug('Adding markers for locations:', locations);
             
             locations.forEach((location, index) => {
               const marker = L.marker([location.latitude, location.longitude])
@@ -286,13 +287,13 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               });
               
               marker.setIcon(icon);
-              console.log(\`Marker \${location.number} added at \${location.address}\`);
+              logger.debug(\`Marker \${location.number} added at \${location.address}\`);
             });
             
-            console.log(\`Map initialization completed with \${locations.length} markers\`);
+            logger.debug(\`Map initialization completed with \${locations.length} markers\`);
             
           } catch (error) {
-            console.error('Map initialization error:', error);
+            logger.error('Map initialization error:', error);
             document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; color: #333; font-family: Arial, sans-serif;"><div style="font-size: 48px; margin-bottom: 20px;">⚠️</div><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Map Error</div><div style="font-size: 16px; text-align: center;">Failed to load map. Please check your internet connection.</div></div>';
           }
         </script>
@@ -360,12 +361,12 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               scalesPageToFit={true}
               onError={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
-                console.error('WebView error: ', nativeEvent);
+                logger.error('WebView error: ', nativeEvent);
                 setMapError('Failed to load map');
               }}
               onHttpError={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
-                console.error('WebView HTTP error: ', nativeEvent);
+                logger.error('WebView HTTP error: ', nativeEvent);
                 setMapError('Failed to load map');
               }}
             />

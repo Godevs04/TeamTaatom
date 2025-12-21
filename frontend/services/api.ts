@@ -27,8 +27,8 @@ const api = axios.create({
 
 // Log initial baseURL for debugging
 if (Platform.OS === 'web') {
-  console.log(`[API] 🚀 Initialized with baseURL: ${initialBaseUrl}`);
-  console.log(`[API] 🚀 Environment check - EXPO_PUBLIC_API_BASE_URL:`, process.env.EXPO_PUBLIC_API_BASE_URL);
+  logger.debug(`[API] 🚀 Initialized with baseURL: ${initialBaseUrl}`);
+  logger.debug(`[API] 🚀 Environment check - EXPO_PUBLIC_API_BASE_URL:`, process.env.EXPO_PUBLIC_API_BASE_URL);
 }
 
 // Add performance monitoring interceptor
@@ -46,7 +46,7 @@ api.interceptors.request.use(
       if (config.baseURL !== dynamicBaseUrl) {
         config.baseURL = dynamicBaseUrl;
         if (process.env.NODE_ENV === 'development' && Platform.OS === 'web') {
-          console.log(`[API] 🔄 Updated baseURL to: ${dynamicBaseUrl}`);
+          logger.debug(`[API] 🔄 Updated baseURL to: ${dynamicBaseUrl}`);
         }
       }
       

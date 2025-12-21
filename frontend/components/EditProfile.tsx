@@ -16,6 +16,7 @@ import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import logger from '../utils/logger';
 
 interface EditProfileProps {
   visible: boolean;
@@ -63,7 +64,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Image picker error:', error);
+      logger.error('Image picker error:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
   };
@@ -87,7 +88,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Camera error:', error);
+      logger.error('Camera error:', error);
       Alert.alert('Error', 'Failed to take photo');
     }
   };

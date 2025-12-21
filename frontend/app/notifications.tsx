@@ -22,6 +22,7 @@ import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
 import { triggerRefreshHaptic } from '../utils/hapticFeedback';
 import { theme } from '../constants/theme';
+import logger from '../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -81,7 +82,7 @@ export default function NotificationsScreen() {
       setHasMore(response.pagination.hasNextPage);
       setPage(pageNum);
     } catch (error) {
-      console.error('Failed to load notifications:', error);
+      logger.error('Failed to load notifications:', error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -131,18 +132,18 @@ export default function NotificationsScreen() {
 
         // Navigate if needed
         if (result.shouldNavigate && result.navigationPath) {
-          console.log('Navigating to:', result.navigationPath);
+          logger.debug('Navigating to:', result.navigationPath);
           router.push(result.navigationPath);
         } else {
           // Show info message for non-navigable notifications
-          console.log('Showing info message:', result.message);
+          logger.debug('Showing info message:', result.message);
           showInfo(result.message);
         }
       } else {
         showError(result.message);
       }
     } catch (error: any) {
-      console.error('Failed to handle notification press:', error);
+      logger.error('Failed to handle notification press:', error);
       showError('Failed to process notification. Please try again.');
     }
   };
@@ -154,7 +155,7 @@ export default function NotificationsScreen() {
         prev.map(n => ({ ...n, isRead: true }))
       );
     } catch (error) {
-      console.error('Failed to mark all as read:', error);
+      logger.error('Failed to mark all as read:', error);
     }
   };
 
@@ -166,7 +167,7 @@ export default function NotificationsScreen() {
     try {
       // Use the requester's user ID directly from the notification
       const requesterId = followRequestPopup.notification.fromUser._id;
-      console.log('Approving follow request for user:', requesterId);
+      logger.debug('Approving follow request for user:', requesterId);
 
       // Debug: Check current follow requests data
       try {
@@ -179,9 +180,9 @@ export default function NotificationsScreen() {
           },
         });
         const debugData = await debugResponse.json();
-        console.log('🔍 Current follow requests data:', debugData);
+        logger.debug('🔍 Current follow requests data:', debugData);
       } catch (debugError) {
-        console.log('Debug endpoint failed:', debugError);
+        logger.debug('Debug endpoint failed:', debugError);
       }
 
       await approveFollowRequest(requesterId);
@@ -201,7 +202,7 @@ export default function NotificationsScreen() {
       // Show success message
       showSuccess('Follow request approved successfully!');
     } catch (error) {
-      console.error('Failed to approve follow request:', error);
+      logger.error('Failed to approve follow request:', error);
       showError('Failed to approve follow request. Please try again.');
       setFollowRequestPopup(prev => ({ ...prev, loading: false }));
     }
@@ -215,7 +216,7 @@ export default function NotificationsScreen() {
     try {
       // Use the requester's user ID directly from the notification
       const requesterId = followRequestPopup.notification.fromUser._id;
-      console.log('Rejecting follow request for user:', requesterId);
+      logger.debug('Rejecting follow request for user:', requesterId);
 
       await rejectFollowRequest(requesterId);
       
@@ -234,7 +235,7 @@ export default function NotificationsScreen() {
       // Show success message
       showSuccess('Follow request rejected successfully!');
     } catch (error) {
-      console.error('Failed to reject follow request:', error);
+      logger.error('Failed to reject follow request:', error);
       showError('Failed to reject follow request. Please try again.');
       setFollowRequestPopup(prev => ({ ...prev, loading: false }));
     }

@@ -18,11 +18,11 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { useSettings } from '../../context/SettingsContext';
-import CustomAlert, { CustomAlertButton } from '../../components/CustomAlert';
+import CustomAlert from '../../components/CustomAlert';
 import { createLogger } from '../../utils/logger';
 import { theme } from '../../constants/theme';
-import * as Notifications from 'expo-notifications';
 import { Linking } from 'react-native';
+import { fcmService } from '../../services/fcm';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -48,7 +48,6 @@ export default function NotificationsSettingsScreen() {
     title: '',
     message: '',
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
-    buttons: [{ text: 'OK' }] as CustomAlertButton[],
   });
   
   // Navigation & Lifecycle Safety: Track mounted state
@@ -69,8 +68,8 @@ export default function NotificationsSettingsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
 
-  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', buttons: CustomAlertButton[] = [{ text: 'OK' }]) => {
-    setAlertConfig({ title: title || '', message, type, buttons });
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setAlertConfig({ title: title || '', message, type });
     setAlertVisible(true);
   };
 
@@ -90,6 +89,40 @@ export default function NotificationsSettingsScreen() {
     };
   }, []);
 
+  // Check push notification permission status (using FCM)
+  const checkPushPermissionStatus = useCallback(async () => {
+    try {
+      if (Platform.OS === 'web') {
+        // Web doesn't support push notifications the same way
+        setPushPermissionStatus('not-applicable');
+        return;
+      }
+      
+      // Use FCM to check permission status
+      try {
+        const messaging = require('@react-native-firebase/messaging').default;
+        if (messaging) {
+          const authStatus = await messaging().requestPermission();
+          // Map FCM permission status to string format
+          if (authStatus === messaging.AuthorizationStatus.AUTHORIZED || 
+              authStatus === messaging.AuthorizationStatus.PROVISIONAL) {
+            setPushPermissionStatus('granted');
+          } else {
+            setPushPermissionStatus('denied');
+          }
+        } else {
+          setPushPermissionStatus('unknown');
+        }
+      } catch (fcmError) {
+        // FCM not available - fallback to unknown
+        setPushPermissionStatus('unknown');
+      }
+    } catch (error) {
+      logger.error('Error checking push permission status', error);
+      setPushPermissionStatus('unknown');
+    }
+  }, []);
+
   // Navigation & Lifecycle Safety: Refresh settings on focus
   useFocusEffect(
     useCallback(() => {
@@ -102,35 +135,39 @@ export default function NotificationsSettingsScreen() {
     }, [refreshSettings, checkPushPermissionStatus])
   );
 
-  // Check push notification permission status
-  const checkPushPermissionStatus = useCallback(async () => {
-    try {
-      if (Platform.OS === 'web') {
-        // Web doesn't support push notifications the same way
-        setPushPermissionStatus('not-applicable');
-        return;
-      }
-      const { status } = await Notifications.getPermissionsAsync();
-      setPushPermissionStatus(status);
-    } catch (error) {
-      logger.error('Error checking push permission status', error);
-      setPushPermissionStatus('unknown');
-    }
-  }, []);
-
-  // Request push notification permission
+  // Request push notification permission (using FCM)
   const requestPushPermission = useCallback(async () => {
     try {
       if (Platform.OS === 'web') {
         showAlert('Push notifications are not available on web', 'Not Available', 'info');
         return;
       }
-      const { status } = await Notifications.requestPermissionsAsync();
-      setPushPermissionStatus(status);
-      if (status === 'granted') {
-        showAlert('Push notifications enabled!', 'Success', 'success');
-      } else {
-        showAlert('Push notifications permission denied. You can enable it in your device settings.', 'Permission Denied', 'warning');
+      
+      // Use FCM to request permission
+      try {
+        const messaging = require('@react-native-firebase/messaging').default;
+        if (messaging) {
+          const authStatus = await messaging().requestPermission();
+          const enabled = authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+                         authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+          
+          setPushPermissionStatus(enabled ? 'granted' : 'denied');
+          
+          if (enabled) {
+            // Re-initialize FCM to get token
+            await fcmService.initialize();
+            showAlert('Push notifications enabled!', 'Success', 'success');
+          } else {
+            showAlert('Push notifications permission denied. You can enable it in your device settings.', 'Permission Denied', 'warning');
+          }
+        } else {
+          setPushPermissionStatus('unknown');
+          showAlert('Push notifications are not available. Use a development build for FCM support.', 'Not Available', 'warning');
+        }
+      } catch (fcmError: any) {
+        logger.error('Error requesting push permission via FCM', fcmError);
+        setPushPermissionStatus('unknown');
+        showError('Failed to request push notification permission');
       }
     } catch (error: any) {
       logger.error('Error requesting push permission', error);
@@ -498,7 +535,7 @@ export default function NotificationsSettingsScreen() {
                 </Text>
               </View>
             </View>
-            <View style={styles.settingRight}>
+            <View style={styles.settingContent}>
               {pushPermissionStatus === 'granted' ? (
                 <View style={[styles.permissionBadge, { backgroundColor: theme.colors.success + '20' }]}>
                   <Ionicons name="checkmark-circle" size={16} color={theme.colors.success || '#4CAF50'} />
@@ -550,7 +587,6 @@ export default function NotificationsSettingsScreen() {
         title={alertConfig.title}
         message={alertConfig.message}
         type={alertConfig.type}
-        buttons={alertConfig.buttons}
         onClose={() => setAlertVisible(false)}
       />
 

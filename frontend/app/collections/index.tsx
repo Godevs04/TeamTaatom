@@ -21,6 +21,7 @@ import { getUserFromStorage } from '../../services/auth';
 import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -57,7 +58,7 @@ export default function CollectionsScreen() {
       setCollections(response.collections || []);
     } catch (error: any) {
       showError('Failed to load collections');
-      console.error('Error loading collections:', error);
+      logger.error('Error loading collections:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);

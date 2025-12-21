@@ -24,6 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -154,20 +155,20 @@ export default function SignUpScreen() {
     setIsGoogleLoading(true);
     try {
       const response = await signInWithGoogle();
-      console.log('Google sign-in successful:', response.user);
+      logger.debug('Google sign-in successful:', response.user);
       
       // Check onboarding status immediately after Google signin
       const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
       if (!onboardingCompleted) {
         // New user - navigate to onboarding immediately
-        console.log('[SignUp] New user detected (Google), navigating to onboarding');
+        logger.debug('[SignUp] New user detected (Google), navigating to onboarding');
         router.replace('/onboarding/welcome');
       } else {
         // Existing user - navigate to tabs
         router.replace('/(tabs)/home');
       }
     } catch (error: any) {
-      console.log('Google sign-in error:', error);
+      logger.error('Google sign-in error:', error);
       showError(error.message);
     } finally {
       setIsGoogleLoading(false);

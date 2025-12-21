@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import logger from './logger';
 
 /**
  * Centralized configuration utility
@@ -20,11 +21,11 @@ export const getApiBaseUrl = (): string => {
     // EXPLICITLY reject wrong IP (192.168.1.10) and localhost
     const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
     if (envUrl && envUrl !== '' && !envUrl.includes('localhost') && !envUrl.includes('192.168.1.10')) {
-      console.log(`[Config] ✅ [WEB] Using .env API URL: ${envUrl}`);
+      logger.debug(`[Config] ✅ [WEB] Using .env API URL: ${envUrl}`);
       return envUrl;
     } else if (envUrl && (envUrl.includes('192.168.1.10') || envUrl.includes('localhost'))) {
-      console.error(`[Config] ❌ [WEB] Rejected .env URL (wrong IP or localhost): ${envUrl}`);
-      console.error(`[Config] ❌ [WEB] Please update .env: EXPO_PUBLIC_API_BASE_URL=http://192.168.1.15:3000`);
+      logger.error(`[Config] ❌ [WEB] Rejected .env URL (wrong IP or localhost): ${envUrl}`);
+      logger.error(`[Config] ❌ [WEB] Please update .env: EXPO_PUBLIC_API_BASE_URL=http://192.168.1.15:3000`);
     }
     
     // Priority 2: Auto-detect from current hostname if window is available
@@ -38,7 +39,7 @@ export const getApiBaseUrl = (): string => {
         // Extract IP from current hostname (e.g., 192.168.1.15:8081 -> 192.168.1.15:3000)
         const port = '3000';
         const detectedUrl = `http://${hostname}:${port}`;
-        console.log(`[Config] 🌐 [WEB] Auto-detected API URL: ${detectedUrl} (from hostname: ${hostname})`);
+        logger.debug(`[Config] 🌐 [WEB] Auto-detected API URL: ${detectedUrl} (from hostname: ${hostname})`);
         return detectedUrl;
       }
     }
@@ -46,12 +47,12 @@ export const getApiBaseUrl = (): string => {
     // Priority 3: Fallback to app.json config (should have IP, not localhost)
     const fallbackUrl = Constants.expoConfig?.extra?.API_BASE_URL;
     if (fallbackUrl && !fallbackUrl.includes('localhost')) {
-      console.log(`[Config] ⚠️  [WEB] Using app.json API URL: ${fallbackUrl}`);
+      logger.warn(`[Config] ⚠️  [WEB] Using app.json API URL: ${fallbackUrl}`);
       return fallbackUrl;
     }
     
     // Last resort for web: Use default IP
-    console.error(`[Config] ❌ [WEB] No valid API URL found! Using default: http://192.168.1.15:3000`);
+    logger.error(`[Config] ❌ [WEB] No valid API URL found! Using default: http://192.168.1.15:3000`);
     return 'http://192.168.1.15:3000';
   }
   

@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { searchHashtags, getTrendingHashtags, Hashtag } from '../services/hashtags';
+import logger from '../utils/logger';
 
 interface HashtagSuggestProps {
   text: string;
@@ -113,7 +114,7 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
           const trending = await getTrendingHashtags(10);
           setSuggestions(trending);
         } catch (error) {
-          console.error('Error fetching trending hashtags:', error);
+          logger.error('Error fetching trending hashtags:', error);
           setSuggestions([]);
         } finally {
           setLoading(false);
@@ -125,7 +126,7 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
           const results = await searchHashtags(hashtagQuery, 10);
           setSuggestions(results);
         } catch (error) {
-          console.error('Error searching hashtags:', error);
+          logger.error('Error searching hashtags:', error);
           setSuggestions([]);
         } finally {
           setLoading(false);

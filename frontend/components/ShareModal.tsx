@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { getPostShareUrl } from '../utils/config';
+import logger from '../utils/logger';
 
 interface ShareModalProps {
   visible: boolean;
@@ -67,7 +68,7 @@ export default function ShareModal({
         onClose();
       }
     } catch (error: any) {
-      console.error('Error sharing:', error);
+      logger.error('Error sharing:', error);
     }
   };
 
@@ -85,7 +86,7 @@ export default function ShareModal({
       }
       onClose();
     } catch (error: any) {
-      console.error('Error sharing to Instagram:', error);
+      logger.error('Error sharing to Instagram:', error);
     }
   };
 
@@ -96,7 +97,7 @@ export default function ShareModal({
       await Linking.openURL(url);
       onClose();
     } catch (error: any) {
-      console.error('Error sharing to Facebook:', error);
+      logger.error('Error sharing to Facebook:', error);
     }
   };
 
@@ -108,7 +109,7 @@ export default function ShareModal({
       await Linking.openURL(url);
       onClose();
     } catch (error: any) {
-      console.error('Error sharing to Twitter:', error);
+      logger.error('Error sharing to Twitter:', error);
     }
   };
 
@@ -148,7 +149,7 @@ export default function ShareModal({
       }
       onClose();
     } catch (error: any) {
-      console.error('Error copying link:', error);
+      logger.error('Error copying link:', error);
       // Fallback: show the URL in an alert so user can manually copy
       Alert.alert('Copy Link', `Link: ${getShareUrl()}`, [
         { text: 'OK', onPress: onClose }

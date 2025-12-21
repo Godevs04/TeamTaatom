@@ -1326,7 +1326,7 @@ export default function ChatModal() {
               );
               setConversations(uniqueChats);
             })
-            .catch(err => console.error('Error reloading chats:', err));
+            .catch(err => logger.error('Error reloading chats:', err));
         };
         reloadChats();
       }}
