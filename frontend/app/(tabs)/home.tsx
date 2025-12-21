@@ -122,6 +122,21 @@ export default function HomeScreen() {
       const postsPerPage = isWeb ? 15 : 10;
       const response = await getPosts(pageNum, postsPerPage);
       
+      // Handle empty posts array gracefully (don't show error if API succeeded)
+      if (!response.posts || response.posts.length === 0) {
+        if (pageNum === 1 && !shouldAppend) {
+          // First page with no posts - set empty array, don't show error
+          setPosts([]);
+          setHasMore(false);
+          setPage(1);
+          logger.debug('No posts returned (may be filtered or empty database)');
+        } else {
+          // Pagination with no more posts
+          setHasMore(false);
+        }
+        return;
+      }
+      
       if (shouldAppend) {
         // Feed de-duplication: merge items by unique _id, never append duplicates
         setPosts(prev => {
@@ -133,7 +148,7 @@ export default function HomeScreen() {
         setPosts(response.posts);
       }
       
-      setHasMore(response.pagination.hasNextPage);
+      setHasMore(response.pagination?.hasNextPage ?? false);
       setPage(pageNum);
       
       // Cache posts for offline support
@@ -247,7 +262,9 @@ export default function HomeScreen() {
         return;
       }
       
-      const API_BASE_URL = Constants.expoConfig?.extra?.API_BASE_URL || process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+      // Use dynamic API URL detection for web
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
       const response = await fetch(`${API_BASE_URL}/chat`, {
         headers: {
           'Authorization': `Bearer ${token}`,

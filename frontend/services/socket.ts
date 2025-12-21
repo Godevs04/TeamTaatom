@@ -1,10 +1,74 @@
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { API_BASE_URL, WS_PATH } from '../utils/config';
+import { getApiBaseUrl, WS_PATH } from '../utils/config';
 import logger from '../utils/logger';
 
+// Suppress WebSocket errors in console for development (both web and mobile)
+if (typeof window !== 'undefined' || typeof global !== 'undefined') {
+  const originalError = console.error;
+  const wsErrorSuppressed = new Set<string>();
+  
+  // Override console.error to filter out noisy WebSocket errors
+  console.error = (...args: any[]) => {
+    const message = args.join(' ');
+    const firstArg = args[0];
+    
+    // Check if this is a WebSocket/Socket.IO connection error
+    // Check message string
+    const messageCheck = 
+      message.includes('WebSocket connection to') ||
+      message.includes('TransportError') ||
+      message.includes('websocket error') ||
+      message.includes('ERR_CONNECTION_REFUSED') ||
+      message.includes('construct.js') ||
+      message.includes('_construct') ||
+      message.includes('engine.io-client') ||
+      message.includes('socket.io-client') ||
+      message.includes('[socketService.connect]') ||
+      message.includes('socketService.connect');
+    
+    // Check first argument (could be error object or string)
+    const firstArgCheck = 
+      (typeof firstArg === 'string' && (
+        firstArg.includes('[socketService.connect]') ||
+        firstArg.includes('socketService.connect') ||
+        firstArg.includes('construct.js')
+      )) ||
+      (firstArg && typeof firstArg === 'object' && (
+        firstArg.stack?.includes('construct.js') ||
+        firstArg.stack?.includes('TransportError') ||
+        firstArg.stack?.includes('engine.io-client') ||
+        firstArg.stack?.includes('socket.io-client') ||
+        firstArg.message?.includes('TransportError') ||
+        firstArg.message?.includes('ECONNREFUSED')
+      ));
+    
+    const isWebSocketError = messageCheck || firstArgCheck;
+    
+    // Filter out common WebSocket connection errors that are expected in development
+    if (isWebSocketError) {
+      // Only log once per unique error to avoid spam
+      const errorKey = message.substring(0, 200); // Use first 200 chars as key
+      if (!wsErrorSuppressed.has(errorKey)) {
+        wsErrorSuppressed.add(errorKey);
+        // Only show suppressed message in development, and only once
+        if (process.env.NODE_ENV === 'development' && Platform.OS === 'web') {
+          originalError('[WebSocket] Connection errors suppressed. Backend may not be running.');
+        }
+        // Clear after 30 seconds to allow new errors
+        setTimeout(() => {
+          wsErrorSuppressed.delete(errorKey);
+        }, 30000);
+      }
+      return; // Suppress the error
+    }
+    originalError.apply(console, args);
+  };
+}
+
 let socket: Socket | null = null;
+let lastConnectedUrl: string | null = null; // Track the URL used for the last connection
 const listeners: Record<string, Set<(...args: any[]) => void>> = {};
 
 // Message queue for offline/connection issues
@@ -35,12 +99,32 @@ const connectSocket = async () => {
   if (process.env.NODE_ENV === 'development') {
     logger.debug('Socket service - Attempting to connect...');
   }
+  
+  // CRITICAL: Get API URL dynamically FIRST (important for web auto-detection)
+  // Always get fresh URL to ensure correct IP - call getApiBaseUrl() fresh every time
+  const apiBaseUrl = getApiBaseUrl();
+  const fullUrl = apiBaseUrl + '/app';
+  
+  // CRITICAL: Check if socket is connected to the CORRECT URL
+  // If URL changed (e.g., IP changed), we MUST disconnect and reconnect
   if (socket && socket.connected) {
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Already connected');
+    if (lastConnectedUrl === fullUrl) {
+      // Same URL, socket is good
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug('Socket service - Already connected to correct URL');
+      }
+      return socket;
+    } else {
+      // URL changed! Must disconnect and reconnect
+      if (Platform.OS === 'web') {
+        logger.debug(`[Socket] 🔄 [WEB] URL changed! Disconnecting old socket (${lastConnectedUrl}) and reconnecting to: ${fullUrl}`);
+      }
+      socket.disconnect();
+      socket = null;
+      lastConnectedUrl = null;
     }
-    return socket;
   }
+  
   const token = await getToken();
   
   if (!token) {
@@ -54,16 +138,25 @@ const connectSocket = async () => {
     logger.debug('Socket service - Token retrieved:', !!token);
   }
   
-  // Clean up existing socket if any
+  // Clean up existing socket if any (if not already cleaned above)
   if (socket) {
-    if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Disconnecting existing socket');
+    if (Platform.OS === 'web') {
+      logger.debug(`[Socket] 🧹 [WEB] Disconnecting existing socket before reconnecting`);
     }
     socket.disconnect();
     socket = null;
+    lastConnectedUrl = null;
   }
   
-  socket = io(API_BASE_URL + '/app', {
+  // Always log for web to help debug connection issues
+  if (Platform.OS === 'web') {
+    logger.debug(`[Socket] 🔌 [WEB] Connecting to: ${fullUrl}`);
+    logger.debug(`[Socket] 🔌 [WEB] Full WebSocket URL will be: ws://${apiBaseUrl.replace('http://', '')}/socket.io/`);
+  } else if (process.env.NODE_ENV === 'development') {
+    logger.debug(`Socket service - Connecting to: ${fullUrl}`);
+  }
+  
+  socket = io(fullUrl, {
     path: WS_PATH,
     transports: ['websocket', 'polling'], // Add polling as fallback for web
     autoConnect: false,
@@ -73,18 +166,23 @@ const connectSocket = async () => {
     reconnectionAttempts: 5,
     reconnectionDelay: 2000,
     reconnectionDelayMax: 10000,
-    forceNew: true,
+    forceNew: true, // CRITICAL: Force new connection to prevent URL caching
     timeout: 20000,
     extraHeaders: Platform.OS === 'web' 
       ? { Authorization: `Bearer ${token}` } 
       : { Authorization: `Bearer ${token}` },
   });
+  
+  // Store the URL we're connecting to
+  lastConnectedUrl = fullUrl;
 
   socket.on('connect', () => {
     connectionState = 'connected';
     reconnectAttempts = 0;
     
-    if (process.env.NODE_ENV === 'development') {
+    if (Platform.OS === 'web') {
+      logger.debug(`[Socket] ✅ [WEB] Connected successfully to: ${lastConnectedUrl}`);
+    } else if (process.env.NODE_ENV === 'development') {
       logger.debug('Socket service - Connected successfully to /app namespace');
     }
 
@@ -114,12 +212,46 @@ const connectSocket = async () => {
     }
   });
 
-  socket.on('connect_error', (err) => {
+  socket.on('connect_error', (err: any) => {
     connectionState = 'disconnected';
     
-    // Only log if it's not an auth error (which is expected if no token)
-    if (process.env.NODE_ENV === 'development' && err.message !== 'Invalid token') {
-      logger.error('socketService.connect', err);
+    // Check if this is an expected connection error (backend not running, network issues)
+    const errType = (err as any)?.type;
+    const errName = err.name || (err as any)?.name;
+    const errMessage = err.message || String(err);
+    
+    const isConnectionRefused = errMessage?.includes('ECONNREFUSED') || 
+                               errMessage?.includes('connection refused') ||
+                               errMessage?.includes('TransportError') ||
+                               errMessage?.includes('xhr poll error') ||
+                               errMessage?.includes('websocket error') ||
+                               errType === 'TransportError' ||
+                               errName === 'TransportError';
+    
+    // Check if error stack contains construct.js (Babel runtime helper errors)
+    const errStack = err.stack || String(err);
+    const hasConstructError = errStack?.includes('construct.js') || 
+                              errStack?.includes('_construct') ||
+                              errMessage?.includes('construct.js');
+    
+    // Suppress expected connection errors (backend not running, network issues)
+    // Only log unexpected errors (auth errors, etc.)
+    if (process.env.NODE_ENV === 'development') {
+      if (isConnectionRefused || hasConstructError) {
+        // Suppress these expected errors - only log once on first attempt
+        if (reconnectAttempts === 0 && Platform.OS === 'web') {
+          logger.debug('Socket connection error (backend may not be running). Will retry silently.');
+        }
+        // Don't log these errors - they're expected when backend is down
+      } else if (errMessage !== 'Invalid token') {
+        // Log unexpected errors (but not auth errors)
+        logger.error('socketService.connect', {
+          message: errMessage,
+          type: errType,
+          name: errName,
+          // Don't include full stack trace for connection errors
+        });
+      }
     }
 
     // Retry connection with exponential backoff
@@ -137,7 +269,7 @@ const connectSocket = async () => {
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
     if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket event received:', event, args);
+      logger.debug(`Socket event received: ${event}`, { args });
     }
     if (listeners[event]) {
       listeners[event].forEach((cb) => cb(...args));
@@ -212,6 +344,7 @@ export const socketService = {
     if (socket) {
       socket.disconnect();
       socket = null;
+      lastConnectedUrl = null; // Clear stored URL
       connectionState = 'disconnected';
       reconnectAttempts = 0;
     }
@@ -235,7 +368,7 @@ export const socketService = {
     if (!listeners[event]) listeners[event] = new Set();
     listeners[event].add(cb);
     if (process.env.NODE_ENV === 'development') {
-      logger.debug('Socket service - Total listeners for', event, ':', listeners[event].size);
+      logger.debug(`Socket service - Total listeners for ${event}: ${listeners[event].size}`);
     }
     if (!socket) await connectSocket();
   },

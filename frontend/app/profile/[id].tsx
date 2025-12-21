@@ -13,6 +13,7 @@ import BioDisplay from '../../components/BioDisplay';
 import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import logger from '../../utils/logger';
 
 const { width } = Dimensions.get('window');
 
@@ -206,7 +207,7 @@ export default function UserProfileScreen() {
                                "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"; // Fallback key
   
   // Debug logging
-  console.log('Profile - API Key check:', {
+  logger.debug('Profile - API Key check:', {
     expoConfig: Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY,
     manifest: Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY,
     final: GOOGLE_MAPS_API_KEY
@@ -255,7 +256,7 @@ export default function UserProfileScreen() {
             hasMore = posts.length === limit;
             page++;
           } catch (err) {
-            console.error('Error fetching posts page:', err);
+            logger.error('Error fetching posts page:', err);
             hasMore = false;
           }
         }
@@ -291,7 +292,7 @@ export default function UserProfileScreen() {
       }
       // If in the middle of an action but no stored response yet, preserve current state
     } catch (e) {
-      console.error('Error fetching profile:', e);
+      logger.error('Error fetching profile:', e);
       showError('Failed to load user profile');
     } finally {
       setLoading(false);
@@ -380,7 +381,7 @@ export default function UserProfileScreen() {
       
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
-        console.error('Error following/unfollowing user:', e);
+        logger.error('Error following/unfollowing user:', e);
       }
       
       const errorMessage = e.response?.data?.message || e.message || 'Failed to update follow status';

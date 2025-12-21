@@ -22,7 +22,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { geocodeAddress } from '../../utils/locationUtils';
+import { geocodeAddress, calculateDistance } from '../../utils/locationUtils';
+import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, Locale } from '../../services/locale';
@@ -154,6 +155,14 @@ export default function LocaleScreen() {
   // Distance Calculation Guards: Cache calculated distances per session
   const distanceCacheRef = useRef<Map<string, number>>(new Map());
   
+  // Geocoding cache: Store geocoded coordinates for locales
+  const geocodedCoordsCacheRef = useRef<Map<string, { latitude: number; longitude: number }>>(new Map());
+  const geocodingInProgressRef = useRef<Set<string>>(new Set());
+  
+  // User's current location for distance calculation
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+  
   // Bookmark Stability: Track in-flight bookmark operations
   const bookmarkingKeysRef = useRef<Set<string>>(new Set());
   
@@ -170,12 +179,46 @@ export default function LocaleScreen() {
     'Beach spots',
   ];
 
+  // Get user's current location for distance calculation
+  const getUserCurrentLocation = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        logger.debug('Location permission denied, distance sorting will be unavailable');
+        setLocationPermissionGranted(false);
+        return;
+      }
+      
+      setLocationPermissionGranted(true);
+      
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      if (location && location.coords) {
+        const coords = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        
+        if (isMountedRef.current) {
+          setUserLocation(coords);
+          logger.debug('✅ User location obtained for distance sorting:', coords);
+        }
+      }
+    } catch (error) {
+      logger.error('Error getting user location:', error);
+      setLocationPermissionGranted(false);
+    }
+  }, []);
+  
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
     isMountedRef.current = true;
     loadCountries();
     loadSavedLocales();
     loadAdminLocales();
+    getUserCurrentLocation(); // Get user location for distance sorting
     
     return () => {
       isMountedRef.current = false;
@@ -188,7 +231,7 @@ export default function LocaleScreen() {
         clearTimeout(searchDebounceTimerRef.current);
       }
     };
-  }, []);
+  }, [getUserCurrentLocation]);
 
   // Fetch key tracking to prevent duplicate fetches
   const lastFetchKeyRef = useRef<string | null>(null);
@@ -268,21 +311,56 @@ export default function LocaleScreen() {
       if (response && response.locales) {
         // Pagination & Filter Race Safety: Deduplicate locales by unique ID
         const newLocales = response.locales;
-        if (forceRefresh || currentPageRef.current === 1) {
-          // Fresh load - replace all
-          setAdminLocales(newLocales);
-          // Apply filters will be triggered by useEffect when adminLocales changes
-        } else {
-          // Pagination - merge and deduplicate
-          setAdminLocales(prev => {
-            const localeMap = new Map<string, Locale>();
-            // Add existing locales
-            prev.forEach(locale => localeMap.set(locale._id, locale));
-            // Add new locales (will overwrite duplicates)
-            newLocales.forEach(locale => localeMap.set(locale._id, locale));
-            return Array.from(localeMap.values());
-            // Apply filters will be triggered by useEffect when adminLocales changes
+        
+        // Geocode locales that don't have coordinates (in background)
+        if (userLocation && locationPermissionGranted) {
+          // Geocode locales without coordinates
+          const geocodePromises = newLocales.map(async (locale) => {
+            if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
+              return await geocodeLocale(locale);
+            }
+            return locale;
           });
+          
+          Promise.all(geocodePromises).then(geocodedLocales => {
+            if (!isMountedRef.current) return;
+            
+            if (forceRefresh || currentPageRef.current === 1) {
+              setAdminLocales(geocodedLocales);
+            } else {
+              setAdminLocales(prev => {
+                const localeMap = new Map<string, Locale>();
+                prev.forEach(locale => localeMap.set(locale._id, locale));
+                geocodedLocales.forEach(locale => localeMap.set(locale._id, locale));
+                return Array.from(localeMap.values());
+              });
+            }
+          }).catch(error => {
+            logger.error('Error geocoding locales:', error);
+            // Fallback to original locales if geocoding fails
+            if (forceRefresh || currentPageRef.current === 1) {
+              setAdminLocales(newLocales);
+            } else {
+              setAdminLocales(prev => {
+                const localeMap = new Map<string, Locale>();
+                prev.forEach(locale => localeMap.set(locale._id, locale));
+                newLocales.forEach(locale => localeMap.set(locale._id, locale));
+                return Array.from(localeMap.values());
+              });
+            }
+          });
+        } else {
+          // No user location, just set locales as is
+          if (forceRefresh || currentPageRef.current === 1) {
+            setAdminLocales(newLocales);
+          } else {
+            setAdminLocales(prev => {
+              const localeMap = new Map<string, Locale>();
+              prev.forEach(locale => localeMap.set(locale._id, locale));
+              newLocales.forEach(locale => localeMap.set(locale._id, locale));
+              return Array.from(localeMap.values());
+            });
+          }
         }
       } else {
         if (isMountedRef.current) {
@@ -306,7 +384,129 @@ export default function LocaleScreen() {
       }
       isSearchingRef.current = false;
     }
-  }, [searchQuery, filters.countryCode, filters.spotTypes]); // Removed adminLocales to prevent circular dependency
+  }, [searchQuery, filters.countryCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Added userLocation dependencies for geocoding
+  
+  // Geocode locale if coordinates are missing
+  const geocodeLocale = useCallback(async (locale: Locale): Promise<Locale> => {
+    // If locale already has valid coordinates, return as is
+    if (locale.latitude && locale.longitude && locale.latitude !== 0 && locale.longitude !== 0) {
+      return locale;
+    }
+    
+    // Check cache first
+    const cacheKey = `${locale._id}-${locale.name}-${locale.countryCode}`;
+    if (geocodedCoordsCacheRef.current.has(cacheKey)) {
+      const coords = geocodedCoordsCacheRef.current.get(cacheKey)!;
+      return { ...locale, latitude: coords.latitude, longitude: coords.longitude };
+    }
+    
+    // Check if geocoding is already in progress for this locale
+    if (geocodingInProgressRef.current.has(locale._id)) {
+      return locale; // Return original locale, will be updated when geocoding completes
+    }
+    
+    // Mark as in progress
+    geocodingInProgressRef.current.add(locale._id);
+    
+    try {
+      // Geocode using locale name and country code
+      const geocodedCoords = await geocodeAddress(locale.name, locale.countryCode);
+      
+      if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude) {
+        // Cache the coordinates
+        geocodedCoordsCacheRef.current.set(cacheKey, geocodedCoords);
+        
+        // Return locale with coordinates
+        const updatedLocale = { ...locale, latitude: geocodedCoords.latitude, longitude: geocodedCoords.longitude };
+        
+        // Update the locale in adminLocales state
+        if (isMountedRef.current) {
+          setAdminLocales(prev => prev.map(l => l._id === locale._id ? updatedLocale : l));
+        }
+        
+        return updatedLocale;
+      }
+    } catch (error) {
+      logger.error(`Error geocoding locale ${locale.name}:`, error);
+    } finally {
+      geocodingInProgressRef.current.delete(locale._id);
+    }
+    
+    return locale;
+  }, []);
+
+  // Calculate distance for a locale (with caching and geocoding support)
+  const getLocaleDistance = useCallback((locale: Locale): number | null => {
+    if (!userLocation) {
+      return null;
+    }
+    
+    // Use coordinates from locale (may be geocoded)
+    const lat = locale.latitude;
+    const lng = locale.longitude;
+    
+    if (!lat || !lng || lat === 0 || lng === 0) {
+      return null;
+    }
+    
+    // Check cache first
+    const cacheKey = `${locale._id}-${userLocation.latitude}-${userLocation.longitude}`;
+    if (distanceCacheRef.current.has(cacheKey)) {
+      return distanceCacheRef.current.get(cacheKey)!;
+    }
+    
+    // Calculate distance
+    const distance = calculateDistance(
+      userLocation.latitude,
+      userLocation.longitude,
+      lat,
+      lng
+    );
+    
+    // Cache the result
+    distanceCacheRef.current.set(cacheKey, distance);
+    return distance;
+  }, [userLocation]);
+  
+  // PRODUCTION-GRADE: Shared sorting function - sorts by distance (nearest first)
+  // Admin displayOrder is completely ignored - user's location determines order
+  const sortLocalesByDistance = useCallback((locales: Locale[]): Locale[] => {
+    const sorted = [...locales];
+    
+    sorted.sort((a, b) => {
+      // PRIMARY SORT: Distance-based (nearest first)
+      if (userLocation && locationPermissionGranted) {
+        const distanceA = getLocaleDistance(a);
+        const distanceB = getLocaleDistance(b);
+        
+        // Case 1: Both have valid distances - sort by distance (nearest first)
+        if (distanceA !== null && distanceB !== null) {
+          return distanceA - distanceB;
+        }
+        
+        // Case 2: Only A has distance - A comes first
+        if (distanceA !== null && distanceB === null) {
+          return -1;
+        }
+        
+        // Case 3: Only B has distance - B comes first
+        if (distanceA === null && distanceB !== null) {
+          return 1;
+        }
+        
+        // Case 4: Both null (no coordinates) - maintain original order
+        // Fall through to secondary sort
+      }
+      
+      // SECONDARY SORT: Only used when distance sorting is unavailable
+      // Sort by createdAt (newest first) as tiebreaker
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+    
+    return sorted;
+  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
   
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
@@ -340,13 +540,17 @@ export default function LocaleScreen() {
       });
       const uniqueLocales = Array.from(localeMap.values());
       
+      // PRODUCTION-GRADE: Sort saved locales by distance (nearest first)
+      // This ensures consistent sorting across all locale lists
+      const sortedLocales = sortLocalesByDistance(uniqueLocales);
+      
       if (isMountedRef.current) {
-        setSavedLocales(uniqueLocales);
+        setSavedLocales(sortedLocales);
         
         // Update AsyncStorage if duplicates were found
         if (uniqueLocales.length !== locales.length) {
           try {
-            await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
+            await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
           } catch {}
         }
       }
@@ -355,7 +559,7 @@ export default function LocaleScreen() {
       logger.error('Error loading saved locales', error);
       setSavedLocales([]);
     }
-  }, []);
+  }, [sortLocalesByDistance]);
   
   // Apply client-side filters (for spot types that API doesn't support)
   const applyFilters = useCallback((locales: Locale[]) => {
@@ -378,30 +582,33 @@ export default function LocaleScreen() {
       );
     }
     
-    // Sort by displayOrder (ascending), then by createdAt (descending) to maintain backend order
-    filtered.sort((a, b) => {
-      const orderA = a.displayOrder ?? 0;
-      const orderB = b.displayOrder ?? 0;
-      if (orderA !== orderB) {
-        return orderA - orderB;
-      }
-      // If displayOrder is the same, sort by createdAt (newest first)
-      const dateA = new Date(a.createdAt || 0).getTime();
-      const dateB = new Date(b.createdAt || 0).getTime();
-      return dateB - dateA;
-    });
+    // PRODUCTION-GRADE: Sort ONLY by distance (nearest first)
+    // Admin displayOrder is completely ignored - user's location determines order
+    // Use shared sorting function for consistency
+    const sorted = sortLocalesByDistance(filtered);
     
-    setFilteredLocales(filtered);
-  }, [filters.spotTypes, searchQuery]);
+    setFilteredLocales(sorted);
+  }, [filters.spotTypes, searchQuery, sortLocalesByDistance]);
   
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   useEffect(() => {
     if (adminLocales.length > 0) {
+      // Always apply filters to ensure sorting is applied
       applyFilters(adminLocales);
     } else {
       setFilteredLocales([]);
     }
   }, [adminLocales, applyFilters]);
+
+  // Re-sort locales when user location becomes available or changes
+  // This ensures sorting works even if location becomes available after locales are loaded
+  useEffect(() => {
+    if (adminLocales.length > 0) {
+      // Re-apply filters to trigger distance-based sorting when location becomes available
+      // This will re-sort using the updated userLocation (or fallback to createdAt if not available)
+      applyFilters(adminLocales);
+    }
+  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -490,11 +697,14 @@ export default function LocaleScreen() {
       });
       const uniqueLocales = Array.from(localeMap.values());
       
+      // PRODUCTION-GRADE: Sort by distance (nearest first) before saving
+      const sortedLocales = sortLocalesByDistance(uniqueLocales);
+      
       // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(uniqueLocales));
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
       
       if (isMountedRef.current) {
-        setSavedLocales(uniqueLocales);
+        setSavedLocales(sortedLocales);
         // Emit event to sync with detail page
         savedEvents.emitChanged();
         Alert.alert('Saved', 'Locale saved successfully');
@@ -506,7 +716,7 @@ export default function LocaleScreen() {
     } finally {
       bookmarkingKeysRef.current.delete(localeId);
     }
-  }, []);
+  }, [sortLocalesByDistance]);
   
   // Bookmark Stability: Atomic read-modify-write
   const unsaveLocale = useCallback(async (localeId: string) => {
@@ -541,11 +751,14 @@ export default function LocaleScreen() {
       // Remove locale
       const filtered = locales.filter(l => l && l._id !== localeId);
       
+      // PRODUCTION-GRADE: Sort by distance (nearest first) after removal
+      const sortedLocales = sortLocalesByDistance(filtered);
+      
       // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(filtered));
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
       
       if (isMountedRef.current) {
-        setSavedLocales(filtered);
+        setSavedLocales(sortedLocales);
         // Emit event to sync with detail page
         savedEvents.emitChanged();
         Alert.alert('Removed', 'Locale removed from saved list');
@@ -557,7 +770,7 @@ export default function LocaleScreen() {
     } finally {
       bookmarkingKeysRef.current.delete(localeId);
     }
-  }, []);
+  }, [sortLocalesByDistance]);
   
   const isLocaleSaved = (localeId: string): boolean => {
     return savedLocales.some(l => l._id === localeId);
@@ -901,6 +1114,15 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderAdminLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
+    // Calculate distance if user location is available
+    const distance = userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null;
+    const distanceText = distance !== null ? `${distance < 1 ? Math.round(distance * 1000) : distance.toFixed(1)}${distance < 1 ? 'm' : 'km'}` : null;
+    
+    // Debug: Log distance calculation
+    if (__DEV__) {
+      logger.debug(`Locale ${locale.name}: distance=${distance}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
+    }
+    
     return (
       <TouchableOpacity 
         style={[
@@ -953,14 +1175,26 @@ export default function LocaleScreen() {
           style={styles.cardGradient}
         />
         <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{locale.name}</Text>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle}>{locale.name}</Text>
+          </View>
           <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
             {locale.countryCode}
           </Text>
         </View>
+        {distanceText ? (
+          <View style={styles.distanceBadgeAbsolute}>
+            <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.distanceText}>{distanceText}</Text>
+          </View>
+        ) : (userLocation && locationPermissionGranted && locale.latitude && locale.longitude) ? (
+          <View style={styles.distanceBadgeAbsolute}>
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
-  }, [router, theme]);
+  }, [router, theme, userLocation, locationPermissionGranted, getLocaleDistance]);
 
   const renderAdminLocales = () => {
     const localesToShow = filteredLocales.length > 0 ? filteredLocales : adminLocales;
@@ -1016,6 +1250,10 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
+    // Calculate distance if user location is available
+    const distance = userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null;
+    const distanceText = distance !== null ? `${distance < 1 ? Math.round(distance * 1000) : distance.toFixed(1)}${distance < 1 ? 'm' : 'km'}` : null;
+    
     return (
       <TouchableOpacity 
         style={[
@@ -1067,6 +1305,25 @@ export default function LocaleScreen() {
           colors={['transparent', 'rgba(0,0,0,0.7)']}
           style={styles.cardGradient}
         />
+        <View style={styles.cardContent}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle}>{locale.name}</Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
+            {locale.countryCode}
+          </Text>
+          {locale.description && (
+            <Text style={[styles.cardSubtitle, { color: '#FFFFFF', marginTop: 4 }]} numberOfLines={1}>
+              {locale.description}
+            </Text>
+          )}
+        </View>
+        {distanceText && (
+          <View style={styles.distanceBadgeAbsolute}>
+            <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.distanceText}>{distanceText}</Text>
+          </View>
+        )}
         <TouchableOpacity
           style={styles.saveButton}
           onPress={(e) => {
@@ -1080,17 +1337,9 @@ export default function LocaleScreen() {
             color="#FFD700" 
           />
         </TouchableOpacity>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{locale.name}</Text>
-          {locale.description && (
-            <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]} numberOfLines={1}>
-              {locale.description}
-            </Text>
-          )}
-        </View>
       </TouchableOpacity>
     );
-  }, [router, theme, unsaveLocale]);
+  }, [router, theme, unsaveLocale, userLocation, locationPermissionGranted, getLocaleDistance]);
 
   const renderEmptySavedState = () => (
     <View style={styles.emptyContainer}>
@@ -1383,6 +1632,7 @@ const createStyles = () => {
       borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
       overflow: 'hidden',
       marginBottom: isTabletLocal ? theme.spacing.md : 12,
+      position: 'relative',
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: {
@@ -1399,7 +1649,7 @@ const createStyles = () => {
     },
     wideCard: {
       width: isTabletLocal ? screenWidth - theme.spacing.xxl * 2 : screenWidth - 40,
-      height: isTabletLocal ? 240 : 200,
+      height: isTabletLocal ? 200 : 160,
       alignSelf: 'center',
     },
   cardImage: {
@@ -1435,8 +1685,14 @@ const createStyles = () => {
     position: 'absolute',
     bottom: 12,
     left: 12,
-    right: 12,
+    right: 80, // Leave space for distance badge on the right
   },
+    cardTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
     cardTitle: {
       fontSize: isTabletLocal ? theme.typography.h3.fontSize : 18,
       fontFamily: getFontFamily('600'),
@@ -1446,6 +1702,8 @@ const createStyles = () => {
       textShadowOffset: { width: 0, height: 1 },
       textShadowRadius: 3,
       letterSpacing: isIOSLocal ? 0.3 : 0.2,
+      flex: 1,
+      marginRight: 8,
       ...(isWebLocal && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -1551,6 +1809,50 @@ const createStyles = () => {
     fontSize: 12,
     marginTop: 4,
     opacity: 0.9,
+  },
+  distanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  distanceBadgeAbsolute: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 10,
+  },
+  distanceText: {
+    fontSize: 11,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    ...(isWebLocal && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   // Filter Modal Styles
   filterModalContainer: {

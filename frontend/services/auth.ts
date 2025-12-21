@@ -44,13 +44,52 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
 };
 
 // Check username availability
-export const checkUsernameAvailability = async (username: string): Promise<{ available: boolean }> => {
+export const checkUsernameAvailability = async (username: string): Promise<{ available?: boolean; error?: string }> => {
   try {
     const response = await api.get('/api/v1/auth/check-username', { params: { username } });
-    return response.data;
+    
+    // Backend returns { success: boolean, available: boolean }
+    const data = response.data;
+    
+    // Handle both response formats
+    if (data && typeof data.available === 'boolean') {
+      return { available: data.available };
+    }
+    
+    // If response has success but no available, assume not available
+    if (data && data.success === false) {
+      return { available: false, error: data.error || 'Username check failed' };
+    }
+    
+    // Fallback - assume not available if we can't determine
+    return { available: false, error: 'Unable to determine username availability' };
   } catch (error: any) {
-    // On network/server error, treat as not available to be safe
-    return { available: false };
+    // Handle different error types
+    if (error.response) {
+      // Server responded with an error status
+      const status = error.response.status;
+      const data = error.response.data;
+      
+      if (status === 400) {
+        // Bad request - username validation failed
+        const errorMessage = data?.error || 'Invalid username format';
+        return { available: false, error: errorMessage };
+      }
+      
+      // Check if error response has availability info
+      if (data && typeof data.available === 'boolean') {
+        return { available: data.available };
+      }
+      
+      // Server error with message
+      const errorMessage = data?.error || data?.message || 'Unable to check username';
+      return { error: errorMessage };
+    }
+    
+    // Network error (no response) - don't show availability status
+    // This prevents false "available" messages
+    const parsedError = parseError(error);
+    return { error: parsedError.userMessage || 'Unable to check username. Please check your connection.' };
   }
 };
 

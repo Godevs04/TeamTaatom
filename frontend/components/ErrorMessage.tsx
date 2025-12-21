@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import logger from '../utils/logger';
 
 interface ErrorMessageProps {
   title?: string;
@@ -56,7 +57,7 @@ export default function ErrorMessage({
   const handleHelpPress = () => {
     if (helpLink) {
       Linking.openURL(helpLink).catch(err => {
-        console.error('Failed to open help link:', err);
+        logger.error('Failed to open help link:', err);
       });
     }
   };

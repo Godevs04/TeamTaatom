@@ -1861,26 +1861,49 @@ const getBlockStatus = async (req, res) => {
 // @access  Private
 const getSuggestedUsers = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id || req.user.id;
     const limit = parseInt(req.query.limit) || 6;
 
     // Get users that:
     // 1. Are not the current user
     // 2. Are not already being followed
-    // 3. Have at least one post
-    // 4. Are verified (optional, can be removed)
+    // 3. For onboarding, show verified users first, then others
     const currentUser = await User.findById(userId).select('following');
     const followingIds = currentUser.following.map(f => f.toString());
     followingIds.push(userId);
 
+    // For onboarding, show popular/active users even if they don't have posts yet
+    // Priority: verified users > users with posts > users with followers > new users
     const suggestedUsers = await User.find({
       _id: { $nin: followingIds },
       isActive: true,
+      isVerified: true, // Show verified users first for better quality
     })
-      .select('username fullName profilePic bio followers')
-      .limit(limit)
-      .sort({ followers: -1, createdAt: -1 })
+      .select('username fullName profilePic bio followers isVerified createdAt')
+      .limit(limit * 2) // Get more to filter later
+      .sort({ 
+        isVerified: -1, // Verified users first
+        followers: -1, // Then by follower count
+        createdAt: -1 // Then by newest
+      })
       .lean();
+
+    // If we don't have enough verified users, get more (including unverified)
+    if (suggestedUsers.length < limit) {
+      const additionalUsers = await User.find({
+        _id: { $nin: [...followingIds, ...suggestedUsers.map(u => u._id.toString())] },
+        isActive: true,
+      })
+        .select('username fullName profilePic bio followers isVerified createdAt')
+        .limit(limit * 2 - suggestedUsers.length)
+        .sort({ 
+          followers: -1,
+          createdAt: -1
+        })
+        .lean();
+      
+      suggestedUsers.push(...additionalUsers);
+    }
 
     // Get post counts for each user
     const usersWithPostCounts = await Promise.all(
@@ -1897,11 +1920,26 @@ const getSuggestedUsers = async (req, res) => {
       })
     );
 
-    // Filter to only users with posts and sort by followers
-    const filteredUsers = usersWithPostCounts
-      .filter(user => user.postsCount > 0)
-      .sort((a, b) => b.followersCount - a.followersCount)
-      .slice(0, limit);
+    // Sort by priority: verified > has posts > has followers > new
+    const sortedUsers = usersWithPostCounts.sort((a, b) => {
+      // Verified users first
+      if (a.isVerified !== b.isVerified) {
+        return b.isVerified ? 1 : -1;
+      }
+      // Then by posts
+      if (a.postsCount !== b.postsCount) {
+        return b.postsCount - a.postsCount;
+      }
+      // Then by followers
+      if (a.followersCount !== b.followersCount) {
+        return b.followersCount - a.followersCount;
+      }
+      // Then by newest
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // Take top users (don't filter by postsCount - show all for onboarding)
+    const filteredUsers = sortedUsers.slice(0, limit);
 
     return sendSuccess(res, 200, 'Suggested users fetched successfully', {
       users: filteredUsers,

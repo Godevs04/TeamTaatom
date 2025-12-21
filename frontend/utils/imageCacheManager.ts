@@ -1,4 +1,5 @@
 import { Image } from 'react-native';
+import logger from './logger';
 
 class ImageCacheManager {
   private static instance: ImageCacheManager;
@@ -50,7 +51,7 @@ class ImageCacheManager {
     } catch (error) {
       // Only log warnings for non-R2 URLs to reduce noise
       if (!url.includes('r2.cloudflarestorage.com') && !url.includes('cloudflarestorage.com')) {
-        console.warn('Failed to prefetch image:', url, error);
+        logger.warn('Failed to prefetch image:', { url, error });
       }
       // Don't throw error, just log it
     }

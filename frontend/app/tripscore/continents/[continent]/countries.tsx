@@ -6,15 +6,20 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
   TextInput,
   Platform,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
+import logger from '../../../../utils/logger';
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
 
 interface Country {
   name: string;
@@ -60,7 +65,7 @@ export default function TripScoreCountriesScreen() {
       const response = await api.get(`/profile/${userId}/tripscore/continents/${continentName}/countries`);
       setData(response.data);
     } catch (error) {
-      console.error('Error loading countries:', error);
+      logger.error('Error loading countries:', error);
     } finally {
       setLoading(false);
     }

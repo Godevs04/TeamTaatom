@@ -20,9 +20,11 @@ import AuthInput from '../../components/AuthInput';
 import { signUpSchema } from '../../utils/validation';
 import { signUp, checkUsernameAvailability } from '../../services/auth';
 import { signInWithGoogle } from '../../services/googleAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -49,21 +51,51 @@ function UsernameAvailabilityWatcher({
   username,
   onUnavailable,
   onAvailable,
+  onChecking,
 }: {
   username: string;
   onUnavailable: () => void;
   onAvailable: () => void;
+  onChecking: (checking: boolean) => void;
 }) {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!username || username.length < 3) return;
+    if (!username || username.length < 3) {
+      onChecking(false);
+      return;
+    }
 
+    onChecking(true); // Start checking
     timerRef.current = setTimeout(async () => {
-      const { available } = await checkUsernameAvailability(username);
-      if (available) onAvailable();
-      else onUnavailable();
+      try {
+        const result = await checkUsernameAvailability(username);
+        
+        // Only update UI if we have a definitive availability result
+        if (result.error && result.available === undefined) {
+          // Network/validation error - don't show availability status
+          // Just stop checking and don't call callbacks
+          onChecking(false);
+          return;
+        }
+        
+        // Only call callbacks if we have a clear availability result
+        if (typeof result.available === 'boolean') {
+          // Stop checking first, then call the appropriate callback
+          onChecking(false);
+          if (result.available) {
+            onAvailable();
+          } else {
+            onUnavailable();
+          }
+        } else {
+          // No clear result - just stop checking
+          onChecking(false);
+        }
+      } catch (error) {
+        onChecking(false);
+      }
     }, 600); // debounce 600ms
 
     return () => {
@@ -88,6 +120,7 @@ export default function SignUpScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | undefined>(undefined);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const router = useRouter();
   const { showError, showSuccess } = useAlert();
 
@@ -100,6 +133,9 @@ export default function SignUpScreen() {
         email: values.email,
         password: values.password,
       });
+
+      // Ensure onboarding flag is not set for new users
+      await AsyncStorage.removeItem('onboarding_completed');
 
       showSuccess(response.message);
       setTimeout(() => {
@@ -119,10 +155,20 @@ export default function SignUpScreen() {
     setIsGoogleLoading(true);
     try {
       const response = await signInWithGoogle();
-      console.log('Google sign-in successful:', response.user);
-      router.replace('/(tabs)');
+      logger.debug('Google sign-in successful:', response.user);
+      
+      // Check onboarding status immediately after Google signin
+      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+      if (!onboardingCompleted) {
+        // New user - navigate to onboarding immediately
+        logger.debug('[SignUp] New user detected (Google), navigating to onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        // Existing user - navigate to tabs
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
-      console.log('Google sign-in error:', error);
+      logger.error('Google sign-in error:', error);
       showError(error.message);
     } finally {
       setIsGoogleLoading(false);
@@ -196,26 +242,41 @@ export default function SignUpScreen() {
                     touched={touched.username}
                     autoCapitalize="none"
                     alwaysShowError
-                    success={usernameAvailable ? 'Username available' : undefined}
+                    success={usernameAvailable ? 'Username is available!' : undefined}
                   />
 
                   {/* Live username availability check */}
                   {values.username?.length >= 3 && (
-                    <UsernameAvailabilityWatcher
-                      username={values.username}
-                      onUnavailable={() => {
-                        setFieldError('username', 'Username already exists');
-                        setFieldTouched('username', true, false);
-                        showError('Username already exists. Try another.');
-                        setUsernameAvailable(false);
-                      }}
-                      onAvailable={() => {
-                        if (errors.username === 'Username already exists') {
-                          setFieldError('username', '');
-                        }
-                        setUsernameAvailable(true);
-                      }}
-                    />
+                    <>
+                      <UsernameAvailabilityWatcher
+                        username={values.username}
+                        onUnavailable={() => {
+                          setFieldError('username', 'Username already exists');
+                          setFieldTouched('username', true, false);
+                          // Don't show error alert - the field error is enough
+                          setUsernameAvailable(false);
+                          setIsCheckingUsername(false);
+                        }}
+                        onAvailable={() => {
+                          // Clear any previous errors
+                          if (errors.username === 'Username already exists') {
+                            setFieldError('username', '');
+                          }
+                          // Set available state - this will show the success message
+                          setUsernameAvailable(true);
+                          setIsCheckingUsername(false);
+                        }}
+                        onChecking={(checking) => {
+                          setIsCheckingUsername(checking);
+                          // Don't reset availability state here - let callbacks handle it
+                        }}
+                      />
+                      {isCheckingUsername && (
+                        <Text style={{ color: '#FF9800', fontSize: 12, marginTop: -8, marginBottom: 8 }}>
+                          Checking availability...
+                        </Text>
+                      )}
+                    </>
                   )}
 
                   <AuthInput

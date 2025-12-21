@@ -22,14 +22,17 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import * as Sentry from '@sentry/react-native';
+// Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
+// Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
-import { validateEnvironmentVariables } from '../utils/envValidator';
 import logger from '../utils/logger';
 
-// Validate environment variables on app startup
+// Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
 if (typeof window !== 'undefined' || typeof global !== 'undefined') {
   try {
+    // Lazy import to break potential circular dependency
+    const { validateEnvironmentVariables } = require('../utils/envValidator');
     validateEnvironmentVariables();
   } catch (error) {
     // In production, this will prevent the app from starting
@@ -37,7 +40,7 @@ if (typeof window !== 'undefined' || typeof global !== 'undefined') {
     if (process.env.NODE_ENV === 'production') {
       throw error;
     } else {
-      console.error('Environment validation error (development mode):', error);
+      logger.error('Environment validation error (development mode):', error);
     }
   }
 }
@@ -72,7 +75,7 @@ if (SENTRY_DSN) {
     // spotlight: __DEV__,
   });
 } else {
-  console.warn('Sentry DSN not found. Sentry error tracking is disabled.');
+  logger.warn('Sentry DSN not found. Sentry error tracking is disabled.');
 }
 
 
@@ -97,7 +100,7 @@ function RootLayoutInner() {
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
-    }).catch(err => console.error('Error setting audio mode:', err));
+    }).catch(err => logger.error('Error setting audio mode:', err));
   }, []);
 
   useEffect(() => {
@@ -106,6 +109,9 @@ function RootLayoutInner() {
     let isMounted = true;
     async function setupSocket() {
       if (isAuthenticated) {
+        // CRITICAL: Always disconnect first to ensure fresh connection with correct URL
+        // This prevents reusing cached connections with wrong IP
+        await socketService.disconnect();
         await socketService.connect();
         // Subscribe to invalidate events for cache invalidation
         // These handlers will trigger refetch when backend signals data changes
@@ -129,10 +135,26 @@ function RootLayoutInner() {
       }
     }
     setupSocket();
+    
+    // For web: Reconnect on page visibility change to ensure correct URL
+    let visibilityHandler: (() => void) | null = null;
+    if (typeof document !== 'undefined') {
+      visibilityHandler = () => {
+        if (document.visibilityState === 'visible' && isAuthenticated) {
+          // Page became visible - reconnect to ensure correct URL
+          setupSocket();
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
+    
     return () => {
       if (unsubFeed) unsubFeed();
       if (unsubProfile) unsubProfile();
       socketService.disconnect();
+      if (visibilityHandler && typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      }
       isMounted = false;
     };
   }, [isAuthenticated]);
@@ -163,7 +185,7 @@ function RootLayoutInner() {
             is_new_user: false,
           });
         }
-        console.log('[RootLayoutInner] initializeAuth returned:', user);
+        logger.debug('[RootLayoutInner] initializeAuth returned:', user);
         const lastAuthError = getLastAuthError();
         
         if (user === 'network-error') {
@@ -171,7 +193,7 @@ function RootLayoutInner() {
           setIsAuthenticated(true);
           setIsOffline(true);
           setSessionExpired(false);
-          console.warn('Network error during auth initialization. User kept signed in.');
+          logger.warn('Network error during auth initialization. User kept signed in.');
         } else if (lastAuthError === 'Session expired. Please sign in again.') {
           // Session expired - user needs to sign in again
           setIsAuthenticated(false);
@@ -188,21 +210,21 @@ function RootLayoutInner() {
           setIsOffline(false);
           setSessionExpired(false);
         }
-        console.log('[RootLayoutInner] isAuthenticated set to:', !!user);
+        logger.debug('[RootLayoutInner] isAuthenticated set to:', !!user);
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        logger.error('Auth initialization error:', error);
         // Fallback: check if we have stored user data
         try {
           const token = await AsyncStorage.getItem('authToken');
           const userData = await AsyncStorage.getItem('userData');
-          console.log('[RootLayoutInner] Fallback - token:', !!token, 'userData:', !!userData);
+          logger.debug('[RootLayoutInner] Fallback', { hasToken: !!token, hasUserData: !!userData });
           
           if (token && userData) {
             // We have both token and user data - keep signed in
             setIsAuthenticated(true);
             setIsOffline(true);
             setSessionExpired(false);
-            console.log('[RootLayoutInner] Fallback: Keeping user signed in with stored data');
+            logger.debug('[RootLayoutInner] Fallback: Keeping user signed in with stored data');
           } else {
             // No stored data - not authenticated
             setIsAuthenticated(false);
@@ -210,7 +232,7 @@ function RootLayoutInner() {
             setSessionExpired(false);
           }
         } catch (fallbackError) {
-          console.error('Fallback auth check error:', fallbackError);
+          logger.error('Fallback auth check error:', fallbackError);
           setIsAuthenticated(false);
           setIsOffline(false);
           setSessionExpired(false);
@@ -228,20 +250,19 @@ function RootLayoutInner() {
         // Check if onboarding is completed
         const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
         if (!onboardingCompleted) {
-          // Redirect to onboarding if not completed
-          console.log('[Navigation] Onboarding not completed, redirecting to onboarding');
+          // Redirect to onboarding if not completed - immediate navigation
+          logger.debug('[Navigation] Onboarding not completed, redirecting to onboarding');
           router.replace('/onboarding/welcome');
           return;
         }
         
         // Only navigate if we're definitely authenticated and onboarding is done
-        console.log('[Navigation] User authenticated, navigating to home');
-        setTimeout(() => {
-          router.replace('/(tabs)/home');
-        }, 100);
+        // Remove setTimeout for immediate navigation
+        logger.debug('[Navigation] User authenticated, navigating to home');
+        router.replace('/(tabs)/home');
       } else if (isAuthenticated === false && !sessionExpired) {
         // Only navigate to auth if we're definitely not authenticated and not due to session expiry
-        console.log('[Navigation] User not authenticated, navigating to auth');
+        logger.debug('[Navigation] User not authenticated, navigating to auth');
         router.replace('/(auth)/signin');
       }
     };
@@ -271,7 +292,7 @@ function RootLayoutInner() {
           if (user && user._id) {
             await updateFCMPushToken(user._id, fcmToken);
             if (process.env.NODE_ENV === 'development') {
-              console.log('FCM token registered:', fcmToken.substring(0, 30) + '...');
+              logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
             }
           }
         }
@@ -279,18 +300,18 @@ function RootLayoutInner() {
         // Set up notification opened handler
         fcmService.setupNotificationOpenedHandler((data) => {
           if (process.env.NODE_ENV === 'development') {
-            console.log('Notification opened with data:', data);
+            logger.debug('Notification opened with data:', data);
           }
           // Handle navigation based on notification data
           // You can use router.push(data.screen) here if needed
         });
       } catch (err: any) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Error initializing FCM:', err);
+          logger.error('Error initializing FCM:', err);
         }
         // FCM might not be available in Expo Go - that's okay
         if (err.message?.includes('Native module') || err.message?.includes('not found')) {
-          console.warn('FCM native module not available. Use a development build for full FCM support.');
+          logger.warn('FCM native module not available. Use a development build for full FCM support.');
         }
       }
     }
@@ -310,23 +331,23 @@ function RootLayoutInner() {
         // App came to foreground, refresh auth state
         try {
           if (process.env.NODE_ENV === 'development') {
-            console.log('[AppState] App became active, refreshing auth state');
+            logger.debug('[AppState] App became active, refreshing auth state');
           }
           const user = await refreshAuthState();
           if (!user) {
             if (process.env.NODE_ENV === 'development') {
-              console.log('[AppState] No valid user found, signing out');
+              logger.debug('[AppState] No valid user found, signing out');
             }
             setIsAuthenticated(false);
             setSessionExpired(true);
           } else {
             if (process.env.NODE_ENV === 'development') {
-              console.log('[AppState] Auth state refreshed successfully');
+              logger.debug('[AppState] Auth state refreshed successfully');
             }
           }
         } catch (error) {
           if (process.env.NODE_ENV === 'development') {
-            console.error('[AppState] Error refreshing auth state:', error);
+            logger.error('[AppState] Error refreshing auth state:', error);
           }
         }
       }
@@ -347,14 +368,14 @@ function RootLayoutInner() {
         
         if (!token || !userData) {
           if (process.env.NODE_ENV === 'development') {
-            console.log('[PeriodicCheck] Auth data missing, signing out');
+            logger.debug('[PeriodicCheck] Auth data missing, signing out');
           }
           setIsAuthenticated(false);
           setSessionExpired(true);
         }
       } catch (error) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('[PeriodicCheck] Error:', error);
+          logger.error('[PeriodicCheck] Error:', error);
         }
       }
     }, 30000); // Check every 30 seconds
@@ -367,7 +388,7 @@ function RootLayoutInner() {
   // Debug: Log authentication state changes (only in development)
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('[AuthState] Authentication state changed:', {
+      logger.debug('[AuthState] Authentication state changed:', {
         isAuthenticated,
         isOffline,
         sessionExpired
@@ -412,9 +433,7 @@ function RootLayoutInner() {
           }}
         >
           {!isAuthenticated ? (
-            <>
-              <Stack.Screen name="(auth)" />
-            </>
+            <Stack.Screen name="(auth)" />
           ) : (
             <>
               <Stack.Screen name="(tabs)" />

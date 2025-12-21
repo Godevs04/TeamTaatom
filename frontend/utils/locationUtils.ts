@@ -19,6 +19,27 @@ const geocodeCache = new Map<string, { result: string | null; timestamp: number 
 const GEOCODE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const GEOCODE_MIN_INTERVAL = 10000; // 10 seconds between requests
 
+// Dynamic location name corrections cache (learns from successful geocoding)
+// PRODUCTION-GRADE: Self-learning cache that improves over time
+const locationCorrectionsCache = new Map<string, { correction: string; timestamp: number }>();
+const CORRECTIONS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+// Cleanup old cache entries periodically
+const cleanupCorrectionsCache = () => {
+  const now = Date.now();
+  for (const [key, value] of locationCorrectionsCache.entries()) {
+    if (now - value.timestamp > CORRECTIONS_CACHE_DURATION) {
+      locationCorrectionsCache.delete(key);
+    }
+  }
+};
+
+// Run cleanup every hour (safe for all platforms)
+if (typeof setInterval !== 'undefined' && Platform.OS !== 'web') {
+  // Only run interval on native platforms (web handles this differently)
+  setInterval(cleanupCorrectionsCache, 60 * 60 * 1000);
+}
+
 let lastGeocodeTime = 0;
 let pendingGeocodeRequest: Promise<string | null> | null = null;
 
@@ -27,11 +48,153 @@ let pendingGeocodeRequest: Promise<string | null> | null = null;
 // ============================================================================
 
 /**
- * Geocode an address to get coordinates using Google Geocoding API
+ * Generate location name variations dynamically (no hardcoding)
+ * PRODUCTION-GRADE: Creates variations based on formatting, not hardcoded corrections
  */
-export const geocodeAddress = async (address: string): Promise<{ latitude: number; longitude: number } | null> => {
+const generateLocationVariations = (locationName: string): string[] => {
+  const normalized = locationName.trim();
+  const variations: Set<string> = new Set([normalized]);
+  
+  // Check cached corrections first (learned from previous successful geocoding)
+  cleanupCorrectionsCache(); // Clean old entries before checking
+  const lowerName = normalized.toLowerCase();
+  const cachedEntry = locationCorrectionsCache.get(lowerName);
+  if (cachedEntry && cachedEntry.correction !== normalized) {
+    variations.add(cachedEntry.correction);
+    logger.debug(`💡 Using cached correction: "${normalized}" -> "${cachedEntry.correction}"`);
+  }
+  
+  // Generate formatting variations dynamically
+  // 1. Title case: "munnar" -> "Munnar"
+  const titleCase = normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+  if (titleCase !== normalized) {
+    variations.add(titleCase);
+  }
+  
+  // 2. All lowercase
+  const allLower = normalized.toLowerCase();
+  if (allLower !== normalized) {
+    variations.add(allLower);
+  }
+  
+  // 3. All uppercase
+  const allUpper = normalized.toUpperCase();
+  if (allUpper !== normalized) {
+    variations.add(allUpper);
+  }
+  
+  // 4. Remove common suffixes/prefixes and try again
+  const withoutCommonSuffixes = normalized.replace(/\s+(city|town|village|place|location)$/i, '').trim();
+  if (withoutCommonSuffixes !== normalized && withoutCommonSuffixes.length > 0) {
+    variations.add(withoutCommonSuffixes);
+    variations.add(withoutCommonSuffixes.charAt(0).toUpperCase() + withoutCommonSuffixes.slice(1).toLowerCase());
+  }
+  
+  return Array.from(variations);
+};
+
+/**
+ * Get location suggestions from Google Places Autocomplete API
+ * PRODUCTION-GRADE: Dynamic suggestions for misspelled locations
+ */
+const getPlaceSuggestions = async (
+  input: string,
+  countryCode?: string
+): Promise<string[]> => {
   try {
-    logger.debug('🌍 Geocoding address via Google API:', address);
+    const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!GOOGLE_MAPS_API_KEY) {
+      return [];
+    }
+    
+    // Build autocomplete query
+    let query = input;
+    const components = countryCode ? `&components=country:${countryCode}` : '';
+    const encodedInput = encodeURIComponent(query);
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodedInput}${components}&key=${GOOGLE_MAPS_API_KEY}&types=(cities)`;
+    
+    logger.debug('🔍 Getting place suggestions for:', input);
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.status === 'OK' && data.predictions && data.predictions.length > 0) {
+      // Extract suggested location names
+      const suggestions = data.predictions
+        .map((pred: any) => {
+          // Extract main location name (usually first part before comma)
+          const mainText = pred.structured_formatting?.main_text || pred.description;
+          return mainText ? mainText.split(',')[0].trim() : null;
+        })
+        .filter((name: string | null): name is string => name !== null && name.length > 0);
+      
+      logger.debug(`✅ Got ${suggestions.length} place suggestions:`, suggestions);
+      return suggestions;
+    }
+    
+    return [];
+  } catch (error) {
+    logger.error('💥 Error getting place suggestions:', error);
+    return [];
+  }
+};
+
+/**
+ * Calculate string similarity using Levenshtein distance (fuzzy matching)
+ * Returns a score between 0 and 1 (1 = identical, 0 = completely different)
+ */
+const calculateSimilarity = (str1: string, str2: string): number => {
+  const s1 = str1.toLowerCase();
+  const s2 = str2.toLowerCase();
+  
+  if (s1 === s2) return 1.0;
+  if (s1.length === 0 || s2.length === 0) return 0.0;
+  
+  // Simple Levenshtein distance calculation
+  const matrix: number[][] = [];
+  for (let i = 0; i <= s2.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= s1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= s2.length; i++) {
+    for (let j = 1; j <= s1.length; j++) {
+      if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  const maxLength = Math.max(s1.length, s2.length);
+  const distance = matrix[s2.length][s1.length];
+  return 1 - (distance / maxLength);
+};
+
+/**
+ * Geocode an address to get coordinates using Google Geocoding API
+ * PRODUCTION-GRADE: Dynamic location name handling with Places Autocomplete and fuzzy matching
+ * No hardcoded corrections - learns and adapts dynamically
+ */
+export const geocodeAddress = async (
+  address: string, 
+  countryCode?: string
+): Promise<{ latitude: number; longitude: number } | null> => {
+  if (!address || address.trim() === '') {
+    logger.warn('⚠️ Empty address provided for geocoding');
+    return null;
+  }
+  
+  try {
+    const countryContext = countryCode ? `(country: ${countryCode})` : '';
+    logger.debug(`🌍 Geocoding address via Google API: ${address} ${countryContext}`);
     
     const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!GOOGLE_MAPS_API_KEY) {
@@ -39,29 +202,155 @@ export const geocodeAddress = async (address: string): Promise<{ latitude: numbe
       return null;
     }
     
-    const encodedAddress = encodeURIComponent(address);
+    // Step 1: Generate dynamic variations (formatting-based, no hardcoding)
+    const variations = generateLocationVariations(address);
+    logger.debug(`📝 Generated ${variations.length} location variations:`, variations);
+    
+    // Step 2: Try each variation with geocoding API
+    for (let i = 0; i < variations.length; i++) {
+      const query = variations[i];
+      
+      // Build query with country context if available
+      let searchQuery = query;
+      if (countryCode) {
+        searchQuery = `${query}, ${countryCode}`;
+      }
+      
+      const encodedAddress = encodeURIComponent(searchQuery);
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
+      
+      logger.debug(`🔗 Geocoding attempt ${i + 1}/${variations.length}:`, searchQuery);
+      
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        logger.debug('📡 API Response Status:', data.status);
+        
+        if (data.status === 'OK' && data.results && data.results.length > 0) {
+          const result = data.results[0];
+          const location = result.geometry.location;
+          const coordinates = {
+            latitude: location.lat,
+            longitude: location.lng
+          };
+          
+          // PRODUCTION-GRADE: Learn from successful geocoding - cache the correction
+          // If we used a variation that's different from original, cache it for future use
+          if (query !== address) {
+            const originalLower = address.toLowerCase();
+            const correctedName = result.formatted_address.split(',')[0].trim();
+            locationCorrectionsCache.set(originalLower, {
+              correction: correctedName,
+              timestamp: Date.now()
+            });
+            logger.debug(`💾 Cached location correction: "${address}" -> "${correctedName}"`);
+          }
+          
+          logger.debug(`✅ Geocoding SUCCESS: ${searchQuery}`, coordinates);
+          return coordinates;
+        } else if (data.status === 'ZERO_RESULTS') {
+          // Try next variation
+          logger.debug(`⚠️ ZERO_RESULTS for "${searchQuery}", trying next variation...`);
+          continue;
+        } else {
+          logger.error('❌ Geocoding FAILED:', data.status, data.error_message);
+          // If it's a permanent error (not ZERO_RESULTS), stop trying
+          if (data.status !== 'ZERO_RESULTS') {
+            break;
+          }
+        }
+      } catch (fetchError) {
+        logger.error('💥 Fetch error for geocoding:', fetchError);
+        continue;
+      }
+    }
+    
+    // Step 3: If all variations failed, use Google Places Autocomplete for dynamic suggestions
+    logger.debug('🔍 All direct geocoding attempts failed, trying Places Autocomplete...');
+    const suggestions = await getPlaceSuggestions(address, countryCode);
+    
+    if (suggestions.length > 0) {
+      // Try geocoding each suggestion, prioritizing by similarity to original
+      const suggestionsWithSimilarity = suggestions.map(suggestion => ({
+        name: suggestion,
+        similarity: calculateSimilarity(address, suggestion)
+      })).sort((a, b) => b.similarity - a.similarity); // Sort by similarity (highest first)
+      
+      logger.debug(`🎯 Trying ${suggestionsWithSimilarity.length} autocomplete suggestions (sorted by similarity)`);
+      
+      for (const { name: suggestion } of suggestionsWithSimilarity) {
+        let searchQuery = suggestion;
+        if (countryCode) {
+          searchQuery = `${suggestion}, ${countryCode}`;
+        }
+        
+        const encodedAddress = encodeURIComponent(searchQuery);
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
+        
+        try {
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          if (data.status === 'OK' && data.results && data.results.length > 0) {
+            const result = data.results[0];
+            const location = result.geometry.location;
+            const coordinates = {
+              latitude: location.lat,
+              longitude: location.lng
+            };
+            
+            // Cache the successful correction
+            const originalLower = address.toLowerCase();
+            const correctedName = result.formatted_address.split(',')[0].trim();
+            locationCorrectionsCache.set(originalLower, {
+              correction: correctedName,
+              timestamp: Date.now()
+            });
+            logger.debug(`💾 Cached autocomplete correction: "${address}" -> "${correctedName}"`);
+            
+            logger.debug(`✅ Geocoding SUCCESS via autocomplete: ${suggestion}`, coordinates);
+            return coordinates;
+          }
+        } catch (suggestionError) {
+          logger.debug(`⚠️ Suggestion "${suggestion}" failed, trying next...`);
+          continue;
+        }
+      }
+    }
+    
+    // Step 4: Final fallback - try with country name context
+    const countryName = countryCode === 'IN' ? 'India' : 
+                       countryCode === 'US' ? 'United States' :
+                       countryCode === 'GB' ? 'United Kingdom' :
+                       countryCode ? countryCode : 'India';
+    
+    const fallbackQuery = `${variations[0]}, ${countryName}`;
+    const encodedAddress = encodeURIComponent(fallbackQuery);
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_MAPS_API_KEY}`;
     
-    logger.debug('🔗 API URL:', url);
+    logger.debug(`🔗 Final fallback attempt with country context:`, fallbackQuery);
     
-    const response = await fetch(url);
-    const data = await response.json();
-    
-    logger.debug('📡 API Response Status:', data.status);
-    
-    if (data.status === 'OK' && data.results && data.results.length > 0) {
-      const location = data.results[0].geometry.location;
-      const coordinates = {
-        latitude: location.lat,
-        longitude: location.lng
-      };
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
       
-      logger.debug('✅ Geocoding SUCCESS:', address, coordinates);
-      return coordinates;
-    } else {
-      logger.error('❌ Geocoding FAILED:', data.status, data.error_message);
-      return null;
+      if (data.status === 'OK' && data.results && data.results.length > 0) {
+        const location = data.results[0].geometry.location;
+        const coordinates = {
+          latitude: location.lat,
+          longitude: location.lng
+        };
+        
+        logger.debug(`✅ Geocoding SUCCESS with country context: ${fallbackQuery}`, coordinates);
+        return coordinates;
+      }
+    } catch (finalError) {
+      logger.error('💥 Final geocoding attempt failed:', finalError);
     }
+    
+    logger.error('❌ All geocoding attempts failed for:', address);
+    return null;
   } catch (error) {
     logger.error('💥 Geocoding ERROR:', error);
     return null;

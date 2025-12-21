@@ -23,6 +23,7 @@ import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -62,7 +63,7 @@ export default function CollectionDetailScreen() {
       setCollection(response.collection);
     } catch (error: any) {
       showError('Failed to load collection');
-      console.error('Error loading collection:', error);
+      logger.error('Error loading collection:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -164,7 +165,7 @@ export default function CollectionDetailScreen() {
               onPress={() => router.push(`/collections/create?id=${id}`)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.7}
-              style={styles.headerActionButton}
+              style={styles.headerActions}
             >
               <Ionicons name="create-outline" size={isTablet ? 28 : 24} color={theme.colors.primary} />
             </TouchableOpacity>
@@ -172,7 +173,7 @@ export default function CollectionDetailScreen() {
               onPress={handleDelete}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.7}
-              style={styles.headerActionButton}
+              style={styles.headerActions}
             >
               <Ionicons name="trash-outline" size={isTablet ? 28 : 24} color={theme.colors.error} />
             </TouchableOpacity>

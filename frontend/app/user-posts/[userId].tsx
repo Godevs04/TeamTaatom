@@ -5,15 +5,25 @@ import {
   StyleSheet,
   ActivityIndicator,
   FlatList,
-  SafeAreaView,
   TouchableOpacity,
   RefreshControl,
+  Platform,
+  Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
+import logger from '../../utils/logger';
+
+// Platform-specific constants
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 
 export default function UserPostsScreen() {
   const { userId, postId } = useLocalSearchParams();
@@ -38,7 +48,7 @@ export default function UserPostsScreen() {
       setPosts(postsResponse.data.posts || []);
       
     } catch (error) {
-      console.error('Error fetching user posts:', error);
+      logger.error('Error fetching user posts:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -191,7 +201,7 @@ export default function UserPostsScreen() {
           contentContainerStyle={{ paddingBottom: 20 }}
           onScrollToIndexFailed={(info) => {
             // Fallback if scrollToIndex fails
-            console.log('Scroll to index failed:', info);
+            logger.debug('Scroll to index failed:', info);
           }}
         />
       ) : (

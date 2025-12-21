@@ -14,6 +14,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import { getCollections, addPostToCollection } from '../services/collections';
 import type { Collection } from '../services/collections';
+import logger from '../utils/logger';
 
 interface AddToCollectionModalProps {
   visible: boolean;
@@ -47,7 +48,7 @@ export default function AddToCollectionModal({
       setCollections(response.collections || []);
     } catch (error: any) {
       showError('Failed to load collections');
-      console.error('Error loading collections:', error);
+      logger.error('Error loading collections:', error);
     } finally {
       setLoading(false);
     }

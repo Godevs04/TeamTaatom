@@ -219,7 +219,12 @@ const getPosts = async (req, res) => {
         } else {
           // Legacy: try to use existing imageUrl if no storage key
           // This is for backward compatibility with old posts
-          if (!post.imageUrl) {
+          // Keep existing imageUrl from database if present
+          if (post.imageUrl && post.imageUrl.trim() !== '') {
+            // Use existing imageUrl (from Cloudinary or legacy storage)
+            post.images = [post.imageUrl];
+            // Keep imageUrl as is
+          } else {
             post.imageUrl = null;
             post.images = [];
           }
@@ -294,12 +299,15 @@ const getPosts = async (req, res) => {
 
     const { posts, totalPosts } = result;
 
-    // Defensive guards: filter out posts with missing storage keys or author data
-    // Note: imageUrl is now generated dynamically, so we check for storageKey instead
+    // Defensive guards: filter out posts with missing media or author data
+    // Support both new storageKey-based posts and legacy imageUrl posts (backward compatibility)
     const validPosts = posts.filter(post => {
-      // Must have storage key (required for generating image URL)
-      if (!post.storageKey && (!post.storageKeys || post.storageKeys.length === 0)) {
-        logger.warn(`Post ${post._id} missing storageKey, filtering out`);
+      // Must have either storage key(s) OR imageUrl (for backward compatibility with old posts)
+      const hasStorageKey = post.storageKey || (post.storageKeys && post.storageKeys.length > 0);
+      const hasImageUrl = post.imageUrl && post.imageUrl.trim() !== '';
+      
+      if (!hasStorageKey && !hasImageUrl) {
+        logger.warn(`Post ${post._id} missing both storageKey and imageUrl, filtering out`);
         return false;
       }
       

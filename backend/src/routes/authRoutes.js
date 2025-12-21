@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, param, query } = require('express-validator');
+const { body, param, query, validationResult } = require('express-validator');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { passwordStrengthValidator } = require('../utils/passwordValidator');
 const { authValidations } = require('../middleware/validation');
@@ -180,7 +180,9 @@ router.post('/verify-otp', authValidations.verifyOtp, endpointLimiters.otp, veri
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-router.get('/check-username', [query('username').trim().toLowerCase().notEmpty()], checkUsernameAvailability);
+// Check username availability - no validation middleware to avoid blocking requests
+// Validation is handled in the controller
+router.get('/check-username', checkUsernameAvailability);
 /**
  * @swagger
  * /api/v1/auth/resend-otp:

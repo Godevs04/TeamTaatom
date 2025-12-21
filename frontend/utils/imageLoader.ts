@@ -1,4 +1,5 @@
 import { Image } from 'react-native';
+import logger from './logger';
 
 interface ImageLoadOptions {
   timeout?: number;
@@ -35,7 +36,7 @@ export const loadImageWithFallback = async (
     return imageUrl;
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('Original image prefetch failed, trying optimized version');
+      logger.warn('Original image prefetch failed, trying optimized version');
     }
   }
 
@@ -53,7 +54,7 @@ export const loadImageWithFallback = async (
       return optimizedUrl;
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Optimized image prefetch failed, trying smaller version');
+        logger.warn('Optimized image prefetch failed, trying smaller version');
       }
     }
 
@@ -69,7 +70,7 @@ export const loadImageWithFallback = async (
       return smallUrl;
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('Small image prefetch failed, using original as fallback');
+        logger.warn('Small image prefetch failed, using original as fallback');
       }
     }
   }

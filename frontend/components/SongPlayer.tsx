@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
+import logger from '../utils/logger';
 
 interface SongPlayerProps {
   post: PostType;
@@ -31,7 +32,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // Debug: Log song data
   useEffect(() => {
     if (post.song) {
-      console.log('SongPlayer - Post song data:', {
+      logger.debug('SongPlayer - Post song data:', {
         hasSong: !!post.song,
         hasSongId: !!post.song.songId,
         songId: post.song.songId,
@@ -67,7 +68,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       const freshSong = await getSongById(song._id);
       return freshSong.s3Url || (freshSong as any).cloudinaryUrl || null;
     } catch (error) {
-      console.error('Failed to fetch fresh signed URL:', error);
+      logger.error('Failed to fetch fresh signed URL:', error);
       return null;
     }
   }, [song?._id]);
@@ -77,7 +78,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl;
     
     if (!audioUrlRaw) {
-      console.log('No song URL available', { song });
+      logger.debug('No song URL available', { song });
       return;
     }
 
@@ -97,13 +98,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       // Clean and validate URL
       let audioUrl = audioUrlRaw.trim();
       if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
-        console.error('Invalid audio URL:', audioUrl);
+        logger.error('Invalid audio URL:', audioUrl);
         throw new Error('Invalid audio URL format');
       }
 
-      console.log('🎵 Playing audio URL:', audioUrl);
-      console.log('   URL starts with https:', audioUrl.startsWith('https://'));
-      console.log('   URL length:', audioUrl.length);
+      logger.debug('🎵 Playing audio URL:', audioUrl);
+      logger.debug('   URL starts with https:', audioUrl.startsWith('https://'));
+      logger.debug('   URL length:', audioUrl.length);
 
       // Determine if we should play immediately
       const shouldPlayNow = forcePlay || autoPlay;
@@ -145,7 +146,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
             }
           }
         } else if (status.error) {
-          console.error('Playback error:', status.error);
+          logger.error('Playback error:', status.error);
           setIsLoading(false);
         }
       });
@@ -155,9 +156,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setIsPlaying(true);
       }
       
-      console.log('✅ Audio streaming started successfully');
+      logger.debug('✅ Audio streaming started successfully');
     } catch (error: any) {
-      console.error('❌ Error loading song:', error);
+      logger.error('❌ Error loading song:', error);
       setIsLoading(false);
       setIsPlaying(false);
       
@@ -168,7 +169,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       const isExpired = errorMessage.includes('expired') || errorMessage.includes('ExpiredRequest');
       
       if ((isTimeout || is403 || isExpired) && retryCount === 0) {
-        console.log('🔄 URL may be expired, fetching fresh URL and retrying...');
+        logger.debug('🔄 URL may be expired, fetching fresh URL and retrying...');
         const freshUrl = await fetchFreshSignedUrl();
         if (freshUrl) {
           // Update song object with fresh URL
@@ -182,7 +183,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       }
       
       // Log error details for debugging
-      console.error('🔍 Error Details:', {
+      logger.error('🔍 Error Details:', {
         message: errorMessage,
         code: (error as any)?.code,
         url: audioUrlRaw
@@ -205,14 +206,14 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           loadAndPlaySong();
         } else {
           // If already loaded, play it immediately
-          soundRef.current.playAsync().catch(err => console.error('Error playing:', err));
+          soundRef.current.playAsync().catch(err => logger.error('Error playing:', err));
           setIsPlaying(true);
         }
       } else {
         // Video is paused - pause song immediately
         if (soundRef.current) {
           soundRef.current.pauseAsync().catch(err => {
-            console.error('Error pausing:', err);
+            logger.error('Error pausing:', err);
           });
           setIsPlaying(false);
         }
@@ -221,50 +222,50 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
     // Pause when component becomes invisible (only for auto-play mode)
     if (!isVisible && !showPlayPause && soundRef.current) {
-      soundRef.current.pauseAsync().catch(err => console.error('Error pausing:', err));
+      soundRef.current.pauseAsync().catch(err => logger.error('Error pausing:', err));
       setIsPlaying(false);
     }
   }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong]);
 
   const togglePlayPause = useCallback(async () => {
-    console.log('Toggle play/pause - soundRef exists:', !!soundRef.current);
+    logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
     
     if (!soundRef.current) {
-      console.log('No sound loaded, loading and playing...');
+      logger.debug('No sound loaded, loading and playing...');
       await loadAndPlaySong(true); // Force play when user clicks play button
       return;
     }
 
     try {
       const status = await soundRef.current.getStatusAsync();
-      console.log('Current playback status:', status);
+      logger.debug('Current playback status:', status);
       
       if (status.isLoaded) {
         const isCurrentlyPlaying = 'isPlaying' in status && status.isPlaying;
         if (isCurrentlyPlaying) {
-          console.log('Pausing playback...');
+          logger.debug('Pausing playback...');
           await soundRef.current.pauseAsync();
           setIsPlaying(false);
         } else {
-          console.log('Starting playback...');
+          logger.debug('Starting playback...');
           // Ensure volume is set correctly before playing
           await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
           await soundRef.current.playAsync();
           setIsPlaying(true);
-          console.log('Playback started');
+          logger.debug('Playback started');
         }
       } else {
-        console.error('Sound status error, reloading:', status);
+        logger.error('Sound status error, reloading:', status);
         // If there's an error, reload the sound
         await loadAndPlaySong(true);
       }
     } catch (error) {
-      console.error('Error toggling playback:', error);
+      logger.error('Error toggling playback:', error);
       // On error, try to reload and play
       try {
         await loadAndPlaySong(true);
       } catch (reloadError) {
-        console.error('Error reloading song:', reloadError);
+        logger.error('Error reloading song:', reloadError);
       }
     }
   }, [loadAndPlaySong, isMuted, volume]);
@@ -291,7 +292,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         }),
       ]).start();
     } catch (error) {
-      console.error('Error toggling mute:', error);
+      logger.error('Error toggling mute:', error);
     }
   }, [isMuted, volume, fadeAnim]);
 
@@ -304,7 +305,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setSound(null);
         setIsPlaying(false);
       } catch (error) {
-        console.error('Error stopping song:', error);
+        logger.error('Error stopping song:', error);
       }
     }
   }, []);
@@ -317,7 +318,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // Check if song has required data - try s3Url first, then cloudinaryUrl as fallback
   const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
   if (!audioUrl) {
-    console.warn('SongPlayer: Song missing audio URL', song);
+    logger.warn('SongPlayer: Song missing audio URL', song);
     return null;
   }
 
@@ -394,7 +395,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         <TouchableOpacity
           style={styles.controlButton}
           onPress={() => {
-            console.log('Play/Pause button pressed');
+            logger.debug('Play/Pause button pressed');
             togglePlayPause();
           }}
           disabled={isLoading}
@@ -458,7 +459,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       <TouchableOpacity
         style={styles.controlButton}
         onPress={() => {
-          console.log('Mute button pressed');
+          logger.debug('Mute button pressed');
           toggleMute();
         }}
         disabled={!soundRef.current && !isLoading}
