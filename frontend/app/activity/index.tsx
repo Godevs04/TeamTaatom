@@ -23,6 +23,7 @@ import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -75,7 +76,7 @@ export default function ActivityFeedScreen() {
       setPage(pageNum);
     } catch (error: any) {
       showError('Failed to load activity feed');
-      console.error('Error loading activities:', error);
+      logger.error('Error loading activities:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);

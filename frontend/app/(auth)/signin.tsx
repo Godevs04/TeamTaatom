@@ -23,6 +23,8 @@ import { signInWithGoogle } from '../../services/googleAuth';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -61,7 +63,7 @@ export default function SignInScreen() {
         password: values.password,
       });
       
-      console.log('Sign-in successful:', response.user);
+      logger.debug('Sign-in successful:', response.user);
       
       // Track login
       track('user_login', {
@@ -69,10 +71,18 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      // Navigate to tabs without alert for better UX
-      router.replace('/(tabs)/home');
+      // Check onboarding status immediately after signin
+      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+      if (!onboardingCompleted) {
+        // New user - navigate to onboarding immediately
+        logger.debug('[SignIn] New user detected, navigating to onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        // Existing user - navigate to home
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
-      console.log('Sign-in error:', error);
+      logger.error('Sign-in error:', error);
       
       // Check if account is not verified
       if (error.message.includes('verify')) {
@@ -98,7 +108,7 @@ export default function SignInScreen() {
     setIsGoogleLoading(true);
     try {
       const response = await signInWithGoogle();
-      console.log('Google sign-in successful:', response.user);
+      logger.debug('Google sign-in successful:', response.user);
       
       // Track login
       track('user_login', {
@@ -106,9 +116,18 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      router.replace('/(tabs)');
+      // Check onboarding status immediately after signin
+      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+      if (!onboardingCompleted) {
+        // New user - navigate to onboarding immediately
+        logger.debug('[SignIn] New user detected (Google), navigating to onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        // Existing user - navigate to tabs
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
-      console.log('Google sign-in error:', error);
+      logger.error('Google sign-in error:', error);
       showError(error.message);
     } finally {
       setIsGoogleLoading(false);

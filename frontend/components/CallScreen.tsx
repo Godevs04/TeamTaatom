@@ -14,6 +14,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { callService, CallState } from '../services/callService';
+import logger from '../utils/logger';
 
 const { width, height } = Dimensions.get('window');
 
@@ -47,7 +48,7 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
     return serviceState;
   });
   
-  console.log('📞 CallScreen render - visible:', visible, 'callState:', callState, 'otherUser:', otherUser);
+  logger.debug('📞 CallScreen render', { visible, callState, otherUser });
   const [pulseAnim] = useState(new Animated.Value(1));
 
   // Dynamically load WebRTC (if available) and capture streams from callService
@@ -56,6 +57,7 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
 
     const loadWebRTC = async () => {
       try {
+        // @ts-expect-error - react-native-webrtc is optional and may not be installed
         const rnWebRTC: any = await import('react-native-webrtc');
         if (!cancelled) {
           const ViewImpl = rnWebRTC.RTCView || rnWebRTC.default?.RTCView || null;
@@ -142,7 +144,7 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
     try {
       await callService.acceptCall();
     } catch (error) {
-      console.error('Error accepting call:', error);
+      logger.error('Error accepting call:', error);
       Alert.alert('Error', 'Failed to accept call');
     }
   };
@@ -152,7 +154,7 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
       await callService.rejectCall();
       onClose();
     } catch (error) {
-      console.error('Error rejecting call:', error);
+      logger.error('Error rejecting call:', error);
     }
   };
 
@@ -161,7 +163,7 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
       await callService.endCall();
       onClose();
     } catch (error) {
-      console.error('Error ending call:', error);
+      logger.error('Error ending call:', error);
     }
   };
 
@@ -403,13 +405,13 @@ export default function CallScreen({ visible, onClose, otherUser }: CallScreenPr
   });
 
   if (!visible) {
-    console.log('📞 CallScreen not visible, returning null');
+    logger.debug('📞 CallScreen not visible, returning null');
     return null;
   }
 
   // Incoming call screen
   if (callState.isIncomingCall) {
-    console.log('📞 Rendering incoming call screen');
+    logger.debug('📞 Rendering incoming call screen');
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.incomingCallContainer}>

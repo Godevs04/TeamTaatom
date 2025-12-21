@@ -6,6 +6,7 @@ import {
   ScrollView, 
   TouchableOpacity, 
   ActivityIndicator,
+  Switch,
   Platform,
   Dimensions
 } from 'react-native';
@@ -17,8 +18,10 @@ import { getSettings, updateSettingCategory, UserSettings } from '../../services
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
 import { createLogger } from '../../utils/logger';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { theme } from '../../constants/theme';
+import { useSettings } from '../../context/SettingsContext';
+import { syncUserData } from '../../services/userManagement';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -39,6 +42,8 @@ const logger = createLogger('DataSettings');
 export default function DataStorageSettingsScreen() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [networkType, setNetworkType] = useState<string>('unknown');
   const [storageData, setStorageData] = useState({
     images: '0 MB',
     downloads: '0 MB',
@@ -49,10 +54,33 @@ export default function DataStorageSettingsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { showError, showSuccess, showConfirm, showOptions } = useAlert();
+  const { settings: contextSettings, updateSetting: updateContextSetting } = useSettings();
 
   useEffect(() => {
     loadSettings();
+    checkNetworkType();
+    // Check network type periodically
+    const interval = setInterval(checkNetworkType, 5000);
+    return () => clearInterval(interval);
   }, []);
+
+  const checkNetworkType = async () => {
+    try {
+      // Simple network detection - in production, use @react-native-community/netinfo
+      // For now, we'll show a generic message
+      if (Platform.OS === 'web') {
+        // Web doesn't have reliable network type detection
+        setNetworkType('unknown');
+      } else {
+        // On mobile, we'll assume unknown and let the user enable the setting
+        // The actual blocking will happen in download services
+        setNetworkType('unknown');
+      }
+    } catch (error) {
+      logger.debug('Error checking network type', error);
+      setNetworkType('unknown');
+    }
+  };
 
   const calculateStorageUsage = async () => {
     try {
@@ -163,15 +191,33 @@ export default function DataStorageSettingsScreen() {
     if (!settings) return;
     
     try {
-      const updatedSettings = {
-        ...settings.account,
-        [key]: value
-      };
-      
-      const response = await updateSettingCategory('account', updatedSettings);
-      setSettings(response.settings);
+      // Use context updateSetting which handles optimistic updates
+      if (updateContextSetting) {
+        await updateContextSetting('account', key, value);
+      } else {
+        // Fallback to direct API call
+        const updatedSettings = {
+          ...settings.account,
+          [key]: value
+        };
+        const response = await updateSettingCategory('account', updatedSettings);
+        setSettings(response.settings);
+      }
     } catch (error) {
       showError('Failed to update setting');
+    }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      await syncUserData();
+      showSuccess('Data synced successfully');
+      await loadSettings(); // Refresh settings after sync
+    } catch (error: any) {
+      showError(error.message || 'Failed to sync data');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -310,14 +356,17 @@ export default function DataStorageSettingsScreen() {
                 </Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={[styles.toggleButton, { backgroundColor: theme.colors.primary }]}
-              onPress={() => {
-                showSuccess('Wi-Fi only downloads will be available soon');
+            <Switch
+              value={settings?.account?.wifiOnlyDownloads || false}
+              onValueChange={(value) => {
+                updateSetting('wifiOnlyDownloads', value);
+                if (value) {
+                  showSuccess('Wi-Fi only downloads enabled. Downloads will be blocked on cellular networks.');
+                }
               }}
-            >
-              <Ionicons name="checkmark" size={16} color="white" />
-            </TouchableOpacity>
+              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
+              thumbColor={(settings?.account?.wifiOnlyDownloads || false) ? theme.colors.primary : theme.colors.textSecondary}
+            />
           </View>
         </View>
 
@@ -425,39 +474,30 @@ export default function DataStorageSettingsScreen() {
             Sync Settings
           </Text>
 
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => {
-              showSuccess('Auto-sync settings will be available soon');
-            }}
-          >
+          <View style={styles.settingItem}>
             <View style={styles.settingContent}>
-              <Ionicons name="sync-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="sync-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Auto-Sync
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
-                  Automatically sync your data
+                  Automatically sync your data when app opens
                 </Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
+            <Switch
+              value={settings?.account?.autoSync !== false}
+              onValueChange={(value) => updateSetting('autoSync', value)}
+              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
+              thumbColor={(settings?.account?.autoSync !== false) ? theme.colors.primary : theme.colors.textSecondary}
+            />
+          </View>
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => {
-              showConfirm(
-                'Syncing your data...',
-                () => {
-                  showSuccess('Data synced successfully');
-                },
-                'Sync Now',
-                'Sync',
-                'Cancel'
-              );
-            }}
+            onPress={handleSyncNow}
+            disabled={syncing}
           >
             <View style={styles.settingContent}>
               <Ionicons name="cloud-upload-outline" size={20} color={theme.colors.primary} />
@@ -466,11 +506,15 @@ export default function DataStorageSettingsScreen() {
                   Sync Now
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
-                  Manually sync your data
+                  {syncing ? 'Syncing your data...' : 'Manually sync your data'}
                 </Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            {syncing ? (
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            )}
           </TouchableOpacity>
         </View>
 

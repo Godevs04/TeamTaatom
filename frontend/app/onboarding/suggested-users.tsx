@@ -6,10 +6,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../../services/api';
+import { getSuggestedUsers, toggleFollow as toggleFollowService } from '../../services/profile';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -27,11 +28,13 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 interface SuggestedUser {
   _id: string;
-  username: string;
-  fullName: string;
+  username?: string;
+  fullName?: string;
+  profilePic?: string;
   profilePicture?: string;
   bio?: string;
   followersCount?: number;
+  postsCount?: number;
 }
 
 export default function SuggestedUsersOnboarding() {
@@ -49,11 +52,23 @@ export default function SuggestedUsersOnboarding() {
   const fetchSuggestedUsers = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get('/api/v1/profile/suggested-users?limit=6');
-      setSuggestedUsers(response.data.users || []);
-    } catch (error) {
-      console.error('Error fetching suggested users:', error);
-      // Continue with empty list
+      const response = await getSuggestedUsers(6);
+      // Response structure: { users: [...], pagination: {...} }
+      const users = (response.users || []).map((user: any) => ({
+        _id: user._id,
+        username: user.username || '',
+        fullName: user.fullName || '',
+        profilePic: user.profilePic,
+        profilePicture: user.profilePic || user.profilePicture,
+        bio: user.bio,
+        followersCount: user.followersCount || 0,
+        postsCount: user.postsCount || 0,
+      }));
+      setSuggestedUsers(users);
+    } catch (error: any) {
+      logger.error('Error fetching suggested users:', error);
+      // Continue with empty list - user can still complete onboarding
+      setSuggestedUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +87,7 @@ export default function SuggestedUsersOnboarding() {
     setFollowing(newFollowing);
 
     try {
-      await api.post(`/api/v1/profile/${userId}/follow`);
+      await toggleFollowService(userId);
       
       // Track engagement
       trackEngagement(isFollowing ? 'unfollow' : 'follow', 'user', userId, {
@@ -81,7 +96,7 @@ export default function SuggestedUsersOnboarding() {
     } catch (error) {
       // Revert on error
       setFollowing(following);
-      console.error('Error toggling follow:', error);
+      logger.error('Error toggling follow:', error);
     }
   };
 
@@ -149,14 +164,16 @@ export default function SuggestedUsersOnboarding() {
                   />
                   <View style={styles.userInfo}>
                     <Text style={[styles.username, { color: theme.colors.text }]}>
-                      {user.username}
+                      {user.username || 'User'}
                     </Text>
-                    <Text style={[styles.fullName, { color: theme.colors.textSecondary }]}>
-                      {user.fullName}
-                    </Text>
-                    {user.followersCount !== undefined && (
+                    {user.fullName && (
+                      <Text style={[styles.fullName, { color: theme.colors.textSecondary }]}>
+                        {user.fullName}
+                      </Text>
+                    )}
+                    {user.followersCount !== undefined && user.followersCount > 0 && (
                       <Text style={[styles.followers, { color: theme.colors.textSecondary }]}>
-                        {user.followersCount} followers
+                        {user.followersCount} {user.followersCount === 1 ? 'follower' : 'followers'}
                       </Text>
                     )}
                   </View>
@@ -169,8 +186,13 @@ export default function SuggestedUsersOnboarding() {
                           ? theme.colors.border
                           : theme.colors.primary,
                       },
+                      isAndroid && styles.followButtonAndroid,
                     ]}
                     activeOpacity={0.8}
+                    {...(isAndroid && {
+                      // @ts-ignore - android_ripple is valid but not in types
+                      android_ripple: { color: isFollowingUser ? theme.colors.textSecondary : '#FFFFFF', borderless: false }
+                    })}
                   >
                     <Text
                       style={[
@@ -281,6 +303,15 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
     marginBottom: isTablet ? theme.spacing.sm : 8,
+    ...(isAndroid && {
+      elevation: 2,
+    }),
+    ...(isIOS && {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+    }),
   },
   avatar: {
     width: isTablet ? 80 : 60,
@@ -323,6 +354,10 @@ const styles = StyleSheet.create({
       cursor: 'pointer',
       transition: 'all 0.2s ease',
     } as any),
+  },
+  followButtonAndroid: {
+    elevation: 2,
+    overflow: 'hidden',
   },
   followButtonText: {
     fontSize: isTablet ? theme.typography.body.fontSize : 14,

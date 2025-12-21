@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Image } from 'react-native';
 import { imageCacheManager } from '../utils/imageCacheManager';
+import logger from '../utils/logger';
 
 interface UseImageCacheResult {
   imageUri: string | null;
@@ -17,13 +18,13 @@ export const useImageCache = (imageUrl: string | null): UseImageCacheResult => {
 
   const loadImage = async () => {
     if (!imageUrl) {
-      console.log('No image URL provided');
+      logger.debug('No image URL provided');
       setLoading(false);
       setError(true);
       return;
     }
 
-    console.log('Loading image:', imageUrl);
+    logger.debug('Loading image:', imageUrl);
     setLoading(true);
     setError(false);
 
@@ -35,7 +36,7 @@ export const useImageCache = (imageUrl: string | null): UseImageCacheResult => {
     // Set timeout to prevent infinite loading
     timeoutRef.current = setTimeout(() => {
       if (loading) {
-        console.warn('Image loading timeout for:', imageUrl);
+        logger.warn('Image loading timeout for:', imageUrl);
         setImageUri(imageUrl);
         setLoading(false);
       }
@@ -47,11 +48,11 @@ export const useImageCache = (imageUrl: string | null): UseImageCacheResult => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      console.log('Image loaded successfully:', imageUrl);
+      logger.debug('Image loaded successfully:', imageUrl);
       setImageUri(imageUrl);
       setLoading(false);
     } catch (err) {
-      console.error('Image prefetch failed for:', imageUrl, err);
+      logger.error('Image prefetch failed for:', imageUrl, err);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }

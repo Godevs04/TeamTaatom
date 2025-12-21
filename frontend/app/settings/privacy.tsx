@@ -410,27 +410,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={() => {
-              showAlert('Data download feature will be available soon', 'Coming Soon', 'info');
-            }}
-          >
-            <View style={styles.settingContent}>
-              <Ionicons name="download-outline" size={20} color={theme.colors.primary} />
-              <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
-                  Download Your Data
-                </Text>
-                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
-                  Get a copy of your data
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => {
-              showAlert('Account activity feature will be available soon', 'Coming Soon', 'info');
+              router.push('/settings/account-activity');
             }}
           >
             <View style={styles.settingContent}>
@@ -484,7 +464,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={() => {
-              showAlert('Blocked users management will be available soon', 'Coming Soon', 'info');
+              router.push('/settings/blocked-users');
             }}
           >
             <View style={styles.settingContent}>

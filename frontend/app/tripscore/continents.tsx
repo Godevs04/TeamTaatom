@@ -6,15 +6,16 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
   Platform,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -59,7 +60,7 @@ export default function TripScoreContinentsScreen() {
       const response = await api.get(`/profile/${userId}/tripscore/continents`);
       setData(response.data);
     } catch (error) {
-      console.error('Error loading continents:', error);
+      logger.error('Error loading continents:', error);
     } finally {
       setLoading(false);
     }
