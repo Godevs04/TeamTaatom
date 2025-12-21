@@ -1120,7 +1120,7 @@ export default function LocaleScreen() {
     
     // Debug: Log distance calculation
     if (__DEV__) {
-      console.log(`Locale ${locale.name}: distance=${distance}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
+      logger.debug(`Locale ${locale.name}: distance=${distance}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
     }
     
     return (

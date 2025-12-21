@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { searchUsersForMention, MentionUser } from '../services/mentions';
+import logger from '../utils/logger';
 
 interface MentionSuggestProps {
   text: string;
@@ -114,7 +115,7 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
           const results = await searchUsersForMention(mentionQuery, 10);
           setSuggestions(results);
         } catch (error) {
-          console.error('Error searching users for mention:', error);
+          logger.error('Error searching users for mention:', error);
           setSuggestions([]);
         } finally {
           setLoading(false);

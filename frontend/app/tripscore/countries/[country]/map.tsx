@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
   Dimensions,
   Animated,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
@@ -17,8 +17,13 @@ import Constants from 'expo-constants';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
 import { MapView, Marker, PROVIDER_GOOGLE } from '../../../../utils/mapsWrapper';
+import logger from '../../../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+
+// Responsive dimensions
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
 
 interface Location {
   name: string;
@@ -81,7 +86,7 @@ export default function CountryMapScreen() {
       const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
       setData(response.data);
     } catch (error) {
-      console.error('Error loading country data:', error);
+      logger.error('Error loading country data:', error);
     } finally {
       setLoading(false);
     }
@@ -301,7 +306,7 @@ export default function CountryMapScreen() {
         }
       }
     } catch (error) {
-      console.error('Error handling WebView message:', error);
+      logger.error('Error handling WebView message:', error);
     }
   };
 
@@ -356,7 +361,7 @@ export default function CountryMapScreen() {
             onMessage={(event) => handleWebViewMessage(event, displayCountryName || '')}
             onError={(syntheticEvent) => {
               const { nativeEvent } = syntheticEvent;
-              console.error('WebView error: ', nativeEvent);
+              logger.error('WebView error: ', nativeEvent);
             }}
           />
         ) : MapView ? (

@@ -1,5 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
+import logger from './logger';
 
 export interface ImageOptimizationOptions {
   maxWidth?: number;
@@ -106,7 +107,7 @@ export const optimizeImageForUpload = async (
       format: format,
     };
   } catch (error) {
-    console.error('Image optimization error:', error);
+    logger.error('Image optimization error:', error);
     throw new Error('Failed to optimize image');
   }
 };
@@ -164,7 +165,7 @@ export const shouldOptimizeImage = async (imageUri: string): Promise<boolean> =>
     
     return fileSizeTooLarge || dimensionsTooLarge;
   } catch (error) {
-    console.error('Error checking image size:', error);
+    logger.error('Error checking image size:', error);
     return true; // Optimize by default if we can't check
   }
 };

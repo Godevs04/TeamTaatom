@@ -117,7 +117,7 @@ const connectSocket = async () => {
     } else {
       // URL changed! Must disconnect and reconnect
       if (Platform.OS === 'web') {
-        console.log(`[Socket] 🔄 [WEB] URL changed! Disconnecting old socket (${lastConnectedUrl}) and reconnecting to: ${fullUrl}`);
+        logger.debug(`[Socket] 🔄 [WEB] URL changed! Disconnecting old socket (${lastConnectedUrl}) and reconnecting to: ${fullUrl}`);
       }
       socket.disconnect();
       socket = null;
@@ -141,7 +141,7 @@ const connectSocket = async () => {
   // Clean up existing socket if any (if not already cleaned above)
   if (socket) {
     if (Platform.OS === 'web') {
-      console.log(`[Socket] 🧹 [WEB] Disconnecting existing socket before reconnecting`);
+      logger.debug(`[Socket] 🧹 [WEB] Disconnecting existing socket before reconnecting`);
     }
     socket.disconnect();
     socket = null;
@@ -150,8 +150,8 @@ const connectSocket = async () => {
   
   // Always log for web to help debug connection issues
   if (Platform.OS === 'web') {
-    console.log(`[Socket] 🔌 [WEB] Connecting to: ${fullUrl}`);
-    console.log(`[Socket] 🔌 [WEB] Full WebSocket URL will be: ws://${apiBaseUrl.replace('http://', '')}/socket.io/`);
+    logger.debug(`[Socket] 🔌 [WEB] Connecting to: ${fullUrl}`);
+    logger.debug(`[Socket] 🔌 [WEB] Full WebSocket URL will be: ws://${apiBaseUrl.replace('http://', '')}/socket.io/`);
   } else if (process.env.NODE_ENV === 'development') {
     logger.debug(`Socket service - Connecting to: ${fullUrl}`);
   }
@@ -181,7 +181,7 @@ const connectSocket = async () => {
     reconnectAttempts = 0;
     
     if (Platform.OS === 'web') {
-      console.log(`[Socket] ✅ [WEB] Connected successfully to: ${lastConnectedUrl}`);
+      logger.debug(`[Socket] ✅ [WEB] Connected successfully to: ${lastConnectedUrl}`);
     } else if (process.env.NODE_ENV === 'development') {
       logger.debug('Socket service - Connected successfully to /app namespace');
     }

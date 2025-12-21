@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
 import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
+import logger from '../../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -76,7 +77,7 @@ export default function InterestsOnboarding() {
       trackScreenView('onboarding_suggested_users');
       router.replace('/onboarding/suggested-users');
     } catch (error) {
-      console.error('Error saving interests:', error);
+      logger.error('Error saving interests:', error);
       // Continue anyway
       router.replace('/onboarding/suggested-users');
     } finally {
