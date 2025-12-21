@@ -107,6 +107,7 @@ export default function LocationDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!isMountedRef.current) return;
+      // Call checkBookmarkStatus directly - it's defined later but safe to call
       checkBookmarkStatus();
     }, [localeData, data?.name])
   );
@@ -143,51 +144,31 @@ export default function LocationDetailScreen() {
     return `${locationName} is a beautiful destination with unique attractions and natural beauty that makes it a memorable place to visit. Explore the local culture, landmarks, and experiences that make this location special.`;
   };
 
-  const getLocationCoordinates = (locationName: string) => {
-    console.log('Looking up coordinates for:', locationName);
+  // PRODUCTION-GRADE: All coordinates fetched from Google Geocoding API
+  // No hardcoded coordinates - all locations use geocoding API with country context
+  const getLocationCoordinates = async (locationName: string, countryCode?: string): Promise<{ latitude: number; longitude: number } | null> => {
+    if (!locationName || locationName.trim() === '') {
+      console.warn('⚠️ Empty location name provided for geocoding');
+      return null;
+    }
     
-    // Simple coordinate mapping for common locations
-    const coordinates: { [key: string]: { latitude: number; longitude: number } } = {
-      'bangalore': { latitude: 12.9716, longitude: 77.5946 },
-      'mumbai': { latitude: 19.0760, longitude: 72.8777 },
-      'delhi': { latitude: 28.7041, longitude: 77.1025 },
-      'hyderabad': { latitude: 17.3850, longitude: 78.4867 },
-      'chennai': { latitude: 13.0827, longitude: 80.2707 },
-      'kolkata': { latitude: 22.5726, longitude: 88.3639 },
-      'pune': { latitude: 18.5204, longitude: 73.8567 },
-      'ahmedabad': { latitude: 23.0225, longitude: 72.5714 },
-      'jaipur': { latitude: 26.9124, longitude: 75.7873 },
-      'lucknow': { latitude: 26.8467, longitude: 80.9462 },
-      'bristol': { latitude: 51.4545, longitude: -2.5879 },
-      'london': { latitude: 51.5074, longitude: -0.1278 },
-      'paris': { latitude: 48.8566, longitude: 2.3522 },
-      'new york': { latitude: 40.7128, longitude: -74.0060 },
-      'san francisco': { latitude: 37.7749, longitude: -122.4194 },
-      'los angeles': { latitude: 34.0522, longitude: -118.2437 },
-      'tokyo': { latitude: 35.6762, longitude: 139.6503 },
-      'sydney': { latitude: -33.8688, longitude: 151.2093 },
-      'melbourne': { latitude: -37.8136, longitude: 144.9631 },
-      'singapore': { latitude: 1.3521, longitude: 103.8198 },
-      'dubai': { latitude: 25.2048, longitude: 55.2708 },
-      'ooty': { latitude: 11.4102, longitude: 76.6950 },
-      'mysore': { latitude: 12.2958, longitude: 76.6394 },
-    };
+    console.log('🌍 Geocoding location via Google API:', locationName, countryCode ? `(country: ${countryCode})` : '');
     
-    const normalizedName = locationName.toLowerCase().trim();
-    console.log('Normalized location name:', normalizedName);
-    
-    const foundCoords = coordinates[normalizedName];
-    if (foundCoords) {
-      console.log('Found coordinates:', foundCoords);
-      return foundCoords;
-    } else {
-      console.log('No coordinates found, using fallback');
-      // Generate random coordinates around Bangalore for unknown locations
-      const randomLat = 12.9716 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
-      const randomLng = 77.5946 + (Math.random() - 0.5) * 0.1; // ±0.05 degrees
-      const randomCoords = { latitude: randomLat, longitude: randomLng };
-      console.log('Generated random coordinates:', randomCoords);
-      return randomCoords;
+    try {
+      // Use Google Geocoding API with country context for better accuracy
+      const coords = await geocodeAddress(locationName, countryCode);
+      
+      if (coords && coords.latitude && coords.longitude && 
+          coords.latitude !== 0 && coords.longitude !== 0) {
+        console.log('✅ Geocoding SUCCESS:', locationName, coords);
+        return coords;
+      } else {
+        console.warn('⚠️ Geocoding returned invalid coordinates for:', locationName);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Geocoding ERROR for:', locationName, error);
+      return null;
     }
   };
 
@@ -390,22 +371,23 @@ export default function LocationDetailScreen() {
         }
         
         if (isBookmarked) {
-          // Remove bookmark
-          const updated = locales.filter((loc: Locale) => loc && loc._id !== localeData._id);
-          await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
+          // Remove bookmark - Update state immediately for instant UI feedback
           if (isMountedRef.current) {
             setIsBookmarked(false);
           }
+          const updated = locales.filter((loc: Locale) => loc && loc._id !== localeData._id);
+          await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
           // Emit event to sync with list page
           savedEvents.emitChanged();
         } else {
+          // Add bookmark - Update state immediately for instant UI feedback
+          if (isMountedRef.current) {
+            setIsBookmarked(true);
+          }
           // Add bookmark - Deduplicate before adding
           if (!locales.find(l => l && l._id === localeData._id)) {
             const updated = [...locales, localeData];
             await AsyncStorage.setItem('savedLocales', JSON.stringify(updated));
-            if (isMountedRef.current) {
-              setIsBookmarked(true);
-            }
             // Emit event to sync with list page
             savedEvents.emitChanged();
           }
@@ -429,13 +411,17 @@ export default function LocationDetailScreen() {
         }
         
         if (isBookmarked) {
-          // Remove bookmark
-          const updated = saved.filter((loc: any) => loc && loc.slug !== locationSlug && loc.name !== locationName);
-          await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
+          // Remove bookmark - Update state immediately for instant UI feedback
           if (isMountedRef.current) {
             setIsBookmarked(false);
           }
+          const updated = saved.filter((loc: any) => loc && loc.slug !== locationSlug && loc.name !== locationName);
+          await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
         } else {
+          // Add bookmark - Update state immediately for instant UI feedback
+          if (isMountedRef.current) {
+            setIsBookmarked(true);
+          }
           // Add bookmark - Deduplicate before adding
           if (!saved.find(l => l && (l.slug === locationSlug || l.name === locationName))) {
             const locationData = {
@@ -451,9 +437,6 @@ export default function LocationDetailScreen() {
             
             const updated = [...saved, locationData];
             await AsyncStorage.setItem('savedLocations', JSON.stringify(updated));
-            if (isMountedRef.current) {
-              setIsBookmarked(true);
-            }
           }
         }
       }
@@ -516,28 +499,25 @@ export default function LocationDetailScreen() {
           locationName
         });
         
-        // If coordinates are missing, try to get them from location name
+        // PRODUCTION-GRADE: If coordinates are missing, fetch from Google Geocoding API with country context
         let finalLat = localeLat;
         let finalLng = localeLng;
         
         if ((!finalLat || !finalLng || finalLat === 0 || finalLng === 0) && locationName) {
-          const coords = getLocationCoordinates(locationName);
-          if (coords && coords.latitude && coords.longitude && coords.latitude !== 0 && coords.longitude !== 0) {
-            finalLat = coords.latitude;
-            finalLng = coords.longitude;
-            console.log('Using coordinates from location name lookup:', { finalLat, finalLng });
-          } else {
-            // Try geocoding as last resort
-            try {
-              const geocodedCoords = await geocodeAddress(locationName);
-              if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude) {
-                finalLat = geocodedCoords.latitude;
-                finalLng = geocodedCoords.longitude;
-                console.log('Using geocoded coordinates:', { finalLat, finalLng });
-              }
-            } catch (geocodeError) {
-              console.error('Geocoding failed:', geocodeError);
+          try {
+            // Use geocoding API with country code for better accuracy
+            const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
+            const geocodedCoords = await geocodeAddress(locationName, countryCodeForGeocoding);
+            if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
+                geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
+              finalLat = geocodedCoords.latitude;
+              finalLng = geocodedCoords.longitude;
+              console.log('✅ Using geocoded coordinates from API:', { finalLat, finalLng });
+            } else {
+              console.warn('⚠️ Geocoding API returned invalid coordinates for:', locationName);
             }
+          } catch (geocodeError) {
+            console.error('❌ Geocoding API failed for:', locationName, geocodeError);
           }
         }
         
@@ -577,10 +557,16 @@ export default function LocationDetailScreen() {
         
         setLoading(false);
         
-        // Calculate distance immediately if coordinates are available
-        if (coordinates && coordinates.latitude && coordinates.longitude) {
-          console.log('Immediately calculating distance with coordinates:', coordinates);
+        // CRITICAL: Calculate distance immediately with EXACT coordinates from locale
+        // This ensures accurate distance calculation for locale flow
+        if (coordinates && coordinates.latitude && coordinates.longitude && 
+            coordinates.latitude !== 0 && coordinates.longitude !== 0) {
+          console.log('Immediately calculating distance with EXACT coordinates:', coordinates);
+          // Reset distance to null first to force recalculation
+          setDistance(null);
           calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
+        } else {
+          console.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);
         }
         
         return;
@@ -590,15 +576,19 @@ export default function LocationDetailScreen() {
       if (countryParam === 'general') {
         // This is a location from the map, create mock data
         const description = await generateLocationDescription(locationName, '');
-        // Get coordinates for the location
-        let locationCoords = getLocationCoordinates(locationName);
+        // PRODUCTION-GRADE: Get coordinates from Google Geocoding API with country context
+        let locationCoords: { latitude: number; longitude: number } | null = null;
         
-        // Try geocoding if coordinates seem like fallback
-        if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
-          const geocodedCoords = await geocodeAddress(locationName);
-          if (geocodedCoords) {
-            locationCoords = geocodedCoords;
+        try {
+          // Use India as default country context for better accuracy
+          locationCoords = await geocodeAddress(locationName, 'IN');
+          if (locationCoords && locationCoords.latitude && locationCoords.longitude) {
+            console.log('✅ Geocoded coordinates for general location:', locationName, locationCoords);
+          } else {
+            console.warn('⚠️ Geocoding returned null for:', locationName);
           }
+        } catch (geocodeError) {
+          console.error('❌ Geocoding failed for general location:', locationName, geocodeError);
         }
         
         setData({
@@ -611,7 +601,7 @@ export default function LocationDetailScreen() {
             typeOfSpot: 'General'
           },
           description: description,
-          coordinates: locationCoords
+          coordinates: locationCoords || undefined // Convert null to undefined for type compatibility
         });
       } else {
         // This is a TripScore location, fetch from API
@@ -627,16 +617,22 @@ export default function LocationDetailScreen() {
             );
             
             if (foundLocation) {
-              // Get coordinates for the location
-              const locationCoords = getLocationCoordinates(foundLocation.name);
-              let finalCoords = locationCoords;
+              // PRODUCTION-GRADE: Get coordinates from Google Geocoding API with country context
+              let finalCoords: { latitude: number; longitude: number } | undefined = undefined;
               
-              // Try geocoding if coordinates seem like fallback
-              if (locationCoords && Math.abs(locationCoords.latitude - 12.9716) < 0.1 && Math.abs(locationCoords.longitude - 77.5946) < 0.1) {
-                const geocodedCoords = await geocodeAddress(foundLocation.name);
-                if (geocodedCoords) {
+              try {
+                // Use country name for better geocoding accuracy
+                const countryCodeForGeocoding = countryName ? countryName.toUpperCase() : 'IN';
+                const geocodedCoords = await geocodeAddress(foundLocation.name, countryCodeForGeocoding);
+                if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
+                    geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
                   finalCoords = geocodedCoords;
+                  console.log('✅ Geocoded coordinates for TripScore location:', foundLocation.name, finalCoords);
+                } else {
+                  console.warn('⚠️ Geocoding returned invalid coordinates for:', foundLocation.name);
                 }
+              } catch (geocodeError) {
+                console.error('❌ Geocoding failed for TripScore location:', foundLocation.name, geocodeError);
               }
               
               setData({
@@ -652,17 +648,37 @@ export default function LocationDetailScreen() {
         }
       }
       
-      // Calculate distance from current location (runs for all locations that haven't calculated yet)
-      if (!isAdminLocale && data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
-        // Calculate distance asynchronously after data is set
+      // CRITICAL: Calculate distance ONLY for tripscore flow, NOT for locale flow
+      // Locale flow distance is calculated above with exact coordinates
+      if (!isAdminLocale && !isFromLocaleFlow && data?.coordinates && 
+          data.coordinates.latitude && data.coordinates.longitude &&
+          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
+        // Calculate distance asynchronously after data is set (tripscore flow only)
+        console.log('Calculating distance for tripscore flow:', data.coordinates);
+        setDistance(null); // Reset to force recalculation
         calculateDistanceAsync(data.coordinates.latitude, data.coordinates.longitude);
       }
     } catch (error) {
       console.error('Error loading location data:', error);
-      // Fallback to mock data if API fails
+      // PRODUCTION-GRADE: Fallback to geocoding API if API fails
       const locationParam = Array.isArray(location) ? location[0] : location;
       const locationName = locationParam.replace(/-/g, ' ');
       const description = await generateLocationDescription(locationName, '');
+      
+      // PRODUCTION-GRADE: Try to get coordinates from geocoding API with country context
+      let fallbackCoords: { latitude: number; longitude: number } | undefined = undefined;
+      try {
+        // Use India as default country context
+        const geocodedCoords = await geocodeAddress(locationName, 'IN');
+        if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
+            geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
+          fallbackCoords = geocodedCoords;
+          console.log('✅ Using geocoded coordinates as error fallback:', fallbackCoords);
+        }
+      } catch (geocodeError) {
+        console.error('❌ Geocoding also failed in error handler:', geocodeError);
+      }
+      
       setData({
         name: locationName,
         score: 1,
@@ -673,10 +689,7 @@ export default function LocationDetailScreen() {
           typeOfSpot: 'General'
         },
         description: description,
-        coordinates: {
-          latitude: 12.9716, // Bangalore coordinates as example
-          longitude: 77.5946
-        }
+        coordinates: fallbackCoords // Will be undefined if geocoding fails, which is acceptable
       });
     } finally {
       setLoading(false);
@@ -699,13 +712,20 @@ export default function LocationDetailScreen() {
   return (
     <SafeAreaView 
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
     >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => {
+            // CRITICAL: Always navigate directly to LocaleHome (locale tab)
+            // This ensures clean back navigation without stacked screens
+            if (isAdminLocale || isFromLocaleFlow) {
+              router.replace('/(tabs)/locale');
+            } else {
+              router.back();
+            }
+          }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.7}
         >
@@ -716,10 +736,13 @@ export default function LocationDetailScreen() {
         </Text>
         <View style={styles.headerRight}>
           <TouchableOpacity
-            style={styles.bookmarkButton}
+            style={[
+              styles.bookmarkButton,
+              isBookmarked && styles.bookmarkButtonActive
+            ]}
             onPress={handleBookmark}
             disabled={bookmarkLoading}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             activeOpacity={0.7}
           >
             {bookmarkLoading ? (
@@ -734,7 +757,15 @@ export default function LocationDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.closeButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              // CRITICAL: Always navigate directly to LocaleHome (locale tab)
+              // This ensures clean back navigation without stacked screens
+              if (isAdminLocale || isFromLocaleFlow) {
+                router.replace('/(tabs)/locale');
+              } else {
+                router.back();
+              }
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
@@ -769,12 +800,12 @@ export default function LocationDetailScreen() {
                 </View>
                 <View style={styles.heroStats}>
                   <View style={styles.statItem}>
-                    <Ionicons name="trophy" size={20} color="#FFD700" />
+                    <Ionicons name="trophy" size={16} color="#FFD700" />
                     <Text style={styles.statValue}>{data.score}</Text>
                     <Text style={styles.statLabel}>Score</Text>
                   </View>
                   <View style={styles.statItem}>
-                    <Ionicons name="calendar" size={20} color="#4CAF50" />
+                    <Ionicons name="calendar" size={16} color="#4CAF50" />
                     <Text style={styles.statValue}>{new Date(data.date).getFullYear()}</Text>
                     <Text style={styles.statLabel}>Visited</Text>
                   </View>
@@ -786,7 +817,7 @@ export default function LocationDetailScreen() {
             <View style={styles.quickInfoContainer}>
               <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                 <View style={styles.quickInfoHeader}>
-                  <Ionicons name="navigate" size={22} color={theme.colors.primary} />
+                  <Ionicons name="navigate" size={18} color={theme.colors.primary} />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 </View>
                 <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
@@ -797,7 +828,7 @@ export default function LocationDetailScreen() {
 
               <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                 <View style={styles.quickInfoHeader}>
-                  <Ionicons name="leaf" size={22} color="#4CAF50" />
+                  <Ionicons name="leaf" size={18} color="#4CAF50" />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
                 </View>
                 <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
@@ -812,7 +843,7 @@ export default function LocationDetailScreen() {
                 {/* Left Box - Travel Info */}
                 <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                   <View style={styles.quickInfoHeader}>
-                    <Ionicons name="car" size={22} color={theme.colors.primary} />
+                    <Ionicons name="car" size={18} color={theme.colors.primary} />
                     <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
                   </View>
                   <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{data.category?.fromYou || 'Unknown'}</Text>
@@ -823,54 +854,79 @@ export default function LocationDetailScreen() {
                 <TouchableOpacity
                   style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
                   activeOpacity={0.7}
-                  onPress={() => {
-                    // Try to get coordinates from data or calculate them
-                    let coords = data.coordinates;
+                  onPress={async () => {
+                    // CRITICAL: For locale flow, use EXACT coordinates from localeData
+                    // For tripscore flow, use coordinates from data
+                    let coords: { latitude: number; longitude: number } | undefined = undefined;
                     
-                    if (!coords || !coords.latitude || !coords.longitude) {
-                      // Fallback: try to get coordinates from location name
-                      const locationCoords = getLocationCoordinates(data.name);
-                      if (locationCoords) {
-                        coords = locationCoords;
+                    if (isAdminLocale && localeData) {
+                      // Locale flow: Use EXACT coordinates from locale data
+                      if (localeData.latitude && localeData.longitude && 
+                          localeData.latitude !== 0 && localeData.longitude !== 0) {
+                        coords = {
+                          latitude: localeData.latitude,
+                          longitude: localeData.longitude
+                        };
+                        console.log('Using EXACT locale coordinates:', coords);
+                      }
+                    } else if (data?.coordinates) {
+                      // Tripscore flow: Use coordinates from data
+                      if (data.coordinates.latitude && data.coordinates.longitude &&
+                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
+                        coords = data.coordinates;
+                        console.log('Using tripscore coordinates:', coords);
+                      }
+                    }
+                    
+                    // PRODUCTION-GRADE: Fallback to geocoding API with country context if coordinates not available
+                    if (!coords && data?.name) {
+                      try {
+                        // Use country code for better geocoding accuracy
+                        const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
+                        const geocodedCoords = await geocodeAddress(data.name, countryCodeForGeocoding);
+                        if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
+                            geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
+                          coords = geocodedCoords;
+                          console.log('✅ Using geocoded coordinates from API as fallback:', coords);
+                        } else {
+                          console.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
+                        }
+                      } catch (geocodeError) {
+                        console.error('❌ Geocoding API failed for:', data.name, geocodeError);
                       }
                     }
                     
                     if (coords && coords.latitude && coords.longitude) {
+                      // Navigate to map with EXACT coordinates
                       router.push({
                         pathname: '/map/current-location',
                         params: {
                           latitude: coords.latitude.toString(),
                           longitude: coords.longitude.toString(),
-                          address: data.name,
-                          locationName: data.name,
+                          address: data?.name || '',
+                          locationName: data?.name || '',
+                          // Pass locale context to help map navigate back correctly
+                          country: countryParam || 'general',
+                          userId: isAdminLocale ? 'admin-locale' : (userIdParam || 'current-user'),
+                          // Preserve locale data for map screen
+                          imageUrl: isAdminLocale && localeData?.imageUrl ? localeData.imageUrl : (data?.imageUrl || ''),
+                          description: isAdminLocale && localeData?.description ? localeData.description : (data?.description || ''),
+                          spotTypes: isAdminLocale && localeData?.spotTypes ? localeData.spotTypes.join(', ') : '',
                         },
                       });
                     } else {
-                      console.warn('Location coordinates not available for:', data.name);
-                      // Try geocoding as last resort
-                      geocodeAddress(data.name).then((geocodedCoords) => {
-                        if (geocodedCoords) {
-                          router.push({
-                            pathname: '/map/current-location',
-                            params: {
-                              latitude: geocodedCoords.latitude.toString(),
-                              longitude: geocodedCoords.longitude.toString(),
-                              address: data.name,
-                              locationName: data.name,
-                            },
-                          });
-                        }
-                      });
+                      console.warn('Location coordinates not available for:', data?.name);
+                      Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
                   }}
                 >
                   <View style={styles.quickInfoHeader}>
                     <View style={styles.headerLeft}>
-                      <Ionicons name="globe-outline" size={22} color="#4CAF50" />
+                      <Ionicons name="globe-outline" size={18} color="#4CAF50" />
                       <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
                     </View>
                     <View style={styles.clickableIndicator}>
-                      <Ionicons name="chevron-forward" size={18} color="#4CAF50" />
+                      <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
                     </View>
                   </View>
                   <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Navigate</Text>
@@ -880,9 +936,9 @@ export default function LocationDetailScreen() {
 
             {/* Detailed Info Section */}
             <View style={styles.detailedInfoContainer}>
-              <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface }]}>
+              <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
                 <View style={styles.cardHeader}>
-                  <Ionicons name="information-circle" size={24} color={theme.colors.primary} />
+                  <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
                   <Text style={[styles.cardTitle, { color: theme.colors.text }]}>About This Place</Text>
                 </View>
                 <Text style={[styles.descriptionText, { color: theme.colors.text }]}>
@@ -967,10 +1023,16 @@ const createStyles = () => {
       alignItems: 'center',
       padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
       borderRadius: isTabletLocal ? 24 : 20,
+      backgroundColor: 'transparent',
       ...(isWebLocal && {
         cursor: 'pointer',
         transition: 'all 0.2s ease',
       } as any),
+    },
+    bookmarkButtonActive: {
+      backgroundColor: 'rgba(255, 215, 0, 0.15)',
+      borderWidth: 1.5,
+      borderColor: '#FFD700',
     },
     closeButton: {
       // Minimum touch target: 44x44 for iOS, 48x48 for Android
@@ -991,9 +1053,9 @@ const createStyles = () => {
   
   // Hero Section Styles
   heroSection: {
-    height: 340,
+    height: 280,
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   heroImage: {
     width: '100%',
@@ -1004,7 +1066,7 @@ const createStyles = () => {
     bottom: 0,
     left: 0,
     right: 0,
-    height: 120,
+    height: 100,
   },
   heroContent: {
     position: 'absolute',
@@ -1018,14 +1080,24 @@ const createStyles = () => {
   locationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   locationBadgeText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
   },
@@ -1035,20 +1107,30 @@ const createStyles = () => {
   },
   statItem: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   statValue: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     marginTop: 4,
   },
   statLabel: {
     color: 'rgba(255,255,255,0.8)',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     marginTop: 2,
   },
@@ -1056,23 +1138,23 @@ const createStyles = () => {
   // Quick Info Cards
   quickInfoContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
   },
   quickInfoCard: {
     flex: 1,
-    padding: 20,
-    borderRadius: 18,
+    padding: 16,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 16,
-    elevation: 4,
-    minHeight: 140,
+    elevation: 6,
+    minHeight: 120,
     justifyContent: 'space-between',
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -1080,7 +1162,7 @@ const createStyles = () => {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1088,25 +1170,25 @@ const createStyles = () => {
     flex: 1,
   },
   quickInfoTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    marginLeft: 10,
-    letterSpacing: 0.5,
+    marginLeft: 8,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    opacity: 0.8,
+    opacity: 0.85,
   },
   quickInfoValue: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 8,
-    lineHeight: 32,
-    letterSpacing: -0.8,
+    marginBottom: 4,
+    lineHeight: 28,
+    letterSpacing: -0.5,
   },
   quickInfoSubtext: {
     fontSize: 12,
-    opacity: 0.6,
+    opacity: 0.65,
     lineHeight: 16,
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
     fontWeight: '500',
   },
   clickableCard: {
@@ -1114,42 +1196,43 @@ const createStyles = () => {
   },
   clickableIndicator: {
     backgroundColor: 'rgba(76, 175, 80, 0.1)',
-    borderRadius: 20,
-    padding: 6,
+    borderRadius: 16,
+    padding: 5,
     justifyContent: 'center',
     alignItems: 'center',
-    width: 32,
-    height: 32,
-    marginTop: -10,
+    width: 28,
+    height: 28,
+    marginTop: -8,
   },
 
   // Detailed Info Section
   detailedInfoContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    gap: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 12,
   },
   detailedCard: {
-    padding: 20,
+    padding: 18,
     borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+    borderWidth: 0,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    marginLeft: 12,
+    marginLeft: 10,
   },
   infoGrid: {
     flexDirection: 'row',
@@ -1170,8 +1253,8 @@ const createStyles = () => {
     fontWeight: '600',
   },
   descriptionText: {
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 22,
     opacity: 0.9,
   },
   });

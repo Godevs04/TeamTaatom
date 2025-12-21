@@ -804,8 +804,60 @@ const Locales = () => {
       return
     }
 
-    if (!formData.name || !formData.country || !formData.countryCode) {
-      toast.error('Name, country, and country code are required')
+    // Validate required fields
+    const name = sanitizeText(formData.name)
+    const country = sanitizeText(formData.country)
+    const countryCode = sanitizeText(formData.countryCode).toUpperCase().trim()
+
+    if (!name || name.trim().length === 0) {
+      toast.error('Name is required and must be between 1 and 200 characters')
+      return
+    }
+    if (name.length > 200) {
+      toast.error('Name must be less than 200 characters')
+      return
+    }
+
+    if (!country || country.trim().length === 0) {
+      toast.error('Country is required and must be between 1 and 200 characters')
+      return
+    }
+    if (country.length > 200) {
+      toast.error('Country must be less than 200 characters')
+      return
+    }
+
+    if (!countryCode || countryCode.trim().length === 0) {
+      toast.error('Country code is required and must be between 1 and 10 characters')
+      return
+    }
+    if (countryCode.length > 10) {
+      toast.error('Country code must be less than 10 characters')
+      return
+    }
+
+    // Validate optional fields
+    const stateProvince = formData.stateProvince ? sanitizeText(formData.stateProvince).trim() : ''
+    const stateCode = formData.stateCode ? sanitizeText(formData.stateCode).trim() : ''
+    const description = formData.description ? sanitizeText(formData.description).trim() : ''
+    
+    if (stateProvince && stateProvince.length > 200) {
+      toast.error('State/Province must be less than 200 characters')
+      return
+    }
+    if (stateCode && stateCode.length > 50) {
+      toast.error('State code must be less than 50 characters')
+      return
+    }
+    if (description && description.length > 1000) {
+      toast.error('Description must be less than 1000 characters')
+      return
+    }
+
+    // Validate displayOrder - ensure it's a valid integer
+    const displayOrder = formData.displayOrder ? parseInt(formData.displayOrder) : 0
+    if (isNaN(displayOrder) || displayOrder < 0) {
+      toast.error('Display order must be a positive number')
       return
     }
 
@@ -813,21 +865,20 @@ const Locales = () => {
     try {
       const uploadFormData = new FormData()
       uploadFormData.append('image', formData.file)
-      uploadFormData.append('name', sanitizeText(formData.name))
-      uploadFormData.append('country', sanitizeText(formData.country))
-      uploadFormData.append('countryCode', sanitizeText(formData.countryCode).toUpperCase())
-      if (formData.stateProvince) {
-        uploadFormData.append('stateProvince', sanitizeText(formData.stateProvince))
+      uploadFormData.append('name', name.trim())
+      uploadFormData.append('country', country.trim())
+      uploadFormData.append('countryCode', countryCode)
+      if (stateProvince) {
+        uploadFormData.append('stateProvince', stateProvince)
       }
-      if (formData.stateCode) {
-        uploadFormData.append('stateCode', sanitizeText(formData.stateCode))
+      if (stateCode) {
+        uploadFormData.append('stateCode', stateCode)
       }
-      if (formData.description) {
-        uploadFormData.append('description', sanitizeText(formData.description))
+      if (description) {
+        uploadFormData.append('description', description)
       }
-      if (formData.displayOrder) {
-        uploadFormData.append('displayOrder', formData.displayOrder)
-      }
+      // Always send displayOrder as integer string (FormData requires string)
+      uploadFormData.append('displayOrder', displayOrder.toString())
 
       const response = await uploadLocale(uploadFormData)
       toast.success(response.message || 'Locale uploaded successfully')
@@ -1090,31 +1141,91 @@ const Locales = () => {
   const handleUpdate = async (e) => {
     e.preventDefault()
     
-    if (!editFormData.name || !editFormData.country || !editFormData.countryCode) {
-      toast.error('Name, country, and country code are required')
+    // Validate required fields
+    const name = sanitizeText(editFormData.name).trim()
+    const country = sanitizeText(editFormData.country).trim()
+    const countryCode = sanitizeText(editFormData.countryCode).toUpperCase().trim()
+
+    if (!name || name.length === 0) {
+      toast.error('Name is required and must be between 1 and 200 characters')
+      return
+    }
+    if (name.length > 200) {
+      toast.error('Name must be less than 200 characters')
+      return
+    }
+
+    if (!country || country.length === 0) {
+      toast.error('Country is required and must be between 1 and 200 characters')
+      return
+    }
+    if (country.length > 200) {
+      toast.error('Country must be less than 200 characters')
+      return
+    }
+
+    if (!countryCode || countryCode.length === 0) {
+      toast.error('Country code is required and must be between 1 and 10 characters')
+      return
+    }
+    if (countryCode.length > 10) {
+      toast.error('Country code must be less than 10 characters')
+      return
+    }
+
+    // Validate optional fields
+    const stateProvince = editFormData.stateProvince ? sanitizeText(editFormData.stateProvince).trim() : ''
+    const stateCode = editFormData.stateCode ? sanitizeText(editFormData.stateCode).trim() : ''
+    const description = editFormData.description ? sanitizeText(editFormData.description).trim() : ''
+    
+    if (stateProvince && stateProvince.length > 200) {
+      toast.error('State/Province must be less than 200 characters')
+      return
+    }
+    if (stateCode && stateCode.length > 50) {
+      toast.error('State code must be less than 50 characters')
+      return
+    }
+    if (description && description.length > 1000) {
+      toast.error('Description must be less than 1000 characters')
+      return
+    }
+
+    // Validate displayOrder - ensure it's a valid integer
+    const displayOrder = editFormData.displayOrder ? parseInt(editFormData.displayOrder) : 0
+    if (isNaN(displayOrder) || displayOrder < 0) {
+      toast.error('Display order must be a positive number')
       return
     }
 
     setEditing(true)
     try {
       const updateData = {
-        name: sanitizeText(editFormData.name),
-        country: sanitizeText(editFormData.country),
-        countryCode: sanitizeText(editFormData.countryCode).toUpperCase()
+        name,
+        country,
+        countryCode
       }
       
-      if (editFormData.stateProvince) {
-        updateData.stateProvince = sanitizeText(editFormData.stateProvince)
+      if (stateProvince) {
+        updateData.stateProvince = stateProvince
+      } else {
+        updateData.stateProvince = '' // Explicitly set empty string for optional fields
       }
-      if (editFormData.stateCode) {
-        updateData.stateCode = sanitizeText(editFormData.stateCode)
+      
+      if (stateCode) {
+        updateData.stateCode = stateCode
+      } else {
+        updateData.stateCode = '' // Explicitly set empty string for optional fields
       }
-      if (editFormData.description) {
-        updateData.description = sanitizeText(editFormData.description)
+      
+      if (description) {
+        updateData.description = description
+      } else {
+        updateData.description = '' // Explicitly set empty string for optional fields
       }
-      if (editFormData.displayOrder) {
-        updateData.displayOrder = parseInt(editFormData.displayOrder)
-      }
+      
+      // Always send displayOrder as integer
+      updateData.displayOrder = displayOrder
 
       await updateLocale(localeToEdit._id, updateData)
       toast.success('Locale updated successfully')
@@ -1802,6 +1913,8 @@ const Locales = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Locale name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
 
@@ -1816,6 +1929,8 @@ const Locales = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Country name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
             </div>
@@ -1831,7 +1946,8 @@ const Locales = () => {
                   onChange={(e) => setFormData({ ...formData, countryCode: e.target.value.toUpperCase() })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="US, GB, IN, etc."
-                  maxLength="10"
+                  minLength={1}
+                  maxLength={10}
                   required
                 />
               </div>
@@ -1862,6 +1978,7 @@ const Locales = () => {
                   onChange={(e) => setFormData({ ...formData, stateProvince: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="State or province"
+                  maxLength={200}
                 />
               </div>
 
@@ -1875,6 +1992,7 @@ const Locales = () => {
                   onChange={(e) => setFormData({ ...formData, stateCode: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="State code"
+                  maxLength={50}
                 />
               </div>
             </div>
@@ -1889,6 +2007,7 @@ const Locales = () => {
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                 placeholder="Locale description"
                 rows="3"
+                maxLength={1000}
               />
             </div>
           </ModalContent>
@@ -2009,6 +2128,8 @@ const Locales = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Locale name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
 
@@ -2023,6 +2144,8 @@ const Locales = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Country name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
             </div>
@@ -2038,7 +2161,8 @@ const Locales = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, countryCode: sanitizeText(e.target.value).toUpperCase() })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="US, GB, IN, etc."
-                  maxLength="10"
+                  minLength={1}
+                  maxLength={10}
                   required
                 />
               </div>
@@ -2069,6 +2193,7 @@ const Locales = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, stateProvince: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="State or province"
+                  maxLength={200}
                 />
               </div>
 
@@ -2082,6 +2207,7 @@ const Locales = () => {
                   onChange={(e) => setEditFormData({ ...editFormData, stateCode: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="State code"
+                  maxLength={50}
                 />
               </div>
             </div>
@@ -2096,6 +2222,7 @@ const Locales = () => {
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 placeholder="Locale description"
                 rows="3"
+                maxLength={1000}
               />
             </div>
 
