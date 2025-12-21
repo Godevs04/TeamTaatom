@@ -2,6 +2,7 @@
 // Metro will automatically use mapsWrapper.web.ts for web builds
 
 import { Platform } from 'react-native';
+import logger from './logger';
 
 let MapView: any = null;
 let Marker: any = null;
@@ -14,7 +15,7 @@ if (Platform.OS !== 'web') {
     Marker = mapsModule.Marker;
     PROVIDER_GOOGLE = mapsModule.PROVIDER_GOOGLE;
   } catch (error) {
-    console.warn('react-native-maps not available:', error);
+    logger.warn('react-native-maps not available:', error);
   }
 }
 

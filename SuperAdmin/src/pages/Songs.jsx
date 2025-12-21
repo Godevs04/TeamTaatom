@@ -246,14 +246,14 @@ const Songs = () => {
     title: '',
     artist: '',
     genre: 'General',
-    duration: '',
+    durationMinutes: '', // Changed from duration to durationMinutes
     file: null
   })
   const [editFormData, setEditFormData] = useState({
     title: '',
     artist: '',
     genre: 'General',
-    duration: ''
+    durationMinutes: '' // Changed from duration to durationMinutes
   })
 
   // Lifecycle safety
@@ -476,26 +476,60 @@ const Songs = () => {
       return
     }
 
-    if (!formData.title || !formData.artist) {
-      toast.error('Title and artist are required')
+    // Validate required fields
+    const title = sanitizeText(formData.title).trim()
+    const artist = sanitizeText(formData.artist).trim()
+
+    if (!title || title.length === 0) {
+      toast.error('Title is required and must be between 1 and 200 characters')
       return
+    }
+    if (title.length > 200) {
+      toast.error('Title must be less than 200 characters')
+      return
+    }
+
+    if (!artist || artist.length === 0) {
+      toast.error('Artist is required and must be between 1 and 200 characters')
+      return
+    }
+    if (artist.length > 200) {
+      toast.error('Artist must be less than 200 characters')
+      return
+    }
+
+    // Validate optional fields
+    const genre = formData.genre ? sanitizeText(formData.genre).trim() : 'General'
+    if (genre && genre.length > 50) {
+      toast.error('Genre must be less than 50 characters')
+      return
+    }
+
+    // Convert minutes to seconds for backend
+    let durationInSeconds = 0
+    if (formData.durationMinutes) {
+      const minutes = parseFloat(formData.durationMinutes)
+      if (isNaN(minutes) || minutes < 0) {
+        toast.error('Duration must be a positive number')
+        return
+      }
+      durationInSeconds = Math.round(minutes * 60)
     }
 
     setUploading(true)
     try {
       const uploadFormData = new FormData()
       uploadFormData.append('song', formData.file)
-      uploadFormData.append('title', formData.title)
-      uploadFormData.append('artist', formData.artist)
-      uploadFormData.append('genre', formData.genre)
-      if (formData.duration) {
-        uploadFormData.append('duration', formData.duration)
-      }
+      uploadFormData.append('title', title)
+      uploadFormData.append('artist', artist)
+      uploadFormData.append('genre', genre)
+      // Always send duration (even if 0) - backend expects integer
+      uploadFormData.append('duration', durationInSeconds.toString())
 
       const response = await uploadSong(uploadFormData)
       toast.success(response.message || 'Song uploaded successfully')
       handleModalClose(setShowUploadModal, null, () => {
-        setFormData({ title: '', artist: '', genre: 'General', duration: '', file: null })
+        setFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', file: null })
       })
       await loadSongs()
     } catch (error) {
@@ -638,22 +672,63 @@ const Songs = () => {
       return
     }
 
+    // Validate required fields
+    const title = sanitizeText(editFormData.title).trim()
+    const artist = sanitizeText(editFormData.artist).trim()
+
+    if (!title || title.length === 0) {
+      toast.error('Title is required and must be between 1 and 200 characters')
+      return
+    }
+    if (title.length > 200) {
+      toast.error('Title must be less than 200 characters')
+      return
+    }
+
+    if (!artist || artist.length === 0) {
+      toast.error('Artist is required and must be between 1 and 200 characters')
+      return
+    }
+    if (artist.length > 200) {
+      toast.error('Artist must be less than 200 characters')
+      return
+    }
+
+    // Validate optional fields
+    const genre = editFormData.genre ? sanitizeText(editFormData.genre).trim() : 'General'
+    if (genre && genre.length > 50) {
+      toast.error('Genre must be less than 50 characters')
+      return
+    }
+
+    // Convert minutes to seconds for backend
+    let durationInSeconds = undefined
+    if (editFormData.durationMinutes) {
+      const minutes = parseFloat(editFormData.durationMinutes)
+      if (isNaN(minutes) || minutes < 0) {
+        toast.error('Duration must be a positive number')
+        return
+      }
+      durationInSeconds = Math.round(minutes * 60)
+    }
+
     setEditing(true)
     try {
       const updateData = {
-        title: editFormData.title,
-        artist: editFormData.artist,
-        genre: editFormData.genre
+        title,
+        artist,
+        genre
       }
       
-      if (editFormData.duration) {
-        updateData.duration = parseInt(editFormData.duration)
+      // Only include duration if provided
+      if (durationInSeconds !== undefined) {
+        updateData.duration = durationInSeconds
       }
 
       await updateSong(songToEdit._id, updateData)
       toast.success('Song updated successfully')
       handleModalClose(setShowEditModal, setSongToEdit, () => {
-        setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
       })
       await loadSongs()
     } catch (error) {
@@ -762,11 +837,13 @@ const Songs = () => {
     if (!isMountedRef.current) return
     
     setSongToEdit(song)
+    // Convert seconds to minutes for display
+    const durationMinutes = song.duration ? (song.duration / 60).toFixed(2) : ''
     setEditFormData({
       title: song.title || '',
       artist: song.artist || '',
       genre: song.genre || 'General',
-      duration: song.duration ? song.duration.toString() : ''
+      durationMinutes: durationMinutes
     })
     setShowEditModal(true)
   }, [])
@@ -1228,6 +1305,8 @@ const Songs = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Song title"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
 
@@ -1242,6 +1321,8 @@ const Songs = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Artist name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
             </div>
@@ -1264,16 +1345,20 @@ const Songs = () => {
 
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
-                  Duration (seconds) <span className="text-gray-400 text-xs">Optional</span>
+                  Duration (minutes) <span className="text-gray-400 text-xs">Optional</span>
                 </label>
                 <input
                   type="number"
-                  value={formData.duration}
-                  onChange={(e) => setFormData({ ...formData, duration: sanitizeText(e.target.value) })}
+                  step="0.01"
+                  value={formData.durationMinutes}
+                  onChange={(e) => setFormData({ ...formData, durationMinutes: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  placeholder="Duration in seconds"
+                  placeholder="Duration in minutes (e.g., 3.5)"
                   min="0"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter duration in minutes (e.g., 3.5 for 3 minutes 30 seconds)
+                </p>
               </div>
             </div>
           </ModalContent>
@@ -1470,10 +1555,10 @@ const Songs = () => {
 
       {/* Edit Modal */}
       <Modal isOpen={showEditModal} onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
-        setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
       })} className="max-w-2xl bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
-          setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+          setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
         })}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-100 rounded-lg">
@@ -1496,6 +1581,8 @@ const Songs = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Song title"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
 
@@ -1510,6 +1597,8 @@ const Songs = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                   placeholder="Artist name"
                   required
+                  minLength={1}
+                  maxLength={200}
                 />
               </div>
             </div>
@@ -1532,16 +1621,20 @@ const Songs = () => {
 
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
-                  Duration (seconds) <span className="text-gray-400 text-xs">Optional</span>
+                  Duration (minutes) <span className="text-gray-400 text-xs">Optional</span>
                 </label>
                 <input
                   type="number"
-                  value={editFormData.duration}
-                  onChange={(e) => setEditFormData({ ...editFormData, duration: sanitizeText(e.target.value) })}
+                  step="0.01"
+                  value={editFormData.durationMinutes}
+                  onChange={(e) => setEditFormData({ ...editFormData, durationMinutes: sanitizeText(e.target.value) })}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                  placeholder="Duration in seconds"
+                  placeholder="Duration in minutes (e.g., 3.5)"
                   min="0"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter duration in minutes (e.g., 3.5 for 3 minutes 30 seconds)
+                </p>
               </div>
             </div>
 
@@ -1558,10 +1651,10 @@ const Songs = () => {
               type="button"
               onClick={() => {
                 handleModalClose(setShowEditModal, setSongToEdit, () => {
-                  setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+                  setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
                 })
                 setSongToEdit(null)
-                setEditFormData({ title: '', artist: '', genre: 'General', duration: '' })
+                setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
               }}
               className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
             >

@@ -15,6 +15,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
+import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import logger from '../utils/logger';
 
 interface EditProfileProps {
   visible: boolean;
@@ -62,7 +64,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Image picker error:', error);
+      logger.error('Image picker error:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
   };
@@ -86,7 +88,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Camera error:', error);
+      logger.error('Camera error:', error);
       Alert.alert('Error', 'Failed to take photo');
     }
   };
@@ -134,7 +136,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       onClose();
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      Alert.alert('Error', sanitizeErrorForDisplay(error, 'EditProfile.updateProfile'));
     } finally {
       setLoading(false);
     }

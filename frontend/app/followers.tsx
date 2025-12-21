@@ -9,6 +9,7 @@ import api from '../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../constants/theme';
 import { parseError } from '../utils/errorCodes';
+import logger from '../utils/logger';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -162,7 +163,7 @@ export default function FollowersFollowingList() {
       
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!err.isConflict && err.response?.status !== 409) {
-        console.error('Error following/unfollowing user:', err);
+        logger.error('Error following/unfollowing user:', err);
       }
       
       const errorMessage = err.response?.data?.message || err.message || 'Failed to update follow status';

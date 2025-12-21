@@ -15,6 +15,7 @@ const mentionRoutes = require('../mentionRoutes');
 const searchRoutes = require('../searchRoutes');
 const activityRoutes = require('../activityRoutes');
 const healthRoutes = require('../healthRoutes');
+const userManagementRoutes = require('../userManagementRoutes');
 
 const router = express.Router();
 
@@ -37,6 +38,8 @@ router.use('/collections', collectionRoutes);
 router.use('/mentions', mentionRoutes);
 router.use('/search', searchRoutes);
 router.use('/activity', activityRoutes);
+router.use('/users', userManagementRoutes);
+router.use('/', userManagementRoutes.syncRoute); // For /sync route
 
 module.exports = router;
 

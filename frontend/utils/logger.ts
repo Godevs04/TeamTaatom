@@ -85,17 +85,21 @@ const trackError = (context: string, error: any, args?: any[]) => {
     // In production, send to Sentry error tracking service
     // DO NOT use console in production - send to tracking service only
     try {
-      // Dynamically import Sentry to avoid issues if not initialized
-      const Sentry = require('@sentry/react-native');
-      if (Sentry && typeof Sentry.captureException === 'function') {
-        Sentry.captureException(error, {
-          tags: { context },
-          extra: { args: sanitizeData(args) },
-        });
+      // Dynamically import Sentry to avoid circular dependencies
+      // Use lazy require to prevent circular dependency issues
+      if (typeof require !== 'undefined') {
+        const Sentry = require('@sentry/react-native');
+        if (Sentry && typeof Sentry.captureException === 'function') {
+          Sentry.captureException(error, {
+            tags: { context },
+            extra: { args: sanitizeData(args) },
+          });
+        }
       }
     } catch (sentryError) {
       // Sentry not available or not initialized - silently fail
       // This prevents errors in logger from breaking the app
+      // Do not log this error to avoid circular dependencies
     }
   }
 };

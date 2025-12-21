@@ -21,11 +21,19 @@ export interface UserSettings {
     messagesNotifications: boolean;
     followRequestNotifications: boolean;
     followApprovalNotifications: boolean;
+    quietHours?: {
+      enabled: boolean;
+      startTime: string;
+      endTime: string;
+      days: string[];
+    };
   };
   account: {
     language: string;
     theme: 'light' | 'dark' | 'auto';
     dataUsage: 'low' | 'medium' | 'high';
+    wifiOnlyDownloads?: boolean;
+    autoSync?: boolean;
   };
 }
 

@@ -52,8 +52,6 @@ const localeSchema = new mongoose.Schema({
   // Legacy fields for backward compatibility (deprecated, use storageKey/cloudinaryKey)
   imageKey: {
     type: String,
-    sparse: true,
-    unique: true,
     required: false
   },
   imageUrl: {

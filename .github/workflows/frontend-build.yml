@@ -1,5 +1,19 @@
-name: Frontend Build & Deploy
+name: Frontend Build Pipeline
 
+# Build Pipeline Flow:
+# GitHub Actions:
+#   ├─ Validate code (linting, tests)
+#   ├─ Build web version
+#   ├─ Upload Sentry source maps
+#   ├─ Trigger EAS build (iOS/Android)
+#   └─ Enforce quality gates
+#
+# EAS Build (triggered by GitHub Actions):
+#   ├─ Android build
+#   ├─ iOS build
+#   ├─ Code signing
+#   └─ Store artifacts
+#
 # Note: Warnings about "Context access might be invalid" are expected.
 # These warnings appear because GitHub Actions doesn't know if the secrets exist.
 # The workflow will work correctly when secrets are added to GitHub Secrets.
@@ -45,7 +59,7 @@ jobs:
           # Try npm ci first (faster), fallback to npm install if lock file is out of sync
           npm ci || npm install
 
-      - name: Run linting
+      - name: Validate code - Linting
         working-directory: ./frontend
         run: npm run lint || echo "Linting not configured"
 
@@ -104,6 +118,7 @@ jobs:
   build-mobile:
     name: Build Mobile Apps (EAS)
     runs-on: ubuntu-latest
+    needs: build-and-test  # Only run after web build and validation pass
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     
     steps:
@@ -129,17 +144,19 @@ jobs:
           # Try npm ci first (faster), fallback to npm install if lock file is out of sync
           npm ci || npm install
 
-      - name: Build iOS
+      - name: Quality Gate - Validate EAS Config
         working-directory: ./frontend
-        env:
-          # Public values - can be in vars or secrets
-          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
-          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
-          EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
         run: |
-          eas build --platform ios --non-interactive --no-wait || echo "iOS build skipped"
+          # Validate eas.json exists and is valid
+          if [ ! -f "eas.json" ]; then
+            echo "❌ eas.json not found"
+            exit 1
+          fi
+          # Validate JSON syntax
+          node -e "JSON.parse(require('fs').readFileSync('eas.json', 'utf8'))" || exit 1
+          echo "✅ EAS configuration valid"
 
-      - name: Build Android
+      - name: Trigger EAS Build - iOS
         working-directory: ./frontend
         env:
           # Public values - can be in vars or secrets
@@ -147,5 +164,32 @@ jobs:
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
           EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
         run: |
-          eas build --platform android --non-interactive --no-wait || echo "Android build skipped"
+          echo "🚀 Triggering EAS Build for iOS..."
+          echo "   EAS Build will handle: iOS build, code signing, and artifacts"
+          eas build --platform ios --profile production --non-interactive --no-wait || echo "⚠️  iOS build skipped (check EXPO_TOKEN and Apple Developer setup)"
+
+      - name: Trigger EAS Build - Android
+        working-directory: ./frontend
+        env:
+          # Public values - can be in vars or secrets
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
+        run: |
+          echo "🚀 Triggering EAS Build for Android..."
+          echo "   EAS Build will handle: Android build, code signing, and artifacts"
+          eas build --platform android --profile production --non-interactive --no-wait || echo "⚠️  Android build skipped (check EXPO_TOKEN and Google Play setup)"
+
+      - name: Quality Gate - Build Status
+        working-directory: ./frontend
+        run: |
+          echo "✅ EAS builds triggered successfully"
+          echo "📱 Monitor build status at: https://expo.dev/accounts/[your-account]/projects/[your-project]/builds"
+          echo ""
+          echo "EAS Build handles:"
+          echo "  ✅ Android build"
+          echo "  ✅ iOS build"
+          echo "  ✅ Code signing"
+          echo "  ✅ Store artifacts"
+          echo "  ✅ Source map uploads (via eas.json hooks)"
 

@@ -592,14 +592,46 @@ module.exports = {
   checkUsernameAvailability: async (req, res) => {
     try {
       const username = (req.query.username || req.params.username || '').toLowerCase().trim();
+      
       if (!username) {
-        return res.status(400).json({ error: 'Username required', available: false });
+        return res.status(400).json({ 
+          success: false,
+          error: 'Username required', 
+          available: false 
+        });
       }
-      const exists = await User.exists({ username });
-      return res.status(200).json({ available: !exists });
+
+      // Validate username format
+      if (username.length < 3 || username.length > 20) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'Username must be 3-20 characters', 
+          available: false 
+        });
+      }
+
+      if (!/^[a-z0-9_.]+$/.test(username)) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'Username can only contain lowercase letters, numbers, and underscores', 
+          available: false 
+        });
+      }
+
+      // Check if username exists in database
+      const exists = await User.findOne({ username }).select('_id').lean();
+      
+      return res.status(200).json({ 
+        success: true,
+        available: !exists 
+      });
     } catch (error) {
       logger.error('Check username error:', error);
-      return res.status(500).json({ error: 'Internal server error', available: false });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Internal server error', 
+        available: false 
+      });
     }
   },
   verifyOTP,
