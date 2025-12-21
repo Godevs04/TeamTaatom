@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState } from 'react';
 import { View } from 'react-native';
 import CustomAlert from '../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../components/CustomOptions';
+import { sanitizeErrorForDisplay, sanitizeErrorMessage } from '../utils/errorSanitizer';
 
 interface AlertState {
   visible: boolean;
@@ -99,16 +100,24 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const contextValue: AlertContextType = {
     showSuccess: (message: string, title?: string) => {
-      showAlert({ title: title || 'Success', message, type: 'success' });
+      // Success messages are typically user-friendly, but sanitize just in case
+      const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showSuccess');
+      showAlert({ title: title || 'Success', message: sanitizedMessage, type: 'success' });
     },
     showError: (message: string, title?: string) => {
-      showAlert({ title: title || 'Error', message, type: 'error' });
+      // Sanitize error messages to hide technical details in production
+      const sanitizedMessage = sanitizeErrorForDisplay(message, 'AlertContext.showError');
+      showAlert({ title: title || 'Error', message: sanitizedMessage, type: 'error' });
     },
     showWarning: (message: string, title?: string) => {
-      showAlert({ title: title || 'Warning', message, type: 'warning' });
+      // Warning messages are typically user-friendly, but sanitize just in case
+      const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showWarning');
+      showAlert({ title: title || 'Warning', message: sanitizedMessage, type: 'warning' });
     },
     showInfo: (message: string, title?: string) => {
-      showAlert({ title: title || 'Info', message, type: 'info' });
+      // Info messages are typically user-friendly, but sanitize just in case
+      const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showInfo');
+      showAlert({ title: title || 'Info', message: sanitizedMessage, type: 'info' });
     },
     showConfirm: (
       message: string,
