@@ -6,15 +6,23 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
   Image,
   Platform,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
+import logger from '../../../../utils/logger';
+
+// Platform-specific constants
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isWeb = Platform.OS === 'web';
+const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 
 interface Location {
   name: string;
@@ -54,7 +62,7 @@ export default function TripScoreLocationsScreen() {
       const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}/locations`);
       setData(response.data);
     } catch (error) {
-      console.error('Error loading locations:', error);
+      logger.error('Error loading locations:', error);
     } finally {
       setLoading(false);
     }

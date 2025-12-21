@@ -22,6 +22,7 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale } from '../../../../../services/locale';
 import { savedEvents } from '../../../../../utils/savedEvents';
+import logger from '../../../../../utils/logger';
 
 interface LocationDetail {
   name: string;
@@ -121,7 +122,7 @@ export default function LocationDetailScreen() {
       const lng = data.coordinates.longitude;
       // Only calculate if coordinates are valid (not 0 or undefined) and distance hasn't been calculated yet
       if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng) && distance === null) {
-        console.log('useEffect: Triggering distance calculation with coordinates:', { lat, lng });
+        logger.debug('useEffect: Triggering distance calculation with coordinates:', { lat, lng });
         calculateDistanceAsync(lat, lng);
       }
     }
@@ -148,11 +149,11 @@ export default function LocationDetailScreen() {
   // No hardcoded coordinates - all locations use geocoding API with country context
   const getLocationCoordinates = async (locationName: string, countryCode?: string): Promise<{ latitude: number; longitude: number } | null> => {
     if (!locationName || locationName.trim() === '') {
-      console.warn('⚠️ Empty location name provided for geocoding');
+      logger.warn('⚠️ Empty location name provided for geocoding');
       return null;
     }
     
-    console.log('🌍 Geocoding location via Google API:', locationName, countryCode ? `(country: ${countryCode})` : '');
+    logger.debug('🌍 Geocoding location via Google API:', { locationName, countryCode: countryCode || undefined });
     
     try {
       // Use Google Geocoding API with country context for better accuracy
@@ -160,14 +161,14 @@ export default function LocationDetailScreen() {
       
       if (coords && coords.latitude && coords.longitude && 
           coords.latitude !== 0 && coords.longitude !== 0) {
-        console.log('✅ Geocoding SUCCESS:', locationName, coords);
+        logger.debug('✅ Geocoding SUCCESS:', { locationName, coords });
         return coords;
       } else {
-        console.warn('⚠️ Geocoding returned invalid coordinates for:', locationName);
+        logger.warn('⚠️ Geocoding returned invalid coordinates for:', locationName);
         return null;
       }
     } catch (error) {
-      console.error('❌ Geocoding ERROR for:', locationName, error);
+      logger.error('❌ Geocoding ERROR for:', { locationName, error });
       return null;
     }
   };
@@ -177,7 +178,7 @@ export default function LocationDetailScreen() {
     try {
       // Distance Calculation Guards: Validate coordinates
       if (!targetLat || !targetLng || isNaN(targetLat) || isNaN(targetLng) || targetLat === 0 || targetLng === 0) {
-        console.log('Invalid coordinates provided:', { targetLat, targetLng });
+        logger.debug('Invalid coordinates provided:', { targetLat, targetLng });
         if (isMountedRef.current) {
           setDistance(null);
         }
@@ -199,7 +200,7 @@ export default function LocationDetailScreen() {
       try {
         status = await Location.requestForegroundPermissionsAsync();
       } catch (permError) {
-        console.warn('Failed to request location permission:', permError);
+        logger.warn('Failed to request location permission:', permError);
         if (isMountedRef.current) {
           setDistance(null);
         }
@@ -208,7 +209,7 @@ export default function LocationDetailScreen() {
       
       if (status.status !== 'granted') {
         // Distance Calculation Guards: Permission denied - fallback to null (hide distance)
-        console.log('Location permission denied or unavailable');
+        logger.debug('Location permission denied or unavailable');
         if (isMountedRef.current) {
           setDistance(null);
         }
@@ -230,7 +231,7 @@ export default function LocationDetailScreen() {
         
         currentLocation = await Promise.race([locationPromise, timeoutPromise]);
       } catch (locationError) {
-        console.warn('Failed to get current location:', locationError);
+        logger.warn('Failed to get current location:', locationError);
         if (isMountedRef.current) {
           setDistance(null);
         }
@@ -244,7 +245,7 @@ export default function LocationDetailScreen() {
         const currentLng = currentLocation.coords.longitude;
         
         if (isNaN(currentLat) || isNaN(currentLng) || currentLat === 0 || currentLng === 0) {
-          console.warn('Invalid current location coordinates');
+          logger.warn('Invalid current location coordinates');
           if (isMountedRef.current) {
             setDistance(null);
           }
@@ -260,7 +261,7 @@ export default function LocationDetailScreen() {
         
         // Distance Calculation Guards: Validate calculated distance
         if (isNaN(calculatedDistance) || calculatedDistance < 0) {
-          console.warn('Invalid calculated distance:', calculatedDistance);
+          logger.warn('Invalid calculated distance:', calculatedDistance);
           if (isMountedRef.current) {
             setDistance(null);
           }
@@ -270,20 +271,20 @@ export default function LocationDetailScreen() {
         // Cache the calculated distance
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
         
-        console.log('Distance calculated successfully:', calculatedDistance, 'km');
+        logger.debug('Distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {
           setDistance(calculatedDistance);
         }
       } else {
         // Distance Calculation Guards: Missing coordinates - fallback
-        console.log('Failed to get current location coordinates');
+        logger.debug('Failed to get current location coordinates');
         if (isMountedRef.current) {
           setDistance(null);
         }
       }
     } catch (error) {
       // Distance Calculation Guards: Catch-all error handling
-      console.error('Error calculating distance:', error);
+      logger.error('Error calculating distance:', error);
       if (isMountedRef.current) {
         setDistance(null);
       }
@@ -306,7 +307,7 @@ export default function LocationDetailScreen() {
             saved = Array.isArray(parsed) ? parsed : [];
           }
         } catch (parseError) {
-          console.warn('Failed to parse savedLocales in checkBookmarkStatus', parseError);
+          logger.warn('Failed to parse savedLocales in checkBookmarkStatus', parseError);
           saved = [];
         }
         
@@ -324,7 +325,7 @@ export default function LocationDetailScreen() {
             saved = Array.isArray(parsed) ? parsed : [];
           }
         } catch (parseError) {
-          console.warn('Failed to parse savedLocations in checkBookmarkStatus', parseError);
+          logger.warn('Failed to parse savedLocations in checkBookmarkStatus', parseError);
           saved = [];
         }
         
@@ -337,7 +338,7 @@ export default function LocationDetailScreen() {
       }
     } catch (error) {
       if (!isMountedRef.current) return;
-      console.error('Error checking bookmark status:', error);
+      logger.error('Error checking bookmark status:', error);
     }
   }, [isAdminLocale, localeData, data?.name, location]);
 
@@ -345,7 +346,7 @@ export default function LocationDetailScreen() {
   const handleBookmark = useCallback(async () => {
     // Bookmark Stability: Prevent duplicate bookmark operations
     if (bookmarkingRef.current) {
-      console.debug('Bookmark operation already in progress, skipping');
+      logger.debug('Bookmark operation already in progress, skipping');
       return;
     }
     
@@ -366,7 +367,7 @@ export default function LocationDetailScreen() {
             locales = Array.isArray(parsed) ? parsed : [];
           }
         } catch (parseError) {
-          console.warn('Failed to parse savedLocales in handleBookmark, resetting', parseError);
+          logger.warn('Failed to parse savedLocales in handleBookmark, resetting', parseError);
           locales = [];
         }
         
@@ -406,7 +407,7 @@ export default function LocationDetailScreen() {
             saved = Array.isArray(parsed) ? parsed : [];
           }
         } catch (parseError) {
-          console.warn('Failed to parse savedLocations in handleBookmark, resetting', parseError);
+          logger.warn('Failed to parse savedLocations in handleBookmark, resetting', parseError);
           saved = [];
         }
         
@@ -442,7 +443,7 @@ export default function LocationDetailScreen() {
       }
     } catch (error) {
       if (!isMountedRef.current) return;
-      console.error('Error bookmarking location:', error);
+      logger.error('Error bookmarking location:', error);
       Alert.alert('Error', 'Failed to save location');
     } finally {
       bookmarkingRef.current = false;
@@ -490,7 +491,7 @@ export default function LocationDetailScreen() {
         const localeDesc = Array.isArray(description) ? description[0] : description || '';
         const localeSpotTypes = spotTypes ? (Array.isArray(spotTypes) ? spotTypes[0] : spotTypes).split(', ') : [];
         
-        console.log('Admin locale params:', {
+        logger.debug('Admin locale params:', {
           localeImageUrl,
           localeLat,
           localeLng,
@@ -512,12 +513,12 @@ export default function LocationDetailScreen() {
                 geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
               finalLat = geocodedCoords.latitude;
               finalLng = geocodedCoords.longitude;
-              console.log('✅ Using geocoded coordinates from API:', { finalLat, finalLng });
+              logger.debug('✅ Using geocoded coordinates from API:', { finalLat, finalLng });
             } else {
-              console.warn('⚠️ Geocoding API returned invalid coordinates for:', locationName);
+              logger.warn('⚠️ Geocoding API returned invalid coordinates for:', locationName);
             }
           } catch (geocodeError) {
-            console.error('❌ Geocoding API failed for:', locationName, geocodeError);
+            logger.error('❌ Geocoding API failed for:', { locationName, error: geocodeError });
           }
         }
         
@@ -539,7 +540,7 @@ export default function LocationDetailScreen() {
         
         // Set data for display
         const coordinates = finalLat && finalLng ? { latitude: finalLat, longitude: finalLng } : undefined;
-        console.log('Setting data with coordinates:', { finalLat, finalLng, coordinates });
+        logger.debug('Setting data with coordinates:', { finalLat, finalLng, coordinates });
         
         setData({
           name: locationName,
@@ -561,12 +562,12 @@ export default function LocationDetailScreen() {
         // This ensures accurate distance calculation for locale flow
         if (coordinates && coordinates.latitude && coordinates.longitude && 
             coordinates.latitude !== 0 && coordinates.longitude !== 0) {
-          console.log('Immediately calculating distance with EXACT coordinates:', coordinates);
+          logger.debug('Immediately calculating distance with EXACT coordinates:', coordinates);
           // Reset distance to null first to force recalculation
           setDistance(null);
           calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
         } else {
-          console.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);
+          logger.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);
         }
         
         return;
@@ -583,12 +584,12 @@ export default function LocationDetailScreen() {
           // Use India as default country context for better accuracy
           locationCoords = await geocodeAddress(locationName, 'IN');
           if (locationCoords && locationCoords.latitude && locationCoords.longitude) {
-            console.log('✅ Geocoded coordinates for general location:', locationName, locationCoords);
+            logger.debug('✅ Geocoded coordinates for general location:', { locationName, locationCoords });
           } else {
-            console.warn('⚠️ Geocoding returned null for:', locationName);
+            logger.warn('⚠️ Geocoding returned null for:', locationName);
           }
         } catch (geocodeError) {
-          console.error('❌ Geocoding failed for general location:', locationName, geocodeError);
+          logger.error('❌ Geocoding failed for general location:', { locationName, error: geocodeError });
         }
         
         setData({
@@ -627,12 +628,12 @@ export default function LocationDetailScreen() {
                 if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
                     geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
                   finalCoords = geocodedCoords;
-                  console.log('✅ Geocoded coordinates for TripScore location:', foundLocation.name, finalCoords);
+                  logger.debug('✅ Geocoded coordinates for TripScore location:', { locationName: foundLocation.name, coords: finalCoords });
                 } else {
-                  console.warn('⚠️ Geocoding returned invalid coordinates for:', foundLocation.name);
+                  logger.warn('⚠️ Geocoding returned invalid coordinates for:', foundLocation.name);
                 }
               } catch (geocodeError) {
-                console.error('❌ Geocoding failed for TripScore location:', foundLocation.name, geocodeError);
+                logger.error('❌ Geocoding failed for TripScore location:', { locationName: foundLocation.name, error: geocodeError });
               }
               
               setData({
@@ -642,7 +643,7 @@ export default function LocationDetailScreen() {
               });
             }
           } catch (apiError) {
-            console.error('Error fetching TripScore location:', apiError);
+            logger.error('Error fetching TripScore location:', apiError);
             // Fall through to use fallback data
           }
         }
@@ -654,12 +655,12 @@ export default function LocationDetailScreen() {
           data.coordinates.latitude && data.coordinates.longitude &&
           data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
         // Calculate distance asynchronously after data is set (tripscore flow only)
-        console.log('Calculating distance for tripscore flow:', data.coordinates);
+        logger.debug('Calculating distance for tripscore flow:', data.coordinates);
         setDistance(null); // Reset to force recalculation
         calculateDistanceAsync(data.coordinates.latitude, data.coordinates.longitude);
       }
     } catch (error) {
-      console.error('Error loading location data:', error);
+      logger.error('Error loading location data:', error);
       // PRODUCTION-GRADE: Fallback to geocoding API if API fails
       const locationParam = Array.isArray(location) ? location[0] : location;
       const locationName = locationParam.replace(/-/g, ' ');
@@ -673,10 +674,10 @@ export default function LocationDetailScreen() {
         if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
             geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
           fallbackCoords = geocodedCoords;
-          console.log('✅ Using geocoded coordinates as error fallback:', fallbackCoords);
+          logger.debug('✅ Using geocoded coordinates as error fallback:', fallbackCoords);
         }
       } catch (geocodeError) {
-        console.error('❌ Geocoding also failed in error handler:', geocodeError);
+        logger.error('❌ Geocoding also failed in error handler:', geocodeError);
       }
       
       setData({
@@ -867,14 +868,14 @@ export default function LocationDetailScreen() {
                           latitude: localeData.latitude,
                           longitude: localeData.longitude
                         };
-                        console.log('Using EXACT locale coordinates:', coords);
+                        logger.debug('Using EXACT locale coordinates:', coords);
                       }
                     } else if (data?.coordinates) {
                       // Tripscore flow: Use coordinates from data
                       if (data.coordinates.latitude && data.coordinates.longitude &&
                           data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
                         coords = data.coordinates;
-                        console.log('Using tripscore coordinates:', coords);
+                        logger.debug('Using tripscore coordinates:', coords);
                       }
                     }
                     
@@ -887,12 +888,12 @@ export default function LocationDetailScreen() {
                         if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
                             geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
                           coords = geocodedCoords;
-                          console.log('✅ Using geocoded coordinates from API as fallback:', coords);
+                          logger.debug('✅ Using geocoded coordinates from API as fallback:', coords);
                         } else {
-                          console.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
+                          logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
                         }
                       } catch (geocodeError) {
-                        console.error('❌ Geocoding API failed for:', data.name, geocodeError);
+                        logger.error('❌ Geocoding API failed for:', { locationName: data.name, error: geocodeError });
                       }
                     }
                     
@@ -915,7 +916,7 @@ export default function LocationDetailScreen() {
                         },
                       });
                     } else {
-                      console.warn('Location coordinates not available for:', data?.name);
+                      logger.warn('Location coordinates not available for:', data?.name);
                       Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
                   }}

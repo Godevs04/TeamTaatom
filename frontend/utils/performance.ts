@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';
+import logger from './logger';
 
 export interface PerformanceMetrics {
   apiCalls: number;
@@ -44,7 +45,7 @@ class PerformanceMonitor {
     this.metrics.renderTime = renderTime;
     
     if (__DEV__) {
-      console.log(`[Performance] ${componentName} render time: ${renderTime.toFixed(2)}ms`);
+      logger.debug(`[Performance] ${componentName} render time: ${renderTime.toFixed(2)}ms`);
     }
   }
 
@@ -74,7 +75,7 @@ class PerformanceMonitor {
     this.metrics.networkLatency = recentCalls.reduce((sum, call) => sum + call.duration, 0) / recentCalls.length;
 
     if (__DEV__) {
-      console.log(`[Performance] API ${method} ${endpoint}: ${duration.toFixed(2)}ms (${success ? 'success' : 'failed'})`);
+      logger.debug(`[Performance] API ${method} ${endpoint}: ${duration.toFixed(2)}ms (${success ? 'success' : 'failed'})`);
     }
   }
 
@@ -85,7 +86,7 @@ class PerformanceMonitor {
     this.metrics.imageLoads++;
     
     if (__DEV__) {
-      console.log(`[Performance] Image load: ${duration.toFixed(2)}ms (${success ? 'success' : 'failed'})`);
+      logger.debug(`[Performance] Image load: ${duration.toFixed(2)}ms (${success ? 'success' : 'failed'})`);
     }
   }
 
@@ -138,7 +139,7 @@ class PerformanceMonitor {
       };
       await AsyncStorage.setItem('performance_metrics', JSON.stringify(data));
     } catch (error) {
-      console.error('Failed to save performance metrics:', error);
+      logger.error('Failed to save performance metrics:', error);
     }
   }
 
@@ -156,7 +157,7 @@ class PerformanceMonitor {
         }
       }
     } catch (error) {
-      console.error('Failed to load performance metrics:', error);
+      logger.error('Failed to load performance metrics:', error);
     }
   }
 }
