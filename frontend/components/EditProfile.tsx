@@ -15,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
+import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 
 interface EditProfileProps {
   visible: boolean;
@@ -134,7 +135,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       onClose();
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      Alert.alert('Error', sanitizeErrorForDisplay(error, 'EditProfile.updateProfile'));
     } finally {
       setLoading(false);
     }

@@ -210,6 +210,24 @@ const userSchema = new mongoose.Schema({
       followApprovalNotifications: {
         type: Boolean,
         default: true
+      },
+      quietHours: {
+        enabled: {
+          type: Boolean,
+          default: false
+        },
+        startTime: {
+          type: String,
+          default: '22:00'
+        },
+        endTime: {
+          type: String,
+          default: '08:00'
+        },
+        days: {
+          type: [String],
+          default: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        }
       }
     },
     account: {

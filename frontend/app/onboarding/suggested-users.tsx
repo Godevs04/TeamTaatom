@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../../services/api';
+import { getSuggestedUsers, toggleFollow as toggleFollowService } from '../../services/profile';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
@@ -27,11 +27,13 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 interface SuggestedUser {
   _id: string;
-  username: string;
-  fullName: string;
+  username?: string;
+  fullName?: string;
+  profilePic?: string;
   profilePicture?: string;
   bio?: string;
   followersCount?: number;
+  postsCount?: number;
 }
 
 export default function SuggestedUsersOnboarding() {
@@ -49,11 +51,23 @@ export default function SuggestedUsersOnboarding() {
   const fetchSuggestedUsers = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get('/api/v1/profile/suggested-users?limit=6');
-      setSuggestedUsers(response.data.users || []);
-    } catch (error) {
+      const response = await getSuggestedUsers(6);
+      // Response structure: { users: [...], pagination: {...} }
+      const users = (response.users || []).map((user: any) => ({
+        _id: user._id,
+        username: user.username || '',
+        fullName: user.fullName || '',
+        profilePic: user.profilePic,
+        profilePicture: user.profilePic || user.profilePicture,
+        bio: user.bio,
+        followersCount: user.followersCount || 0,
+        postsCount: user.postsCount || 0,
+      }));
+      setSuggestedUsers(users);
+    } catch (error: any) {
       console.error('Error fetching suggested users:', error);
-      // Continue with empty list
+      // Continue with empty list - user can still complete onboarding
+      setSuggestedUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +86,7 @@ export default function SuggestedUsersOnboarding() {
     setFollowing(newFollowing);
 
     try {
-      await api.post(`/api/v1/profile/${userId}/follow`);
+      await toggleFollowService(userId);
       
       // Track engagement
       trackEngagement(isFollowing ? 'unfollow' : 'follow', 'user', userId, {
@@ -149,14 +163,16 @@ export default function SuggestedUsersOnboarding() {
                   />
                   <View style={styles.userInfo}>
                     <Text style={[styles.username, { color: theme.colors.text }]}>
-                      {user.username}
+                      {user.username || 'User'}
                     </Text>
-                    <Text style={[styles.fullName, { color: theme.colors.textSecondary }]}>
-                      {user.fullName}
-                    </Text>
-                    {user.followersCount !== undefined && (
+                    {user.fullName && (
+                      <Text style={[styles.fullName, { color: theme.colors.textSecondary }]}>
+                        {user.fullName}
+                      </Text>
+                    )}
+                    {user.followersCount !== undefined && user.followersCount > 0 && (
                       <Text style={[styles.followers, { color: theme.colors.textSecondary }]}>
-                        {user.followersCount} followers
+                        {user.followersCount} {user.followersCount === 1 ? 'follower' : 'followers'}
                       </Text>
                     )}
                   </View>

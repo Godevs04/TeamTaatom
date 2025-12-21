@@ -23,6 +23,7 @@ import { signInWithGoogle } from '../../services/googleAuth';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -69,8 +70,16 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      // Navigate to tabs without alert for better UX
-      router.replace('/(tabs)/home');
+      // Check onboarding status immediately after signin
+      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+      if (!onboardingCompleted) {
+        // New user - navigate to onboarding immediately
+        console.log('[SignIn] New user detected, navigating to onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        // Existing user - navigate to home
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
       console.log('Sign-in error:', error);
       
@@ -106,7 +115,16 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      router.replace('/(tabs)');
+      // Check onboarding status immediately after signin
+      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
+      if (!onboardingCompleted) {
+        // New user - navigate to onboarding immediately
+        console.log('[SignIn] New user detected (Google), navigating to onboarding');
+        router.replace('/onboarding/welcome');
+      } else {
+        // Existing user - navigate to tabs
+        router.replace('/(tabs)/home');
+      }
     } catch (error: any) {
       console.log('Google sign-in error:', error);
       showError(error.message);
