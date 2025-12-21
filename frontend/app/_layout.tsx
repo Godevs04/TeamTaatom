@@ -247,17 +247,16 @@ function RootLayoutInner() {
         // Check if onboarding is completed
         const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
         if (!onboardingCompleted) {
-          // Redirect to onboarding if not completed
+          // Redirect to onboarding if not completed - immediate navigation
           console.log('[Navigation] Onboarding not completed, redirecting to onboarding');
           router.replace('/onboarding/welcome');
           return;
         }
         
         // Only navigate if we're definitely authenticated and onboarding is done
+        // Remove setTimeout for immediate navigation
         console.log('[Navigation] User authenticated, navigating to home');
-        setTimeout(() => {
-          router.replace('/(tabs)/home');
-        }, 100);
+        router.replace('/(tabs)/home');
       } else if (isAuthenticated === false && !sessionExpired) {
         // Only navigate to auth if we're definitely not authenticated and not due to session expiry
         console.log('[Navigation] User not authenticated, navigating to auth');

@@ -19,6 +19,8 @@ export default function SettingsLayout() {
       <Stack.Screen name="data" />
       <Stack.Screen name="about" />
       <Stack.Screen name="follow-requests" />
+      <Stack.Screen name="account-activity" />
+      <Stack.Screen name="blocked-users" />
     </Stack>
   );
 }

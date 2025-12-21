@@ -4,6 +4,7 @@ import { captureException } from '../services/crashReporting';
 import { useTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sentry from '@sentry/react-native';
+import { sanitizeErrorForDisplay } from './errorSanitizer';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -67,11 +68,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         return <FallbackComponent error={this.state.error} resetError={this.resetError} />;
       }
 
+      // Only show details in development
+      const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV === 'development';
       return <ErrorFallback 
         error={this.state.error} 
         errorInfo={this.state.errorInfo}
         resetError={this.resetError}
-        showDetails={this.props.showDetails || process.env.NODE_ENV === 'development'}
+        showDetails={this.props.showDetails !== undefined ? this.props.showDetails : isDev}
         level={this.props.level || 'component'}
       />;
     }
@@ -128,7 +131,9 @@ function ErrorFallback({
       </Text>
       
       <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
-        {showDetails ? (error.message || 'Something went wrong. Please try again.') : 'Something went wrong. Please try again.'}
+        {showDetails 
+          ? sanitizeErrorForDisplay(error, 'ErrorBoundary') 
+          : 'Something went wrong. Please try again.'}
       </Text>
 
       {showDetails && errorInfo && (

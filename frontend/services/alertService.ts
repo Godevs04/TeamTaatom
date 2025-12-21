@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { sanitizeErrorForDisplay, sanitizeErrorMessage } from '../utils/errorSanitizer';
 
 export interface AlertConfig {
   title: string;
@@ -77,9 +78,11 @@ class AlertService {
   }
 
   showError(title: string, message: string, onConfirm?: () => void): void {
+    // Sanitize error messages to hide technical details in production
+    const sanitizedMessage = sanitizeErrorForDisplay(message, 'AlertService.showError');
     this.showAlert({
       title,
-      message,
+      message: sanitizedMessage,
       type: 'error',
       onConfirm,
     });

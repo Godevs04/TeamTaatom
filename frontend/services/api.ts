@@ -168,6 +168,12 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
       
+      // Don't retry delete account requests - password errors should fail immediately
+      if (originalRequest.url?.includes('/users/me') && originalRequest.method?.toLowerCase() === 'delete') {
+        // This is likely a password error, not an auth error - don't retry
+        return Promise.reject(error);
+      }
+      
       originalRequest._retry = true;
       
       // Try to refresh token (only for non-auth endpoints that need auth)
