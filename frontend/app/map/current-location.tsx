@@ -157,11 +157,18 @@ export default function CurrentLocationMap() {
   const params = useLocalSearchParams();
   const { theme } = useTheme();
 
-  // Check if we have post location parameters
+  // Check if we have location parameters (from locale or post)
   const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
   const postLongitude = params.longitude ? parseFloat(params.longitude as string) : null;
   const postAddress = params.address as string || null;
-  const isPostLocation = postLatitude && postLongitude;
+  const locationName = params.locationName as string || null; // For locale navigation
+  
+  // CRITICAL: Validate coordinates are valid (not 0 or undefined)
+  const hasValidCoordinates = postLatitude && postLongitude && 
+                               postLatitude !== 0 && postLongitude !== 0 &&
+                               !isNaN(postLatitude) && !isNaN(postLongitude);
+  
+  const isPostLocation = hasValidCoordinates; // Use valid coordinates check
 
   // Debug: Log received parameters
   console.log('Map parameters:', {
@@ -169,12 +176,21 @@ export default function CurrentLocationMap() {
     postLatitude,
     postLongitude,
     postAddress,
+    locationName,
     isPostLocation,
+    hasValidCoordinates,
   });
+  
+  if (hasValidCoordinates) {
+    console.log('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
+  } else {
+    console.warn('⚠️ Invalid coordinates in params, will use current location or geocoding');
+  }
 
   useEffect(() => {
-    if (isPostLocation) {
-      // Use post location coordinates
+    // CRITICAL: Use exact coordinates from params if valid (for locale flow)
+    if (hasValidCoordinates) {
+      console.log('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
       setLocation({
         coords: {
           latitude: postLatitude!,
@@ -205,7 +221,7 @@ export default function CurrentLocationMap() {
         }
       };
     }
-  }, [isPostLocation, postLatitude, postLongitude]);
+  }, [hasValidCoordinates, postLatitude, postLongitude]);
 
   const getCurrentLocation = async () => {
     try {
@@ -413,20 +429,27 @@ export default function CurrentLocationMap() {
           description={isPostLocation ? 'Post Location' : 'You are here'}
           anchor={{ x: 0.5, y: 1 }}
           onPress={() => {
-            // Navigate to existing location detail page
-            if (isPostLocation && postAddress) {
-              // Convert location name to slug format
+            // CRITICAL: For locale flow, just go back to existing LocaleDetail
+            // This prevents creating duplicate detail screens
+            if (locationName && params.userId === 'admin-locale') {
+              // Locale flow: just go back to the detail screen that's already in stack
+              router.back();
+            } else if (isPostLocation && postAddress) {
+              // Post location flow: navigate to detail
               const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
-              const countrySlug = 'general'; // Default country for post locations
+              const countrySlug = 'general';
               
-              router.push({
+              router.replace({
                 pathname: '/tripscore/countries/[country]/locations/[location]',
                 params: {
                   country: countrySlug,
                   location: locationSlug,
-                  userId: 'current-user', // You might want to get actual user ID
+                  userId: 'current-user',
                 }
               });
+            } else {
+              // Fallback: just go back
+              router.back();
             }
           }}
         >
@@ -454,7 +477,16 @@ export default function CurrentLocationMap() {
       <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => {
+            // CRITICAL: For locale flow, just go back to existing LocaleDetail
+            // This prevents creating duplicate detail screens
+            if (locationName && params.userId === 'admin-locale') {
+              // Locale flow: just go back to the detail screen that's already in stack
+              router.back();
+            } else {
+              router.back();
+            }
+          }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.7}
         >

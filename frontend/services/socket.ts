@@ -4,33 +4,64 @@ import { Platform } from 'react-native';
 import { getApiBaseUrl, WS_PATH } from '../utils/config';
 import logger from '../utils/logger';
 
-// Suppress WebSocket errors in web console for development
-if (Platform.OS === 'web' && typeof window !== 'undefined') {
+// Suppress WebSocket errors in console for development (both web and mobile)
+if (typeof window !== 'undefined' || typeof global !== 'undefined') {
   const originalError = console.error;
   const wsErrorSuppressed = new Set<string>();
   
   // Override console.error to filter out noisy WebSocket errors
   console.error = (...args: any[]) => {
     const message = args.join(' ');
-    // Filter out common WebSocket connection errors that are expected in development
-    if (
+    const firstArg = args[0];
+    
+    // Check if this is a WebSocket/Socket.IO connection error
+    // Check message string
+    const messageCheck = 
       message.includes('WebSocket connection to') ||
       message.includes('TransportError') ||
       message.includes('websocket error') ||
       message.includes('ERR_CONNECTION_REFUSED') ||
-      message.includes('construct.js')
-    ) {
+      message.includes('construct.js') ||
+      message.includes('_construct') ||
+      message.includes('engine.io-client') ||
+      message.includes('socket.io-client') ||
+      message.includes('[socketService.connect]') ||
+      message.includes('socketService.connect');
+    
+    // Check first argument (could be error object or string)
+    const firstArgCheck = 
+      (typeof firstArg === 'string' && (
+        firstArg.includes('[socketService.connect]') ||
+        firstArg.includes('socketService.connect') ||
+        firstArg.includes('construct.js')
+      )) ||
+      (firstArg && typeof firstArg === 'object' && (
+        firstArg.stack?.includes('construct.js') ||
+        firstArg.stack?.includes('TransportError') ||
+        firstArg.stack?.includes('engine.io-client') ||
+        firstArg.stack?.includes('socket.io-client') ||
+        firstArg.message?.includes('TransportError') ||
+        firstArg.message?.includes('ECONNREFUSED')
+      ));
+    
+    const isWebSocketError = messageCheck || firstArgCheck;
+    
+    // Filter out common WebSocket connection errors that are expected in development
+    if (isWebSocketError) {
       // Only log once per unique error to avoid spam
-      const errorKey = message.substring(0, 100); // Use first 100 chars as key
+      const errorKey = message.substring(0, 200); // Use first 200 chars as key
       if (!wsErrorSuppressed.has(errorKey)) {
         wsErrorSuppressed.add(errorKey);
-        originalError('[WebSocket] Connection errors suppressed. Backend may not be running.');
-        // Clear after 10 seconds to allow new errors
+        // Only show suppressed message in development, and only once
+        if (process.env.NODE_ENV === 'development' && Platform.OS === 'web') {
+          originalError('[WebSocket] Connection errors suppressed. Backend may not be running.');
+        }
+        // Clear after 30 seconds to allow new errors
         setTimeout(() => {
           wsErrorSuppressed.delete(errorKey);
-        }, 10000);
+        }, 30000);
       }
-      return;
+      return; // Suppress the error
     }
     originalError.apply(console, args);
   };
@@ -181,23 +212,45 @@ const connectSocket = async () => {
     }
   });
 
-  socket.on('connect_error', (err) => {
+  socket.on('connect_error', (err: any) => {
     connectionState = 'disconnected';
     
-    // Only log if it's not an auth error (which is expected if no token)
-    // For web: Suppress connection refused errors in development (common when backend is not running)
-    const isConnectionRefused = err.message?.includes('ECONNREFUSED') || 
-                               err.message?.includes('connection refused') ||
-                               err.message?.includes('TransportError');
+    // Check if this is an expected connection error (backend not running, network issues)
+    const errType = (err as any)?.type;
+    const errName = err.name || (err as any)?.name;
+    const errMessage = err.message || String(err);
     
-    if (process.env.NODE_ENV === 'development' && err.message !== 'Invalid token') {
-      if (Platform.OS === 'web' && isConnectionRefused) {
-        // For web, only log once to avoid spam
-        if (reconnectAttempts === 0) {
-          logger.debug('Socket connection refused (backend may not be running). Will retry silently.');
+    const isConnectionRefused = errMessage?.includes('ECONNREFUSED') || 
+                               errMessage?.includes('connection refused') ||
+                               errMessage?.includes('TransportError') ||
+                               errMessage?.includes('xhr poll error') ||
+                               errMessage?.includes('websocket error') ||
+                               errType === 'TransportError' ||
+                               errName === 'TransportError';
+    
+    // Check if error stack contains construct.js (Babel runtime helper errors)
+    const errStack = err.stack || String(err);
+    const hasConstructError = errStack?.includes('construct.js') || 
+                              errStack?.includes('_construct') ||
+                              errMessage?.includes('construct.js');
+    
+    // Suppress expected connection errors (backend not running, network issues)
+    // Only log unexpected errors (auth errors, etc.)
+    if (process.env.NODE_ENV === 'development') {
+      if (isConnectionRefused || hasConstructError) {
+        // Suppress these expected errors - only log once on first attempt
+        if (reconnectAttempts === 0 && Platform.OS === 'web') {
+          logger.debug('Socket connection error (backend may not be running). Will retry silently.');
         }
-      } else {
-        logger.error('socketService.connect', err);
+        // Don't log these errors - they're expected when backend is down
+      } else if (errMessage !== 'Invalid token') {
+        // Log unexpected errors (but not auth errors)
+        logger.error('socketService.connect', {
+          message: errMessage,
+          type: errType,
+          name: errName,
+          // Don't include full stack trace for connection errors
+        });
       }
     }
 
