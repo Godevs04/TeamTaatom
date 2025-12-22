@@ -95,6 +95,19 @@ const postSchema = new mongoose.Schema({
       }
     }
   },
+  // TripScore metadata - selected by user during post creation
+  spotType: {
+    type: String,
+    required: false,
+    enum: ['Beach', 'Mountain', 'City', 'Natural spots', 'Religious', 'Cultural', 'General', null],
+    default: null
+  },
+  travelInfo: {
+    type: String,
+    required: false,
+    enum: ['Drivable', 'Hiking', 'Water Transport', 'Flight', 'Train', null],
+    default: null
+  },
   likes: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

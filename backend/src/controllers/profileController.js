@@ -117,14 +117,27 @@ const getProfile = async (req, res) => {
       areas: []
     };
 
-    // Track unique locations (deduplicate by lat/lng)
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    // This ensures multiple posts at the same location are grouped together
+    const roundCoordinate = (coord, precision = 2) => {
+      // Round to 2 decimal places (≈ 1.1km precision)
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      // Use rounded coordinates to group nearby locations together
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
+
+    // Track unique locations (deduplicate by rounded lat/lng to match deduplication tolerance)
     const uniqueLocations = new Set();
 
     // Process visits to calculate TripScore (unique places only)
     trustedVisits.forEach(visit => {
-      const locationKey = `${visit.lat},${visit.lng}`;
+      // Use rounded coordinates to group nearby locations (same as deduplication logic)
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only count each unique location once
+      // Only count each unique location once (groups nearby locations together)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.add(locationKey);
         
@@ -1195,6 +1208,15 @@ const getTripScoreContinents = async (req, res) => {
     .lean()
     .limit(1000);
 
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
+
     // Calculate continent scores and distances based on unique visits
     const continentScores = {};
     const continentLocations = {}; // Store unique locations per continent for distance calculation
@@ -1202,9 +1224,10 @@ const getTripScoreContinents = async (req, res) => {
     let totalScore = 0;
 
     trustedVisits.forEach(visit => {
-      const locationKey = `${visit.lat},${visit.lng}`;
+      // Use rounded coordinates to group nearby locations (same as deduplication logic)
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only count each unique location once (TripScore v2 deduplication)
+      // Only count each unique location once (TripScore v2 deduplication with tolerance)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
@@ -1284,7 +1307,8 @@ const getTripScoreCountries = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    const continentName = continent.toUpperCase();
+    // URL decode continent name in case it has spaces or special characters
+    const continentName = decodeURIComponent(continent).toUpperCase();
     
     // Get verified visits for this continent (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
@@ -1296,15 +1320,32 @@ const getTripScoreCountries = async (req, res) => {
     .select('lat lng country address')
     .lean();
 
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
+
     // Filter visits by continent and calculate country scores based on unique places
     const countryScores = {};
     const uniqueLocationKeys = new Set(); // Track unique locations
     let continentScore = 0;
 
     trustedVisits.forEach(visit => {
-      const locationKey = `${visit.lat},${visit.lng}`;
+      // Skip visits with invalid coordinates
+      if (typeof visit.lat !== 'number' || typeof visit.lng !== 'number' || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        logger.warn('Skipping visit with invalid coordinates:', visit);
+        return;
+      }
       
-      // Only count each unique location once
+      // Use rounded coordinates to group nearby locations (same as deduplication logic)
+      const locationKey = getLocationKey(visit.lat, visit.lng);
+      
+      // Only count each unique location once (groups nearby locations together)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
@@ -1322,17 +1363,24 @@ const getTripScoreCountries = async (req, res) => {
     // Get countries for this continent
     const predefinedCountries = getCountriesForContinent(continentName);
     
+    // Ensure predefinedCountries is an array (handle edge cases)
+    const safePredefinedCountries = Array.isArray(predefinedCountries) ? predefinedCountries : [];
+    
     // Combine predefined countries with detected countries (including Unknown)
+    // Always include all predefined countries, even if they have 0 visits
     const allCountriesSet = new Set([
-      ...predefinedCountries,
+      ...safePredefinedCountries,
       ...Object.keys(countryScores)
     ]);
     
-    const countryList = Array.from(allCountriesSet).map(country => ({
-      name: country,
-      score: countryScores[country] || 0,
-      visited: countryScores[country] > 0
-    }));
+    // Create country list with all countries, sorted alphabetically
+    const countryList = Array.from(allCountriesSet)
+      .map(country => ({
+        name: country,
+        score: countryScores[country] || 0,
+        visited: countryScores[country] > 0
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
 
     return sendSuccess(res, 200, 'TripScore countries fetched successfully', {
       continent: continentName,
@@ -1342,6 +1390,12 @@ const getTripScoreCountries = async (req, res) => {
 
   } catch (error) {
     logger.error('Get TripScore countries error:', error);
+    logger.error('Error details:', {
+      userId: req.params.id,
+      continent: req.params.continent,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
     return sendError(res, 'SRV_6001', 'Error fetching TripScore countries');
   }
 };
@@ -1354,16 +1408,29 @@ const getTripScoreCountryDetails = async (req, res) => {
     const { id } = req.params;
     const { country } = req.params;
 
+    const { generateSignedUrl } = require('../services/mediaService');
+
     // Get verified visits for this country (TripScore v2.1 - unique places only)
+    // Populate post to get image data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
       country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
-    .select('lat lng address takenAt uploadedAt')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo')
+    .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
     .lean();
+
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
 
     // Filter visits by country and calculate locations (unique places only)
     const locations = [];
@@ -1372,22 +1439,78 @@ const getTripScoreCountryDetails = async (req, res) => {
     let totalDistance = 0;
     let previousLocation = null;
 
-    trustedVisits.forEach(visit => {
-      const locationKey = `${visit.lat},${visit.lng}`;
+    for (const visit of trustedVisits) {
+      // Use rounded coordinates to group nearby locations (same as deduplication logic)
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only count/show each unique location once
+      // Only count/show each unique location once (groups nearby locations together)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.add(locationKey);
         
         // Count unique places visited
         countryScore += 1;
         
+        // Get image URL from post (user-uploaded image)
+        let imageUrl = null;
+        let postType = null;
+        
+        if (visit.post) {
+          postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
+          
+          // For photos: use imageUrl or first image from images array
+          if (postType === 'photo') {
+            if (visit.post.storageKey) {
+              // Generate signed URL for single image
+              imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
+            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+              // Generate signed URL for first image in array
+              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
+            } else if (visit.post.imageUrl) {
+              // Fallback to existing imageUrl (if already signed)
+              imageUrl = visit.post.imageUrl;
+            } else if (visit.post.images && visit.post.images.length > 0) {
+              // Fallback to first image in images array
+              imageUrl = visit.post.images[0];
+            }
+          } 
+          // For shorts/videos: use thumbnail if available, otherwise use video storage key
+          else if (postType === 'short' || visit.post.videoUrl) {
+            // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
+            if (visit.post.imageUrl) {
+              imageUrl = visit.post.imageUrl;
+            } 
+            // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
+            else if (visit.post.images && visit.post.images.length > 0) {
+              imageUrl = visit.post.images[0];
+            }
+            // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
+            else if (visit.post.storageKey) {
+              imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
+            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
+            } 
+            // Priority 4: Fallback to videoUrl
+            else if (visit.post.videoUrl) {
+              imageUrl = visit.post.videoUrl;
+            }
+          }
+        }
+        
+        // Get spotType and travelInfo from TripVisit (copied from post) or post directly
+        const spotType = visit.spotType || visit.post?.spotType || 'General';
+        const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
+        
         locations.push({
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: visit.takenAt || visit.uploadedAt,
-          caption: '', // Caption is post-specific, not visit-specific
-          category: { fromYou: 'Unknown', typeOfSpot: 'Unknown' }, // Category detection would need post data
+          caption: visit.post?.caption || '', // Post caption
+          category: { 
+            fromYou: travelInfo, // From post dropdown
+            typeOfSpot: spotType // From post dropdown
+          },
+          imageUrl: imageUrl, // User-uploaded image or video thumbnail
+          postType: postType, // 'photo' or 'short'
           coordinates: {
             latitude: visit.lat,
             longitude: visit.lng
@@ -1411,7 +1534,7 @@ const getTripScoreCountryDetails = async (req, res) => {
           longitude: visit.lng
         };
       }
-    });
+    }
 
     return sendSuccess(res, 200, 'TripScore country details fetched successfully', {
       country,
@@ -1436,40 +1559,113 @@ const getTripScoreLocations = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    const { generateSignedUrl } = require('../services/mediaService');
+
     // Get verified visits for this country (TripScore v2.1 - unique places only)
+    // Populate post to get image data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
       country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
     })
-    .select('lat lng address takenAt uploadedAt')
+    .select('lat lng address takenAt uploadedAt post contentType')
+    .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
     .lean();
+
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
 
     // Filter visits by country (unique places only)
     const locations = [];
     const uniqueLocations = new Set();
     let countryScore = 0;
 
-    trustedVisits.forEach(visit => {
-      const locationKey = `${visit.lat},${visit.lng}`;
+    for (const visit of trustedVisits) {
+      // Use rounded coordinates to group nearby locations (same as deduplication logic)
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only count/show each unique location once
+      // Only count/show each unique location once (groups nearby locations together)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.add(locationKey);
         
         // Count unique places visited
         countryScore += 1;
         
+        // Get image URL from post (user-uploaded image)
+        let imageUrl = null;
+        let postType = null;
+        
+        if (visit.post) {
+          postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
+          
+          // For photos: use imageUrl or first image from images array
+          if (postType === 'photo') {
+            if (visit.post.storageKey) {
+              // Generate signed URL for single image
+              imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
+            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+              // Generate signed URL for first image in array
+              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
+            } else if (visit.post.imageUrl) {
+              // Fallback to existing imageUrl (if already signed)
+              imageUrl = visit.post.imageUrl;
+            } else if (visit.post.images && visit.post.images.length > 0) {
+              // Fallback to first image in images array
+              imageUrl = visit.post.images[0];
+            }
+          } 
+          // For shorts/videos: use thumbnail if available, otherwise use video storage key
+          else if (postType === 'short' || visit.post.videoUrl) {
+            // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
+            if (visit.post.imageUrl) {
+              imageUrl = visit.post.imageUrl;
+            } 
+            // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
+            else if (visit.post.images && visit.post.images.length > 0) {
+              imageUrl = visit.post.images[0];
+            }
+            // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
+            else if (visit.post.storageKey) {
+              imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
+            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
+            } 
+            // Priority 4: Fallback to videoUrl
+            else if (visit.post.videoUrl) {
+              imageUrl = visit.post.videoUrl;
+            }
+          }
+        }
+        
+        // Get spotType and travelInfo from TripVisit (copied from post) or post directly
+        const spotType = visit.spotType || visit.post?.spotType || 'General';
+        const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
+        
         locations.push({
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: visit.takenAt || visit.uploadedAt,
-          caption: '', // Caption is post-specific, not visit-specific
-          category: { fromYou: 'Unknown', typeOfSpot: 'Unknown' } // Category detection would need post data
+          caption: visit.post?.caption || '', // Post caption
+          category: { 
+            fromYou: travelInfo, // From post dropdown
+            typeOfSpot: spotType // From post dropdown
+          },
+          imageUrl: imageUrl, // User-uploaded image or video thumbnail
+          postType: postType, // 'photo' or 'short'
+          coordinates: {
+            latitude: visit.lat,
+            longitude: visit.lng
+          }
         });
       }
-    });
+    }
 
     return sendSuccess(res, 200, 'TripScore locations fetched successfully', {
       country,
@@ -1667,13 +1863,15 @@ const getCountryFromLocation = (address) => {
 };
 
 // Helper function to get countries for a continent
+// Comprehensive list of all countries organized by continent
 const getCountriesForContinent = (continent) => {
   const countryMap = {
     'AUSTRALIA': [
       'Australia', 'New Zealand', 'Fiji', 'Papua New Guinea', 'Solomon Islands',
       'Vanuatu', 'Federated States of Micronesia', 'Kiribati', 'Marshall Islands',
       'Nauru', 'Palau', 'Samoa', 'Tonga', 'Tuvalu', 'Cook Islands', 'French Polynesia',
-      'New Caledonia', 'Niue', 'Pitcairn Islands', 'Tokelau', 'Wallis and Futuna'
+      'New Caledonia', 'Niue', 'Pitcairn Islands', 'Tokelau', 'Wallis and Futuna',
+      'American Samoa', 'Guam', 'Northern Mariana Islands', 'Wake Island'
     ],
     'ASIA': [
       'India', 'China', 'Japan', 'Thailand', 'Singapore', 'Malaysia', 'Indonesia',
@@ -1682,7 +1880,8 @@ const getCountriesForContinent = (continent) => {
       'Iran', 'Iraq', 'Israel', 'Jordan', 'Kuwait', 'Lebanon', 'Oman', 'Qatar',
       'Saudi Arabia', 'Syria', 'Turkey', 'United Arab Emirates', 'Yemen', 'Kazakhstan',
       'Kyrgyzstan', 'Tajikistan', 'Turkmenistan', 'Uzbekistan', 'Mongolia', 'North Korea',
-      'Taiwan', 'Hong Kong', 'Macau', 'Brunei', 'East Timor'
+      'Taiwan', 'Hong Kong', 'Macau', 'Brunei', 'East Timor', 'Armenia', 'Azerbaijan',
+      'Bahrain', 'Georgia', 'Palestine'
     ],
     'EUROPE': [
       'France', 'Germany', 'Italy', 'Spain', 'United Kingdom', 'Netherlands',
@@ -1692,7 +1891,8 @@ const getCountriesForContinent = (continent) => {
       'Malta', 'Portugal', 'Romania', 'Slovakia', 'Slovenia', 'Switzerland',
       'Ukraine', 'Belarus', 'Moldova', 'Albania', 'Bosnia and Herzegovina',
       'Montenegro', 'North Macedonia', 'Serbia', 'Iceland', 'Liechtenstein',
-      'Monaco', 'San Marino', 'Vatican City', 'Andorra'
+      'Monaco', 'San Marino', 'Vatican City', 'Andorra', 'Faroe Islands',
+      'Gibraltar', 'Guernsey', 'Isle of Man', 'Jersey', 'Svalbard and Jan Mayen'
     ],
     'NORTH AMERICA': [
       'United States', 'Canada', 'Mexico', 'Guatemala', 'Cuba', 'Jamaica',
@@ -1700,7 +1900,10 @@ const getCountriesForContinent = (continent) => {
       'Barbados', 'Saint Lucia', 'Grenada', 'Saint Vincent and the Grenadines',
       'Antigua and Barbuda', 'Saint Kitts and Nevis', 'Dominica', 'Belize',
       'El Salvador', 'Honduras', 'Nicaragua', 'Costa Rica', 'Panama',
-      'Bahamas', 'Greenland', 'Bermuda', 'Cayman Islands', 'Turks and Caicos Islands'
+      'Bahamas', 'Greenland', 'Bermuda', 'Cayman Islands', 'Turks and Caicos Islands',
+      'Aruba', 'Bonaire', 'Curaçao', 'Sint Maarten', 'Anguilla', 'British Virgin Islands',
+      'US Virgin Islands', 'Montserrat', 'Saint Martin', 'Saint Barthélemy',
+      'Guadeloupe', 'Martinique', 'Sint Eustatius', 'Saba'
     ],
     'SOUTH AMERICA': [
       'Brazil', 'Argentina', 'Chile', 'Peru', 'Colombia', 'Venezuela', 'Ecuador',
@@ -1717,9 +1920,12 @@ const getCountriesForContinent = (continent) => {
       'Malawi', 'Mali', 'Mauritania', 'Mauritius', 'Mozambique', 'Namibia',
       'Niger', 'Rwanda', 'São Tomé and Príncipe', 'Senegal', 'Seychelles',
       'Sierra Leone', 'Somalia', 'Sudan', 'South Sudan', 'Tanzania', 'Togo',
-      'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe'
+      'Tunisia', 'Uganda', 'Zambia', 'Zimbabwe', 'Western Sahara', 'Mayotte',
+      'Réunion', 'Saint Helena', 'Ascension Island', 'Tristan da Cunha'
     ],
-    'ANTARCTICA': []
+    'ANTARCTICA': [
+      'Antarctica', 'Bouvet Island', 'French Southern Territories', 'Heard Island and McDonald Islands'
+    ]
   };
   
   return countryMap[continent] || [];

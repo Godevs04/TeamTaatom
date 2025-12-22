@@ -27,7 +27,10 @@ import {
   Percent,
   ChevronRight,
   Home,
-  AlertCircle
+  AlertCircle,
+  Edit,
+  X,
+  Save
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { motion } from 'framer-motion'
@@ -40,7 +43,8 @@ import {
   getDetailedLocations,
   getPendingReviews,
   approveTripVisit,
-  rejectTripVisit
+  rejectTripVisit,
+  updateTripVisit
 } from '../services/tripScoreAnalytics'
 import logger from '../utils/logger'
 
@@ -68,7 +72,18 @@ const TripScoreAnalytics = () => {
   const [pendingReviewsPagination, setPendingReviewsPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 })
   const [reviewActionLoading, setReviewActionLoading] = useState(null)
   const [selectedReview, setSelectedReview] = useState(null) // For view modal
+  const [failedImages, setFailedImages] = useState(new Set()) // Track failed image URLs
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    country: '',
+    continent: '',
+    address: '',
+    city: '',
+    verificationReason: '',
+    lat: '',
+    lng: ''
+  })
   
   const [selectedPeriod, setSelectedPeriod] = useState('30d')
   const [loading, setLoading] = useState(false)
@@ -652,6 +667,17 @@ const TripScoreAnalytics = () => {
   // Handle view review details
   const handleViewReview = useCallback((review) => {
     setSelectedReview(review)
+    setIsEditMode(false)
+    setFailedImages(new Set()) // Clear failed images when opening a new review
+    setEditFormData({
+      country: review.location?.country || '',
+      continent: review.location?.continent || '',
+      address: review.location?.address || '',
+      city: review.location?.city || '',
+      verificationReason: review.verificationReason || '',
+      lat: review.location?.coordinates?.latitude?.toString() || '',
+      lng: review.location?.coordinates?.longitude?.toString() || ''
+    })
     setIsViewModalOpen(true)
   }, [])
   
@@ -659,7 +685,78 @@ const TripScoreAnalytics = () => {
   const handleCloseViewModal = useCallback(() => {
     setIsViewModalOpen(false)
     setSelectedReview(null)
+    setIsEditMode(false)
+    setFailedImages(new Set()) // Clear failed images when closing modal
+    setEditFormData({
+      country: '',
+      continent: '',
+      address: '',
+      city: '',
+      verificationReason: '',
+      lat: '',
+      lng: ''
+    })
   }, [])
+
+  // Handle edit mode toggle
+  const handleToggleEdit = useCallback(() => {
+    setIsEditMode(prev => !prev)
+  }, [])
+
+  // Handle save edit
+  const handleSaveEdit = useCallback(async () => {
+    if (!selectedReview || reviewActionLoading) return
+    
+    try {
+      setReviewActionLoading(selectedReview._id)
+      
+      const updates = {}
+      if (editFormData.country !== selectedReview.location?.country) updates.country = editFormData.country
+      if (editFormData.continent !== selectedReview.location?.continent) updates.continent = editFormData.continent
+      if (editFormData.address !== selectedReview.location?.address) updates.address = editFormData.address
+      if (editFormData.city !== selectedReview.location?.city) updates.city = editFormData.city
+      if (editFormData.verificationReason !== selectedReview.verificationReason) updates.verificationReason = editFormData.verificationReason
+      if (editFormData.lat !== selectedReview.location?.coordinates?.latitude?.toString()) updates.lat = parseFloat(editFormData.lat)
+      if (editFormData.lng !== selectedReview.location?.coordinates?.longitude?.toString()) updates.lng = parseFloat(editFormData.lng)
+      
+      if (Object.keys(updates).length === 0) {
+        toast.info('No changes to save')
+        setIsEditMode(false)
+        return
+      }
+      
+      await updateTripVisit(selectedReview._id, updates)
+      
+      // Update local state
+      const updatedReview = {
+        ...selectedReview,
+        location: {
+          ...selectedReview.location,
+          country: updates.country !== undefined ? updates.country : selectedReview.location?.country,
+          continent: updates.continent !== undefined ? updates.continent : selectedReview.location?.continent,
+          address: updates.address !== undefined ? updates.address : selectedReview.location?.address,
+          city: updates.city !== undefined ? updates.city : selectedReview.location?.city,
+          coordinates: {
+            latitude: updates.lat !== undefined ? updates.lat : selectedReview.location?.coordinates?.latitude,
+            longitude: updates.lng !== undefined ? updates.lng : selectedReview.location?.coordinates?.longitude
+          }
+        },
+        verificationReason: updates.verificationReason !== undefined ? updates.verificationReason : selectedReview.verificationReason
+      }
+      
+      setSelectedReview(updatedReview)
+      setPendingReviews(prev => prev.map(r => r._id === selectedReview._id ? updatedReview : r))
+      setIsEditMode(false)
+      
+      toast.success('TripVisit updated successfully')
+    } catch (error) {
+      logger.error('Failed to update TripVisit:', error)
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to update TripVisit'
+      toast.error(errorMessage)
+    } finally {
+      setReviewActionLoading(null)
+    }
+  }, [selectedReview, editFormData, reviewActionLoading])
   
   // Handle approve/reject from modal
   const handleApproveFromModal = useCallback(async () => {
@@ -2347,29 +2444,53 @@ const TripScoreAnalytics = () => {
                     )}
                     <div className="grid grid-cols-2 gap-3">
                       {selectedReview.post.images && selectedReview.post.images.length > 0 ? (
-                        selectedReview.post.images.map((imageUrl, idx) => (
-                          <div key={idx} className="relative rounded-lg overflow-hidden border-2 border-gray-200">
-                            <img
-                              src={imageUrl}
-                              alt={`Post image ${idx + 1}`}
-                              className="w-full h-48 object-cover"
-                              onError={(e) => {
-                                e.target.src = 'https://via.placeholder.com/400x400?text=Image+Not+Available'
-                              }}
-                            />
-                          </div>
-                        ))
+                        selectedReview.post.images.map((imageUrl, idx) => {
+                          const imageKey = `image-${idx}-${imageUrl}`
+                          const hasError = failedImages.has(imageKey)
+                          return (
+                            <div key={idx} className="relative rounded-lg overflow-hidden border-2 border-gray-200 bg-gray-100">
+                              {hasError ? (
+                                <div className="w-full h-48 flex flex-col items-center justify-center text-gray-400">
+                                  <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+                                  <p className="text-xs">Image not available</p>
+                                </div>
+                              ) : (
+                                <img
+                                  src={imageUrl}
+                                  alt={`Post image ${idx + 1}`}
+                                  className="w-full h-48 object-cover"
+                                  onError={() => {
+                                    setFailedImages(prev => new Set([...prev, imageKey]))
+                                  }}
+                                />
+                              )}
+                            </div>
+                          )
+                        })
                       ) : selectedReview.post.imageUrl ? (
-                        <div className="relative rounded-lg overflow-hidden border-2 border-gray-200">
-                          <img
-                            src={selectedReview.post.imageUrl}
-                            alt="Post image"
-                            className="w-full h-48 object-cover"
-                            onError={(e) => {
-                              e.target.src = 'https://via.placeholder.com/400x400?text=Image+Not+Available'
-                            }}
-                          />
-                        </div>
+                        (() => {
+                          const imageKey = `single-image-${selectedReview.post.imageUrl}`
+                          const hasError = failedImages.has(imageKey)
+                          return (
+                            <div className="relative rounded-lg overflow-hidden border-2 border-gray-200 bg-gray-100">
+                              {hasError ? (
+                                <div className="w-full h-48 flex flex-col items-center justify-center text-gray-400">
+                                  <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+                                  <p className="text-xs">Image not available</p>
+                                </div>
+                              ) : (
+                                <img
+                                  src={selectedReview.post.imageUrl}
+                                  alt="Post image"
+                                  className="w-full h-48 object-cover"
+                                  onError={() => {
+                                    setFailedImages(prev => new Set([...prev, imageKey]))
+                                  }}
+                                />
+                              )}
+                            </div>
+                          )
+                        })()
                       ) : (
                         <div className="col-span-2 text-center py-8 text-gray-400">
                           <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
@@ -2386,42 +2507,123 @@ const TripScoreAnalytics = () => {
               
               {/* Location Information */}
               <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  Location Details
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Address</p>
-                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.address || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">City</p>
-                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.city || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Country</p>
-                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.country || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Continent</p>
-                    <p className="text-sm font-medium text-gray-900">{selectedReview.location?.continent || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Coordinates</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedReview.location?.coordinates?.latitude !== 0 && selectedReview.location?.coordinates?.longitude !== 0
-                        ? `${selectedReview.location.coordinates.latitude.toFixed(6)}, ${selectedReview.location.coordinates.longitude.toFixed(6)}`
-                        : 'Manual Location (0, 0)'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Uploaded At</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {new Date(selectedReview.uploadedAt).toLocaleString()}
-                    </p>
-                  </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    Location Details
+                  </h3>
+                  {!isEditMode && (
+                    <button
+                      onClick={handleToggleEdit}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1 text-sm"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </button>
+                  )}
                 </div>
+                {isEditMode ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Address</label>
+                      <input
+                        type="text"
+                        value={editFormData.address}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, address: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">City</label>
+                      <input
+                        type="text"
+                        value={editFormData.city}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, city: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Country</label>
+                      <input
+                        type="text"
+                        value={editFormData.country}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, country: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Continent</label>
+                      <select
+                        value={editFormData.continent}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, continent: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Select Continent</option>
+                        <option value="ASIA">ASIA</option>
+                        <option value="AFRICA">AFRICA</option>
+                        <option value="NORTH AMERICA">NORTH AMERICA</option>
+                        <option value="SOUTH AMERICA">SOUTH AMERICA</option>
+                        <option value="AUSTRALIA">AUSTRALIA</option>
+                        <option value="EUROPE">EUROPE</option>
+                        <option value="ANTARCTICA">ANTARCTICA</option>
+                        <option value="Unknown">Unknown</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Latitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={editFormData.lat}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, lat: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Longitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={editFormData.lng}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, lng: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Address</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedReview.location?.address || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">City</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedReview.location?.city || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Country</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedReview.location?.country || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Continent</p>
+                      <p className="text-sm font-medium text-gray-900">{selectedReview.location?.continent || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Coordinates</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedReview.location?.coordinates?.latitude !== 0 && selectedReview.location?.coordinates?.longitude !== 0
+                          ? `${selectedReview.location.coordinates.latitude.toFixed(6)}, ${selectedReview.location.coordinates.longitude.toFixed(6)}`
+                          : 'Manual Location (0, 0)'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Uploaded At</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {new Date(selectedReview.uploadedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               
               {/* Verification Details */}
@@ -2430,70 +2632,138 @@ const TripScoreAnalytics = () => {
                   <Shield className="w-4 h-4" />
                   Verification Information
                 </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Source</p>
-                    <span className="inline-flex px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                      {selectedReview.source?.replace(/_/g, ' ') || 'Unknown'}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Reason for Review</p>
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-500" />
-                      <span className="text-sm font-medium text-gray-900">
-                        {selectedReview.verificationReason === 'no_exif' && 'No EXIF GPS data'}
-                        {selectedReview.verificationReason === 'manual_location' && 'Manual location only'}
-                        {selectedReview.verificationReason === 'suspicious_pattern' && 'Suspicious travel pattern'}
-                        {!selectedReview.verificationReason && 'Requires review'}
+                {isEditMode ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Source</label>
+                      <span className="inline-flex px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                        {selectedReview.source?.replace(/_/g, ' ') || 'Unknown'}
                       </span>
                     </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Reason for Review</label>
+                      <select
+                        value={editFormData.verificationReason}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, verificationReason: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Select Reason</option>
+                        <option value="no_exif">No EXIF GPS data</option>
+                        <option value="manual_location">Manual location only</option>
+                        <option value="suspicious_pattern">Suspicious travel pattern</option>
+                        <option value="photo_requires_review">Photo requires review</option>
+                        <option value="gallery_exif_requires_review">Gallery EXIF requires review</option>
+                        <option value="photo_from_camera_requires_review">Photo from camera requires review</option>
+                        <option value="requires_admin_review">Requires admin review</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Created At</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {new Date(selectedReview.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Review ID</p>
+                      <p className="text-sm font-mono text-gray-600 text-xs break-all">{selectedReview._id}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Created At</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {new Date(selectedReview.createdAt).toLocaleString()}
-                    </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Source</p>
+                      <span className="inline-flex px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                        {selectedReview.source?.replace(/_/g, ' ') || 'Unknown'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Reason for Review</p>
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {selectedReview.verificationReason === 'no_exif' && 'No EXIF GPS data'}
+                          {selectedReview.verificationReason === 'manual_location' && 'Manual location only'}
+                          {selectedReview.verificationReason === 'suspicious_pattern' && 'Suspicious travel pattern'}
+                          {selectedReview.verificationReason === 'photo_requires_review' && 'Photo requires review'}
+                          {selectedReview.verificationReason === 'gallery_exif_requires_review' && 'Gallery EXIF requires review'}
+                          {selectedReview.verificationReason === 'photo_from_camera_requires_review' && 'Photo from camera requires review'}
+                          {selectedReview.verificationReason === 'requires_admin_review' && 'Requires admin review'}
+                          {!selectedReview.verificationReason && 'Requires review'}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Created At</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {new Date(selectedReview.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Review ID</p>
+                      <p className="text-sm font-mono text-gray-600 text-xs break-all">{selectedReview._id}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Review ID</p>
-                    <p className="text-sm font-mono text-gray-600 text-xs break-all">{selectedReview._id}</p>
-                  </div>
-                </div>
+                )}
               </div>
               
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
-                <button
-                  onClick={handleCloseViewModal}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={handleRejectFromModal}
-                  disabled={reviewActionLoading === selectedReview._id}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                >
-                  {reviewActionLoading === selectedReview._id ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    <XCircle className="w-4 h-4" />
-                  )}
-                  Reject
-                </button>
-                <button
-                  onClick={handleApproveFromModal}
-                  disabled={reviewActionLoading === selectedReview._id}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                >
-                  {reviewActionLoading === selectedReview._id ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    <CheckCircle className="w-4 h-4" />
-                  )}
-                  Approve
-                </button>
+                {isEditMode ? (
+                  <>
+                    <button
+                      onClick={handleToggleEdit}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={reviewActionLoading === selectedReview._id}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      {reviewActionLoading === selectedReview._id ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                      Save Changes
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleCloseViewModal}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                      Close
+                    </button>
+                    <button
+                      onClick={handleRejectFromModal}
+                      disabled={reviewActionLoading === selectedReview._id}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      {reviewActionLoading === selectedReview._id ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      ) : (
+                        <XCircle className="w-4 h-4" />
+                      )}
+                      Reject
+                    </button>
+                    <button
+                      onClick={handleApproveFromModal}
+                      disabled={reviewActionLoading === selectedReview._id}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      {reviewActionLoading === selectedReview._id ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      ) : (
+                        <CheckCircle className="w-4 h-4" />
+                      )}
+                      Approve
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </motion.div>
