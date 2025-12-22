@@ -51,7 +51,7 @@ router.get('/', basicHealthCheck);
  *   get:
  *     summary: Detailed health check
  *     tags: [Health]
- *     description: Comprehensive health check including all services (database, Redis, etc.)
+ *     description: Comprehensive health check including all services (database, etc.)
  *     responses:
  *       200:
  *         description: All services are healthy

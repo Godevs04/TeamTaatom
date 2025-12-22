@@ -1,12 +1,13 @@
 /**
- * Redis Caching Utility
- * Provides caching layer for frequently accessed data
+ * Cache Utility (No-op implementation)
+ * Cache functionality is disabled - all operations return null/false
+ * This maintains API compatibility for future Redis integration
  */
 
-const { getRedisClient } = require('./redisHealth');
 const logger = require('./logger');
 
 // Cache TTL (Time To Live) in seconds
+// Kept for API compatibility
 const CACHE_TTL = {
   USER_SESSION: 3600, // 1 hour
   POST: 300, // 5 minutes
@@ -21,129 +22,61 @@ const CACHE_TTL = {
 };
 
 /**
- * Get cached value
+ * Get cached value (no-op - always returns null)
  * @param {string} key - Cache key
- * @returns {Promise<any|null>} - Cached value or null
+ * @returns {Promise<null>} - Always returns null (cache disabled)
  */
 const getCache = async (key) => {
-  try {
-    const client = getRedisClient();
-    if (!client || !client.isOpen) {
-      return null; // Cache unavailable, return null to fallback to DB
-    }
-
-    const value = await client.get(key);
-    if (value) {
-      logger.debug(`Cache HIT: ${key}`);
-      return JSON.parse(value);
-    }
-    logger.debug(`Cache MISS: ${key}`);
-    return null;
-  } catch (error) {
-    logger.warn(`Cache get error for key ${key}:`, error.message);
-    return null; // Fail gracefully, fallback to DB
-  }
+  // Cache disabled - always return null to fallback to DB
+  return null;
 };
 
 /**
- * Set cached value
+ * Set cached value (no-op - always returns false)
  * @param {string} key - Cache key
  * @param {any} value - Value to cache
  * @param {number} ttl - Time to live in seconds (optional)
- * @returns {Promise<boolean>} - Success status
+ * @returns {Promise<boolean>} - Always returns false (cache disabled)
  */
 const setCache = async (key, value, ttl = null) => {
-  try {
-    const client = getRedisClient();
-    if (!client || !client.isOpen) {
-      return false; // Cache unavailable
-    }
-
-    const serialized = JSON.stringify(value);
-    if (ttl) {
-      await client.setEx(key, ttl, serialized);
-    } else {
-      await client.set(key, serialized);
-    }
-    logger.debug(`Cache SET: ${key} (TTL: ${ttl || 'none'})`);
-    return true;
-  } catch (error) {
-    logger.warn(`Cache set error for key ${key}:`, error.message);
-    return false; // Fail gracefully
-  }
+  // Cache disabled - always return false
+  return false;
 };
 
 /**
- * Delete cached value
+ * Delete cached value (no-op - always returns false)
  * @param {string} key - Cache key
- * @returns {Promise<boolean>} - Success status
+ * @returns {Promise<boolean>} - Always returns false (cache disabled)
  */
 const deleteCache = async (key) => {
-  try {
-    const client = getRedisClient();
-    if (!client || !client.isOpen) {
-      return false;
-    }
-
-    await client.del(key);
-    logger.debug(`Cache DELETE: ${key}`);
-    return true;
-  } catch (error) {
-    logger.warn(`Cache delete error for key ${key}:`, error.message);
-    return false;
-  }
+  // Cache disabled - always return false
+  return false;
 };
 
 /**
- * Delete multiple cached values by pattern
- * @param {string} pattern - Redis key pattern (e.g., 'post:*')
- * @returns {Promise<number>} - Number of keys deleted
+ * Delete multiple cached values by pattern (no-op - always returns 0)
+ * @param {string} pattern - Cache key pattern (e.g., 'post:*')
+ * @returns {Promise<number>} - Always returns 0 (cache disabled)
  */
 const deleteCacheByPattern = async (pattern) => {
-  try {
-    const client = getRedisClient();
-    if (!client || !client.isOpen) {
-      return 0;
-    }
-
-    const keys = await client.keys(pattern);
-    if (keys.length > 0) {
-      await client.del(keys);
-      logger.debug(`Cache DELETE pattern: ${pattern} (${keys.length} keys)`);
-      return keys.length;
-    }
-    return 0;
-  } catch (error) {
-    logger.warn(`Cache delete pattern error for ${pattern}:`, error.message);
-    return 0;
-  }
+  // Cache disabled - always return 0
+  return 0;
 };
 
 /**
- * Cache wrapper function - executes function and caches result
- * @param {string} key - Cache key
- * @param {Function} fn - Function to execute if cache miss
- * @param {number} ttl - Time to live in seconds
- * @returns {Promise<any>} - Cached or fresh value
+ * Cache wrapper function - executes function without caching
+ * @param {string} key - Cache key (ignored)
+ * @param {Function} fn - Function to execute
+ * @param {number} ttl - Time to live in seconds (ignored)
+ * @returns {Promise<any>} - Result from function execution
  */
 const cacheWrapper = async (key, fn, ttl = CACHE_TTL.POST) => {
-  // Try to get from cache first
-  const cached = await getCache(key);
-  if (cached !== null) {
-    return cached;
-  }
-
-  // Cache miss - execute function
-  const result = await fn();
-  
-  // Cache the result
-  await setCache(key, result, ttl);
-  
-  return result;
+  // Cache disabled - always execute function directly
+  return await fn();
 };
 
 /**
- * Generate cache keys
+ * Generate cache keys (kept for API compatibility)
  */
 const CacheKeys = {
   user: (userId) => `user:${userId}`,
@@ -170,4 +103,3 @@ module.exports = {
   CacheKeys,
   CACHE_TTL,
 };
-
