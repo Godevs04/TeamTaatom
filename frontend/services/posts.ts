@@ -32,6 +32,8 @@ export interface CreatePostData {
   songStartTime?: number;
   songEndTime?: number;
   songVolume?: number;
+  spotType?: string;
+  travelInfo?: string;
 }
 
 export interface CreateShortData {
@@ -58,6 +60,8 @@ export interface CreateShortData {
   songStartTime?: number;
   songEndTime?: number;
   songVolume?: number;
+  spotType?: string;
+  travelInfo?: string;
 }
 
 export interface PostsResponse {
@@ -208,6 +212,10 @@ export const createPostWithProgress = async (
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
 
     // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
@@ -607,6 +615,10 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
 
     logger.debug('Sending request to /shorts endpoint');
     

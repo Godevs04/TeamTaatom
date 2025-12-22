@@ -98,12 +98,12 @@ const cascadeDeletePost = async (postId, post = null) => {
       );
     }
 
-    // Remove post from all collections
+    // Remove post from all collections (bookmarks are stored in collections)
     const collectionsUpdated = await Collection.updateMany(
       { posts: postId },
       { $pull: { posts: postId } }
     );
-    logger.debug(`Removed post ${postId} from ${collectionsUpdated.modifiedCount} collections`);
+    logger.debug(`Removed post ${postId} from ${collectionsUpdated.modifiedCount} collections (bookmarks)`);
 
     // Delete reports related to this post
     const reportsDeleted = await Report.deleteMany({ reportedContent: postId });
@@ -155,6 +155,14 @@ const cascadeDeletePost = async (postId, post = null) => {
         $inc: { totalLikes: -post.likes.length }
       });
       logger.debug(`Updated user ${post.user} totalLikes (decremented by ${post.likes.length})`);
+      
+      // Also update totalLikes for users who liked this post (if they have a totalLikes field)
+      // This ensures user stats are accurate when they liked posts that get deleted
+      await User.updateMany(
+        { _id: { $in: post.likes } },
+        { $inc: { totalLikes: -1 } }
+      );
+      logger.debug(`Updated totalLikes for ${post.likes.length} users who liked this post`);
     }
 
     // Note: Song reference in post.song.songId is just a reference, not ownership
@@ -211,9 +219,21 @@ const cascadeDeleteUser = async (userId) => {
     );
     logger.debug(`Removed embedded comments by user ${userId}`);
 
-    // Remove user from all posts' likes arrays
+    // Remove user from all posts' likes arrays and update post owners' totalLikes
+    const postsLikedByUser = await Post.find({ likes: userId });
+    const postOwnerIds = [...new Set(postsLikedByUser.map(p => p.user.toString()))];
+    
     await Post.updateMany({ likes: userId }, { $pull: { likes: userId } });
     logger.debug(`Removed user ${userId} from all post likes`);
+    
+    // Decrement totalLikes for each post owner (one like removed per post)
+    if (postOwnerIds.length > 0) {
+      await User.updateMany(
+        { _id: { $in: postOwnerIds } },
+        { $inc: { totalLikes: -1 } }
+      );
+      logger.debug(`Updated totalLikes for ${postOwnerIds.length} post owners`);
+    }
 
     // Delete all notifications (both fromUser and toUser)
     const notificationsDeleted = await Notification.deleteMany({

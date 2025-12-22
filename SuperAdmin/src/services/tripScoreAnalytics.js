@@ -154,3 +154,16 @@ export const rejectTripVisit = async (tripVisitId) => {
   }
 }
 
+/**
+ * Update TripVisit details
+ */
+export const updateTripVisit = async (tripVisitId, updates) => {
+  try {
+    const response = await api.patch(`/api/v1/superadmin/tripscore/review/${tripVisitId}`, updates)
+    return response.data
+  } catch (error) {
+    logger.error('Failed to update TripVisit:', error)
+    throw error
+  }
+}
+

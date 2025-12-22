@@ -19,6 +19,8 @@ import { trackScreenView, trackPostView, trackEngagement } from '../../services/
 import { createLogger } from '../../utils/logger';
 import SongPlayer from '../../components/SongPlayer';
 import { theme } from '../../constants/theme';
+import { audioManager } from '../../utils/audioManager';
+import { useFocusEffect } from '@react-navigation/native';
 
 const logger = createLogger('PostDetail');
 
@@ -181,6 +183,22 @@ export default function PostDetail() {
       }
     }
   }, [id]);
+
+  // Pause all other audio when this screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      // Pause any audio playing from home feed when entering detail page
+      audioManager.pauseAll().catch(err => {
+        logger.error('Error pausing audio on focus:', err);
+      });
+
+      // Cleanup when leaving the screen
+      return () => {
+        // Don't stop audio here - let the SongPlayer component manage its own cleanup
+        // This allows the detail page audio to continue if user navigates away and comes back
+      };
+    }, [])
+  );
 
   const loadRelatedPosts = async (userId: string) => {
     try {

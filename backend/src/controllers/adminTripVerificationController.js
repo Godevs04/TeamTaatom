@@ -4,6 +4,7 @@ const Post = require('../models/Post');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
+const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 
 // Static Taatom Official system user ID (must exist in DB for chat system)
 const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
@@ -69,8 +70,8 @@ const getPendingReviews = async (req, res) => {
     let pendingVisits = [];
     try {
       pendingVisits = await TripVisit.find(query)
-        .populate('user', 'fullName username email profilePic')
-        .populate('post', 'caption imageUrl images createdAt')
+        .populate('user', 'fullName username email profilePic profilePicStorageKey')
+        .populate('post', 'caption imageUrl images createdAt storageKey storageKeys type')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -87,8 +88,8 @@ const getPendingReviews = async (req, res) => {
           { source: 'gallery_no_exif' }
         ]
       })
-        .populate('user', 'fullName username email profilePic')
-        .populate('post', 'caption imageUrl images createdAt')
+        .populate('user', 'fullName username email profilePic profilePicStorageKey')
+        .populate('post', 'caption imageUrl images createdAt storageKey storageKeys type')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -123,8 +124,8 @@ const getPendingReviews = async (req, res) => {
       }))
     });
 
-    // Format response
-    const reviews = pendingVisits.map(visit => {
+    // Format response and generate signed URLs for images
+    const reviews = await Promise.all(pendingVisits.map(async (visit) => {
       // Determine verification reason if not set (backward compatibility)
       let verificationReason = visit.verificationReason;
       if (!verificationReason) {
@@ -141,6 +142,49 @@ const getPendingReviews = async (req, res) => {
         }
       }
 
+      // Generate signed URLs for user profile picture
+      let profilePicUrl = null;
+      if (visit.user?.profilePicStorageKey) {
+        try {
+          profilePicUrl = await generateSignedUrl(visit.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile pic URL:', error);
+          profilePicUrl = visit.user.profilePic || null;
+        }
+      } else {
+        profilePicUrl = visit.user?.profilePic || null;
+      }
+
+      // Generate signed URLs for post images
+      let postImages = [];
+      let postImageUrl = null;
+      if (visit.post) {
+        if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+          try {
+            const imageUrls = await generateSignedUrls(visit.post.storageKeys, 'IMAGE');
+            postImages = imageUrls;
+            postImageUrl = imageUrls[0] || null;
+          } catch (error) {
+            logger.warn('Failed to generate image URLs from storageKeys:', error);
+            postImages = visit.post.images || [];
+            postImageUrl = visit.post.imageUrl || null;
+          }
+        } else if (visit.post.storageKey) {
+          try {
+            postImageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
+            postImages = [postImageUrl];
+          } catch (error) {
+            logger.warn('Failed to generate image URL from storageKey:', error);
+            postImages = visit.post.images || [];
+            postImageUrl = visit.post.imageUrl || null;
+          }
+        } else {
+          // Legacy: use existing imageUrl/images
+          postImages = visit.post.images || [];
+          postImageUrl = visit.post.imageUrl || null;
+        }
+      }
+
       return {
         _id: visit._id,
         user: visit.user ? {
@@ -148,14 +192,15 @@ const getPendingReviews = async (req, res) => {
           fullName: visit.user.fullName,
           username: visit.user.username,
           email: visit.user.email,
-          profilePic: visit.user.profilePic
+          profilePic: profilePicUrl
         } : null,
         post: visit.post ? {
           _id: visit.post._id,
           caption: visit.post.caption,
-          imageUrl: visit.post.imageUrl,
-          images: visit.post.images,
-          createdAt: visit.post.createdAt
+          imageUrl: postImageUrl,
+          images: postImages,
+          createdAt: visit.post.createdAt,
+          type: visit.post.type
         } : null,
         location: {
           address: visit.address,
@@ -172,7 +217,7 @@ const getPendingReviews = async (req, res) => {
         uploadedAt: visit.uploadedAt,
         createdAt: visit.createdAt
       };
-    });
+    }));
 
     return sendSuccess(res, 200, 'Pending reviews fetched successfully', {
       reviews,
@@ -457,9 +502,90 @@ const sendChatMessage = async (recipientUserId, text) => {
   }
 };
 
+// @desc    Update TripVisit details
+// @route   PATCH /admin/tripscore/review/:tripVisitId
+// @access  Private (SuperAdmin)
+const updateTripVisit = async (req, res) => {
+  try {
+    const { tripVisitId } = req.params;
+    const adminId = req.superAdmin?._id || req.user?._id;
+    const { country, continent, address, city, verificationReason, lat, lng } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(tripVisitId)) {
+      return sendError(res, 'VAL_2001', 'Invalid TripVisit ID');
+    }
+
+    const tripVisit = await TripVisit.findById(tripVisitId);
+
+    if (!tripVisit) {
+      return sendError(res, 'RES_3001', 'TripVisit not found');
+    }
+
+    // Update fields if provided
+    if (country !== undefined) {
+      tripVisit.country = country;
+    }
+    if (continent !== undefined) {
+      // Validate continent
+      const validContinents = ['ASIA', 'AFRICA', 'NORTH AMERICA', 'SOUTH AMERICA', 'AUSTRALIA', 'EUROPE', 'ANTARCTICA', 'Unknown'];
+      if (validContinents.includes(continent.toUpperCase())) {
+        tripVisit.continent = continent.toUpperCase();
+      } else {
+        return sendError(res, 'VAL_2001', 'Invalid continent');
+      }
+    }
+    if (address !== undefined) {
+      tripVisit.address = address;
+    }
+    if (city !== undefined) {
+      tripVisit.city = city;
+    }
+    if (verificationReason !== undefined) {
+      // Validate verification reason
+      const validReasons = ['no_exif', 'manual_location', 'suspicious_pattern', 'photo_requires_review', 'gallery_exif_requires_review', 'photo_from_camera_requires_review', 'requires_admin_review'];
+      if (validReasons.includes(verificationReason)) {
+        tripVisit.verificationReason = verificationReason;
+      } else {
+        return sendError(res, 'VAL_2001', 'Invalid verification reason');
+      }
+    }
+    if (lat !== undefined && lng !== undefined) {
+      tripVisit.lat = parseFloat(lat);
+      tripVisit.lng = parseFloat(lng);
+    }
+
+    // Track who updated it
+    tripVisit.reviewedBy = adminId;
+    tripVisit.reviewedAt = new Date();
+
+    await tripVisit.save();
+
+    logger.info(`TripVisit ${tripVisitId} updated by admin ${adminId}`);
+
+    return sendSuccess(res, 200, 'TripVisit updated successfully', {
+      tripVisit: {
+        _id: tripVisit._id,
+        country: tripVisit.country,
+        continent: tripVisit.continent,
+        address: tripVisit.address,
+        city: tripVisit.city,
+        verificationReason: tripVisit.verificationReason,
+        lat: tripVisit.lat,
+        lng: tripVisit.lng,
+        reviewedBy: tripVisit.reviewedBy,
+        reviewedAt: tripVisit.reviewedAt
+      }
+    });
+  } catch (error) {
+    logger.error('Update TripVisit error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to update TripVisit');
+  }
+};
+
 module.exports = {
   getPendingReviews,
   approveTripVisit,
-  rejectTripVisit
+  rejectTripVisit,
+  updateTripVisit
 };
 

@@ -147,17 +147,24 @@ api.interceptors.response.use(
     logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
     
     if (error.response?.status === 401) {
-      // Clear token and auth header
-      localStorage.removeItem('founder_token')
-      delete api.defaults.headers.common['Authorization']
-      csrfToken = null // Clear CSRF token on auth failure
+      // Don't redirect for 2FA endpoints - let the frontend handle the error
+      const is2FAEndpoint = error.config?.url?.includes('/verify-2fa') || 
+                           error.config?.url?.includes('/resend-2fa') ||
+                           error.config?.url?.includes('/login')
       
-      // Only redirect if not already on login page to prevent infinite loops
-      if (window.location.pathname !== '/login') {
-        // Use a small delay to ensure state is cleared
-        setTimeout(() => {
-          window.location.href = '/login'
-        }, 100)
+      if (!is2FAEndpoint) {
+        // Clear token and auth header
+        localStorage.removeItem('founder_token')
+        delete api.defaults.headers.common['Authorization']
+        csrfToken = null // Clear CSRF token on auth failure
+        
+        // Only redirect if not already on login page to prevent infinite loops
+        if (window.location.pathname !== '/login') {
+          // Use a small delay to ensure state is cleared
+          setTimeout(() => {
+            window.location.href = '/login'
+          }, 100)
+        }
       }
     }
     

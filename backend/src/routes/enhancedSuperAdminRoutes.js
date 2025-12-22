@@ -38,7 +38,8 @@ const {
 const {
   getPendingReviews,
   approveTripVisit,
-  rejectTripVisit
+  rejectTripVisit,
+  updateTripVisit
 } = require('../controllers/adminTripVerificationController')
 
 // Alias for clarity
@@ -1864,6 +1865,54 @@ router.post('/tripscore/review/:tripVisitId/approve', checkPermission('canViewAn
  *         description: Forbidden
  */
 router.post('/tripscore/review/:tripVisitId/reject', checkPermission('canViewAnalytics'), rejectTripVisit)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/review/{tripVisitId}:
+ *   patch:
+ *     summary: Update TripVisit details
+ *     tags: [SuperAdmin TripScore]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tripVisitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: TripVisit ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               country:
+ *                 type: string
+ *               continent:
+ *                 type: string
+ *                 enum: [ASIA, AFRICA, NORTH AMERICA, SOUTH AMERICA, AUSTRALIA, EUROPE, ANTARCTICA, Unknown]
+ *               address:
+ *                 type: string
+ *               city:
+ *                 type: string
+ *               verificationReason:
+ *                 type: string
+ *                 enum: [no_exif, manual_location, suspicious_pattern, photo_requires_review, gallery_exif_requires_review, photo_from_camera_requires_review, requires_admin_review]
+ *               lat:
+ *                 type: number
+ *               lng:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: TripVisit updated successfully
+ *       400:
+ *         description: Invalid input
+ *       404:
+ *         description: TripVisit not found
+ */
+router.patch('/tripscore/review/:tripVisitId', checkPermission('canViewAnalytics'), updateTripVisit)
 
 // Feature flags management
 /**
