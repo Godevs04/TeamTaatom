@@ -4,7 +4,6 @@
  */
 
 const mongoose = require('mongoose');
-const { checkRedisHealth } = require('../utils/redisHealth');
 const logger = require('../utils/logger');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 
@@ -108,30 +107,11 @@ const detailedHealthCheck = async (req, res) => {
     healthStatus.status = 'unhealthy';
   }
 
-  // Check Redis connection
-  try {
-    const redisHealthy = await checkRedisHealth();
-    healthStatus.services.redis = {
-      status: redisHealthy ? 'healthy' : 'unhealthy',
-      host: process.env.REDIS_HOST || 'localhost',
-      port: process.env.REDIS_PORT || 6379,
-    };
-
-    if (!redisHealthy) {
-      overallHealthy = false;
-      if (healthStatus.status === 'healthy') {
-        healthStatus.status = 'degraded';
-      }
-    }
-  } catch (error) {
-    logger.error('Redis health check failed', error);
-    healthStatus.services.redis = {
-      status: 'unhealthy',
-      error: error.message,
-    };
-    overallHealthy = false;
-    healthStatus.status = 'unhealthy';
-  }
+  // Redis is disabled - skip health check
+  healthStatus.services.redis = {
+    status: 'disabled',
+    message: 'Redis is not configured',
+  };
 
   // Check external services (if configured)
   if (process.env.CLOUDINARY_CLOUD_NAME) {
@@ -164,21 +144,17 @@ const detailedHealthCheck = async (req, res) => {
  */
 const readinessCheck = async (req, res) => {
   try {
-    // Check critical services
+    // Check critical services (only database - Redis is disabled)
     const dbReady = mongoose.connection.readyState === 1;
-    const redisReady = await checkRedisHealth();
 
-    const isReady = dbReady && redisReady;
-
-    if (!isReady) {
+    if (!dbReady) {
       return res.status(503).json({
         success: false,
         message: 'Service is not ready',
         data: {
           status: 'not_ready',
           timestamp: new Date().toISOString(),
-          database: dbReady ? 'ready' : 'not_ready',
-          redis: redisReady ? 'ready' : 'not_ready',
+          database: 'not_ready',
         },
       });
     }
@@ -187,7 +163,6 @@ const readinessCheck = async (req, res) => {
       status: 'ready',
       timestamp: new Date().toISOString(),
       database: 'ready',
-      redis: 'ready',
     });
   } catch (error) {
     logger.error('Readiness check failed', error);
