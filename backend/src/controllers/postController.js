@@ -809,7 +809,7 @@ const createPost = async (req, res) => {
       return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo } = req.body;
 
     // Defensive guard: validate caption length within limits
     if (caption && caption.length > 2000) {
@@ -910,7 +910,10 @@ const createPost = async (req, res) => {
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
         volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
-      } : undefined
+      } : undefined,
+      // TripScore metadata from user dropdowns
+      spotType: spotType || null,
+      travelInfo: travelInfo || null
     });
 
     await post.save();
@@ -2391,7 +2394,7 @@ const createShort = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid video file. Please try uploading again.');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume, spotType, travelInfo } = req.body;
 
     // Upload video to Sevalla Object Storage
     const extension = videoFile.originalname.split('.').pop() || 'mp4';
@@ -2486,7 +2489,10 @@ const createShort = async (req, res) => {
         startTime: parseFloat(songStartTime) || 0,
         endTime: songEndTime ? parseFloat(songEndTime) : null,
         volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
-      } : undefined
+      } : undefined,
+      // TripScore metadata from user dropdowns
+      spotType: spotType || null,
+      travelInfo: travelInfo || null
     });
 
     await short.save();
