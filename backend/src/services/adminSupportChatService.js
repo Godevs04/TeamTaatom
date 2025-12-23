@@ -108,6 +108,12 @@ async function sendSystemMessage({ conversationId, messageText }) {
     };
 
     convo.messages.push(message);
+    
+    // Update conversation status to 'waiting_user' when admin sends message
+    if (convo.status !== 'resolved') {
+      convo.status = 'waiting_user';
+    }
+    
     await convo.save();
 
     logger.info(`Sent system message in support conversation ${conversationId}`);
@@ -144,9 +150,37 @@ async function getSupportConversation(userId) {
   }
 }
 
+/**
+ * Get support conversation by TripVisit ID
+ * Finds admin_support conversation linked to a specific TripVisit
+ * @param {String|ObjectId} tripVisitId - TripVisit ID
+ * @returns {Promise<Object|null>} Conversation document or null
+ */
+async function getSupportChatByTripVisit(tripVisitId) {
+  try {
+    if (!tripVisitId || !mongoose.Types.ObjectId.isValid(tripVisitId)) {
+      throw new Error('Invalid tripVisitId provided');
+    }
+
+    const tripVisitIdObj = new mongoose.Types.ObjectId(tripVisitId);
+
+    const convo = await Chat.findOne({
+      type: 'admin_support',
+      'relatedEntity.type': 'trip_verification',
+      'relatedEntity.refId': tripVisitIdObj
+    });
+
+    return convo;
+  } catch (error) {
+    logger.error('Error in getSupportChatByTripVisit:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   getOrCreateSupportConversation,
   sendSystemMessage,
-  getSupportConversation
+  getSupportConversation,
+  getSupportChatByTripVisit
 };
 

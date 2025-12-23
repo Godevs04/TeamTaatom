@@ -39,13 +39,15 @@ const {
   getPendingReviews,
   approveTripVisit,
   rejectTripVisit,
-  updateTripVisit
+  updateTripVisit,
+  getTripVisitSupportChat
 } = require('../controllers/adminTripVerificationController')
 const {
   listSupportConversations,
   getSupportConversation,
   sendSupportMessage,
-  createSupportConversation
+  createSupportConversation,
+  markConversationAsRead
 } = require('../controllers/adminSupportChatController')
 
 // Alias for clarity
@@ -1051,6 +1053,7 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
     
     const Post = require('../models/Post')
     const Report = require('../models/Report')
+    const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService')
     let query = {}
     
     if (search && typeof search === 'string' && search.trim().length > 0) {
@@ -1081,7 +1084,7 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
     }
     
     const posts = await Post.find(query)
-      .populate('user', 'fullName email profilePic')
+      .populate('user', 'fullName email profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(validatedLimit)
@@ -1110,8 +1113,8 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
       reportCountMap[item._id.toString()] = item.count
     })
     
-    // Enhance posts with report counts and health indicators
-    const enhancedPosts = posts.map(post => {
+    // Generate signed URLs for images and videos
+    const enhancedPosts = await Promise.all(posts.map(async (post) => {
       const reportCount = reportCountMap[post._id.toString()] || 0
       const isFlagged = post.flagged === true
       
@@ -1123,8 +1126,91 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
         healthStatus = 'flagged'
       }
       
+      // Generate signed URLs for images (photos)
+      let imageUrl = null
+      let thumbnailUrl = null
+      let videoUrl = null
+      
+      if (post.type === 'short') {
+        // For shorts: generate video URL and thumbnail URL
+        if (post.storageKeys && post.storageKeys.length > 0) {
+          try {
+            // First storage key is usually the video, second might be thumbnail
+            const videoStorageKey = post.storageKeys[0]
+            const thumbnailStorageKey = post.storageKeys[1] || post.storageKeys[0]
+            
+            videoUrl = await generateSignedUrl(videoStorageKey, 'VIDEO')
+            thumbnailUrl = await generateSignedUrl(thumbnailStorageKey, 'IMAGE')
+            imageUrl = thumbnailUrl // Use thumbnail as image preview
+          } catch (error) {
+            logger.warn('Failed to generate signed URLs for short:', { 
+              postId: post._id, 
+              error: error.message 
+            })
+            // Fallback to legacy URLs
+            videoUrl = post.videoUrl || null
+            thumbnailUrl = post.thumbnailUrl || post.imageUrl || null
+            imageUrl = thumbnailUrl
+          }
+        } else if (post.storageKey) {
+          try {
+            videoUrl = await generateSignedUrl(post.storageKey, 'VIDEO')
+            thumbnailUrl = await generateSignedUrl(post.storageKey, 'IMAGE')
+            imageUrl = thumbnailUrl
+          } catch (error) {
+            logger.warn('Failed to generate signed URL for short:', { 
+              postId: post._id, 
+              error: error.message 
+            })
+            videoUrl = post.videoUrl || null
+            thumbnailUrl = post.thumbnailUrl || post.imageUrl || null
+            imageUrl = thumbnailUrl
+          }
+        } else {
+          // Legacy: use existing URLs
+          videoUrl = post.videoUrl || null
+          thumbnailUrl = post.thumbnailUrl || post.imageUrl || null
+          imageUrl = thumbnailUrl
+        }
+      } else {
+        // For photos: generate image URLs
+        if (post.storageKeys && post.storageKeys.length > 0) {
+          try {
+            const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE')
+            imageUrl = imageUrls[0] || null
+            thumbnailUrl = imageUrls[0] || null // Use first image as thumbnail
+          } catch (error) {
+            logger.warn('Failed to generate image URLs for post:', { 
+              postId: post._id, 
+              error: error.message 
+            })
+            imageUrl = post.imageUrl || null
+            thumbnailUrl = post.imageUrl || null
+          }
+        } else if (post.storageKey) {
+          try {
+            imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE')
+            thumbnailUrl = imageUrl
+          } catch (error) {
+            logger.warn('Failed to generate image URL for post:', { 
+              postId: post._id, 
+              error: error.message 
+            })
+            imageUrl = post.imageUrl || null
+            thumbnailUrl = post.imageUrl || null
+          }
+        } else {
+          // Legacy: use existing imageUrl
+          imageUrl = post.imageUrl || null
+          thumbnailUrl = post.imageUrl || null
+        }
+      }
+      
       return {
         ...post,
+        imageUrl,
+        thumbnailUrl,
+        videoUrl,
         reportCount,
         healthStatus,
         flagged: isFlagged,
@@ -1133,7 +1219,7 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
         // Use updatedAt as last moderation timestamp (when isActive or flagged changes)
         lastModeratedAt: post.updatedAt
       }
-    })
+    }))
     
     const total = await Post.countDocuments(query)
     
@@ -1957,6 +2043,47 @@ router.get('/conversations/:conversationId', checkPermission('canViewAnalytics')
 
 /**
  * @swagger
+ * /api/v1/superadmin/conversations/{conversationId}/mark-read:
+ *   post:
+ *     summary: Mark all messages in a support conversation as read
+ *     tags: [SuperAdmin - Support Chat]
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the conversation to mark as read
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Conversation marked as read successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     unreadCount:
+ *                       type: number
+ *       400:
+ *         description: Invalid conversation ID
+ *       404:
+ *         description: Conversation not found
+ *       500:
+ *         description: Failed to mark conversation as read
+ */
+router.post('/conversations/:conversationId/mark-read', checkPermission('canViewAnalytics'), markConversationAsRead)
+
+/**
+ * @swagger
  * /api/v1/superadmin/conversations/{conversationId}/messages:
  *   post:
  *     summary: Send a message in a support conversation
@@ -2096,6 +2223,46 @@ router.post('/conversations', checkPermission('canViewAnalytics'), createSupport
  *         description: TripVisit not found
  */
 router.patch('/tripscore/review/:tripVisitId', checkPermission('canViewAnalytics'), updateTripVisit)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/tripscore/review/{tripVisitId}/support-chat:
+ *   get:
+ *     summary: Get support chat for a TripVisit
+ *     tags: [TripScore Verification]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tripVisitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: TripVisit ID
+ *     responses:
+ *       200:
+ *         description: Support chat retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 conversationId:
+ *                   type: string
+ *                 userId:
+ *                   type: string
+ *                 tripVisitId:
+ *                   type: string
+ *       400:
+ *         description: Invalid TripVisit ID
+ *       404:
+ *         description: TripVisit not found
+ */
+router.get('/tripscore/review/:tripVisitId/support-chat', checkPermission('canViewAnalytics'), getTripVisitSupportChat)
 
 // Feature flags management
 /**

@@ -184,7 +184,53 @@ export default function PostDetail() {
     }
   }, [id]);
 
-  // Pause all other audio when this screen comes into focus
+  // Refresh post data when screen comes into focus (to sync with home page likes)
+  const refreshPostData = useCallback(async () => {
+    if (!id || !post?._id) return;
+    
+    try {
+      // Silently refresh post data to get latest like state
+      const response = await getPostById(id as string);
+      
+      // Update like state if it changed
+      const newIsLiked = response.post?.isLiked === true;
+      const newLikesCount = response.post?.likesCount || 0;
+      
+      // Only update if state actually changed to avoid unnecessary re-renders
+      if (isLiked !== newIsLiked || likesCount !== newLikesCount) {
+        setIsLiked(newIsLiked);
+        setLikesCount(newLikesCount);
+        
+        if (process.env.NODE_ENV === 'development') {
+          logger.debug('Post detail - Refreshed like state on focus:', {
+            postId: id,
+            oldIsLiked: isLiked,
+            newIsLiked,
+            oldLikesCount: likesCount,
+            newLikesCount
+          });
+        }
+      }
+      
+      // Update views count
+      if (response.post?.viewsCount !== undefined) {
+        setViewsCount(response.post.viewsCount);
+      }
+      
+      // Update comments if changed
+      if (response.post?.comments) {
+        setComments(response.post.comments);
+      }
+      
+      // Update post data
+      setPost(response.post);
+    } catch (error) {
+      // Silently fail - don't show error for background refresh
+      logger.debug('Error refreshing post data on focus:', error);
+    }
+  }, [id, post?._id, isLiked, likesCount]);
+
+  // Pause all other audio when this screen comes into focus and refresh data
   useFocusEffect(
     useCallback(() => {
       // Pause any audio playing from home feed when entering detail page
@@ -192,12 +238,19 @@ export default function PostDetail() {
         logger.error('Error pausing audio on focus:', err);
       });
 
+      // Refresh post data to sync with any changes from home page
+      // Small delay to ensure navigation is complete
+      const refreshTimeout = setTimeout(() => {
+        refreshPostData();
+      }, 300);
+
       // Cleanup when leaving the screen
       return () => {
+        clearTimeout(refreshTimeout);
         // Don't stop audio here - let the SongPlayer component manage its own cleanup
         // This allows the detail page audio to continue if user navigates away and comes back
       };
-    }, [])
+    }, [refreshPostData])
   );
 
   const loadRelatedPosts = async (userId: string) => {
@@ -297,9 +350,19 @@ export default function PostDetail() {
           return;
         }
         
+        // Double-check we're not already updating (race condition protection)
+        if (isUpdatingRef.current) {
+          if (process.env.NODE_ENV === 'development') {
+            logger.debug('Post detail - Ignoring WebSocket event, already updating');
+          }
+          return;
+        }
+        
         // Mark as updating and update state
         isUpdatingRef.current = true;
         lastUpdateTimeRef.current = now;
+        
+        // Update state with WebSocket data
         setIsLikedWithRef(data.isLiked);
         setLikesCountWithRef(data.likesCount);
         
@@ -381,15 +444,32 @@ export default function PostDetail() {
       return;
     }
 
+    // Prevent duplicate actions
+    if (actionLoading === 'like') {
+      return;
+    }
+
+    // Store previous state for rollback on error
+    const previousLiked = isLiked;
+    const previousCount = likesCount;
+    
+    // Optimistic update - update UI immediately for better UX
+    const optimisticIsLiked = !isLiked;
+    const optimisticLikesCount = optimisticIsLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
+    
+    // Mark as updating to prevent WebSocket listener from processing
+    isUpdatingRef.current = true;
+    lastUpdateTimeRef.current = Date.now();
+    
+    // Update state optimistically
+    setIsLikedWithRef(optimisticIsLiked);
+    setLikesCountWithRef(optimisticLikesCount);
+    setActionLoading('like');
+
     try {
-      // Mark as updating to prevent WebSocket listener from processing
-      isUpdatingRef.current = true;
-      lastUpdateTimeRef.current = Date.now();
-      
-      setActionLoading('like');
       const response = await toggleLike(post!._id);
       
-      // Ensure we're setting the correct boolean value
+      // Ensure we're setting the correct boolean value from API response
       const newIsLiked = response.isLiked === true;
       const newLikesCount = response.likesCount || 0;
       
@@ -399,10 +479,12 @@ export default function PostDetail() {
           response: response,
           processedIsLiked: newIsLiked,
           processedLikesCount: newLikesCount,
+          optimisticState: { isLiked: optimisticIsLiked, likesCount: optimisticLikesCount },
           currentState: { isLiked, likesCount }
         });
       }
       
+      // Update with actual response (in case of discrepancies)
       setIsLikedWithRef(newIsLiked);
       setLikesCountWithRef(newLikesCount);
       
@@ -417,17 +499,21 @@ export default function PostDetail() {
         isLiked: newIsLiked
       });
 
-      // Emit WebSocket event for real-time updates (but ignore our own event)
-      await realtimePostsService.emitLike(post!._id, newIsLiked, newLikesCount);
-      
-      // Reset flag after a delay to allow WebSocket event to be ignored
+      // Note: Backend already emits WebSocket event via socket.io, so we don't need to emit it again
+      // The WebSocket listener will receive the backend event, but it will be ignored because
+      // isUpdatingRef.current is still true. We keep the flag set longer to prevent race conditions.
       setTimeout(() => {
         isUpdatingRef.current = false;
-      }, 500);
+      }, 1000); // Longer delay to ensure backend WebSocket event is processed after our state update
       
     } catch (error) {
+      // Revert optimistic update on error
+      setIsLikedWithRef(previousLiked);
+      setLikesCountWithRef(previousCount);
       logger.error('Error toggling like:', error);
       showCustomAlertMessage('Error', 'Failed to update like status.', 'error');
+      // Reset flag on error
+      isUpdatingRef.current = false;
     } finally {
       setActionLoading(null);
     }

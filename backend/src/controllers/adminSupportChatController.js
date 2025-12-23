@@ -9,6 +9,7 @@ const {
 } = require('../services/adminSupportChatService');
 const { getIO } = require('../socket');
 const { TAATOM_OFFICIAL_USER_ID } = require('../constants/taatomOfficial');
+const { generateSignedUrl } = require('../services/mediaService');
 
 /**
  * Admin Support Chat Controller
@@ -106,11 +107,33 @@ const listSupportConversations = async (req, res) => {
     const usersMap = new Map();
     if (userIds.size > 0) {
       const users = await User.find({ _id: { $in: Array.from(userIds) } })
-        .select('fullName profilePic email username isVerified')
+        .select('fullName profilePic profilePicStorageKey email username isVerified')
         .lean();
-      users.forEach(user => {
-        usersMap.set(user._id.toString(), user);
-      });
+      
+      // Generate signed URLs for profile pictures
+      for (const user of users) {
+        let profilePicUrl = null;
+        if (user.profilePicStorageKey) {
+          try {
+            profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile picture URL:', { 
+              userId: user._id, 
+              error: error.message 
+            });
+            // Fallback to legacy URL if available
+            profilePicUrl = user.profilePic || null;
+          }
+        } else if (user.profilePic) {
+          // Legacy: use existing profilePic if no storage key
+          profilePicUrl = user.profilePic;
+        }
+        // Store user with signed URL
+        usersMap.set(user._id.toString(), {
+          ...user,
+          profilePic: profilePicUrl
+        });
+      }
       logger.debug(`Fetched ${users.length} users for conversations`);
     }
 
@@ -227,10 +250,21 @@ const getSupportConversation = async (req, res) => {
       for (const pId of conversation.participants) {
         let idStr;
         if (pId && typeof pId === 'object') {
-          idStr = pId._id ? pId._id.toString() : pId.toString();
-        } else {
+          // Handle ObjectId objects
+          if (pId._id) {
+            idStr = pId._id.toString();
+          } else if (pId.toString) {
+            idStr = pId.toString();
+          } else {
+            continue;
+          }
+        } else if (pId) {
           idStr = pId.toString();
+        } else {
+          continue;
         }
+        
+        // Skip Taatom Official user ID
         if (idStr !== TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(idStr)) {
           userId = idStr;
           break;
@@ -238,14 +272,57 @@ const getSupportConversation = async (req, res) => {
       }
     }
 
+    logger.debug(`Extracted userId for conversation ${conversationId}: ${userId}, participants:`, conversation.participants);
+
+    if (!userId) {
+      logger.warn(`No valid user ID found for conversation ${conversationId}, participants:`, conversation.participants);
+      return sendError(res, 'RES_3001', 'No valid user found in conversation participants');
+    }
+
     // Fetch user details
-    const user = userId ? await User.findById(userId)
-      .select('fullName profilePic email username isVerified')
-      .lean() : null;
+    const user = await User.findById(userId)
+      .select('fullName profilePic profilePicStorageKey email username isVerified')
+      .lean();
 
     if (!user) {
       logger.warn(`User not found for conversation ${conversationId}, userId: ${userId}`);
-      return sendError(res, 'RES_3001', 'User not found for this conversation');
+      // Return conversation with minimal user info instead of error
+      // This handles cases where user might have been deleted
+      return sendSuccess(res, 200, 'Support conversation fetched successfully', {
+        conversation: {
+          _id: conversation._id,
+          user: {
+            _id: userId,
+            fullName: 'Unknown User',
+            profilePic: null,
+            email: null,
+            username: null
+          },
+          messages: (conversation.messages || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)),
+          reason: conversation.relatedEntity?.type || 'support',
+          refId: conversation.relatedEntity?.refId || null,
+          updatedAt: conversation.updatedAt,
+          createdAt: conversation.createdAt
+        }
+      });
+    }
+
+    // Generate signed URL for profile picture
+    let profilePicUrl = null;
+    if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL:', { 
+          userId: user._id, 
+          error: error.message 
+        });
+        // Fallback to legacy URL if available
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      // Legacy: use existing profilePic if no storage key
+      profilePicUrl = user.profilePic;
     }
 
     // Sort messages by timestamp (oldest first)
@@ -259,7 +336,7 @@ const getSupportConversation = async (req, res) => {
         user: {
           _id: user._id,
           fullName: user.fullName,
-          profilePic: user.profilePic,
+          profilePic: profilePicUrl,
           email: user.email,
           username: user.username
         },
@@ -302,6 +379,21 @@ const sendSupportMessage = async (req, res) => {
       return sendError(res, 'AUTH_1006', 'Not a support conversation');
     }
 
+    // Safety: Ensure only admins can send messages as Taatom Official
+    // This is already enforced by route permissions, but adding extra check
+    if (!req.superAdmin) {
+      return sendError(res, 'AUTH_1006', 'Only admins can send support messages');
+    }
+    
+    // Optional: Log admin message for audit (compliance/debug)
+    logger.info('Admin support message sent', {
+      adminId: req.superAdmin._id?.toString(),
+      adminEmail: req.superAdmin.email,
+      conversationId: conversationId.toString(),
+      messageLength: text.trim().length,
+      sentAt: new Date().toISOString()
+    });
+    
     // Send system message (from Taatom Official)
     const message = await sendSystemMessage({
       conversationId: conversationId.toString(),
@@ -388,9 +480,25 @@ const createSupportConversation = async (req, res) => {
     }
 
     // Check if user exists
-    const user = await User.findById(userId).select('fullName email profilePic');
+    const user = await User.findById(userId).select('fullName email profilePic profilePicStorageKey');
     if (!user) {
       return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    // Generate signed URL for profile picture
+    let profilePicUrl = null;
+    if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL:', { 
+          userId: user._id, 
+          error: error.message 
+        });
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      profilePicUrl = user.profilePic;
     }
 
     // Get or create conversation
@@ -410,12 +518,28 @@ const createSupportConversation = async (req, res) => {
 
     // Reload conversation with populated data
     const populatedConversation = await Chat.findById(conversation._id)
-      .populate('participants', 'fullName profilePic email username isVerified')
+      .populate('participants', 'fullName profilePic profilePicStorageKey email username isVerified')
       .lean();
 
     const userParticipant = populatedConversation.participants.find(
       p => p._id.toString() !== TAATOM_OFFICIAL_USER_ID
     );
+
+    // Generate signed URL for user participant profile picture
+    let userProfilePicUrl = profilePicUrl; // Use the one we already generated
+    if (!userProfilePicUrl && userParticipant?.profilePicStorageKey) {
+      try {
+        userProfilePicUrl = await generateSignedUrl(userParticipant.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL for user participant:', { 
+          userId: userParticipant?._id, 
+          error: error.message 
+        });
+        userProfilePicUrl = userParticipant?.profilePic || null;
+      }
+    } else if (!userProfilePicUrl && userParticipant?.profilePic) {
+      userProfilePicUrl = userParticipant.profilePic;
+    }
 
     return sendSuccess(res, 200, 'Support conversation created successfully', {
       conversation: {
@@ -423,7 +547,7 @@ const createSupportConversation = async (req, res) => {
         user: {
           _id: userParticipant?._id,
           fullName: userParticipant?.fullName,
-          profilePic: userParticipant?.profilePic,
+          profilePic: userProfilePicUrl,
           email: userParticipant?.email,
           username: userParticipant?.username
         },
@@ -440,10 +564,64 @@ const createSupportConversation = async (req, res) => {
   }
 };
 
+// @desc    Mark all messages in a support conversation as read (admin only)
+// @route   POST /api/v1/superadmin/conversations/:conversationId/mark-read
+// @access  Private (SuperAdmin)
+const markConversationAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params
+
+    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+      return sendError(res, 'VAL_2001', 'Invalid conversation ID')
+    }
+
+    // Ensure Taatom Official user exists
+    await ensureTaatomOfficialUser()
+
+    const conversation = await Chat.findById(conversationId)
+
+    if (!conversation) {
+      return sendError(res, 'RES_3001', 'Conversation not found')
+    }
+
+    if (conversation.type !== 'admin_support') {
+      return sendError(res, 'AUTH_1006', 'Not a support conversation')
+    }
+
+    // Mark all user messages (not from Taatom Official) as seen
+    const TAATOM_OFFICIAL_ID = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID)
+    let updated = false
+
+    if (conversation.messages && Array.isArray(conversation.messages)) {
+      conversation.messages.forEach(msg => {
+        const senderId = msg.sender?.toString() || msg.sender?.toString()
+        const officialIdStr = TAATOM_OFFICIAL_ID.toString()
+        
+        // Mark messages from users (not Taatom Official) as seen
+        if (senderId && senderId !== officialIdStr && !msg.seen) {
+          msg.seen = true
+          updated = true
+        }
+      })
+    }
+
+    if (updated) {
+      await conversation.save()
+      logger.debug(`Marked conversation ${conversationId} as read`)
+    }
+
+    return sendSuccess(res, 200, 'Conversation marked as read', { unreadCount: 0 })
+  } catch (error) {
+    logger.error('Error marking conversation as read:', error)
+    return sendError(res, 'SRV_6001', 'Failed to mark conversation as read')
+  }
+}
+
 module.exports = {
   listSupportConversations,
   getSupportConversation,
   sendSupportMessage,
-  createSupportConversation
+  createSupportConversation,
+  markConversationAsRead
 };
 

@@ -28,6 +28,18 @@ const ChatSchema = new Schema({
       type: Types.ObjectId,
       default: null
     }
+  },
+  // Optional conversation status (for future use)
+  status: {
+    type: String,
+    enum: ['open', 'waiting_user', 'resolved'],
+    default: 'open'
+  },
+  // Optional admin assignment (for future scaling)
+  assignedAdminId: {
+    type: Types.ObjectId,
+    ref: 'SuperAdmin',
+    default: null
   }
 }, { timestamps: true });
 

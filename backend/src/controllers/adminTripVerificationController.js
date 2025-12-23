@@ -7,7 +7,8 @@ const mongoose = require('mongoose');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 const { 
   getOrCreateSupportConversation, 
-  sendSystemMessage 
+  sendSystemMessage,
+  getSupportChatByTripVisit
 } = require('../services/adminSupportChatService');
 const { getIO } = require('../socket');
 
@@ -284,6 +285,19 @@ const approveTripVisit = async (req, res) => {
 
     logger.info(`TripVisit ${tripVisitId} approved by admin ${adminId}`);
 
+    // Update support conversation status to 'resolved' if exists
+    try {
+      const supportChat = await getSupportChatByTripVisit(tripVisitId);
+      if (supportChat) {
+        supportChat.status = 'resolved';
+        await supportChat.save();
+        logger.debug(`Updated support conversation status to resolved for TripVisit ${tripVisitId}`);
+      }
+    } catch (chatError) {
+      logger.debug('Could not update conversation status:', chatError.message);
+      // Non-blocking, continue
+    }
+
     // Send notification to user (fire-and-forget)
     sendApprovalNotification(tripVisit.user, tripVisit).catch(err => {
       logger.error('Failed to send approval notification:', err);
@@ -350,6 +364,19 @@ const rejectTripVisit = async (req, res) => {
     await tripVisit.save();
 
     logger.info(`TripVisit ${tripVisitId} rejected by admin ${adminId}`);
+
+    // Update support conversation status to 'resolved' if exists
+    try {
+      const supportChat = await getSupportChatByTripVisit(tripVisitId);
+      if (supportChat) {
+        supportChat.status = 'resolved';
+        await supportChat.save();
+        logger.debug(`Updated support conversation status to resolved for TripVisit ${tripVisitId}`);
+      }
+    } catch (chatError) {
+      logger.debug('Could not update conversation status:', chatError.message);
+      // Non-blocking, continue
+    }
 
     // Send notification to user (fire-and-forget)
     sendRejectionNotification(tripVisit.user, tripVisit).catch(err => {
@@ -551,10 +578,51 @@ const updateTripVisit = async (req, res) => {
   }
 };
 
+// @desc    Get support chat for a TripVisit
+// @route   GET /admin/tripscore/:tripVisitId/support-chat
+// @access  Private (SuperAdmin)
+const getTripVisitSupportChat = async (req, res) => {
+  try {
+    const { tripVisitId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(tripVisitId)) {
+      return sendError(res, 'VAL_2001', 'Invalid TripVisit ID');
+    }
+
+    const tripVisit = await TripVisit.findById(tripVisitId).select('user').lean();
+
+    if (!tripVisit) {
+      return sendError(res, 'RES_3001', 'TripVisit not found');
+    }
+
+    // Find existing conversation linked to this TripVisit
+    let conversation = await getSupportChatByTripVisit(tripVisitId);
+
+    // If no conversation exists, create one
+    if (!conversation) {
+      conversation = await getOrCreateSupportConversation({
+        userId: tripVisit.user.toString(),
+        reason: 'trip_verification',
+        refId: tripVisitId
+      });
+    }
+
+    return sendSuccess(res, 200, 'Support chat retrieved successfully', {
+      conversationId: conversation._id.toString(),
+      userId: tripVisit.user.toString(),
+      tripVisitId: tripVisitId
+    });
+  } catch (error) {
+    logger.error('Get TripVisit support chat error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get support chat');
+  }
+};
+
 module.exports = {
   getPendingReviews,
   approveTripVisit,
   rejectTripVisit,
-  updateTripVisit
+  updateTripVisit,
+  getTripVisitSupportChat
 };
 
