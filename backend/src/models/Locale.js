@@ -70,6 +70,17 @@ const localeSchema = new mongoose.Schema({
   displayOrder: {
     type: Number,
     default: 0
+  },
+  spotTypes: {
+    type: [String],
+    default: [],
+    trim: true
+  },
+  travelInfo: {
+    type: String,
+    trim: true,
+    default: 'Drivable',
+    enum: ['Drivable', 'Walkable', 'Public Transport', 'Flight Required', 'Not Accessible']
   }
 }, {
   timestamps: true

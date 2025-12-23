@@ -30,7 +30,8 @@ import {
   AlertCircle,
   Edit,
   X,
-  Save
+  Save,
+  MessageSquare
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { motion } from 'framer-motion'
@@ -47,6 +48,9 @@ import {
   updateTripVisit
 } from '../services/tripScoreAnalytics'
 import logger from '../utils/logger'
+import { useNavigate } from 'react-router-dom'
+import { api } from '../services/api'
+import { handleError } from '../utils/errorCodes'
 
 // Memoized chart components for performance
 const MemoizedPieChart = memo(PieChartComponent)
@@ -58,6 +62,7 @@ MemoizedLineChart.displayName = 'MemoizedLineChart'
 MemoizedBarChart.displayName = 'MemoizedBarChart'
 
 const TripScoreAnalytics = () => {
+  const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [topUsers, setTopUsers] = useState([])
   const [suspiciousVisits, setSuspiciousVisits] = useState([])
@@ -663,6 +668,26 @@ const TripScoreAnalytics = () => {
       setReviewActionLoading(null)
     }
   }, [reviewActionLoading, fetchPendingReviews, selectedView, fetchAllData])
+
+  // Handle open chat for TripVisit
+  const handleOpenChat = useCallback(async (tripVisitId) => {
+    try {
+      const response = await api.get(`/api/v1/superadmin/tripscore/review/${tripVisitId}/support-chat`)
+      
+      if (response.data?.success && response.data?.conversationId) {
+        // Navigate to Support Inbox and open the conversation
+        navigate(`/support-inbox?conversationId=${response.data.conversationId}`)
+        toast.success('Opening support chat...')
+      } else {
+        toast.error('Failed to open support chat')
+      }
+    } catch (error) {
+      logger.error('Error opening support chat:', error)
+      const parsedError = handleError(error)
+      const errorMessage = parsedError?.adminMessage || parsedError?.message || 'Failed to open support chat'
+      toast.error(errorMessage)
+    }
+  }, [navigate])
   
   // Handle view review details
   const handleViewReview = useCallback((review) => {
@@ -2293,6 +2318,14 @@ const TripScoreAnalytics = () => {
                                 >
                                   <Eye className="w-4 h-4" />
                                   View
+                                </button>
+                                <button
+                                  onClick={() => handleOpenChat(review._id)}
+                                  className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center gap-1"
+                                  title="Open Support Chat"
+                                >
+                                  <MessageSquare className="w-4 h-4" />
+                                  Chat
                                 </button>
                                 <button
                                   onClick={() => handleApprove(review._id)}

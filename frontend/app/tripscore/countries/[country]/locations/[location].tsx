@@ -40,6 +40,7 @@ interface LocationDetail {
     latitude: number;
     longitude: number;
   };
+  travelInfo?: string;
 }
 
 export default function LocationDetailScreen() {
@@ -68,7 +69,7 @@ export default function LocationDetailScreen() {
   
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -492,7 +493,8 @@ export default function LocationDetailScreen() {
         }
         
         const localeDesc = Array.isArray(description) ? description[0] : description || '';
-        const localeSpotTypes = spotTypes ? (Array.isArray(spotTypes) ? spotTypes[0] : spotTypes).split(', ') : [];
+        const localeSpotTypes = spotTypes ? (Array.isArray(spotTypes) ? spotTypes[0] : spotTypes).split(', ').filter(s => s.trim().length > 0) : [];
+        const localeTravelInfo = travelInfo ? (Array.isArray(travelInfo) ? travelInfo[0] : travelInfo) : 'Drivable';
         
         logger.debug('Admin locale params:', {
           localeImageUrl,
@@ -500,7 +502,9 @@ export default function LocationDetailScreen() {
           localeLng,
           localeLatStr,
           localeLngStr,
-          locationName
+          locationName,
+          localeTravelInfo,
+          localeSpotTypes
         });
         
         // PRODUCTION-GRADE: If coordinates are missing, fetch from Google Geocoding API with country context
@@ -533,6 +537,7 @@ export default function LocationDetailScreen() {
           imageUrl: localeImageUrl || getLocationImage(locationName),
           description: localeDesc,
           spotTypes: localeSpotTypes,
+          travelInfo: localeTravelInfo,
           latitude: finalLat,
           longitude: finalLng,
           isActive: true,
@@ -551,9 +556,10 @@ export default function LocationDetailScreen() {
           date: new Date().toISOString(),
           caption: `Visit ${locationName}`,
           category: {
-            fromYou: 'Drivable',
+            fromYou: localeTravelInfo,
             typeOfSpot: localeSpotTypes[0] || 'Natural'
           },
+          travelInfo: localeTravelInfo,
           description: localeDesc || `${locationName} is a beautiful destination with unique attractions and natural beauty.`,
           imageUrl: localeImageUrl || getLocationImage(locationName),
           coordinates: coordinates
@@ -735,7 +741,11 @@ export default function LocationDetailScreen() {
         >
           <Ionicons name="arrow-back" size={isTabletLocal ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+        <Text 
+          style={[styles.headerTitle, { color: theme.colors.text }]}
+          numberOfLines={1}
+          ellipsizeMode="middle"
+        >
           {displayLocationName}
         </Text>
         <View style={styles.headerRight}>
@@ -810,15 +820,25 @@ export default function LocationDetailScreen() {
                   <Ionicons name="location" size={16} color="#fff" />
                   <Text style={styles.locationBadgeText}>{data.name}</Text>
                 </View>
-                {/* Score and Visited - Moved left and made clearly visible */}
+                {/* Score and Visited - Moved left with liquid gradient effect */}
                 {isTripScoreFlow && (
                   <View style={styles.heroStatsLeft}>
-                    <View style={styles.statItem}>
+                    <LinearGradient
+                      colors={['rgba(255, 215, 0, 0.3)', 'rgba(255, 215, 0, 0.1)', 'rgba(0, 0, 0, 0.85)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.statItem}
+                    >
                       <Ionicons name="trophy" size={18} color="#FFD700" />
                       <Text style={styles.statValue}>{data.score}</Text>
                       <Text style={styles.statLabel}>Score</Text>
-                    </View>
-                    <View style={styles.statItem}>
+                    </LinearGradient>
+                    <LinearGradient
+                      colors={['rgba(76, 175, 80, 0.3)', 'rgba(76, 175, 80, 0.1)', 'rgba(0, 0, 0, 0.85)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.statItem}
+                    >
                       <Ionicons name="calendar" size={18} color="#4CAF50" />
                       <Text style={styles.statValue}>
                         {data.date ? (() => {
@@ -835,13 +855,13 @@ export default function LocationDetailScreen() {
                             }
                             return date.getFullYear();
                           } catch (error) {
-                            logger.warn('Error parsing date for visited year:', data.date, error);
+                            logger.warn('Error parsing date for visited year:', { date: data.date, error });
                             return 'N/A';
                           }
                         })() : 'N/A'}
                       </Text>
                       <Text style={styles.statLabel}>Visited</Text>
-                    </View>
+                    </LinearGradient>
                   </View>
                 )}
               </View>
@@ -886,7 +906,7 @@ export default function LocationDetailScreen() {
                   <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
                     {isTripScoreFlow 
                       ? (data?.category?.fromYou || 'Drivable')
-                      : (data.category?.fromYou || 'Unknown')
+                      : (localeData?.travelInfo || data?.category?.fromYou || 'Drivable')
                     }
                   </Text>
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
@@ -1046,11 +1066,12 @@ const createStyles = () => {
       } as any),
     },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     flex: 1,
     textAlign: 'center',
     letterSpacing: 0.3,
+    paddingHorizontal: 8,
   },
   headerRight: {
     flexDirection: 'row',
@@ -1132,26 +1153,29 @@ const createStyles = () => {
   locationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 3,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 5,
   },
   locationBadgeText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 8,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   heroStats: {
     flexDirection: 'row',
@@ -1164,7 +1188,6 @@ const createStyles = () => {
   },
   statItem: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.85)',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 18,
@@ -1179,6 +1202,7 @@ const createStyles = () => {
     shadowRadius: 6,
     elevation: 5,
     minWidth: 70,
+    overflow: 'hidden',
   },
   statValue: {
     color: '#fff',
