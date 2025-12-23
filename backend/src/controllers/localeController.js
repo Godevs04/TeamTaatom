@@ -65,7 +65,7 @@ const getLocales = async (req, res) => {
     }
 
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt latitude longitude spotTypes storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
@@ -120,7 +120,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
 
     if (!locale) {
@@ -205,18 +205,30 @@ const uploadLocale = async (req, res) => {
     await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
     logger.debug('Storage upload successful:', { key: storageKey });
 
-    // Validate displayOrder - check for conflicts
+    // Display order is optional and can be duplicated - no validation needed
     const requestedOrder = parseInt(displayOrder) || 0;
-    if (requestedOrder > 0) {
-      const existingLocale = await Locale.findOne({ 
-        displayOrder: requestedOrder, 
-        isActive: true 
-      });
-      
-      if (existingLocale) {
-        return sendError(res, 'VAL_2001', `Display order ${requestedOrder} is already assigned to another locale. Please choose a different order.`);
+
+    // Process spotTypes - ensure it's an array
+    let processedSpotTypes = [];
+    if (spotTypes) {
+      if (typeof spotTypes === 'string') {
+        // If it's a JSON string, parse it
+        try {
+          processedSpotTypes = JSON.parse(spotTypes);
+        } catch {
+          // If not JSON, treat as comma-separated string
+          processedSpotTypes = spotTypes.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        }
+      } else if (Array.isArray(spotTypes)) {
+        processedSpotTypes = spotTypes.map(s => String(s).trim()).filter(s => s.length > 0);
       }
     }
+
+    // Process travelInfo - validate against enum
+    const validTravelInfo = ['Drivable', 'Walkable', 'Public Transport', 'Flight Required', 'Not Accessible'];
+    const processedTravelInfo = travelInfo && validTravelInfo.includes(travelInfo.trim()) 
+      ? travelInfo.trim() 
+      : 'Drivable';
 
     // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
@@ -232,14 +244,16 @@ const uploadLocale = async (req, res) => {
       // DO NOT store cloudinaryUrl or imageUrl - they will be generated dynamically
       createdBy: req.superAdmin._id,
       displayOrder: requestedOrder,
-      isActive: true // Explicitly set to active
+      isActive: true, // Explicitly set to active
+      spotTypes: processedSpotTypes,
+      travelInfo: processedTravelInfo
     });
 
     await locale.save();
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
     
     // Generate signed URL dynamically
@@ -379,26 +393,34 @@ const toggleLocaleStatus = async (req, res) => {
 const updateLocale = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder, spotTypes, travelInfo } = req.body;
 
     const locale = await Locale.findById(id);
     if (!locale) {
       return sendError(res, 'SRV_6001', 'Locale not found');
     }
 
-    // Preserve cloudinaryUrl and cloudinaryKey - these are required and should not be changed during update
-    // If they don't exist, populate from legacy fields for backward compatibility
-    if (!locale.cloudinaryUrl && locale.imageUrl) {
-      locale.cloudinaryUrl = locale.imageUrl;
+    // Preserve storage keys - check storageKey first (new), then fallback to legacy fields
+    // Priority: storageKey > cloudinaryKey > imageKey
+    const hasStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
+    
+    if (!hasStorageKey) {
+      logger.error(`Locale ${id} is missing storage key (storageKey, cloudinaryKey, or imageKey)`);
+      return sendError(res, 'SRV_6001', 'Locale is missing required image data. Please contact support.');
+    }
+
+    // Populate legacy fields for backward compatibility if they don't exist
+    if (!locale.cloudinaryKey && locale.storageKey) {
+      locale.cloudinaryKey = locale.storageKey;
     }
     if (!locale.cloudinaryKey && locale.imageKey) {
       locale.cloudinaryKey = locale.imageKey;
     }
-
-    // Ensure cloudinaryUrl and cloudinaryKey are set (required fields)
-    if (!locale.cloudinaryUrl || !locale.cloudinaryKey) {
-      logger.error(`Locale ${id} is missing cloudinaryUrl or cloudinaryKey`);
-      return sendError(res, 'SRV_6001', 'Locale is missing required image data. Please contact support.');
+    if (!locale.storageKey && locale.cloudinaryKey) {
+      locale.storageKey = locale.cloudinaryKey;
+    }
+    if (!locale.storageKey && locale.imageKey) {
+      locale.storageKey = locale.imageKey;
     }
 
     // Update fields if provided
@@ -444,31 +466,65 @@ const updateLocale = async (req, res) => {
         return sendError(res, 'VAL_2001', 'Display order must be a positive number');
       }
       
-      // Check if another locale already has this displayOrder
-      const existingLocale = await Locale.findOne({ 
-        displayOrder: orderNum, 
-        _id: { $ne: id },
-        isActive: true 
-      });
-      
-      if (existingLocale) {
-        return sendError(res, 'VAL_2001', `Display order ${orderNum} is already assigned to another locale. Please choose a different order.`);
-      }
-      
+      // Display order can be duplicated - no uniqueness validation needed
       locale.displayOrder = orderNum;
     }
 
-    // Also update legacy fields for backward compatibility
-    if (locale.cloudinaryUrl && !locale.imageUrl) {
-      locale.imageUrl = locale.cloudinaryUrl;
+    // Handle spotTypes update
+    if (spotTypes !== undefined) {
+      let processedSpotTypes = [];
+      if (spotTypes) {
+        if (typeof spotTypes === 'string') {
+          try {
+            processedSpotTypes = JSON.parse(spotTypes);
+          } catch {
+            processedSpotTypes = spotTypes.split(',').map(s => s.trim()).filter(s => s.length > 0);
+          }
+        } else if (Array.isArray(spotTypes)) {
+          processedSpotTypes = spotTypes.map(s => String(s).trim()).filter(s => s.length > 0);
+        }
+      }
+      locale.spotTypes = processedSpotTypes;
     }
-    if (locale.cloudinaryKey && !locale.imageKey) {
-      locale.imageKey = locale.cloudinaryKey;
+
+    // Handle travelInfo update
+    if (travelInfo !== undefined) {
+      const validTravelInfo = ['Drivable', 'Walkable', 'Public Transport', 'Flight Required', 'Not Accessible'];
+      if (validTravelInfo.includes(travelInfo.trim())) {
+        locale.travelInfo = travelInfo.trim();
+      } else {
+        return sendError(res, 'VAL_2001', `Invalid travelInfo. Must be one of: ${validTravelInfo.join(', ')}`);
+      }
+    }
+
+    // Also update legacy fields for backward compatibility
+    // Ensure all storage key fields are synchronized
+    const primaryStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
+    if (primaryStorageKey) {
+      if (!locale.storageKey) locale.storageKey = primaryStorageKey;
+      if (!locale.cloudinaryKey) locale.cloudinaryKey = primaryStorageKey;
+      if (!locale.imageKey) locale.imageKey = primaryStorageKey;
     }
 
     await locale.save();
 
     logger.info(`Locale ${id} updated successfully`);
+
+    // Generate signed URL for the updated locale
+    const storageKeyForUrl = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
+    let signedUrl = null;
+    
+    if (storageKeyForUrl) {
+      try {
+        signedUrl = await generateSignedUrl(storageKeyForUrl, 'LOCALE');
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for updated locale:', { 
+          localeId: locale._id, 
+          storageKey: storageKeyForUrl, 
+          error: error.message 
+        });
+      }
+    }
 
     return sendSuccess(res, 200, 'Locale updated successfully', {
       locale: {
@@ -480,7 +536,11 @@ const updateLocale = async (req, res) => {
         stateCode: locale.stateCode,
         description: locale.description,
         displayOrder: locale.displayOrder,
-        isActive: locale.isActive
+        isActive: locale.isActive,
+        spotTypes: locale.spotTypes || [],
+        travelInfo: locale.travelInfo || 'Drivable',
+        imageUrl: signedUrl,
+        cloudinaryUrl: signedUrl
       }
     });
   } catch (error) {

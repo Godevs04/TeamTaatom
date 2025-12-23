@@ -622,7 +622,7 @@ const Users = () => {
       if (selectedUser.action === 'edit') {
         // Handle edit action separately
         try {
-          await api.patch(`/api/superadmin/users/${selectedUser._id}`, editFormData)
+          await api.patch(`/api/v1/superadmin/users/${selectedUser._id}`, editFormData)
           if (isMountedRef.current) {
             toast.success('User updated successfully')
             handleModalClose(setShowModal, setSelectedUser, () => setEditFormData({}))
@@ -654,7 +654,7 @@ const Users = () => {
         if (!confirmed || !isMountedRef.current) return
         
         try {
-          await api.delete(`/api/superadmin/users/${selectedUser._id}`)
+          await api.delete(`/api/v1/superadmin/users/${selectedUser._id}`)
           if (isMountedRef.current) {
             // Track last action
             const adminEmail = localStorage.getItem('founder_email') || 'Unknown Admin'

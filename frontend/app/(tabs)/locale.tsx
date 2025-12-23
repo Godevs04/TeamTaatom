@@ -1144,6 +1144,7 @@ export default function LocaleScreen() {
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
+                travelInfo: locale.travelInfo || 'Drivable',
               }
             });
           } catch (error) {
@@ -1275,6 +1276,7 @@ export default function LocaleScreen() {
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
+                travelInfo: locale.travelInfo || 'Drivable',
               }
             });
           } catch (error) {

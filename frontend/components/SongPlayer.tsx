@@ -5,6 +5,7 @@ import { Audio } from 'expo-av';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';
+import { audioManager } from '../utils/audioManager';
 
 interface SongPlayerProps {
   post: PostType;
@@ -55,9 +56,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setSound(null);
         setIsPlaying(false);
       }
+      // Unregister from audio manager
+      if (post._id) {
+        audioManager.unregisterAudio(post._id);
+      }
       isInitializedRef.current = false;
     };
-  }, []);
+  }, [post._id]);
 
   // Helper function to fetch fresh signed URL if needed
   const fetchFreshSignedUrl = useCallback(async (): Promise<string | null> => {
@@ -127,6 +132,11 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
       soundRef.current = newSound;
       setSound(newSound);
+      
+      // Register with global audio manager (only if we're going to play)
+      if (shouldPlayNow && post._id) {
+        await audioManager.registerAudio(newSound, post._id);
+      }
       
       // Set up playback status listener
       newSound.setOnPlaybackStatusUpdate((status: any) => {
@@ -216,6 +226,10 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
             logger.error('Error pausing:', err);
           });
           setIsPlaying(false);
+          // Unregister from audio manager when paused
+          if (post._id) {
+            audioManager.unregisterAudio(post._id);
+          }
         }
       }
     }
@@ -224,6 +238,10 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     if (!isVisible && !showPlayPause && soundRef.current) {
       soundRef.current.pauseAsync().catch(err => logger.error('Error pausing:', err));
       setIsPlaying(false);
+      // Unregister from audio manager when invisible
+      if (post._id) {
+        audioManager.unregisterAudio(post._id);
+      }
     }
   }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong]);
 
@@ -248,6 +266,10 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           setIsPlaying(false);
         } else {
           logger.debug('Starting playback...');
+          // Register with audio manager before playing (will pause other audio)
+          if (post._id) {
+            await audioManager.registerAudio(soundRef.current, post._id);
+          }
           // Ensure volume is set correctly before playing
           await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
           await soundRef.current.playAsync();

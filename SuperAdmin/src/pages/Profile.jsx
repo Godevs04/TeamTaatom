@@ -86,7 +86,7 @@ const Profile = () => {
         formData.append('phone', profileData.phone)
         formData.append('timezone', profileData.timezone)
         
-        const response = await api.patch('/api/superadmin/profile', formData, {
+        const response = await api.patch('/api/v1/superadmin/profile', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
         
@@ -97,7 +97,7 @@ const Profile = () => {
         }
       } else {
         // No avatar upload, just update profile data
-        const response = await api.patch('/api/superadmin/profile', profileData)
+        const response = await api.patch('/api/v1/superadmin/profile', profileData)
         if (response.data.success) {
           toast.success('Profile updated successfully')
         }

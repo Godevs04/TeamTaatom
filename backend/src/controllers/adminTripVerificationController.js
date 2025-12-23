@@ -4,9 +4,13 @@ const Post = require('../models/Post');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
-
-// Static Taatom Official system user ID (must exist in DB for chat system)
-const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
+const { 
+  getOrCreateSupportConversation, 
+  sendSystemMessage,
+  getSupportChatByTripVisit
+} = require('../services/adminSupportChatService');
+const { getIO } = require('../socket');
 
 /**
  * Admin TripScore Verification Controller
@@ -69,8 +73,8 @@ const getPendingReviews = async (req, res) => {
     let pendingVisits = [];
     try {
       pendingVisits = await TripVisit.find(query)
-        .populate('user', 'fullName username email profilePic')
-        .populate('post', 'caption imageUrl images createdAt')
+        .populate('user', 'fullName username email profilePic profilePicStorageKey')
+        .populate('post', 'caption imageUrl images createdAt storageKey storageKeys type')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -87,8 +91,8 @@ const getPendingReviews = async (req, res) => {
           { source: 'gallery_no_exif' }
         ]
       })
-        .populate('user', 'fullName username email profilePic')
-        .populate('post', 'caption imageUrl images createdAt')
+        .populate('user', 'fullName username email profilePic profilePicStorageKey')
+        .populate('post', 'caption imageUrl images createdAt storageKey storageKeys type')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -123,8 +127,8 @@ const getPendingReviews = async (req, res) => {
       }))
     });
 
-    // Format response
-    const reviews = pendingVisits.map(visit => {
+    // Format response and generate signed URLs for images
+    const reviews = await Promise.all(pendingVisits.map(async (visit) => {
       // Determine verification reason if not set (backward compatibility)
       let verificationReason = visit.verificationReason;
       if (!verificationReason) {
@@ -141,6 +145,49 @@ const getPendingReviews = async (req, res) => {
         }
       }
 
+      // Generate signed URLs for user profile picture
+      let profilePicUrl = null;
+      if (visit.user?.profilePicStorageKey) {
+        try {
+          profilePicUrl = await generateSignedUrl(visit.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile pic URL:', error);
+          profilePicUrl = visit.user.profilePic || null;
+        }
+      } else {
+        profilePicUrl = visit.user?.profilePic || null;
+      }
+
+      // Generate signed URLs for post images
+      let postImages = [];
+      let postImageUrl = null;
+      if (visit.post) {
+        if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+          try {
+            const imageUrls = await generateSignedUrls(visit.post.storageKeys, 'IMAGE');
+            postImages = imageUrls;
+            postImageUrl = imageUrls[0] || null;
+          } catch (error) {
+            logger.warn('Failed to generate image URLs from storageKeys:', error);
+            postImages = visit.post.images || [];
+            postImageUrl = visit.post.imageUrl || null;
+          }
+        } else if (visit.post.storageKey) {
+          try {
+            postImageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
+            postImages = [postImageUrl];
+          } catch (error) {
+            logger.warn('Failed to generate image URL from storageKey:', error);
+            postImages = visit.post.images || [];
+            postImageUrl = visit.post.imageUrl || null;
+          }
+        } else {
+          // Legacy: use existing imageUrl/images
+          postImages = visit.post.images || [];
+          postImageUrl = visit.post.imageUrl || null;
+        }
+      }
+
       return {
         _id: visit._id,
         user: visit.user ? {
@@ -148,14 +195,15 @@ const getPendingReviews = async (req, res) => {
           fullName: visit.user.fullName,
           username: visit.user.username,
           email: visit.user.email,
-          profilePic: visit.user.profilePic
+          profilePic: profilePicUrl
         } : null,
         post: visit.post ? {
           _id: visit.post._id,
           caption: visit.post.caption,
-          imageUrl: visit.post.imageUrl,
-          images: visit.post.images,
-          createdAt: visit.post.createdAt
+          imageUrl: postImageUrl,
+          images: postImages,
+          createdAt: visit.post.createdAt,
+          type: visit.post.type
         } : null,
         location: {
           address: visit.address,
@@ -172,7 +220,7 @@ const getPendingReviews = async (req, res) => {
         uploadedAt: visit.uploadedAt,
         createdAt: visit.createdAt
       };
-    });
+    }));
 
     return sendSuccess(res, 200, 'Pending reviews fetched successfully', {
       reviews,
@@ -236,6 +284,19 @@ const approveTripVisit = async (req, res) => {
     await tripVisit.save();
 
     logger.info(`TripVisit ${tripVisitId} approved by admin ${adminId}`);
+
+    // Update support conversation status to 'resolved' if exists
+    try {
+      const supportChat = await getSupportChatByTripVisit(tripVisitId);
+      if (supportChat) {
+        supportChat.status = 'resolved';
+        await supportChat.save();
+        logger.debug(`Updated support conversation status to resolved for TripVisit ${tripVisitId}`);
+      }
+    } catch (chatError) {
+      logger.debug('Could not update conversation status:', chatError.message);
+      // Non-blocking, continue
+    }
 
     // Send notification to user (fire-and-forget)
     sendApprovalNotification(tripVisit.user, tripVisit).catch(err => {
@@ -304,6 +365,19 @@ const rejectTripVisit = async (req, res) => {
 
     logger.info(`TripVisit ${tripVisitId} rejected by admin ${adminId}`);
 
+    // Update support conversation status to 'resolved' if exists
+    try {
+      const supportChat = await getSupportChatByTripVisit(tripVisitId);
+      if (supportChat) {
+        supportChat.status = 'resolved';
+        await supportChat.save();
+        logger.debug(`Updated support conversation status to resolved for TripVisit ${tripVisitId}`);
+      }
+    } catch (chatError) {
+      logger.debug('Could not update conversation status:', chatError.message);
+      // Non-blocking, continue
+    }
+
     // Send notification to user (fire-and-forget)
     sendRejectionNotification(tripVisit.user, tripVisit).catch(err => {
       logger.error('Failed to send rejection notification:', err);
@@ -324,7 +398,7 @@ const rejectTripVisit = async (req, res) => {
 };
 
 /**
- * Send approval notification via chat
+ * Send approval notification via support chat
  * Fire-and-forget, does not block the approval process
  */
 const sendApprovalNotification = async (userId, tripVisit) => {
@@ -338,15 +412,45 @@ const sendApprovalNotification = async (userId, tripVisit) => {
 
     const message = `✅ Your trip to ${city}${country ? `, ${country}` : ''} has been verified!\nYour TripScore has been updated 🌍`;
 
-    // Send via chat service (reuse existing chat API)
-    await sendChatMessage(userId, message);
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
+    });
+
+    // Send system message
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
+
+    // Emit socket event
+    try {
+      const io = getIO();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
+        nsp.to(`user:${userId}`).emit('message:new', { 
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
+        });
+      }
+    } catch (socketError) {
+      logger.debug('Socket not available for approval notification:', socketError);
+    }
   } catch (error) {
     logger.error('Error sending approval notification:', error);
   }
 };
 
 /**
- * Send rejection notification via chat
+ * Send rejection notification via support chat
  * Fire-and-forget, does not block the rejection process
  */
 const sendRejectionNotification = async (userId, tripVisit) => {
@@ -354,112 +458,171 @@ const sendRejectionNotification = async (userId, tripVisit) => {
     const user = await User.findById(userId);
     if (!user) return;
 
-    const message = `⚠️ We couldn't verify this post due to missing location proof.\nYou can upload another photo from the same trip or capture directly using Taatom camera.`;
+    const message = `⚠️ We couldn't verify this post due to missing or unclear location proof.\nYou may upload another photo or capture directly using Taatom camera.`;
 
-    // Send via chat service (reuse existing chat API)
-    await sendChatMessage(userId, message);
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
+    });
+
+    // Send system message
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
+
+    // Emit socket event
+    try {
+      const io = getIO();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
+        nsp.to(`user:${userId}`).emit('message:new', { 
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
+        });
+      }
+    } catch (socketError) {
+      logger.debug('Socket not available for rejection notification:', socketError);
+    }
   } catch (error) {
     logger.error('Error sending rejection notification:', error);
   }
 };
 
-/**
- * Send chat message from TAATOM_OFFICIAL user
- * Uses existing chat controller API
- */
-const sendChatMessage = async (recipientUserId, text) => {
+
+// @desc    Update TripVisit details
+// @route   PATCH /admin/tripscore/review/:tripVisitId
+// @access  Private (SuperAdmin)
+const updateTripVisit = async (req, res) => {
   try {
-    // Get or create TAATOM_OFFICIAL system user
-    let officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                       await User.findOne({ email: 'official@taatom.com' }) || 
-                       await User.findOne({ username: 'taatom_official' });
-    
-    if (!officialUser) {
-      // Create TAATOM_OFFICIAL system user if it doesn't exist
-      try {
-        officialUser = await User.create({
-          _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
-          email: 'official@taatom.com',
-          username: 'taatom_official',
-          fullName: 'Taatom Official',
-          password: require('crypto').randomBytes(32).toString('hex'), // Random password, never used
-          isVerified: true,
-          isActive: true,
-          isSystem: true // Mark as system user
-        });
-        logger.info('Created TAATOM_OFFICIAL system user for notifications');
-      } catch (createError) {
-        // If user already exists (race condition), fetch it
-        if (createError.code === 11000) {
-          officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                         await User.findOne({ email: 'official@taatom.com' }) ||
-                         await User.findOne({ username: 'taatom_official' });
-        }
-        if (!officialUser) {
-          logger.error('Failed to create/find TAATOM_OFFICIAL user:', createError);
-          return; // Skip notification if user creation fails
-        }
+    const { tripVisitId } = req.params;
+    const adminId = req.superAdmin?._id || req.user?._id;
+    const { country, continent, address, city, verificationReason, lat, lng } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(tripVisitId)) {
+      return sendError(res, 'VAL_2001', 'Invalid TripVisit ID');
+    }
+
+    const tripVisit = await TripVisit.findById(tripVisitId);
+
+    if (!tripVisit) {
+      return sendError(res, 'RES_3001', 'TripVisit not found');
+    }
+
+    // Update fields if provided
+    if (country !== undefined) {
+      tripVisit.country = country;
+    }
+    if (continent !== undefined) {
+      // Validate continent
+      const validContinents = ['ASIA', 'AFRICA', 'NORTH AMERICA', 'SOUTH AMERICA', 'AUSTRALIA', 'EUROPE', 'ANTARCTICA', 'Unknown'];
+      if (validContinents.includes(continent.toUpperCase())) {
+        tripVisit.continent = continent.toUpperCase();
+      } else {
+        return sendError(res, 'VAL_2001', 'Invalid continent');
       }
     }
-    
-    // Ensure user has verified status for UI display
-    if (!officialUser.isVerified) {
-      officialUser.isVerified = true;
-      await officialUser.save();
+    if (address !== undefined) {
+      tripVisit.address = address;
+    }
+    if (city !== undefined) {
+      tripVisit.city = city;
+    }
+    if (verificationReason !== undefined) {
+      // Validate verification reason
+      const validReasons = ['no_exif', 'manual_location', 'suspicious_pattern', 'photo_requires_review', 'gallery_exif_requires_review', 'photo_from_camera_requires_review', 'requires_admin_review'];
+      if (validReasons.includes(verificationReason)) {
+        tripVisit.verificationReason = verificationReason;
+      } else {
+        return sendError(res, 'VAL_2001', 'Invalid verification reason');
+      }
+    }
+    if (lat !== undefined && lng !== undefined) {
+      tripVisit.lat = parseFloat(lat);
+      tripVisit.lng = parseFloat(lng);
     }
 
-    // Use chat controller to send message
-    const Chat = require('../models/Chat');
-    let chat = await Chat.findOne({ 
-      participants: { $all: [officialUser._id, recipientUserId] } 
-    });
+    // Track who updated it
+    tripVisit.reviewedBy = adminId;
+    tripVisit.reviewedAt = new Date();
 
-    if (!chat) {
-      chat = await Chat.create({ 
-        participants: [officialUser._id, recipientUserId], 
-        messages: [] 
+    await tripVisit.save();
+
+    logger.info(`TripVisit ${tripVisitId} updated by admin ${adminId}`);
+
+    return sendSuccess(res, 200, 'TripVisit updated successfully', {
+      tripVisit: {
+        _id: tripVisit._id,
+        country: tripVisit.country,
+        continent: tripVisit.continent,
+        address: tripVisit.address,
+        city: tripVisit.city,
+        verificationReason: tripVisit.verificationReason,
+        lat: tripVisit.lat,
+        lng: tripVisit.lng,
+        reviewedBy: tripVisit.reviewedBy,
+        reviewedAt: tripVisit.reviewedAt
+      }
+    });
+  } catch (error) {
+    logger.error('Update TripVisit error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to update TripVisit');
+  }
+};
+
+// @desc    Get support chat for a TripVisit
+// @route   GET /admin/tripscore/:tripVisitId/support-chat
+// @access  Private (SuperAdmin)
+const getTripVisitSupportChat = async (req, res) => {
+  try {
+    const { tripVisitId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(tripVisitId)) {
+      return sendError(res, 'VAL_2001', 'Invalid TripVisit ID');
+    }
+
+    const tripVisit = await TripVisit.findById(tripVisitId).select('user').lean();
+
+    if (!tripVisit) {
+      return sendError(res, 'RES_3001', 'TripVisit not found');
+    }
+
+    // Find existing conversation linked to this TripVisit
+    let conversation = await getSupportChatByTripVisit(tripVisitId);
+
+    // If no conversation exists, create one
+    if (!conversation) {
+      conversation = await getOrCreateSupportConversation({
+        userId: tripVisit.user.toString(),
+        reason: 'trip_verification',
+        refId: tripVisitId
       });
     }
 
-    // Add message
-    const message = {
-      sender: officialUser._id,
-      text,
-      timestamp: new Date(),
-      seen: false
-    };
-
-    chat.messages.push(message);
-    await chat.save();
-
-    // Emit socket event if available
-    try {
-      const { getIO } = require('../socket');
-      const io = getIO();
-      if (io && io.of('/app')) {
-        const nsp = io.of('/app');
-        nsp.to(`user:${recipientUserId}`).emit('message:new', { 
-          chatId: chat._id, 
-          message: {
-            ...message,
-            _id: chat.messages[chat.messages.length - 1]._id
-          }
-        });
-      }
-    } catch (socketError) {
-      logger.debug('Socket not available for chat notification:', socketError);
-    }
-
-    logger.debug(`Chat notification sent to user ${recipientUserId}`);
+    return sendSuccess(res, 200, 'Support chat retrieved successfully', {
+      conversationId: conversation._id.toString(),
+      userId: tripVisit.user.toString(),
+      tripVisitId: tripVisitId
+    });
   } catch (error) {
-    logger.error('Error sending chat message:', error);
-    throw error;
+    logger.error('Get TripVisit support chat error:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get support chat');
   }
 };
 
 module.exports = {
   getPendingReviews,
   approveTripVisit,
-  rejectTripVisit
+  rejectTripVisit,
+  updateTripVisit,
+  getTripVisitSupportChat
 };
 

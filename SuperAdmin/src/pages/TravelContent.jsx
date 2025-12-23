@@ -92,17 +92,22 @@ const ContentCard = memo(({
             className="w-full h-48 bg-gray-200 flex items-center justify-center cursor-pointer"
             onClick={() => onToggleExpand(item._id)}
           >
-            {item.type === 'short' && item.videoUrl && !videoError ? (
-              <video
-                src={item.thumbnailUrl || item.videoUrl}
-                className="w-full h-48 object-cover"
-                muted
-                onError={() => setVideoError(true)}
-                preload="metadata"
-              />
+            {item.type === 'short' ? (
+              // For shorts, show thumbnail image (not video)
+              (item.thumbnailUrl || item.imageUrl) && !imageError ? (
+                <img
+                  src={item.thumbnailUrl || item.imageUrl}
+                  alt={item.caption || 'Short thumbnail'}
+                  className="w-full h-48 object-cover"
+                  onError={() => setImageError(true)}
+                  loading="lazy"
+                />
+              ) : (
+                <div className="text-gray-400">Click to load thumbnail</div>
+              )
             ) : item.imageUrl && !imageError ? (
               <img
-                src={item.thumbnailUrl || item.imageUrl}
+                src={item.imageUrl}
                 alt={item.caption || 'Travel content'}
                 className="w-full h-48 object-cover"
                 onError={() => setImageError(true)}
@@ -425,7 +430,7 @@ const TravelContent = () => {
     
     try {
       if (action === 'delete') {
-        await api.delete(`/api/superadmin/posts/${postId}`)
+        await api.delete(`/api/v1/superadmin/posts/${postId}`)
         if (isMountedRef.current) {
           toast.success('Post deleted successfully')
           await fetchPosts({
@@ -442,7 +447,7 @@ const TravelContent = () => {
           actionStateCacheRef.current.set(postId, { flagged: post.flagged, isActive: post.isActive })
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}/flag`)
+        await api.patch(`/api/v1/superadmin/posts/${postId}/flag`)
         if (isMountedRef.current) {
           toast.success('Post flagged successfully')
           await fetchPosts({
@@ -466,7 +471,7 @@ const TravelContent = () => {
           }
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: true })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: true })
         if (isMountedRef.current) {
           toast.success('Post activated successfully')
           // Undo safety window
@@ -492,7 +497,7 @@ const TravelContent = () => {
           actionStateCacheRef.current.set(postId, { isActive: post.isActive, flagged: post.flagged })
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: false })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: false })
         if (isMountedRef.current) {
           toast.success('Post deactivated successfully')
           // Undo safety window
@@ -541,7 +546,7 @@ const TravelContent = () => {
       const { postId, action, previousState } = lastAction
       
       if (action === 'activate') {
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: previousState.isActive })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: previousState.isActive })
         if (isMountedRef.current) {
           toast.success('Action undone')
           setLastAction(null)
@@ -557,7 +562,7 @@ const TravelContent = () => {
           })
         }
       } else if (action === 'deactivate') {
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: previousState.isActive })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: previousState.isActive })
         if (isMountedRef.current) {
           toast.success('Action undone')
           setLastAction(null)
@@ -730,7 +735,7 @@ const TravelContent = () => {
         if (!isMountedRef.current) break
         
         try {
-          await api.patch(`/api/superadmin/posts/${postId}`, { isActive })
+          await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive })
           completed++
           if (isMountedRef.current) {
             setBulkActionProgress(Math.round((completed / total) * 100))
@@ -777,7 +782,7 @@ const TravelContent = () => {
     }
     
     try {
-      await Promise.all(selectedPosts.map(id => api.delete(`/api/superadmin/posts/${id}`)))
+      await Promise.all(selectedPosts.map(id => api.delete(`/api/v1/superadmin/posts/${id}`)))
       if (isMountedRef.current) {
         toast.success(`Successfully deleted ${selectedPosts.length} post(s)`)
         setSelectedPosts([])
@@ -1245,19 +1250,35 @@ const TravelContent = () => {
           {selectedContent?.action === 'view' && (
             <div className="space-y-4">
               {/* Display image or video thumbnail in modal */}
-              {selectedContent.type === 'short' && selectedContent.videoUrl ? (
-                <video
-                  src={selectedContent.videoUrl}
-                  className="w-full h-64 object-cover rounded-lg"
-                  controls
-                  loop
-                  onError={(e) => {
-                    e.target.parentElement.innerHTML = '<img src="/placeholder.svg" class="w-full h-64 object-cover rounded-lg" alt="Video error" />'
-                  }}
-                />
+              {selectedContent.type === 'short' ? (
+                // For shorts, show thumbnail in modal preview, video on expand
+                selectedContent.thumbnailUrl || selectedContent.imageUrl ? (
+                  <img
+                    src={selectedContent.thumbnailUrl || selectedContent.imageUrl}
+                    onError={(e) => {
+                      e.target.src = '/placeholder.svg'
+                    }}
+                    alt={selectedContent.caption || 'Short thumbnail'}
+                    className="w-full h-64 object-cover rounded-lg"
+                  />
+                ) : selectedContent.videoUrl ? (
+                  <video
+                    src={selectedContent.videoUrl}
+                    className="w-full h-64 object-cover rounded-lg"
+                    controls
+                    loop
+                    onError={(e) => {
+                      e.target.parentElement.innerHTML = '<img src="/placeholder.svg" class="w-full h-64 object-cover rounded-lg" alt="Video error" />'
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-64 bg-gray-200 flex items-center justify-center rounded-lg">
+                    <span className="text-gray-400">No thumbnail available</span>
+                  </div>
+                )
               ) : (
                 <img
-                  src={selectedContent.imageUrl || selectedContent.thumbnailUrl || '/placeholder.svg'}
+                  src={selectedContent.imageUrl || '/placeholder.svg'}
                   onError={(e) => {
                     e.target.src = '/placeholder.svg'
                   }}

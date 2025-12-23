@@ -601,10 +601,41 @@ export default function ShortsScreen() {
   const handleLike = async (shortId: string) => {
     if (actionLoading === shortId) return;
     
+    // Store previous state for error revert
+    let previousState: { isLiked: boolean; likesCount: number } | null = null;
+    
     try {
       setActionLoading(shortId);
+      
+      // Optimistic update: update UI immediately before API call
+      // Use functional update to read from current state
+      setShorts(prev => {
+        const currentShort = prev.find(s => s._id === shortId);
+        if (currentShort) {
+          // Store previous state for potential revert
+          previousState = {
+            isLiked: currentShort.isLiked || false,
+            likesCount: currentShort.likesCount || 0
+          };
+          
+          const newIsLiked = !currentShort.isLiked;
+          const newLikesCount = newIsLiked 
+            ? (currentShort.likesCount || 0) + 1 
+            : Math.max((currentShort.likesCount || 0) - 1, 0);
+          
+          // Update state immediately for instant feedback
+          return prev.map(short => 
+            short._id === shortId 
+              ? { ...short, isLiked: newIsLiked, likesCount: newLikesCount }
+              : short
+          );
+        }
+        return prev;
+      });
+      
       const response = await toggleLike(shortId);
       
+      // Update with actual response from server (in case of any discrepancy)
       setShorts(prev => prev.map(short => 
         short._id === shortId 
           ? { ...short, isLiked: response.isLiked, likesCount: response.likesCount }
@@ -616,11 +647,19 @@ export default function ShortsScreen() {
         isLiked: response.isLiked
       });
       
-      if (response.isLiked) {
-        showSuccess('Added to favorites!');
-      }
+      // No alert - silent update for better UX
     } catch (error) {
       logger.error('Error toggling like', error);
+      
+      // Revert optimistic update on error using stored previous state
+      if (previousState) {
+        setShorts(prev => prev.map(short => 
+          short._id === shortId 
+            ? { ...short, isLiked: previousState!.isLiked, likesCount: previousState!.likesCount }
+            : short
+        ));
+      }
+      
       showError('Failed to update like status');
     } finally {
       setActionLoading(null);
@@ -1031,8 +1070,12 @@ export default function ShortsScreen() {
               onPress={() => handleProfilePress(item.user._id)}
             >
               <Image
-                source={{ uri: item.user.profilePic }}
+                source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
                 style={styles.profileImage}
+                defaultSource={require('../../assets/avatars/male_avatar.png')}
+                onError={() => {
+                  logger.warn('Profile picture failed to load for user:', item.user._id);
+                }}
               />
               {/* Follow Button - Only show if not own user */}
               {item.user._id !== currentUser?._id && (
@@ -1059,7 +1102,7 @@ export default function ShortsScreen() {
                   color={isLiked ? "#FF3040" : "white"} 
                 />
               </View>
-              <Text style={styles.actionText}>{item.likesCount || 0}</Text>
+              <Text style={styles.actionText}>{typeof item.likesCount === 'number' ? item.likesCount : 0}</Text>
             </TouchableOpacity>
 
             {/* Comment Button */}
@@ -1113,8 +1156,12 @@ export default function ShortsScreen() {
               >
                 <View style={styles.avatarContainer}>
                 <Image
-                  source={{ uri: item.user.profilePic }}
+                  source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
                   style={styles.userAvatar}
+                  defaultSource={require('../../assets/avatars/male_avatar.png')}
+                  onError={() => {
+                    logger.warn('Profile picture failed to load for user:', item.user._id);
+                  }}
                 />
                   <View style={styles.avatarRing} />
                 </View>

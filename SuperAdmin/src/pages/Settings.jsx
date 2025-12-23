@@ -155,7 +155,7 @@ const Settings = () => {
       abortControllerRef.current = new AbortController()
       
       try {
-        const response = await api.get('/api/superadmin/settings', {
+        const response = await api.get('/api/v1/superadmin/settings', {
           signal: abortControllerRef.current.signal
         })
         
@@ -383,7 +383,7 @@ const Settings = () => {
       const previousSettings = { ...settings }
       const previousOriginal = originalSettings ? { ...originalSettings } : null
       
-      const response = await api.put('/api/superadmin/settings', settingsToSave, {
+      const response = await api.put('/api/v1/superadmin/settings', settingsToSave, {
         signal: abortControllerRef.current.signal
       })
       
@@ -478,7 +478,7 @@ const Settings = () => {
   const handleConfirmReset = async () => {
     setIsLoading(true)
     try {
-      await api.post('/api/superadmin/settings/reset')
+      await api.post('/api/v1/superadmin/settings/reset')
       toast.success('Settings reset to defaults')
       setShowModal(false)
       setHasChanges(false)

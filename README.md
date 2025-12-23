@@ -33,7 +33,7 @@ TeamTaatom/
 - MongoDB Atlas account
 - Cloudinary account  
 - Gmail with App Password
-- Redis (for background jobs)
+- Redis (optional - for background jobs, currently disabled)
 - Expo CLI (`npm install -g @expo/cli`)
 
 ### 1. Backend Setup
@@ -135,7 +135,7 @@ npm run migrate:up  # Run database migrations
 - ✅ API versioning (`/api/v1`)
 - ✅ Request validation with express-validator
 - ✅ Database migrations (migrate-mongo)
-- ✅ Background jobs (BullMQ with Redis)
+- ✅ Background jobs (currently disabled - Redis not configured)
   - Email sending
   - Image processing
   - Analytics aggregation
@@ -165,7 +165,7 @@ npm run migrate:up  # Run database migrations
 - **Nodemailer** - Email service
 - **bcryptjs** - Password hashing
 - **Socket.IO** - Real-time WebSocket server
-- **BullMQ + Redis** - Background job queue
+- **Background Jobs** - Queue system (currently disabled - Redis not configured)
 - **Helmet.js** - Security headers
 - **express-rate-limit** - Rate limiting
 - **xss** - Input sanitization
@@ -301,11 +301,12 @@ FRONTEND_URL=http://192.168.1.9:8081
 API_BASE_URL=http://192.168.1.9:3000
 SUPERADMIN_URL=http://localhost:5001
 
-# Redis (for background jobs)
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-ENABLE_BACKGROUND_JOBS=true
+# Background Jobs (currently disabled - Redis not configured)
+# To enable background jobs in the future, configure Redis and set:
+# REDIS_HOST=localhost
+# REDIS_PORT=6379
+# REDIS_PASSWORD=
+ENABLE_BACKGROUND_JOBS=false
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your_google_client_id
@@ -414,7 +415,7 @@ npm run web
 ### Backend (Railway/Heroku/Render)
 ```bash
 # Set environment variables in dashboard
-# Ensure Redis is configured for background jobs
+# Background jobs are currently disabled (Redis not configured)
 # Deploy from GitHub repository
 ```
 
@@ -468,7 +469,7 @@ eas build --platform android
 5. **Backend Infrastructure**
    - Database migrations
    - Background jobs (BullMQ)
-   - Redis integration
+   - Background jobs (currently disabled)
    - Comprehensive logging
 
 6. **Analytics & Tracking**
@@ -496,7 +497,7 @@ eas build --platform android
    - Check MongoDB connection string
    - Verify all environment variables
    - Ensure port 3000 is available
-   - Check Redis connection (if using background jobs)
+   - Background jobs are currently disabled
 
 2. **Frontend API errors**
    - Verify backend is running
@@ -515,9 +516,8 @@ eas build --platform android
    - Check SMTP credentials in backend `.env`
 
 5. **Background jobs not working**
-   - Ensure Redis is running: `redis-cli ping`
-   - Check `ENABLE_BACKGROUND_JOBS=true` in `.env`
-   - Verify Redis connection settings
+   - Background jobs are currently disabled (Redis not configured)
+   - To enable: Configure Redis and set `ENABLE_BACKGROUND_JOBS=true` in `.env`
 
 6. **CSRF token errors (web)**
    - Clear browser cookies
@@ -535,8 +535,8 @@ npx expo run:ios --device
 # Check backend logs
 cd backend && npm run dev
 
-# Check Redis connection
-redis-cli ping
+# Background jobs are currently disabled (Redis not configured)
+# To enable: Install Redis and configure REDIS_HOST, REDIS_PORT in .env
 
 # Run database migrations
 cd backend && npm run migrate:up

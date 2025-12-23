@@ -36,7 +36,7 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) =
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       <div 
         className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
         onClick={onClose}
@@ -44,11 +44,12 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) =
       />
       <div 
         className={cn(
-          'relative bg-white rounded-lg shadow-lg max-w-md w-full mx-4 z-50',
+          'relative bg-white rounded-lg shadow-lg max-w-md w-full z-50 flex flex-col max-h-[95vh] sm:max-h-[90vh]',
           className
         )}
         role="dialog"
         aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
       >
         {children}
       </div>
@@ -64,10 +65,14 @@ Modal.propTypes = {
   closeOnEscape: PropTypes.bool
 }
 
-const ModalHeader = ({ children, onClose }) => {
+const ModalHeader = ({ children, onClose, className }) => {
   return (
-    <div className="flex items-center justify-between p-6 border-b">
-      <h3 className="text-lg font-semibold">{children || ''}</h3>
+    <div className={cn('flex items-center justify-between p-6 border-b', className)}>
+      {typeof children === 'string' ? (
+        <h3 className="text-lg font-semibold">{children}</h3>
+      ) : (
+        children
+      )}
       {onClose && (
         <button
           onClick={onClose}
@@ -83,12 +88,13 @@ const ModalHeader = ({ children, onClose }) => {
 
 ModalHeader.propTypes = {
   children: PropTypes.node,
-  onClose: PropTypes.func
+  onClose: PropTypes.func,
+  className: PropTypes.string
 }
 
 const ModalContent = ({ children, className }) => {
   return (
-    <div className={cn('p-6', className)}>
+    <div className={cn('p-6 overflow-y-auto flex-1', className)}>
       {children || null}
     </div>
   )
@@ -101,7 +107,7 @@ ModalContent.propTypes = {
 
 const ModalFooter = ({ children, className }) => {
   return (
-    <div className={cn('flex items-center justify-end space-x-2 p-6 border-t', className)}>
+    <div className={cn('flex items-center justify-end gap-3 p-6 border-t flex-shrink-0 bg-white', className)}>
       {children || null}
     </div>
   )

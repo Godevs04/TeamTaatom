@@ -6,7 +6,7 @@ export const useDashboardData = () => {
   return useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const response = await api.get('/api/superadmin/dashboard/overview')
+      const response = await api.get('/api/v1/superadmin/dashboard/overview')
       return response.data
     },
   })

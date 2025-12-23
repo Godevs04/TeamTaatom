@@ -24,7 +24,7 @@ const ScheduledDowntime = () => {
   const fetchDowntimes = async () => {
     setIsLoading(true)
     try {
-      const response = await api.get('/api/superadmin/scheduled-downtimes')
+      const response = await api.get('/api/v1/superadmin/scheduled-downtimes')
       if (response.data.success) {
         setDowntimes(response.data.downtimes)
       }
@@ -49,7 +49,7 @@ const ScheduledDowntime = () => {
 
     setIsLoading(true)
     try {
-      await api.post('/api/superadmin/schedule-downtime', schedule)
+      await api.post('/api/v1/superadmin/schedule-downtime', schedule)
       toast.success('Downtime scheduled and notifications sent to all users')
       setShowModal(false)
       setSchedule({ reason: '', scheduledDate: '', scheduledTime: '', duration: 30 })
@@ -72,7 +72,7 @@ const ScheduledDowntime = () => {
 
     setIsLoading(true)
     try {
-      await api.post(`/api/superadmin/complete-downtime/${downtimeId}`)
+      await api.post(`/api/v1/superadmin/complete-downtime/${downtimeId}`)
       toast.success('Maintenance completion emails sent to all users')
       await fetchDowntimes()
     } catch (error) {

@@ -145,7 +145,7 @@ const Moderators = () => {
         params.search = searchTerm
       }
       
-      const response = await api.get('/api/superadmin/moderators', { 
+      const response = await api.get('/api/v1/superadmin/moderators', { 
         params,
         signal: abortControllerRef.current.signal
       })
@@ -361,7 +361,7 @@ const Moderators = () => {
     ))
 
     try {
-      const response = await api.patch(`/api/superadmin/moderators/${moderator._id}`, {
+      const response = await api.patch(`/api/v1/superadmin/moderators/${moderator._id}`, {
         isActive: !isActive
       })
       
@@ -430,12 +430,12 @@ const Moderators = () => {
 
     try {
       if (action === 'remove') {
-        await api.delete(`/api/superadmin/moderators/${moderatorId}`)
+        await api.delete(`/api/v1/superadmin/moderators/${moderatorId}`)
         if (isMountedRef.current) {
           toast.success('Moderator removed successfully')
         }
       } else if (action === 'edit') {
-        const response = await api.patch(`/api/superadmin/moderators/${moderatorId}`, {
+        const response = await api.patch(`/api/v1/superadmin/moderators/${moderatorId}`, {
           role: selectedModerator.role,
           isActive: selectedModerator.isActive
         })
@@ -518,7 +518,7 @@ const Moderators = () => {
     ))
 
     try {
-      const response = await api.patch(`/api/superadmin/moderators/${editingPermissions._id}`, {
+      const response = await api.patch(`/api/v1/superadmin/moderators/${editingPermissions._id}`, {
         permissions: tempPermissions
       })
       
@@ -609,11 +609,11 @@ const Moderators = () => {
     try {
       const promises = selectedModerators.map(async (moderatorId) => {
         if (action === 'activate') {
-          return api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: true })
+          return api.patch(`/api/v1/superadmin/moderators/${moderatorId}`, { isActive: true })
         } else if (action === 'deactivate') {
-          return api.patch(`/api/superadmin/moderators/${moderatorId}`, { isActive: false })
+          return api.patch(`/api/v1/superadmin/moderators/${moderatorId}`, { isActive: false })
         } else if (action === 'remove') {
-          return api.delete(`/api/superadmin/moderators/${moderatorId}`)
+          return api.delete(`/api/v1/superadmin/moderators/${moderatorId}`)
         }
       })
 
@@ -654,7 +654,7 @@ const Moderators = () => {
         return
       }
       
-      await api.post('/api/superadmin/moderators', {
+      await api.post('/api/v1/superadmin/moderators', {
         email: newModerator.email,
         password: newModerator.password,
         role: newModerator.role,
