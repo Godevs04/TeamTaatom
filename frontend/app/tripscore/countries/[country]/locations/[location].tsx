@@ -820,7 +820,26 @@ export default function LocationDetailScreen() {
                     </View>
                     <View style={styles.statItem}>
                       <Ionicons name="calendar" size={18} color="#4CAF50" />
-                      <Text style={styles.statValue}>{new Date(data.date).getFullYear()}</Text>
+                      <Text style={styles.statValue}>
+                        {data.date ? (() => {
+                          try {
+                            const date = new Date(data.date);
+                            if (isNaN(date.getTime())) {
+                              // Invalid date, try to parse as timestamp
+                              const timestamp = typeof data.date === 'number' ? data.date : parseInt(data.date);
+                              if (!isNaN(timestamp) && timestamp > 0) {
+                                const year = new Date(timestamp).getFullYear();
+                                return isNaN(year) ? 'N/A' : year;
+                              }
+                              return 'N/A';
+                            }
+                            return date.getFullYear();
+                          } catch (error) {
+                            logger.warn('Error parsing date for visited year:', data.date, error);
+                            return 'N/A';
+                          }
+                        })() : 'N/A'}
+                      </Text>
                       <Text style={styles.statLabel}>Visited</Text>
                     </View>
                   </View>

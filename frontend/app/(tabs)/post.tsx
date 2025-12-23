@@ -46,6 +46,7 @@ import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
+import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
 
 const logger = createLogger('PostScreen');
 
@@ -113,6 +114,9 @@ export default function PostScreen() {
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showSpotTypePicker, setShowSpotTypePicker] = useState(false);
   const [showTravelInfoPicker, setShowTravelInfoPicker] = useState(false);
+  const [showCopyrightModal, setShowCopyrightModal] = useState(false);
+  const [copyrightAccepted, setCopyrightAccepted] = useState(false);
+  const [pendingShortData, setPendingShortData] = useState<any>(null);
   const router = useRouter();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -1452,6 +1456,51 @@ export default function PostScreen() {
         source = 'manual_only';
       }
 
+      // Detect audio source for copyright compliance
+      // audioSource = "taatom_library" if background music from Taatom is selected
+      // audioSource = "user_original" if using original video audio (no Taatom music)
+      const audioSource: 'taatom_library' | 'user_original' = 
+        (audioChoice === 'background' && selectedSong) ? 'taatom_library' : 'user_original';
+
+      // If user_original, show copyright confirmation modal
+      if (audioSource === 'user_original') {
+        // Store upload data to proceed after copyright confirmation
+        setPendingShortData({
+          video: {
+            uri: selectedVideo,
+            type: type,
+            name: filename,
+          },
+          image: videoThumbnail ? {
+            uri: videoThumbnail,
+            type: 'image/jpeg',
+            name: 'thumbnail.jpg',
+          } : undefined,
+          caption: validateAndSanitizeCaption(values.caption) || '',
+          songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
+          songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
+          songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
+          songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined,
+          tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+          spotType: spotType || undefined,
+          travelInfo: travelInfo || undefined,
+          address: values.placeName || address,
+          latitude: location?.lat,
+          longitude: location?.lng,
+          hasExifGps: locationMetadata?.hasExifGps || false,
+          takenAt: locationMetadata?.takenAt || undefined,
+          source: source,
+          fromCamera: isFromCameraFlow,
+          audioSource: audioSource,
+        });
+        setShowCopyrightModal(true);
+        isSubmittingRef.current = false;
+        setIsLoading(false);
+        setIsUploading(false);
+        return; // Stop here, wait for user confirmation
+      }
+
+      // If taatom_library, proceed directly with upload
       logger.debug('Sending data to createShort:', {
         video: {
           uri: selectedVideo,
@@ -1466,6 +1515,7 @@ export default function PostScreen() {
         hasExifGps: locationMetadata?.hasExifGps,
         source: source,
         fromCamera: isFromCameraFlow,
+        audioSource: audioSource,
       });
 
       const response = await createShort({
@@ -1498,6 +1548,9 @@ export default function PostScreen() {
         takenAt: locationMetadata?.takenAt || undefined,
         source: source,
         fromCamera: isFromCameraFlow,
+        audioSource: audioSource,
+        copyrightAccepted: true, // Auto-accepted for taatom_library
+        copyrightAcceptedAt: new Date().toISOString(),
       });
 
       logger.debug('Short created successfully:', response);
@@ -1599,6 +1652,123 @@ export default function PostScreen() {
       setIsLoading(false);
       isSubmittingRef.current = false;
     }
+  };
+
+  // Handle copyright confirmation - proceed with upload
+  const handleCopyrightAgree = async () => {
+    if (!pendingShortData) return;
+    
+    setShowCopyrightModal(false);
+    setCopyrightAccepted(true);
+    
+    // Resume upload with copyright acceptance
+    try {
+      setIsLoading(true);
+      setIsUploading(true);
+      
+      const response = await createShort({
+        ...pendingShortData,
+        audioSource: 'user_original',
+        copyrightAccepted: true,
+        copyrightAcceptedAt: new Date().toISOString(),
+      });
+
+      logger.debug('Short created successfully:', response);
+      
+      // Cleanup progress watchdog
+      if (uploadSessionRef.current.progressWatchdog) {
+        clearInterval(uploadSessionRef.current.progressWatchdog);
+      }
+      
+      // Media memory safety: release references after successful upload
+      releaseMediaReferences();
+      
+      // Clear draft on successful post
+      await clearDraft();
+      
+      // Check if short requires verification (pending review)
+      const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
+      
+      if (requiresVerification) {
+        Alert.alert(
+          'Success!', 
+          'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                clearUploadState();
+                setSelectedVideo(null);
+                setVideoThumbnail(null);
+                setLocation(null);
+                setLocationMetadata(null);
+                setSelectedSong(null);
+                setAudioChoice(null);
+                setSongStartTime(0);
+                setSongEndTime(60);
+                setPendingShortData(null);
+                setCopyrightAccepted(false);
+                setHasExistingShorts(true);
+                setAddress('');
+                router.replace('/(tabs)/home');
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Success!', 'Your short has been uploaded.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+              setSelectedVideo(null);
+              setVideoThumbnail(null);
+              setLocation(null);
+              setLocationMetadata(null);
+              setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+              setHasExistingShorts(true);
+              setAddress('');
+              router.replace('/(tabs)/home');
+            },
+          },
+        ]);
+      }
+    } catch (error: any) {
+      logger.error('Short creation failed after copyright confirmation', error);
+      setUploadError(error?.message || 'Upload failed. Please try again.');
+      Alert.alert(
+        'Upload failed',
+        error?.message || 'Please try again later.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+            }
+          },
+        ]
+      );
+    } finally {
+      setIsLoading(false);
+      isSubmittingRef.current = false;
+    }
+  };
+
+  // Handle copyright cancellation
+  const handleCopyrightCancel = () => {
+    setShowCopyrightModal(false);
+    setPendingShortData(null);
+    setCopyrightAccepted(false);
+    isSubmittingRef.current = false;
+    setIsLoading(false);
+    setIsUploading(false);
   };
 
   return (
@@ -2500,7 +2670,18 @@ export default function PostScreen() {
                         },
                         isLoading && { opacity: 0.7 },
                       ]}
-                      onPress={() => handleSubmit()}
+                      onPress={() => {
+                        if (selectedVideo) {
+                          // Convert photo form values to short form values
+                          handleShort({
+                            caption: (values as any).comment || (values as any).caption || '',
+                            tags: values.tags || '',
+                            placeName: values.placeName || '',
+                          });
+                        } else {
+                          handleSubmit();
+                        }
+                      }}
                       disabled={isLoading}
                       activeOpacity={0.8}
                     >
@@ -3380,6 +3561,13 @@ export default function PostScreen() {
         selectedSong={selectedSong}
         selectedStartTime={songStartTime}
         selectedEndTime={songEndTime}
+      />
+
+      {/* Copyright Confirmation Modal */}
+      <CopyrightConfirmationModal
+        visible={showCopyrightModal}
+        onCancel={handleCopyrightCancel}
+        onAgree={handleCopyrightAgree}
       />
     </View>
   );
