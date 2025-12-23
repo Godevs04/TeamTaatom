@@ -72,30 +72,53 @@ exports.listChats = async (req, res) => {
   logger.debug('req.user in /chat:', req.user);
   const userId = req.user._id;
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
+  
+  // Get all chats (user_chat and admin_support)
   const chats = await Chat.find({ participants: userId })
-    .populate('participants', 'fullName profilePic')
+    .populate('participants', 'fullName profilePic isVerified')
     .sort('-updatedAt')
     .lean();
+  
   // Ensure every message has a 'seen' property (for backward compatibility)
   chats.forEach(chat => {
     if (Array.isArray(chat.messages)) {
       chat.messages = chat.messages.map(msg => ({ ...msg, seen: typeof msg.seen === 'boolean' ? msg.seen : false }));
     }
+    
+    // For admin_support chats, ensure Taatom Official user has verified badge
+    if (chat.type === 'admin_support' && chat.participants) {
+      chat.participants.forEach(participant => {
+        if (participant._id && participant._id.toString() === process.env.TAATOM_OFFICIAL_USER_ID) {
+          participant.isVerified = true;
+          participant.fullName = participant.fullName || 'Taatom Official';
+        }
+      });
+    }
   });
   
   // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
+  // BUT: Keep admin_support chats separate from user_chat chats
   const chatMap = new Map();
   chats.forEach(chat => {
-    // Sort participant IDs to create a consistent key
-    const participantIds = chat.participants
-      .map(p => p._id ? p._id.toString() : p.toString())
-      .sort()
-      .join('_');
+    // For admin_support, use type + user as key to keep separate
+    // For user_chat, use participants as key
+    let key;
+    if (chat.type === 'admin_support') {
+      // Admin support chats: key by type + user
+      key = `admin_support_${userId}`;
+    } else {
+      // User chats: key by sorted participant IDs
+      const participantIds = chat.participants
+        .map(p => p._id ? p._id.toString() : p.toString())
+        .sort()
+        .join('_');
+      key = participantIds;
+    }
     
     // If chat doesn't exist or this one is more recent, keep it
-    if (!chatMap.has(participantIds) || 
-        new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
-      chatMap.set(participantIds, chat);
+    if (!chatMap.has(key) || 
+        new Date(chat.updatedAt) > new Date(chatMap.get(key).updatedAt)) {
+      chatMap.set(key, chat);
     }
   });
   
@@ -182,12 +205,54 @@ exports.sendMessage = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     if (!text) return sendError(res, 'VAL_2001', 'Text required');
-    if (!(await canChat(userId, otherUserId))) return sendError(res, 'AUTH_1006', 'Not allowed');
     
-    let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-    if (!chat) {
-      chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
+    const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+    const isTaatomOfficial = otherUserId.toString() === TAATOM_OFFICIAL_USER_ID;
+    
+    // For admin_support chats, skip blocking check
+    // For user_chat, check blocking
+    if (!isTaatomOfficial && !(await canChat(userId, otherUserId))) {
+      return sendError(res, 'AUTH_1006', 'Not allowed');
     }
+    
+    // Find or create chat
+    let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    
+    if (!chat) {
+      // If it's Taatom Official, create admin_support chat
+      if (isTaatomOfficial) {
+        const { getOrCreateSupportConversation } = require('../services/adminSupportChatService');
+        const convo = await getOrCreateSupportConversation({
+          userId: userId.toString(),
+          reason: 'support',
+          refId: null
+        });
+        chat = await Chat.findById(convo._id);
+      } else {
+        // Regular user chat
+        chat = await Chat.create({ 
+          type: 'user_chat',
+          participants: [userId, otherUserId], 
+          messages: [] 
+        });
+      }
+    } else {
+      // If existing chat is admin_support and user is messaging Taatom Official, ensure it's admin_support type
+      if (isTaatomOfficial && chat.type !== 'admin_support') {
+        // Convert to admin_support if it exists but is wrong type
+        chat.type = 'admin_support'
+        if (!chat.relatedEntity) {
+          chat.relatedEntity = { type: 'support', refId: null }
+        }
+        await chat.save()
+      }
+    }
+    
+    // Permission check: Users cannot send messages to admin_support chats if they're not the user
+    if (chat.type === 'admin_support' && !chat.participants.map(p => p.toString()).includes(userId.toString())) {
+      return sendError(res, 'AUTH_1006', 'Not allowed to send messages to this conversation');
+    }
+    
     const message = { sender: userId, text, timestamp: new Date() };
     chat.messages.push(message);
     await chat.save();
@@ -211,6 +276,26 @@ exports.sendMessage = async (req, res) => {
         // Emit chat list update to both users
         nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
         nsp.to(`user:${userId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        
+        // For admin_support conversations, also emit to admin rooms
+        if (chat.type === 'admin_support') {
+          const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+          // Emit to admin support room for real-time updates in admin panel
+          nsp.to('admin_support').emit('admin_support:message:new', { 
+            chatId: chat._id, 
+            message,
+            userId: userId.toString(),
+            otherUserId: otherUserId.toString()
+          });
+          nsp.to('admin_support').emit('admin_support:chat:update', { 
+            chatId: chat._id, 
+            lastMessage: message.text, 
+            timestamp: message.timestamp,
+            userId: userId.toString()
+          });
+          logger.debug('Emitted admin_support socket events for chat:', chat._id);
+        }
+        
         logger.debug('Socket events emitted successfully for message:', message._id);
         logger.debug('Emitted to users:', { sender: userId, recipient: otherUserId });
         logger.debug('Chat ID:', chat._id);

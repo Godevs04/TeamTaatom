@@ -18,6 +18,7 @@ import {
   Music,
   Globe,
   Server,
+  MessageSquare,
 } from 'lucide-react'
 
 const navItems = [
@@ -30,6 +31,7 @@ const navItems = [
   { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
   { name: 'Locales', href: '/locales', icon: MapPin, permission: 'canManageContent' },
   { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
+  { name: 'Support Inbox', href: '/support-inbox', icon: MessageSquare, permission: 'canViewAnalytics' },
   { name: 'Moderators', href: '/moderators', icon: Shield, permission: 'canManageModerators' },
   { name: 'Logs', href: '/logs', icon: FileText, permission: 'canViewLogs' },
   { name: 'Feature Flags', href: '/feature-flags', icon: Zap, permission: 'canManageSettings' },

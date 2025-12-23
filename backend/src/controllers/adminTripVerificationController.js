@@ -5,9 +5,11 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
-
-// Static Taatom Official system user ID (must exist in DB for chat system)
-const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+const { 
+  getOrCreateSupportConversation, 
+  sendSystemMessage 
+} = require('../services/adminSupportChatService');
+const { getIO } = require('../socket');
 
 /**
  * Admin TripScore Verification Controller
@@ -369,7 +371,7 @@ const rejectTripVisit = async (req, res) => {
 };
 
 /**
- * Send approval notification via chat
+ * Send approval notification via support chat
  * Fire-and-forget, does not block the approval process
  */
 const sendApprovalNotification = async (userId, tripVisit) => {
@@ -383,15 +385,45 @@ const sendApprovalNotification = async (userId, tripVisit) => {
 
     const message = `✅ Your trip to ${city}${country ? `, ${country}` : ''} has been verified!\nYour TripScore has been updated 🌍`;
 
-    // Send via chat service (reuse existing chat API)
-    await sendChatMessage(userId, message);
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
+    });
+
+    // Send system message
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
+
+    // Emit socket event
+    try {
+      const io = getIO();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
+        nsp.to(`user:${userId}`).emit('message:new', { 
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
+        });
+      }
+    } catch (socketError) {
+      logger.debug('Socket not available for approval notification:', socketError);
+    }
   } catch (error) {
     logger.error('Error sending approval notification:', error);
   }
 };
 
 /**
- * Send rejection notification via chat
+ * Send rejection notification via support chat
  * Fire-and-forget, does not block the rejection process
  */
 const sendRejectionNotification = async (userId, tripVisit) => {
@@ -399,108 +431,45 @@ const sendRejectionNotification = async (userId, tripVisit) => {
     const user = await User.findById(userId);
     if (!user) return;
 
-    const message = `⚠️ We couldn't verify this post due to missing location proof.\nYou can upload another photo from the same trip or capture directly using Taatom camera.`;
+    const message = `⚠️ We couldn't verify this post due to missing or unclear location proof.\nYou may upload another photo or capture directly using Taatom camera.`;
 
-    // Send via chat service (reuse existing chat API)
-    await sendChatMessage(userId, message);
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
+    });
+
+    // Send system message
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
+
+    // Emit socket event
+    try {
+      const io = getIO();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
+        nsp.to(`user:${userId}`).emit('message:new', { 
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
+        });
+      }
+    } catch (socketError) {
+      logger.debug('Socket not available for rejection notification:', socketError);
+    }
   } catch (error) {
     logger.error('Error sending rejection notification:', error);
   }
 };
 
-/**
- * Send chat message from TAATOM_OFFICIAL user
- * Uses existing chat controller API
- */
-const sendChatMessage = async (recipientUserId, text) => {
-  try {
-    // Get or create TAATOM_OFFICIAL system user
-    let officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                       await User.findOne({ email: 'official@taatom.com' }) || 
-                       await User.findOne({ username: 'taatom_official' });
-    
-    if (!officialUser) {
-      // Create TAATOM_OFFICIAL system user if it doesn't exist
-      try {
-        officialUser = await User.create({
-          _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
-          email: 'official@taatom.com',
-          username: 'taatom_official',
-          fullName: 'Taatom Official',
-          password: require('crypto').randomBytes(32).toString('hex'), // Random password, never used
-          isVerified: true,
-          isActive: true,
-          isSystem: true // Mark as system user
-        });
-        logger.info('Created TAATOM_OFFICIAL system user for notifications');
-      } catch (createError) {
-        // If user already exists (race condition), fetch it
-        if (createError.code === 11000) {
-          officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                         await User.findOne({ email: 'official@taatom.com' }) ||
-                         await User.findOne({ username: 'taatom_official' });
-        }
-        if (!officialUser) {
-          logger.error('Failed to create/find TAATOM_OFFICIAL user:', createError);
-          return; // Skip notification if user creation fails
-        }
-      }
-    }
-    
-    // Ensure user has verified status for UI display
-    if (!officialUser.isVerified) {
-      officialUser.isVerified = true;
-      await officialUser.save();
-    }
-
-    // Use chat controller to send message
-    const Chat = require('../models/Chat');
-    let chat = await Chat.findOne({ 
-      participants: { $all: [officialUser._id, recipientUserId] } 
-    });
-
-    if (!chat) {
-      chat = await Chat.create({ 
-        participants: [officialUser._id, recipientUserId], 
-        messages: [] 
-      });
-    }
-
-    // Add message
-    const message = {
-      sender: officialUser._id,
-      text,
-      timestamp: new Date(),
-      seen: false
-    };
-
-    chat.messages.push(message);
-    await chat.save();
-
-    // Emit socket event if available
-    try {
-      const { getIO } = require('../socket');
-      const io = getIO();
-      if (io && io.of('/app')) {
-        const nsp = io.of('/app');
-        nsp.to(`user:${recipientUserId}`).emit('message:new', { 
-          chatId: chat._id, 
-          message: {
-            ...message,
-            _id: chat.messages[chat.messages.length - 1]._id
-          }
-        });
-      }
-    } catch (socketError) {
-      logger.debug('Socket not available for chat notification:', socketError);
-    }
-
-    logger.debug(`Chat notification sent to user ${recipientUserId}`);
-  } catch (error) {
-    logger.error('Error sending chat message:', error);
-    throw error;
-  }
-};
 
 // @desc    Update TripVisit details
 // @route   PATCH /admin/tripscore/review/:tripVisitId

@@ -39,7 +39,7 @@ const getCsrfToken = async () => {
       // If not in cookie, try to fetch from backend endpoint (if exists)
       // Only if we have an auth token
       try {
-        const response = await api.get('/api/superadmin/csrf-token', {
+        const response = await api.get('/api/v1/superadmin/csrf-token', {
           skipAuthRedirect: true,
           skipRateLimit: true
         })

@@ -244,7 +244,12 @@ app.use((req, res, next) => {
       '/api/superadmin/verify-2fa',
       '/api/superadmin/resend-2fa',
       '/api/superadmin/create',
-      '/api/superadmin/csrf-token'
+      '/api/superadmin/csrf-token',
+      '/api/v1/superadmin/login',
+      '/api/v1/superadmin/verify-2fa',
+      '/api/v1/superadmin/resend-2fa',
+      '/api/v1/superadmin/create',
+      '/api/v1/superadmin/csrf-token'
     ];
     
     // Check if path matches exactly or starts with any public auth path
@@ -297,7 +302,8 @@ app.use('/profile', profileRoutes);
 app.use('/chat', chatRoutes);
 app.use('/shorts', shortsRoutes);
 app.use('/settings', settingsRoutes);
-app.use('/api/superadmin', enhancedSuperAdminRoutes);
+app.use('/api/v1/superadmin', enhancedSuperAdminRoutes);
+app.use('/api/superadmin', enhancedSuperAdminRoutes); // backward compatibility for older clients
 app.use('/notifications', notificationRoutes);
 app.use('/analytics', analyticsRoutes);
 app.use('/feature-flags', featureFlagsRoutes);

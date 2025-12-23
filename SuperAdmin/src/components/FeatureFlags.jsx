@@ -350,7 +350,7 @@ const FeatureFlags = () => {
         params.search = searchTerm
       }
       
-      const response = await api.get('/api/superadmin/feature-flags', { 
+      const response = await api.get('/api/v1/superadmin/feature-flags', { 
         params,
         signal: abortControllerRef.current.signal
       })
@@ -474,7 +474,7 @@ const FeatureFlags = () => {
     ))
     
     try {
-      const response = await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
+      const response = await api.patch(`/api/v1/superadmin/feature-flags/${flag.id}`, {
         enabled: !flag.enabled,
         rolloutPercentage: flag.enabled ? 0 : flag.rolloutPercentage || 100
       })
@@ -546,7 +546,7 @@ const FeatureFlags = () => {
     ))
     
     try {
-      const response = await api.patch(`/api/superadmin/feature-flags/${flag.id}`, {
+      const response = await api.patch(`/api/v1/superadmin/feature-flags/${flag.id}`, {
         rolloutPercentage: rolloutValue,
         targetUsers
       })
@@ -601,7 +601,7 @@ const FeatureFlags = () => {
     
     setIsLoading(true)
     try {
-      await api.post('/api/superadmin/feature-flags', newFlag)
+      await api.post('/api/v1/superadmin/feature-flags', newFlag)
       toast.success('Feature flag created successfully')
       setShowCreateModal(false)
       setNewFlag({
@@ -630,7 +630,7 @@ const FeatureFlags = () => {
     
     setIsLoading(true)
     try {
-      await api.delete(`/api/superadmin/feature-flags/${flagId}`)
+      await api.delete(`/api/v1/superadmin/feature-flags/${flagId}`)
       toast.success('Feature flag deleted successfully')
       await fetchFeatureFlags()
     } catch (error) {
@@ -649,7 +649,7 @@ const FeatureFlags = () => {
     
     setIsLoading(true)
     try {
-      await api.post('/api/superadmin/schedule-downtime', downtimeSchedule)
+      await api.post('/api/v1/superadmin/schedule-downtime', downtimeSchedule)
       toast.success('Downtime scheduled and notifications sent to all users')
       setShowDowntimeModal(false)
       setDowntimeSchedule({ reason: '', scheduledDate: '', scheduledTime: '', duration: 30 })

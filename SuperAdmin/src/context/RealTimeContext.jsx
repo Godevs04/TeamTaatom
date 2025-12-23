@@ -106,8 +106,8 @@ export const RealTimeProvider = ({ children }) => {
         return
       }
       
-      logger.debug('Making API call to /api/superadmin/dashboard/overview')
-      const response = await api.get('/api/superadmin/dashboard/overview', {
+      logger.debug('Making API call to /api/v1/superadmin/dashboard/overview')
+      const response = await api.get('/api/v1/superadmin/dashboard/overview', {
         signal
       })
       
@@ -215,7 +215,7 @@ export const RealTimeProvider = ({ children }) => {
         return
       }
       
-      const response = await api.get(`/api/superadmin/analytics/realtime?period=${period}`, {
+      const response = await api.get(`/api/v1/superadmin/analytics/realtime?period=${period}`, {
         signal
       })
       if (!signal?.aborted) {
@@ -246,7 +246,7 @@ export const RealTimeProvider = ({ children }) => {
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const url = `/api/superadmin/users?${queryParams}`
+      const url = `/api/v1/superadmin/users?${queryParams}`
       
       const response = await api.get(url, { signal })
       
@@ -274,7 +274,7 @@ export const RealTimeProvider = ({ children }) => {
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const url = `/api/superadmin/travel-content?${queryParams}`
+      const url = `/api/v1/superadmin/travel-content?${queryParams}`
       
       const response = await api.get(url, { signal })
       
@@ -301,7 +301,7 @@ export const RealTimeProvider = ({ children }) => {
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const url = `/api/superadmin/reports?${queryParams}`
+      const url = `/api/v1/superadmin/reports?${queryParams}`
       
       const response = await api.get(url, { signal })
       
@@ -328,7 +328,7 @@ export const RealTimeProvider = ({ children }) => {
         return
       }
       
-      const response = await api.get('/api/superadmin/feature-flags')
+      const response = await api.get('/api/v1/superadmin/feature-flags')
       setFeatureFlags(response.data.featureFlags)
     } catch (error) {
       logger.error('Failed to fetch feature flags:', error)
@@ -346,7 +346,7 @@ export const RealTimeProvider = ({ children }) => {
       }
       
       const queryParams = new URLSearchParams(params).toString()
-      const response = await api.get(`/api/superadmin/audit-logs?${queryParams}`)
+      const response = await api.get(`/api/v1/superadmin/audit-logs?${queryParams}`)
       setAuditLogs(response.data)
     } catch (error) {
       logger.error('Failed to fetch audit logs:', error)
@@ -363,7 +363,7 @@ export const RealTimeProvider = ({ children }) => {
         return
       }
       
-      const response = await api.get(`/api/superadmin/search?q=${encodeURIComponent(query)}&type=${type}`)
+      const response = await api.get(`/api/v1/superadmin/search?q=${encodeURIComponent(query)}&type=${type}`)
       return response.data
     } catch (error) {
       logger.error('Search failed:', error)
@@ -381,7 +381,7 @@ export const RealTimeProvider = ({ children }) => {
         return
       }
       
-      const response = await api.post('/api/superadmin/users/bulk-action', {
+      const response = await api.post('/api/v1/superadmin/users/bulk-action', {
         action,
         userIds: items,
         reason
@@ -404,7 +404,7 @@ export const RealTimeProvider = ({ children }) => {
   // Update feature flag
   const updateFeatureFlag = useCallback(async (id, updates) => {
     try {
-      const response = await api.patch(`/api/superadmin/feature-flags/${id}`, updates)
+      const response = await api.patch(`/api/v1/superadmin/feature-flags/${id}`, updates)
       
       // Update local state
       setFeatureFlags(prev => 
@@ -426,7 +426,7 @@ export const RealTimeProvider = ({ children }) => {
   const exportAuditLogs = useCallback(async (format = 'csv', params = {}) => {
     try {
       const queryParams = new URLSearchParams({ ...params, export: format }).toString()
-      const response = await api.get(`/api/superadmin/audit-logs?${queryParams}`, {
+      const response = await api.get(`/api/v1/superadmin/audit-logs?${queryParams}`, {
         responseType: 'blob'
       })
       

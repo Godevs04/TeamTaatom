@@ -166,7 +166,7 @@ const Logs = () => {
         }
       }
       
-      const response = await api.get('/api/superadmin/logs', { 
+      const response = await api.get('/api/v1/superadmin/logs', { 
         params,
         signal: abortControllerRef.current.signal
       })
@@ -391,7 +391,7 @@ const Logs = () => {
       if (filterLevel !== 'all') params.level = filterLevel
       if (filterType !== 'all') params.type = filterType
       
-      const response = await api.get('/api/superadmin/logs', { 
+      const response = await api.get('/api/v1/superadmin/logs', { 
         params: { ...params, limit: 1000 } // Get more for export
       })
       

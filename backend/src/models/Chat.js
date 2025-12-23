@@ -11,6 +11,24 @@ const MessageSchema = new Schema({
 const ChatSchema = new Schema({
   participants: [{ type: Types.ObjectId, ref: 'User', required: true }],
   messages: [MessageSchema],
+  // Admin support chat fields (optional, backward compatible)
+  type: {
+    type: String,
+    enum: ['user_chat', 'admin_support'],
+    default: 'user_chat',
+    index: true
+  },
+  relatedEntity: {
+    type: {
+      type: String,
+      enum: ['trip_verification', 'support'],
+      default: null
+    },
+    refId: {
+      type: Types.ObjectId,
+      default: null
+    }
+  }
 }, { timestamps: true });
 
 // Database indexes for performance optimization
