@@ -54,7 +54,7 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
       try {
         setIsLoadingNotifications(true)
         // In a real implementation, fetch from backend
-        const response = await api.get('/api/superadmin/notifications')
+        const response = await api.get('/api/v1/superadmin/notifications')
         if (response.data.success) {
           setNotifications(response.data.notifications || [])
         }

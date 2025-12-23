@@ -9,7 +9,7 @@ const { cacheWrapper, CacheKeys, CACHE_TTL } = require('../utils/cache');
 
 /**
  * Get analytics summary (KPIs: DAU, MAU, engagement rate, crash count)
- * @route GET /api/superadmin/analytics/summary
+ * @route GET /api/v1/superadmin/analytics/summary
  */
 const getAnalyticsSummary = async (req, res) => {
   try {
@@ -88,7 +88,7 @@ const getAnalyticsSummary = async (req, res) => {
 
 /**
  * Get time series data for charts
- * @route GET /api/superadmin/analytics/timeseries
+ * @route GET /api/v1/superadmin/analytics/timeseries
  */
 const getTimeSeriesData = async (req, res) => {
   try {
@@ -171,7 +171,7 @@ const getTimeSeriesData = async (req, res) => {
 
 /**
  * Get event breakdown by type, platform, etc.
- * @route GET /api/superadmin/analytics/breakdown
+ * @route GET /api/v1/superadmin/analytics/breakdown
  */
 const getEventBreakdown = async (req, res) => {
   try {
@@ -220,7 +220,7 @@ const getEventBreakdown = async (req, res) => {
 
 /**
  * Get top features usage
- * @route GET /api/superadmin/analytics/features
+ * @route GET /api/v1/superadmin/analytics/features
  */
 const getTopFeatures = async (req, res) => {
   try {
@@ -269,7 +269,7 @@ const getTopFeatures = async (req, res) => {
 
 /**
  * Get drop-off points
- * @route GET /api/superadmin/analytics/dropoffs
+ * @route GET /api/v1/superadmin/analytics/dropoffs
  */
 const getDropOffPoints = async (req, res) => {
   try {
@@ -318,7 +318,7 @@ const getDropOffPoints = async (req, res) => {
 
 /**
  * Get recent events with pagination
- * @route GET /api/superadmin/analytics/events
+ * @route GET /api/v1/superadmin/analytics/events
  */
 const getRecentEvents = async (req, res) => {
   try {
@@ -383,7 +383,7 @@ const getRecentEvents = async (req, res) => {
 
 /**
  * Get user retention data
- * @route GET /api/superadmin/analytics/retention
+ * @route GET /api/v1/superadmin/analytics/retention
  */
 const getUserRetention = async (req, res) => {
   try {

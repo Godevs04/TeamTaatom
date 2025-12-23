@@ -120,6 +120,8 @@ const Locales = () => {
     stateCode: '',
     description: '',
     displayOrder: '0',
+    spotTypes: [],
+    travelInfo: 'Drivable',
     file: null
   })
   const [editFormData, setEditFormData] = useState({
@@ -129,7 +131,9 @@ const Locales = () => {
     stateProvince: '',
     stateCode: '',
     description: '',
-    displayOrder: '0'
+    displayOrder: '0',
+    spotTypes: [],
+    travelInfo: 'Drivable'
   })
 
   // Lifecycle safety
@@ -629,7 +633,9 @@ const Locales = () => {
             imageUrl: locale.imageUrl,
             latitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.latitude : null,
             longitude: isValidCoordinate(locale.latitude, locale.longitude) ? locale.longitude : null,
-            description: null,
+            description: locale.description || null,
+            spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes : (locale.spotTypes ? [locale.spotTypes] : []),
+            travelInfo: locale.travelInfo || 'Drivable',
             fullDataLoaded: false
           }))
           
@@ -879,6 +885,14 @@ const Locales = () => {
       }
       // Always send displayOrder as integer string (FormData requires string)
       uploadFormData.append('displayOrder', displayOrder.toString())
+      // Send spotTypes as JSON string array (single item array from dropdown)
+      if (formData.spotTypes && Array.isArray(formData.spotTypes) && formData.spotTypes.length > 0) {
+        uploadFormData.append('spotTypes', JSON.stringify(formData.spotTypes))
+      }
+      // Send travelInfo
+      if (formData.travelInfo) {
+        uploadFormData.append('travelInfo', formData.travelInfo)
+      }
 
       const response = await uploadLocale(uploadFormData)
       toast.success(response.message || 'Locale uploaded successfully')
@@ -891,6 +905,8 @@ const Locales = () => {
           stateCode: '', 
           description: '', 
           displayOrder: '0',
+          spotTypes: [],
+          travelInfo: 'Drivable',
           file: null 
         })
       })
@@ -1124,17 +1140,40 @@ const Locales = () => {
     setShowPreviewModal(true)
   }
 
-  const handleEditClick = (locale) => {
+  const handleEditClick = async (locale) => {
     setLocaleToEdit(locale)
-    setEditFormData({
-      name: locale.name || '',
-      country: locale.country || '',
-      countryCode: locale.countryCode || '',
-      stateProvince: locale.stateProvince || '',
-      stateCode: locale.stateCode || '',
-      description: locale.description || '',
-      displayOrder: locale.displayOrder ? locale.displayOrder.toString() : '0'
-    })
+    
+    // Fetch full locale data to ensure we have spotTypes and travelInfo
+    try {
+      const fullLocale = await getLocaleById(locale._id)
+      setEditFormData({
+        name: fullLocale.name || locale.name || '',
+        country: fullLocale.country || locale.country || '',
+        countryCode: fullLocale.countryCode || locale.countryCode || '',
+        stateProvince: fullLocale.stateProvince || locale.stateProvince || '',
+        stateCode: fullLocale.stateCode || locale.stateCode || '',
+        description: fullLocale.description || locale.description || '',
+        displayOrder: (fullLocale.displayOrder !== undefined ? fullLocale.displayOrder : locale.displayOrder) ? (fullLocale.displayOrder !== undefined ? fullLocale.displayOrder : locale.displayOrder).toString() : '0',
+        spotTypes: Array.isArray(fullLocale.spotTypes) && fullLocale.spotTypes.length > 0 
+          ? fullLocale.spotTypes 
+          : (Array.isArray(locale.spotTypes) && locale.spotTypes.length > 0 ? locale.spotTypes : []),
+        travelInfo: fullLocale.travelInfo || locale.travelInfo || 'Drivable'
+      })
+    } catch (error) {
+      logger.error('Error fetching locale details for edit:', error)
+      // Fallback to locale data from list
+      setEditFormData({
+        name: locale.name || '',
+        country: locale.country || '',
+        countryCode: locale.countryCode || '',
+        stateProvince: locale.stateProvince || '',
+        stateCode: locale.stateCode || '',
+        description: locale.description || '',
+        displayOrder: locale.displayOrder ? locale.displayOrder.toString() : '0',
+        spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes : [],
+        travelInfo: locale.travelInfo || 'Drivable'
+      })
+    }
     setShowEditModal(true)
   }
 
@@ -1227,8 +1266,35 @@ const Locales = () => {
       // Always send displayOrder as integer
       updateData.displayOrder = displayOrder
 
-      await updateLocale(localeToEdit._id, updateData)
+      // Add spotTypes and travelInfo if they exist
+      if (editFormData.spotTypes && Array.isArray(editFormData.spotTypes) && editFormData.spotTypes.length > 0) {
+        updateData.spotTypes = editFormData.spotTypes
+      } else {
+        updateData.spotTypes = []
+      }
+      
+      if (editFormData.travelInfo) {
+        updateData.travelInfo = editFormData.travelInfo
+      }
+
+      const updatedLocale = await updateLocale(localeToEdit._id, updateData)
       toast.success('Locale updated successfully')
+      
+      // Optimistically update the locale in the list with new data
+      if (updatedLocale && updatedLocale.locale) {
+        setLocales(prev => prev.map(locale => 
+          locale._id === localeToEdit._id 
+            ? { 
+                ...locale, 
+                ...updatedLocale.locale,
+                spotTypes: Array.isArray(updatedLocale.locale.spotTypes) ? updatedLocale.locale.spotTypes : [],
+                travelInfo: updatedLocale.locale.travelInfo || 'Drivable',
+                fullDataLoaded: true
+              }
+            : locale
+        ))
+      }
+      
       handleModalClose(setShowEditModal, setLocaleToEdit, () => {
         setEditFormData({ 
           name: '', 
@@ -1237,7 +1303,9 @@ const Locales = () => {
           stateProvince: '', 
           stateCode: '', 
           description: '', 
-          displayOrder: '0' 
+          displayOrder: '0',
+          spotTypes: [],
+          travelInfo: 'Drivable'
         })
       })
       // Force refresh after update - reset page to 1 and clear fetchKey to trigger fetch
@@ -2010,6 +2078,72 @@ const Locales = () => {
                 maxLength={1000}
               />
             </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Spot Type <span className="text-gray-400 text-xs font-normal">Optional</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={Array.isArray(formData.spotTypes) && formData.spotTypes.length > 0 ? formData.spotTypes[0] : ''}
+                    onChange={(e) => {
+                      const selectedType = e.target.value;
+                      if (selectedType) {
+                        setFormData({ ...formData, spotTypes: [selectedType] });
+                      } else {
+                        setFormData({ ...formData, spotTypes: [] });
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                  >
+                    <option value="">Select spot type</option>
+                    <option value="Historical spots">🏛️ Historical spots</option>
+                    <option value="Cultural spots">🎭 Cultural spots</option>
+                    <option value="Natural spots">🌲 Natural spots</option>
+                    <option value="Adventure spots">⛰️ Adventure spots</option>
+                    <option value="Religious/spiritual spots">🕌 Religious/spiritual spots</option>
+                    <option value="Wildlife spots">🦁 Wildlife spots</option>
+                    <option value="Beach spots">🏖️ Beach spots</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Category of this location
+                </p>
+              </div>
+
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Travel Info <span className="text-gray-400 text-xs font-normal">Optional</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={formData.travelInfo || 'Drivable'}
+                    onChange={(e) => setFormData({ ...formData, travelInfo: e.target.value })}
+                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                  >
+                    <option value="Drivable">🚗 Drivable</option>
+                    <option value="Walkable">🚶 Walkable</option>
+                    <option value="Public Transport">🚌 Public Transport</option>
+                    <option value="Flight Required">✈️ Flight Required</option>
+                    <option value="Not Accessible">🚫 Not Accessible</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  How users can reach this location
+                </p>
+              </div>
+            </div>
           </ModalContent>
           <ModalFooter>
             <button
@@ -2093,9 +2227,11 @@ const Locales = () => {
           stateProvince: '', 
           stateCode: '', 
           description: '', 
-          displayOrder: '0' 
+          displayOrder: '0',
+          spotTypes: [],
+          travelInfo: 'Drivable'
         })
-      })} className="max-w-2xl bg-white">
+      })} className="max-w-2xl bg-white overflow-hidden">
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setLocaleToEdit, () => {
           setEditFormData({ 
             name: '', 
@@ -2226,6 +2362,72 @@ const Locales = () => {
               />
             </div>
 
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Spot Type <span className="text-gray-400 text-xs font-normal">Optional</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={Array.isArray(editFormData.spotTypes) && editFormData.spotTypes.length > 0 ? editFormData.spotTypes[0] : ''}
+                    onChange={(e) => {
+                      const selectedType = e.target.value;
+                      if (selectedType) {
+                        setEditFormData({ ...editFormData, spotTypes: [selectedType] });
+                      } else {
+                        setEditFormData({ ...editFormData, spotTypes: [] });
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                  >
+                    <option value="">Select spot type</option>
+                    <option value="Historical spots">🏛️ Historical spots</option>
+                    <option value="Cultural spots">🎭 Cultural spots</option>
+                    <option value="Natural spots">🌲 Natural spots</option>
+                    <option value="Adventure spots">⛰️ Adventure spots</option>
+                    <option value="Religious/spiritual spots">🕌 Religious/spiritual spots</option>
+                    <option value="Wildlife spots">🦁 Wildlife spots</option>
+                    <option value="Beach spots">🏖️ Beach spots</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  Category of this location
+                </p>
+              </div>
+
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Travel Info <span className="text-gray-400 text-xs font-normal">Optional</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={editFormData.travelInfo || 'Drivable'}
+                    onChange={(e) => setEditFormData({ ...editFormData, travelInfo: e.target.value })}
+                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                  >
+                    <option value="Drivable">🚗 Drivable</option>
+                    <option value="Walkable">🚶 Walkable</option>
+                    <option value="Public Transport">🚌 Public Transport</option>
+                    <option value="Flight Required">✈️ Flight Required</option>
+                    <option value="Not Accessible">🚫 Not Accessible</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  How users can reach this location
+                </p>
+              </div>
+            </div>
+
             {localeToEdit && (
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                 <p className="text-sm text-blue-800">
@@ -2234,7 +2436,7 @@ const Locales = () => {
               </div>
             )}
           </ModalContent>
-          <ModalFooter>
+          <ModalFooter className="sticky bottom-0 z-10">
             <button
               type="button"
               onClick={() => {
@@ -2246,7 +2448,9 @@ const Locales = () => {
                     stateProvince: '', 
                     stateCode: '', 
                     description: '', 
-                    displayOrder: '0' 
+                    displayOrder: '0',
+                    spotTypes: [],
+                    travelInfo: 'Drivable'
                   })
                 })
                 setLocaleToEdit(null)
@@ -2257,10 +2461,12 @@ const Locales = () => {
                   stateProvince: '', 
                   stateCode: '', 
                   description: '', 
-                  displayOrder: '0' 
+                  displayOrder: '0',
+                  spotTypes: [],
+                  travelInfo: 'Drivable'
                 })
               }}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium shadow-sm"
             >
               Cancel
             </button>

@@ -52,6 +52,10 @@ const postSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  thumbnailUrl: {
+    type: String,
+    required: false
+  },
   cloudinaryPublicId: {
     type: String,
     required: false
@@ -94,6 +98,19 @@ const postSchema = new mongoose.Schema({
         default: 0
       }
     }
+  },
+  // TripScore metadata - selected by user during post creation
+  spotType: {
+    type: String,
+    required: false,
+    enum: ['Beach', 'Mountain', 'City', 'Natural spots', 'Religious', 'Cultural', 'General', null],
+    default: null
+  },
+  travelInfo: {
+    type: String,
+    required: false,
+    enum: ['Drivable', 'Hiking', 'Water Transport', 'Flight', 'Train', null],
+    default: null
   },
   likes: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -144,6 +161,35 @@ const postSchema = new mongoose.Schema({
       min: 0,
       max: 1
     }
+  },
+  // Copyright compliance fields for shorts
+  audioSource: {
+    type: String,
+    enum: ['taatom_library', 'user_original'],
+    required: false,
+    default: null
+  },
+  copyrightAccepted: {
+    type: Boolean,
+    required: false,
+    default: null
+  },
+  copyrightAcceptedAt: {
+    type: Date,
+    required: false,
+    default: null
+  },
+  // Post status for DMCA compliance
+  status: {
+    type: String,
+    enum: ['active', 'removed'],
+    default: 'active'
+  },
+  removalReason: {
+    type: String,
+    enum: ['copyright_claim', 'user_request', 'policy_violation', 'other'],
+    required: false,
+    default: null
   }
 }, {
   timestamps: true

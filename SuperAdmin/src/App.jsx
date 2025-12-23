@@ -25,6 +25,7 @@ const Songs = lazy(() => import('./pages/Songs'))
 const Locales = lazy(() => import('./pages/Locales'))
 const TripScoreAnalytics = lazy(() => import('./pages/TripScoreAnalytics'))
 const System = lazy(() => import('./pages/System'))
+const SupportInbox = lazy(() => import('./pages/SupportInbox'))
 
 // Loading component
 const LoadingSpinner = () => (
@@ -96,6 +97,7 @@ function App() {
                         <Route path="/songs" element={<Songs />} />
                         <Route path="/locales" element={<Locales />} />
                         <Route path="/tripscore-analytics" element={<TripScoreAnalytics />} />
+                        <Route path="/support-inbox" element={<SupportInbox />} />
                         <Route path="/system" element={<System />} />
                         <Route path="/test" element={<TestPage />} />
                       </Routes>

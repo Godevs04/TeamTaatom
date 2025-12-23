@@ -14,6 +14,7 @@ export interface Locale {
   description?: string;
   imageUrl: string;
   spotTypes?: string[];
+  travelInfo?: string;
   latitude?: number;
   longitude?: number;
   isActive: boolean;
