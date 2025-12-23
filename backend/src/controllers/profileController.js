@@ -1440,6 +1440,13 @@ const getTripScoreCountryDetails = async (req, res) => {
     let previousLocation = null;
 
     for (const visit of trustedVisits) {
+      // Skip visits with invalid coordinates
+      if (typeof visit.lat !== 'number' || typeof visit.lng !== 'number' || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        logger.warn('Skipping visit with invalid coordinates:', visit._id);
+        continue;
+      }
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
       
@@ -1454,56 +1461,89 @@ const getTripScoreCountryDetails = async (req, res) => {
         let imageUrl = null;
         let postType = null;
         
-        if (visit.post) {
-          postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
-          
-          // For photos: use imageUrl or first image from images array
-          if (postType === 'photo') {
-            if (visit.post.storageKey) {
-              // Generate signed URL for single image
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              // Generate signed URL for first image in array
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
-            } else if (visit.post.imageUrl) {
-              // Fallback to existing imageUrl (if already signed)
-              imageUrl = visit.post.imageUrl;
-            } else if (visit.post.images && visit.post.images.length > 0) {
-              // Fallback to first image in images array
-              imageUrl = visit.post.images[0];
-            }
-          } 
-          // For shorts/videos: use thumbnail if available, otherwise use video storage key
-          else if (postType === 'short' || visit.post.videoUrl) {
-            // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
-            if (visit.post.imageUrl) {
-              imageUrl = visit.post.imageUrl;
+        try {
+          if (visit.post) {
+            postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
+            
+            // For photos: use imageUrl or first image from images array
+            if (postType === 'photo') {
+              if (visit.post.storageKey) {
+                // Generate signed URL for single image (with error handling)
+                try {
+                  imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
+                } catch (err) {
+                  logger.warn('Failed to generate signed URL for storageKey:', err);
+                  // Fall through to next option
+                }
+              }
+              if (!imageUrl && visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+                // Generate signed URL for first image in array (with error handling)
+                try {
+                  imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
+                } catch (err) {
+                  logger.warn('Failed to generate signed URL for storageKeys[0]:', err);
+                  // Fall through to next option
+                }
+              }
+              if (!imageUrl && visit.post.imageUrl) {
+                // Fallback to existing imageUrl (if already signed)
+                imageUrl = visit.post.imageUrl;
+              } else if (!imageUrl && visit.post.images && visit.post.images.length > 0) {
+                // Fallback to first image in images array
+                imageUrl = visit.post.images[0];
+              }
             } 
-            // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
-            else if (visit.post.images && visit.post.images.length > 0) {
-              imageUrl = visit.post.images[0];
-            }
-            // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
-            else if (visit.post.storageKey) {
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
-            } 
-            // Priority 4: Fallback to videoUrl
-            else if (visit.post.videoUrl) {
-              imageUrl = visit.post.videoUrl;
+            // For shorts/videos: use thumbnail if available, otherwise use video storage key
+            else if (postType === 'short' || visit.post.videoUrl) {
+              // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
+              if (visit.post.imageUrl) {
+                imageUrl = visit.post.imageUrl;
+              } 
+              // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
+              else if (visit.post.images && visit.post.images.length > 0) {
+                imageUrl = visit.post.images[0];
+              }
+              // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
+              else if (visit.post.storageKey) {
+                try {
+                  imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
+                } catch (err) {
+                  logger.warn('Failed to generate signed URL for video storageKey:', err);
+                  // Fall through to next option
+                }
+              }
+              if (!imageUrl && visit.post.storageKeys && visit.post.storageKeys.length > 0) {
+                try {
+                  imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
+                } catch (err) {
+                  logger.warn('Failed to generate signed URL for video storageKeys[0]:', err);
+                  // Fall through to next option
+                }
+              }
+              // Priority 4: Fallback to videoUrl
+              if (!imageUrl && visit.post.videoUrl) {
+                imageUrl = visit.post.videoUrl;
+              }
             }
           }
+        } catch (err) {
+          // Log error but continue processing - don't skip this location
+          logger.warn('Error processing post image for visit:', visit._id, err);
         }
         
         // Get spotType and travelInfo from TripVisit (copied from post) or post directly
         const spotType = visit.spotType || visit.post?.spotType || 'General';
         const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
         
+        // Get the date - prefer takenAt (when photo was taken) over uploadedAt (when uploaded)
+        // Convert to ISO string for consistent frontend parsing
+        const visitDate = visit.takenAt || visit.uploadedAt;
+        const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
+        
         locations.push({
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
-          date: visit.takenAt || visit.uploadedAt,
+          date: dateString, // ISO date string for consistent parsing
           caption: visit.post?.caption || '', // Post caption
           category: { 
             fromYou: travelInfo, // From post dropdown
@@ -1648,10 +1688,15 @@ const getTripScoreLocations = async (req, res) => {
         const spotType = visit.spotType || visit.post?.spotType || 'General';
         const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
         
+        // Get the date - prefer takenAt (when photo was taken) over uploadedAt (when uploaded)
+        // Convert to ISO string for consistent frontend parsing
+        const visitDate = visit.takenAt || visit.uploadedAt;
+        const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
+        
         locations.push({
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
-          date: visit.takenAt || visit.uploadedAt,
+          date: dateString, // ISO date string for consistent parsing
           caption: visit.post?.caption || '', // Post caption
           category: { 
             fromYou: travelInfo, // From post dropdown

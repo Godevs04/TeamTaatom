@@ -48,6 +48,9 @@ export interface CreateShortData {
     name: string;
   };
   caption: string;
+  audioSource?: 'taatom_library' | 'user_original';
+  copyrightAccepted?: boolean;
+  copyrightAcceptedAt?: string;
   tags?: string[];
   address?: string;
   latitude?: number;
@@ -619,6 +622,15 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add copyright compliance fields
+    if (data.audioSource) formData.append('audioSource', data.audioSource);
+    if (data.copyrightAccepted !== undefined) {
+      formData.append('copyrightAccepted', data.copyrightAccepted ? 'true' : 'false');
+    }
+    if (data.copyrightAcceptedAt) {
+      formData.append('copyrightAcceptedAt', data.copyrightAcceptedAt);
+    }
 
     logger.debug('Sending request to /shorts endpoint');
     
