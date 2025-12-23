@@ -10,7 +10,7 @@ export const getAnalyticsSummary = async (startDate, endDate) => {
     if (startDate) params.startDate = startDate
     if (endDate) params.endDate = endDate
     
-    const response = await api.get('/api/superadmin/analytics/summary', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/summary', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch analytics summary:', error)
@@ -37,7 +37,7 @@ export const getTimeSeriesData = async (options = {}) => {
     if (eventType) params.eventType = eventType
     if (platform) params.platform = platform
     
-    const response = await api.get('/api/superadmin/analytics/timeseries', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/timeseries', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch time series data:', error)
@@ -60,7 +60,7 @@ export const getEventBreakdown = async (options = {}) => {
     if (startDate) params.startDate = startDate
     if (endDate) params.endDate = endDate
     
-    const response = await api.get('/api/superadmin/analytics/breakdown', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/breakdown', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch event breakdown:', error)
@@ -83,7 +83,7 @@ export const getTopFeatures = async (options = {}) => {
     if (startDate) params.startDate = startDate
     if (endDate) params.endDate = endDate
     
-    const response = await api.get('/api/superadmin/analytics/features', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/features', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch top features:', error)
@@ -106,7 +106,7 @@ export const getDropOffPoints = async (options = {}) => {
     if (startDate) params.startDate = startDate
     if (endDate) params.endDate = endDate
     
-    const response = await api.get('/api/superadmin/analytics/dropoffs', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/dropoffs', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch drop-off points:', error)
@@ -136,7 +136,7 @@ export const getRecentEvents = async (options = {}) => {
     if (endDate) params.endDate = endDate
     if (search) params.search = search
     
-    const response = await api.get('/api/superadmin/analytics/events', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/events', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch recent events:', error)
@@ -153,7 +153,7 @@ export const getUserRetention = async (startDate, endDate) => {
     if (startDate) params.startDate = startDate
     if (endDate) params.endDate = endDate
     
-    const response = await api.get('/api/superadmin/analytics/retention', { params })
+    const response = await api.get('/api/v1/superadmin/analytics/retention', { params })
     return response.data
   } catch (error) {
     logger.error('Failed to fetch user retention:', error)

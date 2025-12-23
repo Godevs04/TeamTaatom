@@ -13,7 +13,7 @@ const DebugPanel = () => {
       
       let apiStatus = 'Not tested';
       try {
-        const response = await api.get('/api/superadmin/users');
+        const response = await api.get('/api/v1/superadmin/users');
         apiStatus = `✅ Working (${response.data?.users?.length || 0} users)`;
       } catch (error) {
         apiStatus = `❌ Error: ${error.response?.status || error.message}`;

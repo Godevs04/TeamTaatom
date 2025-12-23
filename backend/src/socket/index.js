@@ -78,6 +78,21 @@ function setupSocket(server) {
       }
       if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
     });
+    // Join/Leave room handlers
+    socket.on('join', (room) => {
+      if (room) {
+        socket.join(room);
+        logger.debug(`Socket ${socket.userId} joined room: ${room}`);
+      }
+    });
+
+    socket.on('leave', (room) => {
+      if (room) {
+        socket.leave(room);
+        logger.debug(`Socket ${socket.userId} left room: ${room}`);
+      }
+    });
+
     // Send message event (for real-time)
     socket.on('sendMessage', async ({ to, text }) => {
       if (!to || !text) return;
@@ -90,6 +105,7 @@ function setupSocket(server) {
         const message = { sender: socket.userId, text, timestamp: new Date() };
         chat.messages.push(message);
         await chat.save();
+        
         // Emit to recipient (all devices)
         emitToUser(to, 'message:new', { chatId: chat._id, message });
         // Emit ack to sender (all devices)
@@ -97,6 +113,23 @@ function setupSocket(server) {
         // Emit chat list update to both
         emitToUser(to, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
         emitToUser(socket.userId, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        
+        // For admin_support conversations, also emit to admin room
+        if (chat.type === 'admin_support') {
+          const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+          nsp.to('admin_support').emit('admin_support:message:new', { 
+            chatId: chat._id, 
+            message,
+            userId: socket.userId.toString(),
+            otherUserId: to.toString()
+          });
+          nsp.to('admin_support').emit('admin_support:chat:update', { 
+            chatId: chat._id, 
+            lastMessage: message.text, 
+            timestamp: message.timestamp,
+            userId: socket.userId.toString()
+          });
+        }
       } catch (err) {
         emitToUser(socket.userId, 'message:error', { error: 'Failed to send message', details: err.message });
       }

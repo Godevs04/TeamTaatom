@@ -32,6 +32,8 @@ export interface CreatePostData {
   songStartTime?: number;
   songEndTime?: number;
   songVolume?: number;
+  spotType?: string;
+  travelInfo?: string;
 }
 
 export interface CreateShortData {
@@ -46,6 +48,9 @@ export interface CreateShortData {
     name: string;
   };
   caption: string;
+  audioSource?: 'taatom_library' | 'user_original';
+  copyrightAccepted?: boolean;
+  copyrightAcceptedAt?: string;
   tags?: string[];
   address?: string;
   latitude?: number;
@@ -58,6 +63,8 @@ export interface CreateShortData {
   songStartTime?: number;
   songEndTime?: number;
   songVolume?: number;
+  spotType?: string;
+  travelInfo?: string;
 }
 
 export interface PostsResponse {
@@ -208,6 +215,10 @@ export const createPostWithProgress = async (
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
     }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
 
     // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
@@ -606,6 +617,19 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add copyright compliance fields
+    if (data.audioSource) formData.append('audioSource', data.audioSource);
+    if (data.copyrightAccepted !== undefined) {
+      formData.append('copyrightAccepted', data.copyrightAccepted ? 'true' : 'false');
+    }
+    if (data.copyrightAcceptedAt) {
+      formData.append('copyrightAcceptedAt', data.copyrightAcceptedAt);
     }
 
     logger.debug('Sending request to /shorts endpoint');

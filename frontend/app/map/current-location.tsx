@@ -163,6 +163,11 @@ export default function CurrentLocationMap() {
   const postLongitude = params.longitude ? parseFloat(params.longitude as string) : null;
   const postAddress = params.address as string || null;
   const locationName = params.locationName as string || null; // For locale navigation
+  const countryParam = params.country as string || null;
+  const userIdParam = params.userId as string || null;
+  
+  // Check if this is TripScore flow (country is not 'general' and userId is not 'admin-locale')
+  const isTripScoreFlow = countryParam && countryParam !== 'general' && userIdParam !== 'admin-locale';
   
   // CRITICAL: Validate coordinates are valid (not 0 or undefined)
   const hasValidCoordinates = postLatitude && postLongitude && 
@@ -383,6 +388,36 @@ export default function CurrentLocationMap() {
           domStorageEnabled={true}
           startInLoadingState={true}
           scalesPageToFit={true}
+          onMessage={(event) => {
+            // Handle marker clicks from WebView
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.type === 'marker') {
+                // For TripScore and locale flows, just go back to existing detail screen
+                if (isTripScoreFlow || (locationName && params.userId === 'admin-locale')) {
+                  router.back();
+                } else {
+                  // For general post locations, navigate to detail
+                  if (isPostLocation && postAddress) {
+                    const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
+                    const countrySlug = 'general';
+                    router.replace({
+                      pathname: '/tripscore/countries/[country]/locations/[location]',
+                      params: {
+                        country: countrySlug,
+                        location: locationSlug,
+                        userId: 'current-user',
+                      }
+                    });
+                  } else {
+                    router.back();
+                  }
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing WebView message:', error);
+            }
+          }}
           onError={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
             logger.error('WebView error: ', nativeEvent);
@@ -430,13 +465,16 @@ export default function CurrentLocationMap() {
           description={isPostLocation ? 'Post Location' : 'You are here'}
           anchor={{ x: 0.5, y: 1 }}
           onPress={() => {
-            // CRITICAL: For locale flow, just go back to existing LocaleDetail
-            // This prevents creating duplicate detail screens
-            if (locationName && params.userId === 'admin-locale') {
+            // CRITICAL: For TripScore flow, just go back to existing detail screen
+            // This prevents creating duplicate detail screens (third screen issue)
+            if (isTripScoreFlow) {
+              // TripScore flow: just go back to the detail screen that's already in stack
+              router.back();
+            } else if (locationName && params.userId === 'admin-locale') {
               // Locale flow: just go back to the detail screen that's already in stack
               router.back();
             } else if (isPostLocation && postAddress) {
-              // Post location flow: navigate to detail
+              // Post location flow (general): navigate to detail
               const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
               const countrySlug = 'general';
               
@@ -479,10 +517,10 @@ export default function CurrentLocationMap() {
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => {
-            // CRITICAL: For locale flow, just go back to existing LocaleDetail
+            // CRITICAL: For TripScore and locale flows, just go back to existing detail screen
             // This prevents creating duplicate detail screens
-            if (locationName && params.userId === 'admin-locale') {
-              // Locale flow: just go back to the detail screen that's already in stack
+            if (isTripScoreFlow || (locationName && params.userId === 'admin-locale')) {
+              // TripScore or Locale flow: just go back to the detail screen that's already in stack
               router.back();
             } else {
               router.back();

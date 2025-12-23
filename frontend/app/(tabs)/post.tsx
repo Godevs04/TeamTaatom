@@ -21,6 +21,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
@@ -45,6 +46,7 @@ import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
+import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
 
 const logger = createLogger('PostScreen');
 
@@ -108,8 +110,16 @@ export default function PostScreen() {
   const [showSongSelector, setShowSongSelector] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
+  const [spotType, setSpotType] = useState<string>('');
+  const [travelInfo, setTravelInfo] = useState<string>('');
+  const [showSpotTypePicker, setShowSpotTypePicker] = useState(false);
+  const [showTravelInfoPicker, setShowTravelInfoPicker] = useState(false);
+  const [showCopyrightModal, setShowCopyrightModal] = useState(false);
+  const [copyrightAccepted, setCopyrightAccepted] = useState(false);
+  const [pendingShortData, setPendingShortData] = useState<any>(null);
   const router = useRouter();
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const { handleScroll } = useScrollToHideNav();
   
   // Draft saving
@@ -479,7 +489,7 @@ export default function PostScreen() {
       const selectionStartTime = Date.now();
       
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsMultipleSelection: true,
         selectionLimit: 10,
         quality: 0.8,
@@ -497,10 +507,16 @@ export default function PostScreen() {
           height: asset.height,
         })));
         
-        // IMPORTANT: Clear location state explicitly before processing new images
+        // IMPORTANT: Clear ALL location-related state before processing new images
+        // This ensures we don't use cached/previous location data
         logger.debug('Clearing location state for new selection');
         setLocation(null);
         setAddress('');
+        setLocationMetadata({
+          hasExifGps: false,
+          takenAt: null,
+          rawSource: 'none'
+        });
         
         const newImages = result.assets.map(asset => {
           // Determine proper MIME type based on file extension or default to jpeg
@@ -547,12 +563,14 @@ export default function PostScreen() {
         logger.debug('Waiting for MediaLibrary to update...');
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        logger.debug('Starting location extraction for new photo');
+        logger.debug('Starting location extraction for NEWLY selected photos only');
         logger.debug('Selection started at:', new Date(selectionStartTime));
+        logger.debug('Number of newly selected assets:', result.assets.length);
         
-        // Try to get location from photo EXIF data first
+        // CRITICAL: Extract location ONLY from the newly selected assets
+        // Pass only the new assets to ensure we don't get location from previous uploads
         const locationResult = await LocationExtractionService.extractFromPhotos(
-          result.assets,
+          result.assets, // Only newly selected assets
           selectionStartTime
         );
         
@@ -603,15 +621,20 @@ export default function PostScreen() {
       return;
     }
     
-    // Reset location before picking new video
+    // Reset ALL location-related state before picking new video
     setLocation(null);
     setAddress('');
+    setLocationMetadata({
+      hasExifGps: false,
+      takenAt: null,
+      rawSource: 'none'
+    });
     
     // Record the timestamp before opening the picker
     const selectionStartTime = Date.now();
     
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsEditing: true,
       aspect: [9, 16], // Vertical aspect ratio for shorts
       quality: 0.8,
@@ -676,9 +699,13 @@ export default function PostScreen() {
       // Add a small delay to ensure MediaLibrary is updated with the selected video
       await new Promise(resolve => setTimeout(resolve, 500));
       
+      logger.debug('Starting location extraction for newly selected video');
+      logger.debug('Selection started at:', new Date(selectionStartTime).toISOString());
+      
       // Try to get location from video metadata
+      // Pass only the newly selected asset to ensure we get its location, not a previous one
       const locationResult = await LocationExtractionService.extractFromPhotos(
-        result.assets,
+        result.assets, // Only the newly selected video asset
         selectionStartTime
       );
       
@@ -725,16 +752,21 @@ export default function PostScreen() {
       return;
     }
     
-    // Reset location before taking new photo
+    // Reset ALL location-related state before taking new photo
     setLocation(null);
     setAddress('');
+    setLocationMetadata({
+      hasExifGps: false,
+      takenAt: null,
+      rawSource: 'none'
+    });
     
     // Record timestamp before capturing
     const captureStartTime = Date.now();
     
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -747,7 +779,9 @@ export default function PostScreen() {
         const newImage = {
           uri: result.assets[0].uri,
           type: 'image/jpeg', // Camera photos are always JPEG
-          name: result.assets[0].fileName || `photo_${Date.now()}.jpg`
+          name: result.assets[0].fileName || `photo_${Date.now()}.jpg`,
+          id: (result.assets[0] as any).id, // Pass through asset ID if available
+          originalAsset: result.assets[0], // Keep reference to original asset
         };
         
         setSelectedImages(prev => {
@@ -765,9 +799,13 @@ export default function PostScreen() {
         // Add a small delay to ensure MediaLibrary is updated with the captured photo
         await new Promise(resolve => setTimeout(resolve, 500));
         
+        logger.debug('Starting location extraction for newly captured photo');
+        logger.debug('Capture started at:', new Date(captureStartTime).toISOString());
+        
         // Try to get location from photo EXIF data first
+        // Pass only the newly captured asset to ensure we get its location, not a previous one
         const locationResult = await LocationExtractionService.extractFromPhotos(
-          result.assets,
+          result.assets, // Only the newly captured asset
           captureStartTime
         );
         
@@ -784,19 +822,62 @@ export default function PostScreen() {
           });
           setIsFromCameraFlow(true); // Camera capture
         } else {
-          // No location found - show warning and let user enter manually
-          setLocationMetadata({
-            hasExifGps: false,
-            takenAt: null,
-            rawSource: 'none'
-          });
-          setIsFromCameraFlow(true);
-          
-          Alert.alert(
-            'Location Not Detected',
-            'Unable to fetch location from photo. You can manually type the location, but Trip Score will not be calculated.',
-            [{ text: 'OK', style: 'default' }]
-          );
+          // No location from EXIF - get current location as fallback for Taatom camera
+          logger.debug('No EXIF location found, getting current location for Taatom camera');
+          try {
+            const currentLocation = await getCurrentLocation();
+            if (currentLocation && currentLocation.coords) {
+              const coords = {
+                lat: currentLocation.coords.latitude,
+                lng: currentLocation.coords.longitude
+              };
+              setLocation(coords);
+              
+              // Get address from current location
+              const address = await getAddressFromCoords(coords.lat, coords.lng);
+              if (address) {
+                setAddress(address);
+              }
+              
+              // Store metadata - current location is still valid for Taatom camera
+              setLocationMetadata({
+                hasExifGps: false, // Not from EXIF, but from current GPS
+                takenAt: new Date(),
+                rawSource: 'exif' // Treat as valid GPS source for camera
+              });
+              setIsFromCameraFlow(true);
+              
+              logger.debug('Current location captured for Taatom camera:', coords);
+            } else {
+              // No current location available
+              setLocationMetadata({
+                hasExifGps: false,
+                takenAt: null,
+                rawSource: 'none'
+              });
+              setIsFromCameraFlow(true);
+              
+              Alert.alert(
+                'Location Not Available',
+                'Unable to get your current location. You can manually type the location.',
+                [{ text: 'OK', style: 'default' }]
+              );
+            }
+          } catch (locationError) {
+            logger.error('Error getting current location:', locationError);
+            setLocationMetadata({
+              hasExifGps: false,
+              takenAt: null,
+              rawSource: 'none'
+            });
+            setIsFromCameraFlow(true);
+            
+            Alert.alert(
+              'Location Not Available',
+              'Unable to get your current location. You can manually type the location.',
+              [{ text: 'OK', style: 'default' }]
+            );
+          }
         }
       }
     } catch (error) {
@@ -820,7 +901,7 @@ export default function PostScreen() {
     const captureStartTime = Date.now();
     
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsEditing: true,
       aspect: [9, 16], // Vertical aspect ratio for shorts
       quality: 0.8,
@@ -903,20 +984,62 @@ export default function PostScreen() {
           takenAt: locationResult.takenAt
         });
       } else {
-        logger.debug('Location extraction result for camera video: Not found');
-        setLocationMetadata({
-          hasExifGps: false,
-          takenAt: null,
-          rawSource: 'none'
-        });
-        setIsFromCameraFlow(true); // Camera capture
-        
-        // Show warning - user can manually enter location
-        Alert.alert(
-          'Location Not Detected',
-          'Unable to fetch location from video. You can manually type the location, but Trip Score will not be calculated.',
-          [{ text: 'OK', style: 'default' }]
-        );
+        // No location from EXIF - get current location as fallback for Taatom camera
+        logger.debug('No EXIF location found, getting current location for Taatom camera video');
+        try {
+          const currentLocation = await getCurrentLocation();
+          if (currentLocation && currentLocation.coords) {
+            const coords = {
+              lat: currentLocation.coords.latitude,
+              lng: currentLocation.coords.longitude
+            };
+            setLocation(coords);
+            
+            // Get address from current location
+            const address = await getAddressFromCoords(coords.lat, coords.lng);
+            if (address) {
+              setAddress(address);
+            }
+            
+            // Store metadata - current location is still valid for Taatom camera
+            setLocationMetadata({
+              hasExifGps: false, // Not from EXIF, but from current GPS
+              takenAt: new Date(),
+              rawSource: 'exif' // Treat as valid GPS source for camera
+            });
+            setIsFromCameraFlow(true);
+            
+            logger.debug('Current location captured for Taatom camera video:', coords);
+          } else {
+            // No current location available
+            setLocationMetadata({
+              hasExifGps: false,
+              takenAt: null,
+              rawSource: 'none'
+            });
+            setIsFromCameraFlow(true);
+            
+            Alert.alert(
+              'Location Not Available',
+              'Unable to get your current location. You can manually type the location.',
+              [{ text: 'OK', style: 'default' }]
+            );
+          }
+        } catch (locationError) {
+          logger.error('Error getting current location:', locationError);
+          setLocationMetadata({
+            hasExifGps: false,
+            takenAt: null,
+            rawSource: 'none'
+          });
+          setIsFromCameraFlow(true);
+          
+          Alert.alert(
+            'Location Not Available',
+            'Unable to get your current location. You can manually type the location.',
+            [{ text: 'OK', style: 'default' }]
+          );
+        }
       }
     }
   };
@@ -1114,6 +1237,8 @@ export default function PostScreen() {
         songStartTime: songStartTime,
         songEndTime: songEndTime,
         songVolume: 0.5,
+        spotType: spotType || undefined,
+        travelInfo: travelInfo || undefined,
       }, (progress) => {
         // Update last progress time for watchdog
         uploadSessionRef.current.lastProgressTime = Date.now();
@@ -1331,6 +1456,51 @@ export default function PostScreen() {
         source = 'manual_only';
       }
 
+      // Detect audio source for copyright compliance
+      // audioSource = "taatom_library" if background music from Taatom is selected
+      // audioSource = "user_original" if using original video audio (no Taatom music)
+      const audioSource: 'taatom_library' | 'user_original' = 
+        (audioChoice === 'background' && selectedSong) ? 'taatom_library' : 'user_original';
+
+      // If user_original, show copyright confirmation modal
+      if (audioSource === 'user_original') {
+        // Store upload data to proceed after copyright confirmation
+        setPendingShortData({
+          video: {
+            uri: selectedVideo,
+            type: type,
+            name: filename,
+          },
+          image: videoThumbnail ? {
+            uri: videoThumbnail,
+            type: 'image/jpeg',
+            name: 'thumbnail.jpg',
+          } : undefined,
+          caption: validateAndSanitizeCaption(values.caption) || '',
+          songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
+          songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
+          songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
+          songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined,
+          tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+          spotType: spotType || undefined,
+          travelInfo: travelInfo || undefined,
+          address: values.placeName || address,
+          latitude: location?.lat,
+          longitude: location?.lng,
+          hasExifGps: locationMetadata?.hasExifGps || false,
+          takenAt: locationMetadata?.takenAt || undefined,
+          source: source,
+          fromCamera: isFromCameraFlow,
+          audioSource: audioSource,
+        });
+        setShowCopyrightModal(true);
+        isSubmittingRef.current = false;
+        setIsLoading(false);
+        setIsUploading(false);
+        return; // Stop here, wait for user confirmation
+      }
+
+      // If taatom_library, proceed directly with upload
       logger.debug('Sending data to createShort:', {
         video: {
           uri: selectedVideo,
@@ -1345,6 +1515,7 @@ export default function PostScreen() {
         hasExifGps: locationMetadata?.hasExifGps,
         source: source,
         fromCamera: isFromCameraFlow,
+        audioSource: audioSource,
       });
 
       const response = await createShort({
@@ -1368,6 +1539,8 @@ export default function PostScreen() {
         songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
         songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined, // Music at full volume, video will be at 0.6
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+        spotType: spotType || undefined,
+        travelInfo: travelInfo || undefined,
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
@@ -1375,6 +1548,9 @@ export default function PostScreen() {
         takenAt: locationMetadata?.takenAt || undefined,
         source: source,
         fromCamera: isFromCameraFlow,
+        audioSource: audioSource,
+        copyrightAccepted: true, // Auto-accepted for taatom_library
+        copyrightAcceptedAt: new Date().toISOString(),
       });
 
       logger.debug('Short created successfully:', response);
@@ -1476,6 +1652,123 @@ export default function PostScreen() {
       setIsLoading(false);
       isSubmittingRef.current = false;
     }
+  };
+
+  // Handle copyright confirmation - proceed with upload
+  const handleCopyrightAgree = async () => {
+    if (!pendingShortData) return;
+    
+    setShowCopyrightModal(false);
+    setCopyrightAccepted(true);
+    
+    // Resume upload with copyright acceptance
+    try {
+      setIsLoading(true);
+      setIsUploading(true);
+      
+      const response = await createShort({
+        ...pendingShortData,
+        audioSource: 'user_original',
+        copyrightAccepted: true,
+        copyrightAcceptedAt: new Date().toISOString(),
+      });
+
+      logger.debug('Short created successfully:', response);
+      
+      // Cleanup progress watchdog
+      if (uploadSessionRef.current.progressWatchdog) {
+        clearInterval(uploadSessionRef.current.progressWatchdog);
+      }
+      
+      // Media memory safety: release references after successful upload
+      releaseMediaReferences();
+      
+      // Clear draft on successful post
+      await clearDraft();
+      
+      // Check if short requires verification (pending review)
+      const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
+      
+      if (requiresVerification) {
+        Alert.alert(
+          'Success!', 
+          'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                clearUploadState();
+                setSelectedVideo(null);
+                setVideoThumbnail(null);
+                setLocation(null);
+                setLocationMetadata(null);
+                setSelectedSong(null);
+                setAudioChoice(null);
+                setSongStartTime(0);
+                setSongEndTime(60);
+                setPendingShortData(null);
+                setCopyrightAccepted(false);
+                setHasExistingShorts(true);
+                setAddress('');
+                router.replace('/(tabs)/home');
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Success!', 'Your short has been uploaded.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+              setSelectedVideo(null);
+              setVideoThumbnail(null);
+              setLocation(null);
+              setLocationMetadata(null);
+              setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+              setHasExistingShorts(true);
+              setAddress('');
+              router.replace('/(tabs)/home');
+            },
+          },
+        ]);
+      }
+    } catch (error: any) {
+      logger.error('Short creation failed after copyright confirmation', error);
+      setUploadError(error?.message || 'Upload failed. Please try again.');
+      Alert.alert(
+        'Upload failed',
+        error?.message || 'Please try again later.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              clearUploadState();
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+            }
+          },
+        ]
+      );
+    } finally {
+      setIsLoading(false);
+      isSubmittingRef.current = false;
+    }
+  };
+
+  // Handle copyright cancellation
+  const handleCopyrightCancel = () => {
+    setShowCopyrightModal(false);
+    setPendingShortData(null);
+    setCopyrightAccepted(false);
+    isSubmittingRef.current = false;
+    setIsLoading(false);
+    setIsUploading(false);
   };
 
   return (
@@ -1766,22 +2059,133 @@ export default function PostScreen() {
           }}>
             {selectedImages.length > 0 ? (
               <View>
-                {/* Image carousel */}
-                <ScrollView 
-                  horizontal 
-                  pagingEnabled 
-                  showsHorizontalScrollIndicator={false}
-                  style={{ borderRadius: theme.borderRadius.xl }}
-                >
-                  {selectedImages.map((image, index) => (
-                    <View key={index} style={{ width: 350, height: 350 }}>
+                {/* Elegant Image Preview - Grid Layout for Multiple Images */}
+                {selectedImages.length === 1 ? (
+                  // Single image - full width, left aligned
+                  <View style={{ width: '100%', aspectRatio: 1, borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
+                    <Image 
+                      source={{ uri: selectedImages[0].uri }} 
+                      style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                    />
+                  </View>
+                ) : selectedImages.length === 2 ? (
+                  // 2 images - side by side
+                  <View style={{ flexDirection: 'row', gap: theme.spacing.xs, borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
+                    {selectedImages.map((image, index) => (
+                      <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                        <Image 
+                          source={{ uri: image.uri }} 
+                          style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : selectedImages.length === 3 ? (
+                  // 3 images - 2 on top, 1 on bottom
+                  <View style={{ borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', gap: theme.spacing.xs, marginBottom: theme.spacing.xs }}>
+                      {selectedImages.slice(0, 2).map((image, index) => (
+                        <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                          <Image 
+                            source={{ uri: image.uri }} 
+                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                          />
+                        </View>
+                      ))}
+                    </View>
+                    <View style={{ aspectRatio: 2 }}>
                       <Image 
-                        source={{ uri: image.uri }} 
+                        source={{ uri: selectedImages[2].uri }} 
                         style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
                       />
                     </View>
-                  ))}
-                </ScrollView>
+                  </View>
+                ) : selectedImages.length === 4 ? (
+                  // 4 images - 2x2 grid
+                  <View style={{ borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
+                    <View style={{ flexDirection: 'row', gap: theme.spacing.xs, marginBottom: theme.spacing.xs }}>
+                      {selectedImages.slice(0, 2).map((image, index) => (
+                        <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                          <Image 
+                            source={{ uri: image.uri }} 
+                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                          />
+                        </View>
+                      ))}
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: theme.spacing.xs }}>
+                      {selectedImages.slice(2, 4).map((image, index) => (
+                        <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                          <Image 
+                            source={{ uri: image.uri }} 
+                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                          />
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  // 5-10 images - elegant grid with scrollable preview
+                  <View>
+                    <View style={{ borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
+                      {/* First row: 2 large images */}
+                      <View style={{ flexDirection: 'row', gap: theme.spacing.xs, marginBottom: theme.spacing.xs }}>
+                        {selectedImages.slice(0, 2).map((image, index) => (
+                          <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                            <Image 
+                              source={{ uri: image.uri }} 
+                              style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                            />
+                          </View>
+                        ))}
+                      </View>
+                      {/* Second row: 3 smaller images or remaining images */}
+                      <View style={{ flexDirection: 'row', gap: theme.spacing.xs }}>
+                        {selectedImages.slice(2, 5).map((image, index) => (
+                          <View key={index} style={{ flex: 1, aspectRatio: 1 }}>
+                            <Image 
+                              source={{ uri: image.uri }} 
+                              style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                            />
+                            {index === 2 && selectedImages.length > 5 && (
+                              // Overlay for "+X more" indicator
+                              <View style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0,0,0,0.5)',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }}>
+                                <Text style={{ color: 'white', fontSize: theme.typography.h3.fontSize, fontWeight: '700' }}>
+                                  +{selectedImages.length - 5}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                    {/* Horizontal scrollable view for all images */}
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={{ marginTop: theme.spacing.sm }}
+                      contentContainerStyle={{ gap: theme.spacing.xs, paddingRight: theme.spacing.md }}
+                    >
+                      {selectedImages.map((image, index) => (
+                        <View key={index} style={{ width: 80, height: 80, borderRadius: theme.borderRadius.md, overflow: 'hidden', marginRight: theme.spacing.xs }}>
+                          <Image 
+                            source={{ uri: image.uri }} 
+                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                          />
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
                 
                 {/* Image counter */}
                 {selectedImages.length > 1 && (
@@ -1861,7 +2265,7 @@ export default function PostScreen() {
                         Alert.alert('Permission needed', 'Please grant photo library permissions.');
                         return;
                       }
-                      const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [9, 16], quality: 0.9 });
+                      const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [9, 16], quality: 0.9 });
                       if (!pick.canceled && pick.assets?.[0] && pick.assets[0].uri && pick.assets[0].uri.trim()) {
                         setVideoThumbnail(pick.assets[0].uri);
                       } else {
@@ -2066,26 +2470,6 @@ export default function PostScreen() {
                           <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
-                        {location && (
-                          <View style={{ 
-                            backgroundColor: theme.colors.primary + '10', 
-                            borderRadius: theme.borderRadius.md, 
-                            padding: theme.spacing.sm, 
-                            marginBottom: theme.spacing.sm,
-                            flexDirection: 'row',
-                            alignItems: 'flex-start'
-                          }}>
-                            <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs, marginTop: 2 }} />
-                            <Text style={{ 
-                              color: theme.colors.textSecondary, 
-                              fontSize: theme.typography.small.fontSize,
-                              flex: 1,
-                              lineHeight: 18
-                            }}>
-                              Use original camera photos (not WhatsApp/downloaded images) with location enabled so Taatom can verify your trip and count it in TripScore.
-                            </Text>
-                          </View>
-                        )}
                       <TextInput
                         style={{ 
                           backgroundColor: theme.colors.surfaceSecondary, 
@@ -2133,6 +2517,99 @@ export default function PostScreen() {
                         </Text>
                       </View>
                     )}
+                    {/* TripScore Metadata Dropdowns for Photos - Always Available */}
+                    <View style={{ marginBottom: theme.spacing.md }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                        <View style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.primary + '15',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.xs
+                        }}>
+                          <Ionicons name="leaf" size={18} color={theme.colors.primary} />
+                        </View>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={{ 
+                          backgroundColor: theme.colors.surface, 
+                          borderRadius: theme.borderRadius.lg, 
+                          borderWidth: 2, 
+                          borderColor: spotType ? theme.colors.primary : theme.colors.border,
+                          paddingHorizontal: theme.spacing.lg,
+                          paddingVertical: theme.spacing.md,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          ...theme.shadows.small
+                        }}
+                        onPress={() => setShowSpotTypePicker(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ 
+                          color: spotType ? theme.colors.text : theme.colors.textSecondary, 
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: spotType ? '600' : '400'
+                        }}>
+                          {spotType || 'Select Spot Type'}
+                        </Text>
+                        <Ionicons 
+                          name="chevron-down" 
+                          size={20} 
+                          color={spotType ? theme.colors.primary : theme.colors.textSecondary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ marginBottom: theme.spacing.md }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                        <View style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.primary + '15',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.xs
+                        }}>
+                          <Ionicons name="car" size={18} color={theme.colors.primary} />
+                        </View>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={{ 
+                          backgroundColor: theme.colors.surface, 
+                          borderRadius: theme.borderRadius.lg, 
+                          borderWidth: 2, 
+                          borderColor: travelInfo ? theme.colors.primary : theme.colors.border,
+                          paddingHorizontal: theme.spacing.lg,
+                          paddingVertical: theme.spacing.md,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          ...theme.shadows.small
+                        }}
+                        onPress={() => setShowTravelInfoPicker(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ 
+                          color: travelInfo ? theme.colors.text : theme.colors.textSecondary, 
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: travelInfo ? '600' : '400'
+                        }}>
+                          {travelInfo || 'Select Travel Method'}
+                        </Text>
+                        <Ionicons 
+                          name="chevron-down" 
+                          size={20} 
+                          color={travelInfo ? theme.colors.primary : theme.colors.textSecondary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
                     {uploadError && (
                       <View style={{ 
                         marginBottom: theme.spacing.lg, 
@@ -2193,7 +2670,18 @@ export default function PostScreen() {
                         },
                         isLoading && { opacity: 0.7 },
                       ]}
-                      onPress={() => handleSubmit()}
+                      onPress={() => {
+                        if (selectedVideo) {
+                          // Convert photo form values to short form values
+                          handleShort({
+                            caption: (values as any).comment || (values as any).caption || '',
+                            tags: values.tags || '',
+                            placeName: values.placeName || '',
+                          });
+                        } else {
+                          handleSubmit();
+                        }
+                      }}
                       disabled={isLoading}
                       activeOpacity={0.8}
                     >
@@ -2427,7 +2915,7 @@ export default function PostScreen() {
                         backgroundColor: theme.colors.primary + '10', 
                         borderRadius: theme.borderRadius.lg, 
                         padding: theme.spacing.md, 
-                        marginBottom: theme.spacing.lg,
+                        marginBottom: theme.spacing.md,
                         borderWidth: 1,
                         borderColor: theme.colors.primary + '30'
                       }}>
@@ -2445,6 +2933,99 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{address}</Text>
                       </View>
                     )}
+                    {/* TripScore Metadata Dropdowns for Shorts - Always Available */}
+                    <View style={{ marginBottom: theme.spacing.md }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                        <View style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.primary + '15',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.xs
+                        }}>
+                          <Ionicons name="leaf" size={18} color={theme.colors.primary} />
+                        </View>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={{ 
+                          backgroundColor: theme.colors.surface, 
+                          borderRadius: theme.borderRadius.lg, 
+                          borderWidth: 2, 
+                          borderColor: spotType ? theme.colors.primary : theme.colors.border,
+                          paddingHorizontal: theme.spacing.lg,
+                          paddingVertical: theme.spacing.md,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          ...theme.shadows.small
+                        }}
+                        onPress={() => setShowSpotTypePicker(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ 
+                          color: spotType ? theme.colors.text : theme.colors.textSecondary, 
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: spotType ? '600' : '400'
+                        }}>
+                          {spotType || 'Select Spot Type'}
+                        </Text>
+                        <Ionicons 
+                          name="chevron-down" 
+                          size={20} 
+                          color={spotType ? theme.colors.primary : theme.colors.textSecondary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ marginBottom: theme.spacing.md }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                        <View style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          backgroundColor: theme.colors.primary + '15',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.xs
+                        }}>
+                          <Ionicons name="car" size={18} color={theme.colors.primary} />
+                        </View>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={{ 
+                          backgroundColor: theme.colors.surface, 
+                          borderRadius: theme.borderRadius.lg, 
+                          borderWidth: 2, 
+                          borderColor: travelInfo ? theme.colors.primary : theme.colors.border,
+                          paddingHorizontal: theme.spacing.lg,
+                          paddingVertical: theme.spacing.md,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          ...theme.shadows.small
+                        }}
+                        onPress={() => setShowTravelInfoPicker(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ 
+                          color: travelInfo ? theme.colors.text : theme.colors.textSecondary, 
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: travelInfo ? '600' : '400'
+                        }}>
+                          {travelInfo || 'Select Travel Method'}
+                        </Text>
+                        <Ionicons 
+                          name="chevron-down" 
+                          size={20} 
+                          color={travelInfo ? theme.colors.primary : theme.colors.textSecondary} 
+                        />
+                      </TouchableOpacity>
+                    </View>
                     {uploadError && (
                       <View style={{ 
                         marginBottom: theme.spacing.lg, 
@@ -2579,6 +3160,252 @@ export default function PostScreen() {
           setIsLoading(false);
         }}
       />
+
+      {/* Spot Type Picker Modal - Compact Elegant UI */}
+      <Modal
+        visible={showSpotTypePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSpotTypePicker(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowSpotTypePicker(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={{ 
+              backgroundColor: theme.colors.surface, 
+              borderTopLeftRadius: 20, 
+              borderTopRightRadius: 20,
+              paddingTop: theme.spacing.lg,
+              paddingBottom: Math.max(theme.spacing.lg, Platform.OS === 'ios' ? 34 : theme.spacing.lg),
+              maxHeight: '60%',
+              ...theme.shadows.medium
+            }}>
+              {/* Compact Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                paddingHorizontal: theme.spacing.lg, 
+                marginBottom: theme.spacing.md,
+                paddingBottom: theme.spacing.sm,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: theme.colors.border
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="leaf-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.sm }} />
+                  <Text style={{ 
+                    fontSize: theme.typography.h3.fontSize, 
+                    fontWeight: '600', 
+                    color: theme.colors.text
+                  }}>
+                    Select Spot Type
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  onPress={() => setShowSpotTypePicker(false)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: theme.colors.surfaceSecondary,
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={18} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+              
+              {/* Compact Options List */}
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                style={{ paddingHorizontal: theme.spacing.md }}
+              >
+                {[
+                  { value: '', label: 'None', icon: 'remove-circle-outline' },
+                  { value: 'Beach', label: 'Beach', icon: 'sunny-outline' },
+                  { value: 'Mountain', label: 'Mountain', icon: 'triangle-outline' },
+                  { value: 'City', label: 'City', icon: 'business-outline' },
+                  { value: 'Natural spots', label: 'Natural Spots', icon: 'leaf-outline' },
+                  { value: 'Religious', label: 'Religious', icon: 'star-outline' },
+                  { value: 'Cultural', label: 'Cultural', icon: 'library-outline' },
+                  { value: 'General', label: 'General', icon: 'location-outline' }
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.value}
+                    style={{
+                      paddingHorizontal: theme.spacing.md,
+                      paddingVertical: theme.spacing.sm + 4,
+                      marginBottom: theme.spacing.xs,
+                      borderRadius: theme.borderRadius.md,
+                      backgroundColor: spotType === item.value 
+                        ? theme.colors.primary + '10' 
+                        : 'transparent',
+                      borderWidth: spotType === item.value ? 1.5 : StyleSheet.hairlineWidth,
+                      borderColor: spotType === item.value 
+                        ? theme.colors.primary 
+                        : theme.colors.border,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                    onPress={() => {
+                      setSpotType(item.value);
+                      setShowSpotTypePicker(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Ionicons 
+                        name={item.icon as any} 
+                        size={18} 
+                        color={spotType === item.value ? theme.colors.primary : theme.colors.textSecondary} 
+                        style={{ marginRight: theme.spacing.sm }}
+                      />
+                      <Text style={{ 
+                        color: spotType === item.value ? theme.colors.primary : theme.colors.text, 
+                        fontSize: theme.typography.body.fontSize,
+                        fontWeight: spotType === item.value ? '500' : '400'
+                      }}>
+                        {item.label}
+                      </Text>
+                    </View>
+                    {spotType === item.value && (
+                      <Ionicons name="checkmark" size={18} color={theme.colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Travel Info Picker Modal - Compact Elegant UI */}
+      <Modal
+        visible={showTravelInfoPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTravelInfoPicker(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowTravelInfoPicker(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={{ 
+              backgroundColor: theme.colors.surface, 
+              borderTopLeftRadius: 20, 
+              borderTopRightRadius: 20,
+              paddingTop: theme.spacing.lg,
+              paddingBottom: Math.max(theme.spacing.lg, Platform.OS === 'ios' ? 34 : theme.spacing.lg),
+              maxHeight: '60%',
+              ...theme.shadows.medium
+            }}>
+              {/* Compact Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                paddingHorizontal: theme.spacing.lg, 
+                marginBottom: theme.spacing.md,
+                paddingBottom: theme.spacing.sm,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: theme.colors.border
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="car-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.sm }} />
+                  <Text style={{ 
+                    fontSize: theme.typography.h3.fontSize, 
+                    fontWeight: '600', 
+                    color: theme.colors.text
+                  }}>
+                    Select Travel Method
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  onPress={() => setShowTravelInfoPicker(false)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: theme.colors.surfaceSecondary,
+                    justifyContent: 'center',
+                    alignItems: 'center'
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={18} color={theme.colors.text} />
+                </TouchableOpacity>
+              </View>
+              
+              {/* Compact Options List */}
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                style={{ paddingHorizontal: theme.spacing.md }}
+              >
+                {[
+                  { value: '', label: 'None', icon: 'remove-circle-outline' },
+                  { value: 'Drivable', label: 'Drivable', icon: 'car-outline' },
+                  { value: 'Hiking', label: 'Hiking', icon: 'walk-outline' },
+                  { value: 'Water Transport', label: 'Water Transport', icon: 'boat-outline' },
+                  { value: 'Flight', label: 'Flight', icon: 'airplane-outline' },
+                  { value: 'Train', label: 'Train', icon: 'train-outline' }
+                ].map((item) => (
+                  <TouchableOpacity
+                    key={item.value}
+                    style={{
+                      paddingHorizontal: theme.spacing.md,
+                      paddingVertical: theme.spacing.sm + 4,
+                      marginBottom: theme.spacing.xs,
+                      borderRadius: theme.borderRadius.md,
+                      backgroundColor: travelInfo === item.value 
+                        ? theme.colors.primary + '10' 
+                        : 'transparent',
+                      borderWidth: travelInfo === item.value ? 1.5 : StyleSheet.hairlineWidth,
+                      borderColor: travelInfo === item.value 
+                        ? theme.colors.primary 
+                        : theme.colors.border,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}
+                    onPress={() => {
+                      setTravelInfo(item.value);
+                      setShowTravelInfoPicker(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Ionicons 
+                        name={item.icon as any} 
+                        size={18} 
+                        color={travelInfo === item.value ? theme.colors.primary : theme.colors.textSecondary} 
+                        style={{ marginRight: theme.spacing.sm }}
+                      />
+                      <Text style={{ 
+                        color: travelInfo === item.value ? theme.colors.primary : theme.colors.text, 
+                        fontSize: theme.typography.body.fontSize,
+                        fontWeight: travelInfo === item.value ? '500' : '400'
+                      }}>
+                        {item.label}
+                      </Text>
+                    </View>
+                    {travelInfo === item.value && (
+                      <Ionicons name="checkmark" size={18} color={theme.colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Song Selector Modal */}
       {/* Audio Choice Modal for Shorts */}
@@ -2734,6 +3561,13 @@ export default function PostScreen() {
         selectedSong={selectedSong}
         selectedStartTime={songStartTime}
         selectedEndTime={songEndTime}
+      />
+
+      {/* Copyright Confirmation Modal */}
+      <CopyrightConfirmationModal
+        visible={showCopyrightModal}
+        onCancel={handleCopyrightCancel}
+        onAgree={handleCopyrightAgree}
       />
     </View>
   );

@@ -10,6 +10,10 @@ const {
   MAX_REALISTIC_SPEED_KMH, 
   MIN_DISTANCE_FOR_SPEED_CHECK_KM 
 } = require('../config/tripScoreConfig');
+const { 
+  getOrCreateSupportConversation, 
+  sendSystemMessage 
+} = require('./adminSupportChatService');
 
 // Static Taatom Official system user ID (must exist in DB for chat system)
 const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
@@ -271,10 +275,10 @@ const getUserPreviousVisits = async (userId, limit = 10) => {
  * @param {String} userId - User ID
  * @param {Number} lat - Latitude
  * @param {Number} lng - Longitude
- * @param {Number} tolerance - Coordinate tolerance (default 0.001 degrees ≈ 111m)
+ * @param {Number} tolerance - Coordinate tolerance (default 0.01 degrees ≈ 1.1km)
  * @returns {Object|null} Existing visit or null
  */
-const findExistingVisit = async (userId, lat, lng, tolerance = 0.001) => {
+const findExistingVisit = async (userId, lat, lng, tolerance = 0.01) => {
   try {
     return await TripVisit.findVisitByLocation(userId, lat, lng, tolerance);
   } catch (error) {
@@ -353,8 +357,12 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       uploadedAt: post.createdAt
     }, previousVisits);
     
-    // Set verification status based on source and coordinates (Hybrid TripScore Verification System)
-    let verificationStatus = 'auto_verified';
+    // Set verification status based on source and coordinates
+    // NEW RULE: Only content taken from Taatom camera increases TripScore immediately
+    // - Photos (type === 'photo') from Taatom camera → auto-verified
+    // - Videos/shorts (type === 'short') from Taatom camera → auto-verified
+    // - All other scenarios → pending review
+    let verificationStatus = 'pending_review';
     let verificationReason = null;
     
     // Priority 1: Check for suspicious patterns (regardless of source)
@@ -362,33 +370,43 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       verificationStatus = 'pending_review';
       verificationReason = 'suspicious_pattern';
     }
-    // Priority 2: Manual location (0,0 coordinates) - but NOT if it has EXIF GPS (Scenario 2)
-    else if (!hasValidCoords && source !== 'gallery_exif') {
+    // Priority 2: Manual location (0,0 coordinates) - always pending review
+    else if (!hasValidCoords) {
       verificationStatus = 'pending_review';
       verificationReason = 'manual_location';
       // Override trust level for manual locations
       trustLevel = 'unverified';
     }
-    // Priority 3: Taatom camera with live GPS (Scenario 1)
+    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - auto-verified
+    // This increases TripScore immediately
     else if (source === 'taatom_camera_live') {
       verificationStatus = 'auto_verified';
+      // No reason needed for auto-verified
     }
-    // Priority 4: Gallery with EXIF GPS (Scenario 2) - auto-verified even if coords are 0,0
-    else if (source === 'gallery_exif') {
-      verificationStatus = 'auto_verified';
-    }
-    // Priority 5: All other cases (gallery_no_exif, manual_only) - pending review
+    // Priority 4: All other cases go to pending review:
+    // - Photos from gallery (source !== 'taatom_camera_live')
+    // - Videos/shorts from gallery (source !== 'taatom_camera_live')
+    // - Gallery with EXIF GPS
+    // - Gallery without EXIF
+    // - Manual locations
     else {
       verificationStatus = 'pending_review';
-      verificationReason = source === 'manual_only'
-        ? 'manual_location'
-        : 'no_exif';
+      if (source === 'gallery_exif') {
+        verificationReason = 'gallery_exif_requires_review';
+      } else if (source === 'gallery_no_exif') {
+        verificationReason = 'no_exif';
+      } else if (source === 'manual_only') {
+        verificationReason = 'manual_location';
+      } else {
+        verificationReason = 'requires_admin_review';
+      }
     }
     
     // [TripVisit Debug] - Temporary debug logs for verification
     logger.info('[TripVisit Debug]', {
       postId: post._id?.toString(),
       userId: post.user?.toString(),
+      postType: post.type,
       source,
       trustLevel,
       verificationStatus,
@@ -399,12 +417,12 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       fromCamera: metadata.fromCamera,
       hasExifGps: metadata.hasExifGps,
       address: post.location?.address,
-      scenario: !hasValidCoords ? 'Scenario 3 (Manual Location)' :
-                source === 'taatom_camera_live' ? 'Scenario 1 (Taatom Camera)' :
-                source === 'gallery_exif' && trustLevel !== 'suspicious' ? 'Scenario 2 (Gallery EXIF)' :
-                trustLevel === 'suspicious' ? 'Scenario 4 (Suspicious Pattern)' :
-                source === 'gallery_no_exif' ? 'Scenario 5 (Gallery No EXIF)' :
-                'Unknown'
+      scenario: !hasValidCoords ? 'Manual Location (Pending Review)' :
+                source === 'taatom_camera_live' ? `${post.type === 'short' ? 'Short' : 'Photo'} from Taatom Camera (Auto-Verified)` :
+                source === 'gallery_exif' ? 'Gallery EXIF (Pending Review)' :
+                source === 'gallery_no_exif' ? 'Gallery No EXIF (Pending Review)' :
+                trustLevel === 'suspicious' ? 'Suspicious Pattern (Pending Review)' :
+                'Unknown (Pending Review)'
     });
     
     // Calculate distance from previous visit if applicable
@@ -439,6 +457,8 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       country,
       city: null, // Can be extracted from address if needed
       address,
+      spotType: post.spotType || null, // Copy from post
+      travelInfo: post.travelInfo || null, // Copy from post
       source,
       trustLevel,
       verificationStatus,
@@ -456,7 +476,12 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     });
     
     await tripVisit.save();
-    logger.debug(`Created TripVisit for post ${post._id}: ${source} -> ${trustLevel}, verificationStatus: ${verificationStatus}`);
+    logger.info(`✅ Created TripVisit ${tripVisit._id} for post ${post._id}: source=${source}, trustLevel=${trustLevel}, verificationStatus=${verificationStatus}, lat=${lat}, lng=${lng}`);
+    
+    // Log if this will contribute to TripScore
+    if (verificationStatus === 'auto_verified' || verificationStatus === 'approved') {
+      logger.info(`🎯 TripVisit ${tripVisit._id} will contribute to TripScore (${verificationStatus})`);
+    }
     
     // Send notification if pending review (fire-and-forget)
     if (verificationStatus === 'pending_review') {
@@ -543,8 +568,12 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
       uploadedAt: post.createdAt
     }, previousVisits);
     
-    // Set verification status based on source and coordinates (Hybrid TripScore Verification System)
-    let verificationStatus = 'auto_verified';
+    // Set verification status based on source and coordinates
+    // NEW RULE: Only content taken from Taatom camera increases TripScore immediately
+    // - Photos (type === 'photo') from Taatom camera → auto-verified
+    // - Videos/shorts (type === 'short') from Taatom camera → auto-verified
+    // - All other scenarios → pending review
+    let verificationStatus = 'pending_review';
     let verificationReason = null;
     
     // Priority 1: Check for suspicious patterns (regardless of source)
@@ -552,27 +581,36 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
       verificationStatus = 'pending_review';
       verificationReason = 'suspicious_pattern';
     }
-    // Priority 2: Manual location (0,0 coordinates) - but NOT if it has EXIF GPS (Scenario 2)
-    else if (!hasValidCoords && source !== 'gallery_exif') {
+    // Priority 2: Manual location (0,0 coordinates) - always pending review
+    else if (!hasValidCoords) {
       verificationStatus = 'pending_review';
       verificationReason = 'manual_location';
       // Override trust level for manual locations
       trustLevel = 'unverified';
     }
-    // Priority 3: Taatom camera with live GPS (Scenario 1)
+    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - auto-verified
+    // This increases TripScore immediately
     else if (source === 'taatom_camera_live') {
       verificationStatus = 'auto_verified';
+      // No reason needed for auto-verified
     }
-    // Priority 4: Gallery with EXIF GPS (Scenario 2) - auto-verified even if coords are 0,0
-    else if (source === 'gallery_exif') {
-      verificationStatus = 'auto_verified';
-    }
-    // Priority 5: All other cases (gallery_no_exif, manual_only) - pending review
+    // Priority 4: All other cases go to pending review:
+    // - Photos from gallery (source !== 'taatom_camera_live')
+    // - Videos/shorts from gallery (source !== 'taatom_camera_live')
+    // - Gallery with EXIF GPS
+    // - Gallery without EXIF
+    // - Manual locations
     else {
       verificationStatus = 'pending_review';
-      verificationReason = source === 'manual_only'
-        ? 'manual_location'
-        : 'no_exif';
+      if (source === 'gallery_exif') {
+        verificationReason = 'gallery_exif_requires_review';
+      } else if (source === 'gallery_no_exif') {
+        verificationReason = 'no_exif';
+      } else if (source === 'manual_only') {
+        verificationReason = 'manual_location';
+      } else {
+        verificationReason = 'requires_admin_review';
+      }
     }
     
     // Update visit
@@ -593,7 +631,12 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     }
     
     await tripVisit.save();
-    logger.debug(`Updated TripVisit ${tripVisit._id}: ${source} -> ${trustLevel}`);
+    logger.info(`✅ Updated TripVisit ${tripVisit._id} for post ${post._id}: source=${source}, trustLevel=${trustLevel}, verificationStatus=${verificationStatus}, lat=${lat}, lng=${lng}`);
+    
+    // Log if this will contribute to TripScore
+    if (verificationStatus === 'auto_verified' || verificationStatus === 'approved') {
+      logger.info(`🎯 TripVisit ${tripVisit._id} will contribute to TripScore (${verificationStatus})`);
+    }
     
     return tripVisit;
   } catch (error) {
@@ -651,72 +694,25 @@ const deleteTripVisitForContent = async (postId, contentType = 'post') => {
  * Send pending review notification via chat
  * Fire-and-forget, does not block TripVisit creation
  */
+/**
+ * Create support chat and send notification when TripVisit is pending review
+ * Uses the new admin support chat service
+ */
 const sendPendingReviewNotification = async (userId, tripVisit) => {
   try {
-    // Get or create TAATOM_OFFICIAL system user
-    let officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                       await User.findOne({ email: 'official@taatom.com' }) || 
-                       await User.findOne({ username: 'taatom_official' });
-    
-    if (!officialUser) {
-      // Create TAATOM_OFFICIAL system user if it doesn't exist
-      try {
-        const crypto = require('crypto');
-        officialUser = await User.create({
-          _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
-          email: 'official@taatom.com',
-          username: 'taatom_official',
-          fullName: 'Taatom Official',
-          password: crypto.randomBytes(32).toString('hex'), // Random password, never used
-          isVerified: true,
-          isActive: true,
-          isSystem: true // Mark as system user
-        });
-        logger.info('Created TAATOM_OFFICIAL system user for notifications');
-      } catch (createError) {
-        // If user already exists (race condition), fetch it
-        if (createError.code === 11000) {
-          officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                         await User.findOne({ email: 'official@taatom.com' }) ||
-                         await User.findOne({ username: 'taatom_official' });
-        }
-        if (!officialUser) {
-          logger.error('Failed to create/find TAATOM_OFFICIAL user:', createError);
-          return; // Skip notification if user creation fails
-        }
-      }
-    }
-    
-    // Ensure user has verified status for UI display
-    if (!officialUser.isVerified) {
-      officialUser.isVerified = true;
-      await officialUser.save();
-    }
-
-    const message = '👋 Your recent post is under verification to confirm the trip location.\nWe\'ll notify you shortly.';
-
-    // Get or create chat
-    let chat = await Chat.findOne({ 
-      participants: { $all: [officialUser._id, userId] } 
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
     });
 
-    if (!chat) {
-      chat = await Chat.create({ 
-        participants: [officialUser._id, userId], 
-        messages: [] 
-      });
-    }
-
-    // Add message
-    const chatMessage = {
-      sender: officialUser._id,
-      text: message,
-      timestamp: new Date(),
-      seen: false
-    };
-
-    chat.messages.push(chatMessage);
-    await chat.save();
+    // Send initial message
+    const message = '👋 Your recent post is under verification.\nWe\'ll notify you shortly. You may reply here if needed.';
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
 
     // Emit socket event if available
     try {
@@ -724,19 +720,22 @@ const sendPendingReviewNotification = async (userId, tripVisit) => {
       const io = getIO();
       if (io && io.of('/app')) {
         const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
         nsp.to(`user:${userId}`).emit('message:new', { 
-          chatId: chat._id, 
-          message: {
-            ...chatMessage,
-            _id: chat.messages[chat.messages.length - 1]._id
-          }
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
         });
       }
     } catch (socketError) {
       logger.debug('Socket not available for pending review notification:', socketError);
     }
 
-    logger.debug(`Pending review notification sent to user ${userId}`);
+    logger.debug(`Pending review notification sent to user ${userId} via support chat`);
   } catch (error) {
     logger.error('Error sending pending review notification:', error);
   }

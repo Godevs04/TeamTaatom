@@ -41,6 +41,12 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
       return;
     }
 
+    // Defensive check: ensure text is defined
+    if (!text || typeof text !== 'string') {
+      setSuggestions([]);
+      return;
+    }
+
     // Find the mention being typed (text before cursor that starts with @)
     const textBeforeCursor = cursorPosition !== undefined 
       ? text.substring(0, cursorPosition)

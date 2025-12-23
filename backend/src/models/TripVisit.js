@@ -53,6 +53,19 @@ const tripVisitSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  // TripScore metadata from post
+  spotType: {
+    type: String,
+    required: false,
+    enum: ['Beach', 'Mountain', 'City', 'Natural spots', 'Religious', 'Cultural', 'General', null],
+    default: null
+  },
+  travelInfo: {
+    type: String,
+    required: false,
+    enum: ['Drivable', 'Hiking', 'Water Transport', 'Flight', 'Train', null],
+    default: null
+  },
   // Source and trust level
   source: {
     type: String,
@@ -91,7 +104,7 @@ const tripVisitSchema = new mongoose.Schema({
   },
   verificationReason: {
     type: String,
-    enum: ['no_exif', 'manual_location', 'suspicious_pattern'],
+    enum: ['no_exif', 'manual_location', 'suspicious_pattern', 'photo_requires_review', 'gallery_exif_requires_review', 'photo_from_camera_requires_review', 'requires_admin_review'],
     required: false,
     default: null
   },
@@ -147,8 +160,10 @@ tripVisitSchema.index({ user: 1, lat: 1, lng: 1, continent: 1, country: 1 }, { u
 
 /**
  * Static method to check if a visit exists for a location
+ * Uses tolerance to group nearby locations (default 0.01 degrees ≈ 1.1km)
+ * This ensures multiple posts at the same location are grouped together
  */
-tripVisitSchema.statics.findVisitByLocation = function(userId, lat, lng, tolerance = 0.001) {
+tripVisitSchema.statics.findVisitByLocation = function(userId, lat, lng, tolerance = 0.01) {
   return this.findOne({
     user: userId,
     isActive: true,

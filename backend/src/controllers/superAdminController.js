@@ -349,17 +349,17 @@ const verify2FA = async (req, res) => {
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || 'superadmin_secret_key')
     } catch (error) {
-      return res.status(401).json({ message: 'Invalid or expired token' })
+      return sendError(res, 'AUTH_1003', 'Invalid or expired temporary token. Please try logging in again.')
     }
     
     if (!decoded.temp) {
-      return res.status(401).json({ message: 'Invalid token type' })
+      return sendError(res, 'AUTH_1002', 'Invalid token type. Please try logging in again.')
     }
     
     // Find SuperAdmin - explicitly select tempAuth field
     const superAdmin = await SuperAdmin.findById(decoded.id).select('+tempAuth')
     if (!superAdmin) {
-      return res.status(401).json({ message: 'Invalid token' })
+      return sendError(res, 'AUTH_1002', 'Invalid token. Please try logging in again.')
     }
     
     // Verify OTP
@@ -367,7 +367,7 @@ const verify2FA = async (req, res) => {
     
     if (!otpResult.valid) {
       await superAdmin.logSecurityEvent('2fa_failed', `2FA verification failed: ${otpResult.message}`, ipAddress, userAgent, false)
-      return res.status(401).json({ message: otpResult.message })
+      return sendError(res, 'AUTH_1004', otpResult.message)
     }
     
     // Complete login - call sequentially to avoid parallel save error

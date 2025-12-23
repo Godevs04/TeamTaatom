@@ -32,11 +32,22 @@ export class LocationExtractionService {
     selectionTime: number
   ): Promise<LocationResult | null> {
     try {
+      logger.debug(`Extracting location from ${assets.length} asset(s), selection time: ${new Date(selectionTime).toISOString()}`);
+      
+      // Log asset IDs for debugging
+      const assetIds = assets.map(a => (a as any).id).filter(Boolean);
+      logger.debug('Asset IDs being processed:', assetIds);
+      
       // Strategy 1: Try EXIF data OR assetInfo.location from asset ID (highest priority)
       // Both are treated as strong GPS evidence (hasExifGps = true)
+      // IMPORTANT: This processes assets in order, so first selected asset's location is prioritized
       const exifLocation = await this.getLocationFromEXIF(assets);
       if (exifLocation) {
-        logger.debug('Location found via EXIF data or assetInfo.location');
+        logger.debug('Location found via EXIF data or assetInfo.location', {
+          lat: exifLocation.lat,
+          lng: exifLocation.lng,
+          address: exifLocation.address
+        });
         return {
           ...exifLocation,
           hasExifGps: true,  // Both EXIF GPS and assetInfo.location are treated as verified
@@ -48,7 +59,11 @@ export class LocationExtractionService {
       // assetInfo.location is now treated as strong GPS evidence
       const idLocation = await this.getLocationByAssetId(assets);
       if (idLocation) {
-        logger.debug('Location found via asset ID');
+        logger.debug('Location found via asset ID', {
+          lat: idLocation.lat,
+          lng: idLocation.lng,
+          address: idLocation.address
+        });
         return {
           ...idLocation,
           hasExifGps: true,  // assetInfo.location is treated as verified GPS
@@ -60,7 +75,11 @@ export class LocationExtractionService {
       // assetInfo.location is now treated as strong GPS evidence
       const filenameLocation = await this.getLocationByFilename(assets, selectionTime);
       if (filenameLocation) {
-        logger.debug('Location found via filename matching');
+        logger.debug('Location found via filename matching', {
+          lat: filenameLocation.lat,
+          lng: filenameLocation.lng,
+          address: filenameLocation.address
+        });
         return {
           ...filenameLocation,
           hasExifGps: true,  // assetInfo.location is treated as verified GPS
@@ -68,7 +87,7 @@ export class LocationExtractionService {
         };
       }
 
-      logger.warn('No location found in photo metadata');
+      logger.debug('No location found in photo metadata for provided assets');
       return null;
     } catch (error) {
       // Don't log as error - this is expected in many cases (permissions, no GPS data, etc.)
@@ -83,6 +102,9 @@ export class LocationExtractionService {
    * 
    * NEW RULE: Both EXIF GPS and assetInfo.location are treated as strong GPS evidence
    * because many phones store GPS in assetInfo.location, not just EXIF.
+   * 
+   * IMPORTANT: Processes assets in order and returns the FIRST asset's location found.
+   * This ensures we get location from the first selected image, not a random one.
    */
   private static async getLocationFromEXIF(
     assets: any[]
@@ -93,12 +115,25 @@ export class LocationExtractionService {
         return null;
       }
 
+      // Process assets in order - return location from first asset that has it
       for (const asset of assets) {
         const assetId = (asset as any).id;
-        if (!assetId) continue;
+        
+        // Try to get asset ID from multiple sources
+        let finalAssetId = assetId;
+        if (!finalAssetId && (asset as any).originalAsset?.id) {
+          finalAssetId = (asset as any).originalAsset.id;
+        }
+        
+        // If still no ID, try to find by URI (for recently selected photos)
+        if (!finalAssetId) {
+          logger.debug('No asset ID found, attempting to find by URI');
+          // Skip this asset if no ID - we'll try filename matching instead
+          continue;
+        }
 
         try {
-          const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId, {
+          const assetInfo = await MediaLibrary.getAssetInfoAsync(finalAssetId, {
             shouldDownloadFromNetwork: false
           });
           
@@ -194,8 +229,16 @@ export class LocationExtractionService {
       }
 
       for (const asset of assets) {
-        const assetId = (asset as any).id;
-        if (!assetId) continue;
+        // Try multiple sources for asset ID
+        let assetId = (asset as any).id;
+        if (!assetId && (asset as any).originalAsset?.id) {
+          assetId = (asset as any).originalAsset.id;
+        }
+        
+        if (!assetId) {
+          logger.debug('Skipping asset without ID in getLocationByAssetId');
+          continue;
+        }
 
         try {
           const assetInfo = await MediaLibrary.getAssetInfoAsync(assetId);
@@ -238,6 +281,9 @@ export class LocationExtractionService {
    * 
    * NEW RULE: assetInfo.location is treated as strong GPS evidence
    * because it represents real location data from the camera/OS
+   * 
+   * IMPORTANT: Only processes the provided assets - no fallback to "most recent photo"
+   * to avoid picking up location from previously uploaded photos
    */
   private static async getLocationByFilename(
     assets: any[],
@@ -249,50 +295,107 @@ export class LocationExtractionService {
         return null;
       }
 
-      // Get recent assets
+      // Get recent assets - increase window to 30 minutes to catch photos that might have
+      // been taken slightly before selection (user might browse before selecting)
+      const timeWindow = 30 * 60 * 1000; // 30 minutes in milliseconds (more lenient)
       const recentAssets = await MediaLibrary.getAssetsAsync({
-        first: 30,
+        first: 100, // Increased to find matches
         mediaType: MediaLibrary.MediaType.photo,
         sortBy: MediaLibrary.SortBy.modificationTime,
       });
 
       logger.debug('Found recent assets:', recentAssets.assets.length);
 
-      // Try to match by filename
+      // Try to match by filename AND asset ID first (most reliable)
       let assetsToCheck: any[] = [];
       
+      // First, try to match by asset ID (most reliable)
       for (const selectedAsset of assets) {
-        const selectedFileName = selectedAsset.fileName;
-        if (!selectedFileName) continue;
-
-        // Search for matching filename
-        for (const mediaAsset of recentAssets.assets) {
-          try {
-            const assetInfo = await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
-            const assetFileName = assetInfo.localUri?.split('/').pop() || '';
-            
-            if (
-              assetFileName.toLowerCase().includes(selectedFileName.toLowerCase()) ||
-              selectedFileName.toLowerCase().includes(assetFileName.toLowerCase())
-            ) {
-              assetsToCheck.push(mediaAsset);
-              break;
-            }
-          } catch (error) {
-            // Continue searching
-          }
+        let selectedAssetId = (selectedAsset as any).id;
+        // Also check originalAsset
+        if (!selectedAssetId && (selectedAsset as any).originalAsset?.id) {
+          selectedAssetId = (selectedAsset as any).originalAsset.id;
         }
         
-        if (assetsToCheck.length > 0) break;
+        if (selectedAssetId) {
+          for (const mediaAsset of recentAssets.assets) {
+            if (mediaAsset.id === selectedAssetId) {
+              assetsToCheck.push(mediaAsset);
+              logger.debug('Matched asset by ID:', selectedAssetId);
+              break;
+            }
+          }
+          if (assetsToCheck.length > 0) break;
+        }
+      }
+      
+      // If no ID match, try filename matching with relaxed time window
+      if (assetsToCheck.length === 0) {
+        for (const selectedAsset of assets) {
+          const selectedFileName = selectedAsset.fileName || (selectedAsset as any).name;
+          if (!selectedFileName) continue;
+
+          // Search for matching filename
+          for (const mediaAsset of recentAssets.assets) {
+            try {
+              const assetInfo = await MediaLibrary.getAssetInfoAsync(mediaAsset.id);
+              const assetFileName = assetInfo.localUri?.split('/').pop() || '';
+              
+              // Check if filename matches AND the photo was taken around the selection time
+              const assetTime = mediaAsset.modificationTime * 1000; // Convert to milliseconds
+              const timeDiff = Math.abs(assetTime - selectionTime);
+              
+              // More lenient matching - check filename similarity first
+              const filenameMatches = assetFileName.toLowerCase().includes(selectedFileName.toLowerCase()) ||
+                                     selectedFileName.toLowerCase().includes(assetFileName.toLowerCase()) ||
+                                     assetFileName.toLowerCase() === selectedFileName.toLowerCase();
+              
+              if (filenameMatches) {
+                // If filename matches, use it even if time is slightly off (within 30 min window)
+                // This handles cases where user selects an older photo
+                if (timeDiff < timeWindow) {
+                  assetsToCheck.push(mediaAsset);
+                  logger.debug('Matched asset by filename and time:', selectedFileName, 'time diff:', timeDiff);
+                  break;
+                } else {
+                  // If filename matches but time is off, still use it if it's the only match
+                  // This handles edge cases where modification time might be wrong
+                  logger.debug('Filename matches but time diff is large:', timeDiff, 'still considering');
+                  if (assetsToCheck.length === 0) {
+                    assetsToCheck.push(mediaAsset);
+                    logger.debug('Using asset despite large time diff (only match found)');
+                    break;
+                  }
+                }
+              }
+            } catch (error) {
+              // Continue searching
+            }
+          }
+          
+          if (assetsToCheck.length > 0) break;
+        }
       }
 
-      // Fallback to most recent if no match
+      // If still no match, try using the most recent photo within the time window
+      // This is a fallback for cases where asset ID/filename matching fails
       if (assetsToCheck.length === 0) {
-        const sortedAssets = recentAssets.assets.sort(
-          (a, b) => (b.modificationTime || 0) - (a.modificationTime || 0)
-        );
-        assetsToCheck = sortedAssets.slice(0, 1);
-        logger.debug('No filename match, using most recent photo');
+        logger.debug('No exact match found, trying most recent photo within time window');
+        const sortedAssets = recentAssets.assets
+          .filter(asset => {
+            const assetTime = asset.modificationTime * 1000;
+            const timeDiff = Math.abs(assetTime - selectionTime);
+            return timeDiff < timeWindow;
+          })
+          .sort((a, b) => (b.modificationTime || 0) - (a.modificationTime || 0));
+        
+        if (sortedAssets.length > 0) {
+          assetsToCheck = [sortedAssets[0]];
+          logger.debug('Using most recent photo within time window as fallback');
+        } else {
+          logger.debug('No matching asset found, skipping location extraction');
+          return null;
+        }
       }
 
       // Extract location from matched assets

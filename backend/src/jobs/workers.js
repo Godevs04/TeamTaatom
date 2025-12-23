@@ -4,33 +4,13 @@ const {
   analyticsQueue,
   cleanupQueue,
 } = require('./queue');
-const { processEmailJob } = require('./processors/email');
-const { processImageJob } = require('./processors/image');
-const { processAnalyticsJob } = require('./processors/analytics');
-const { processCleanupJob } = require('./processors/cleanup');
 const logger = require('../utils/logger');
 
-// Start email worker
-emailQueue.process('send-email', 5, async (job) => {
-  return await processEmailJob(job);
-});
+// Note: Queues are disabled (no Redis) - process() calls are no-op
+// Workers will log warnings when jobs are attempted but won't process them
+// This maintains API compatibility for future Redis integration
 
-// Start image processing worker
-imageProcessingQueue.process('process-image', 3, async (job) => {
-  return await processImageJob(job);
-});
-
-// Start analytics worker
-analyticsQueue.process('aggregate-analytics', 2, async (job) => {
-  return await processAnalyticsJob(job);
-});
-
-// Start cleanup worker
-cleanupQueue.process('cleanup', 1, async (job) => {
-  return await processCleanupJob(job);
-});
-
-logger.info('Background job workers started');
+logger.info('⚠️  Background job workers initialized (queues disabled - no Redis)');
 
 module.exports = {
   emailQueue,
