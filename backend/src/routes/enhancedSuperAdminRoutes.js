@@ -41,6 +41,12 @@ const {
   rejectTripVisit,
   updateTripVisit
 } = require('../controllers/adminTripVerificationController')
+const {
+  listSupportConversations,
+  getSupportConversation,
+  sendSupportMessage,
+  createSupportConversation
+} = require('../controllers/adminSupportChatController')
 
 // Alias for clarity
 const authenticateSuperAdmin = verifySuperAdminToken
@@ -49,7 +55,7 @@ const authenticateSuperAdmin = verifySuperAdminToken
 
 /**
  * @swagger
- * /api/superadmin/csrf-token:
+ * /api/v1/superadmin/csrf-token:
  *   get:
  *     summary: Get CSRF token for SuperAdmin requests
  *     tags: [SuperAdmin]
@@ -660,10 +666,17 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     
     let query = {}
     
+    // By default, exclude deleted users unless status is 'banned' or 'all'
+    if (!status || status === 'undefined' || status === 'all') {
+      // When status is 'all' or not specified, exclude deleted users
+      query.deletedAt = { $exists: false }
+    }
+    
     if (search) {
       query.$or = [
         { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { email: { $regex: search, $options: 'i' } },
+        { username: { $regex: search, $options: 'i' } }
       ]
     }
     
@@ -688,7 +701,7 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1
     
     const users = await User.find(query)
-      .select('fullName email bio profilePic isVerified deletedAt createdAt updatedAt')
+      .select('fullName email bio profilePic isVerified deletedAt createdAt updatedAt username')
       .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit))
@@ -1865,6 +1878,176 @@ router.post('/tripscore/review/:tripVisitId/approve', checkPermission('canViewAn
  *         description: Forbidden
  */
 router.post('/tripscore/review/:tripVisitId/reject', checkPermission('canViewAnalytics'), rejectTripVisit)
+
+// Admin Support Chat endpoints
+/**
+ * @swagger
+ * /api/v1/superadmin/conversations:
+ *   get:
+ *     summary: List all support conversations
+ *     tags: [Admin Support Chat]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Support conversations list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conversations:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     pagination:
+ *                       type: object
+ */
+router.get('/conversations', checkPermission('canViewAnalytics'), listSupportConversations)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/conversations/{conversationId}:
+ *   get:
+ *     summary: Get a specific support conversation
+ *     tags: [Admin Support Chat]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Support conversation details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conversation:
+ *                       type: object
+ */
+router.get('/conversations/:conversationId', checkPermission('canViewAnalytics'), getSupportConversation)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/conversations/{conversationId}/messages:
+ *   post:
+ *     summary: Send a message in a support conversation
+ *     tags: [Admin Support Chat]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - text
+ *             properties:
+ *               text:
+ *                 type: string
+ *                 description: Message text content
+ *     responses:
+ *       200:
+ *         description: Message sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: object
+ */
+router.post('/conversations/:conversationId/messages', checkPermission('canViewAnalytics'), sendSupportMessage)
+
+/**
+ * @swagger
+ * /api/v1/superadmin/conversations:
+ *   post:
+ *     summary: Create a new support conversation for a user
+ *     tags: [Admin Support Chat]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *                 description: User ID to start conversation with
+ *               reason:
+ *                 type: string
+ *                 enum: [trip_verification, support]
+ *                 default: support
+ *               refId:
+ *                 type: string
+ *                 description: Optional reference ID (e.g., TripVisit ID)
+ *               initialMessage:
+ *                 type: string
+ *                 description: Optional initial message to send
+ *     responses:
+ *       200:
+ *         description: Support conversation created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conversation:
+ *                       type: object
+ */
+router.post('/conversations', checkPermission('canViewAnalytics'), createSupportConversation)
 
 /**
  * @swagger

@@ -430,7 +430,7 @@ const TravelContent = () => {
     
     try {
       if (action === 'delete') {
-        await api.delete(`/api/superadmin/posts/${postId}`)
+        await api.delete(`/api/v1/superadmin/posts/${postId}`)
         if (isMountedRef.current) {
           toast.success('Post deleted successfully')
           await fetchPosts({
@@ -447,7 +447,7 @@ const TravelContent = () => {
           actionStateCacheRef.current.set(postId, { flagged: post.flagged, isActive: post.isActive })
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}/flag`)
+        await api.patch(`/api/v1/superadmin/posts/${postId}/flag`)
         if (isMountedRef.current) {
           toast.success('Post flagged successfully')
           await fetchPosts({
@@ -471,7 +471,7 @@ const TravelContent = () => {
           }
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: true })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: true })
         if (isMountedRef.current) {
           toast.success('Post activated successfully')
           // Undo safety window
@@ -497,7 +497,7 @@ const TravelContent = () => {
           actionStateCacheRef.current.set(postId, { isActive: post.isActive, flagged: post.flagged })
         }
         
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: false })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: false })
         if (isMountedRef.current) {
           toast.success('Post deactivated successfully')
           // Undo safety window
@@ -546,7 +546,7 @@ const TravelContent = () => {
       const { postId, action, previousState } = lastAction
       
       if (action === 'activate') {
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: previousState.isActive })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: previousState.isActive })
         if (isMountedRef.current) {
           toast.success('Action undone')
           setLastAction(null)
@@ -562,7 +562,7 @@ const TravelContent = () => {
           })
         }
       } else if (action === 'deactivate') {
-        await api.patch(`/api/superadmin/posts/${postId}`, { isActive: previousState.isActive })
+        await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive: previousState.isActive })
         if (isMountedRef.current) {
           toast.success('Action undone')
           setLastAction(null)
@@ -735,7 +735,7 @@ const TravelContent = () => {
         if (!isMountedRef.current) break
         
         try {
-          await api.patch(`/api/superadmin/posts/${postId}`, { isActive })
+          await api.patch(`/api/v1/superadmin/posts/${postId}`, { isActive })
           completed++
           if (isMountedRef.current) {
             setBulkActionProgress(Math.round((completed / total) * 100))
@@ -782,7 +782,7 @@ const TravelContent = () => {
     }
     
     try {
-      await Promise.all(selectedPosts.map(id => api.delete(`/api/superadmin/posts/${id}`)))
+      await Promise.all(selectedPosts.map(id => api.delete(`/api/v1/superadmin/posts/${id}`)))
       if (isMountedRef.current) {
         toast.success(`Successfully deleted ${selectedPosts.length} post(s)`)
         setSelectedPosts([])
