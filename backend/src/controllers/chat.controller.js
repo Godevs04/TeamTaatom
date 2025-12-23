@@ -207,11 +207,20 @@ exports.sendMessage = async (req, res) => {
     if (!text) return sendError(res, 'VAL_2001', 'Text required');
     
     const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
-    const isTaatomOfficial = otherUserId.toString() === TAATOM_OFFICIAL_USER_ID;
+    const isTaatomOfficialRecipient = otherUserId.toString() === TAATOM_OFFICIAL_USER_ID;
     
-    // For admin_support chats, skip blocking check
+    // Safety: Prevent user from sending messages AS Taatom Official (spoofing)
+    // Only system/admin can send messages as Taatom Official
+    // Note: Regular users CAN send messages TO Taatom Official (for support)
+    const messageSenderId = userId.toString();
+    if (messageSenderId === TAATOM_OFFICIAL_USER_ID && req.user.role !== 'admin' && req.user.role !== 'system' && !req.superAdmin) {
+      logger.warn(`User ${userId} attempted to send message as Taatom Official`);
+      return sendError(res, 'AUTH_1006', 'Not allowed to send as system user');
+    }
+    
+    // For admin_support chats (messages TO Taatom Official), skip blocking check
     // For user_chat, check blocking
-    if (!isTaatomOfficial && !(await canChat(userId, otherUserId))) {
+    if (!isTaatomOfficialRecipient && !(await canChat(userId, otherUserId))) {
       return sendError(res, 'AUTH_1006', 'Not allowed');
     }
     
@@ -219,8 +228,8 @@ exports.sendMessage = async (req, res) => {
     let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
     
     if (!chat) {
-      // If it's Taatom Official, create admin_support chat
-      if (isTaatomOfficial) {
+      // If messaging TO Taatom Official, create admin_support chat
+      if (isTaatomOfficialRecipient) {
         const { getOrCreateSupportConversation } = require('../services/adminSupportChatService');
         const convo = await getOrCreateSupportConversation({
           userId: userId.toString(),
@@ -238,7 +247,7 @@ exports.sendMessage = async (req, res) => {
       }
     } else {
       // If existing chat is admin_support and user is messaging Taatom Official, ensure it's admin_support type
-      if (isTaatomOfficial && chat.type !== 'admin_support') {
+      if (isTaatomOfficialRecipient && chat.type !== 'admin_support') {
         // Convert to admin_support if it exists but is wrong type
         chat.type = 'admin_support'
         if (!chat.relatedEntity) {
@@ -255,6 +264,13 @@ exports.sendMessage = async (req, res) => {
     
     const message = { sender: userId, text, timestamp: new Date() };
     chat.messages.push(message);
+    
+    // Update conversation status for admin_support chats
+    if (chat.type === 'admin_support' && chat.status !== 'resolved') {
+      // When user replies, set status to 'open'
+      chat.status = 'open';
+    }
+    
     await chat.save();
 
     // Emit real-time socket events for immediate updates

@@ -1504,19 +1504,26 @@ const toggleLike = async (req, res) => {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    // Use findByIdAndUpdate for better performance (single query)
-    const update = post.likes.some(like => like.toString() === req.user._id.toString())
-      ? { $pull: { likes: req.user._id } }
-      : { $addToSet: { likes: req.user._id } };
-
-    const isLiked = !post.likes.some(like => like.toString() === req.user._id.toString());
+    // Check current like status BEFORE update
+    const currentlyLiked = post.likes.some(like => like.toString() === req.user._id.toString());
+    
+    // Determine the update operation and final state
+    const update = currentlyLiked
+      ? { $pull: { likes: req.user._id } }  // Remove like
+      : { $addToSet: { likes: req.user._id } };  // Add like
+    
+    // After update, the state will be opposite of current state
+    const isLiked = !currentlyLiked;
     
     // Update and get the updated post to get correct likes count
     const updatedPost = await Post.findByIdAndUpdate(req.params.id, update, { new: true });
     const updatedLikesCount = updatedPost ? updatedPost.likes.length : post.likes.length;
+    
+    // Verify the final state matches what we expect (use actual database state)
+    const finalIsLiked = updatedPost ? updatedPost.likes.some(like => like.toString() === req.user._id.toString()) : isLiked;
 
-    // Create activity for like (respect user's privacy settings)
-    if (isLiked) {
+    // Create activity for like (respect user's privacy settings) - use final verified state
+    if (finalIsLiked) {
       const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
       const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
       Activity.createActivity({
@@ -1533,8 +1540,8 @@ const toggleLike = async (req, res) => {
     await deleteCacheByPattern('posts:*');
     await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
-    // Update user's total likes if this is their post
-    if (isLiked) {
+    // Update user's total likes if this is their post - use final verified state
+    if (finalIsLiked) {
       await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
       
       // Create notification for like (only if it's not the user's own post)
@@ -1600,17 +1607,19 @@ const toggleLike = async (req, res) => {
       const io = getIO();
       if (io) {
         const nsp = io.of('/app');
-        // Emit the new real-time post like update
-        nsp.emitPostLike(post._id.toString(), isLiked, updatedLikesCount, req.user._id.toString());
-        // Also emit the legacy notification event
-        nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+        // Emit the new real-time post like update with correct final state
+        nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
+        // Also emit the legacy notification event (only for likes, not unlikes)
+        if (finalIsLiked) {
+          nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+        }
       }
     } catch (socketError) {
       logger.error('Socket error:', socketError);
     }
 
-    return sendSuccess(res, 200, isLiked ? 'Post liked' : 'Post unliked', {
-      isLiked,
+    return sendSuccess(res, 200, finalIsLiked ? 'Post liked' : 'Post unliked', {
+      isLiked: finalIsLiked,
       likesCount: updatedLikesCount
     });
 

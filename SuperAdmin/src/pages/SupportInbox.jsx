@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate } from '../utils/formatDate'
@@ -22,7 +23,9 @@ import {
   Plus,
   Users,
   X,
-  Loader2
+  Loader2,
+  Copy,
+  Check
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
@@ -47,6 +50,13 @@ const SupportInbox = () => {
   const [totalPages, setTotalPages] = useState(1)
   const [refreshing, setRefreshing] = useState(false)
   const messagesEndRef = useRef(null)
+  const [isTyping, setIsTyping] = useState(false)
+  const [localUnreadCounts, setLocalUnreadCounts] = useState(new Map())
+  const [isNearBottom, setIsNearBottom] = useState(true)
+  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false)
+  const [copiedId, setCopiedId] = useState(false)
+  const messagesContainerRef = useRef(null)
+  const lastMessageCountRef = useRef(0)
   
   // Start New Conversation state
   const [showNewConversationModal, setShowNewConversationModal] = useState(false)
@@ -233,6 +243,44 @@ const SupportInbox = () => {
     }
   }, [selectedUser, newConversationReason, newConversationMessage, fetchConversations])
 
+  // Mark conversation as read (frontend + backend)
+  const markConversationAsRead = useCallback(async (conversationId) => {
+    try {
+      // Call backend API to mark messages as read
+      // Note: We'll update the backend to mark all user messages as seen when admin opens conversation
+      await api.post(`/api/v1/superadmin/conversations/${conversationId}/mark-read`)
+      
+      // Update local unread count immediately
+      setLocalUnreadCounts(prev => {
+        const updated = new Map(prev)
+        updated.set(conversationId, 0)
+        return updated
+      })
+      
+      // Update conversations list to reflect zero unread
+      setConversations(prev => prev.map(conv => {
+        if (conv._id === conversationId) {
+          return { ...conv, unreadCount: 0 }
+        }
+        return conv
+      }))
+    } catch (error) {
+      // If API call fails, still update local state for immediate UI feedback
+      logger.warn('Failed to mark conversation as read on backend:', error)
+      setLocalUnreadCounts(prev => {
+        const updated = new Map(prev)
+        updated.set(conversationId, 0)
+        return updated
+      })
+      setConversations(prev => prev.map(conv => {
+        if (conv._id === conversationId) {
+          return { ...conv, unreadCount: 0 }
+        }
+        return conv
+      }))
+    }
+  }, [])
+
   // Fetch specific conversation details
   const fetchConversationDetails = useCallback(async (conversationId) => {
     try {
@@ -243,6 +291,15 @@ const SupportInbox = () => {
         const conversation = data.conversation || data
         if (conversation) {
           setSelectedConversation(conversation)
+          
+          // Mark conversation as read when opened (backend + frontend)
+          await markConversationAsRead(conversationId)
+          
+          // Reset scroll state when opening new conversation
+          setUserHasScrolledUp(false)
+          setIsNearBottom(true)
+          lastMessageCountRef.current = conversation.messages?.length || 0
+          
           return conversation
         } else {
           logger.warn('No conversation found in response:', response.data)
@@ -257,7 +314,7 @@ const SupportInbox = () => {
       toast.error(errorMessage)
       return null
     }
-  }, [])
+  }, [markConversationAsRead])
 
   // Send message
   const sendMessage = useCallback(async () => {
@@ -310,7 +367,14 @@ const SupportInbox = () => {
 
   // Filter conversations by search
   const filteredConversations = useMemo(() => {
-    let result = conversations
+    let result = conversations.map(conv => {
+      // Apply local unread count override
+      const localCount = localUnreadCounts.get(conv._id)
+      if (localCount !== undefined) {
+        return { ...conv, unreadCount: localCount }
+      }
+      return conv
+    })
 
     if (filter === 'unread') {
       result = result.filter(conv => (conv.unreadCount || 0) > 0)
@@ -360,17 +424,105 @@ const SupportInbox = () => {
     'Thanks for the patience! Verification team is on it.'
   ]), [])
 
-  // Auto-scroll to latest message
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  // Smart auto-scroll: only scroll if user is near bottom
+  const scrollToBottom = useCallback((force = false) => {
+    if (messagesEndRef.current && (force || isNearBottom)) {
+      messagesEndRef.current.scrollIntoView({ behavior: force ? 'auto' : 'smooth' })
     }
-  }, [selectedConversation?.messages?.length])
+  }, [isNearBottom])
+
+  // Check if user is near bottom of messages and track manual scrolling
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container || !selectedConversation) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+      const nearBottom = distanceFromBottom < 150 // Within 150px of bottom
+      
+      setIsNearBottom(nearBottom)
+      
+      // If user scrolls up significantly, mark that they've manually scrolled
+      if (distanceFromBottom > 200) {
+        setUserHasScrolledUp(true)
+      } else if (nearBottom) {
+        // If they scroll back to bottom, reset the flag
+        setUserHasScrolledUp(false)
+      }
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [selectedConversation])
+
+  // Auto-scroll on new messages (only if user hasn't manually scrolled up and is near bottom)
+  useEffect(() => {
+    if (!selectedConversation?.messages?.length) return
+    
+    const currentMessageCount = selectedConversation.messages.length
+    const previousMessageCount = lastMessageCountRef.current
+    
+    // Only auto-scroll if:
+    // 1. New messages were added (count increased)
+    // 2. User hasn't manually scrolled up
+    // 3. User is near bottom
+    if (currentMessageCount > previousMessageCount && !userHasScrolledUp && isNearBottom) {
+      // Small delay to ensure DOM is updated
+      setTimeout(() => {
+        if (messagesEndRef.current && isNearBottom && !userHasScrolledUp) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+        }
+      }, 100)
+    }
+    
+    lastMessageCountRef.current = currentMessageCount
+  }, [selectedConversation?.messages?.length, userHasScrolledUp, isNearBottom])
+
+  // Scroll to bottom when conversation opens (force scroll)
+  useEffect(() => {
+    if (selectedConversation?._id) {
+      setUserHasScrolledUp(false)
+      setIsNearBottom(true)
+      setTimeout(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
+        }
+      }, 300)
+    }
+  }, [selectedConversation?._id])
 
   // Load conversations on mount
   useEffect(() => {
     fetchConversations(1)
   }, [fetchConversations])
+
+  // Handle opening conversation from URL parameter (e.g., from TripScore Analytics)
+  useEffect(() => {
+    const conversationId = new URLSearchParams(window.location.search).get('conversationId')
+    if (conversationId && !selectedConversation) {
+      // Small delay to ensure conversations list is loaded first
+      setTimeout(() => {
+        fetchConversationDetails(conversationId).then(convo => {
+          if (convo) {
+            setSelectedConversation(convo)
+            // Clean up URL
+            window.history.replaceState({}, '', window.location.pathname)
+          }
+        }).catch(err => {
+          logger.error('Failed to open conversation from URL:', err)
+          // Try to find conversation in the list instead
+          const foundConvo = conversations.find(c => c._id === conversationId)
+          if (foundConvo) {
+            fetchConversationDetails(conversationId).catch(() => {
+              // If still fails, just open what we have from the list
+              setSelectedConversation(foundConvo)
+            })
+          }
+        })
+      }, 500)
+    }
+  }, [selectedConversation, fetchConversationDetails, conversations])
 
   // Socket connection and real-time updates
   useEffect(() => {
@@ -393,12 +545,22 @@ const SupportInbox = () => {
         const handleNewMessage = (data) => {
           logger.debug('Received admin_support:message:new:', data)
           
-          // Update selected conversation if it's the current one
+          // If message belongs to currently open conversation, mark as read immediately
           if (selectedConversation && selectedConversation._id === data.chatId) {
+            // Don't increment unread count for open conversation
+            markConversationAsRead(data.chatId)
             fetchConversationDetails(data.chatId)
+          } else {
+            // Increment unread count for other conversations
+            setConversations(prev => prev.map(conv => {
+              if (conv._id === data.chatId) {
+                return { ...conv, unreadCount: (conv.unreadCount || 0) + 1 }
+              }
+              return conv
+            }))
           }
           
-          // Refresh conversations list to update last message and unread count
+          // Refresh conversations list to update last message
           fetchConversations(page)
         }
 
@@ -409,6 +571,9 @@ const SupportInbox = () => {
           // Refresh conversations list
           fetchConversations(page)
         }
+        
+        socket.on('admin_support:message:new', handleNewMessage)
+        socket.on('admin_support:chat:update', handleChatUpdate)
 
         socket.on('admin_support:message:new', handleNewMessage)
         socket.on('admin_support:chat:update', handleChatUpdate)
@@ -433,7 +598,7 @@ const SupportInbox = () => {
         socket.emit('leave', 'admin_support')
       }
     }
-  }, [selectedConversation?._id, page, fetchConversations, fetchConversationDetails])
+  }, [selectedConversation?._id, page, fetchConversations, fetchConversationDetails, markConversationAsRead])
 
   // Get reason badge color
   const getReasonBadge = (reason) => {
@@ -459,15 +624,20 @@ const SupportInbox = () => {
     }
   }
 
-  // Calculate statistics
+  // Calculate statistics with local unread count overrides
   const statistics = useMemo(() => {
     const total = conversations.length
-    const unread = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0)
+    const unread = conversations.reduce((sum, conv) => {
+      // Use local unread count if available, otherwise use server count
+      const localCount = localUnreadCounts.get(conv._id)
+      const count = localCount !== undefined ? localCount : (conv.unreadCount || 0)
+      return sum + count
+    }, 0)
     const tripVerifications = conversations.filter(c => c.reason === 'trip_verification').length
     const generalSupport = conversations.filter(c => c.reason === 'support').length
 
     return { total, unread, tripVerifications, generalSupport }
-  }, [conversations])
+  }, [conversations, localUnreadCounts])
 
   return (
     <SafeComponent>
@@ -682,77 +852,125 @@ const SupportInbox = () => {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 sm:space-y-4">
             <AnimatePresence>
-              {filteredConversations.map((conversation, index) => (
-                <motion.div
-                  key={conversation._id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <Card
-                    className="cursor-pointer hover:shadow-lg transition-shadow border-gray-200"
-                    onClick={() => openConversation(conversation)}
+              {filteredConversations.map((conversation, index) => {
+                const localCount = localUnreadCounts.get(conversation._id)
+                const unreadCount = localCount !== undefined ? localCount : (conversation.unreadCount || 0)
+                const hasUnread = unreadCount > 0
+                
+                return (
+                  <motion.div
+                    key={conversation._id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ delay: index * 0.03, duration: 0.3 }}
                   >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-4 flex-1">
-                          <div className="relative">
-                            {conversation.user?.profilePic ? (
-                              <img
-                                src={conversation.user.profilePic}
-                                alt={conversation.user.fullName}
-                                className="w-12 h-12 rounded-full object-cover border-2 border-gray-200"
-                              />
-                            ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-lg">
-                                {(conversation.user?.fullName?.[0] || conversation.user?.email?.[0] || 'U').toUpperCase()}
+                    <Card
+                      className={`group cursor-pointer transition-all duration-300 border-2 ${
+                        hasUnread 
+                          ? 'bg-gradient-to-r from-blue-50/50 via-white to-purple-50/50 border-blue-200/60 shadow-md hover:shadow-xl hover:border-blue-300/80 hover:-translate-y-0.5' 
+                          : 'bg-white border-gray-100 shadow-sm hover:shadow-lg hover:border-gray-200 hover:-translate-y-0.5'
+                      }`}
+                      onClick={() => openConversation(conversation)}
+                    >
+                      <CardContent className="p-4 sm:p-5 lg:p-6">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-4 flex-1 min-w-0">
+                            {/* Enhanced Avatar with Status */}
+                            <div className="relative flex-shrink-0">
+                              {conversation.user?.profilePic ? (
+                                <div className="relative">
+                                  <img
+                                    src={conversation.user.profilePic}
+                                    alt={conversation.user.fullName}
+                                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-4 border-white shadow-lg ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none'
+                                      e.target.nextSibling.style.display = 'flex'
+                                    }}
+                                  />
+                                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-lg border-4 border-white ring-2 ring-blue-100 hidden">
+                                    {(conversation.user?.fullName?.[0] || conversation.user?.email?.[0] || 'U').toUpperCase()}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-lg border-4 border-white ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all">
+                                  {(conversation.user?.fullName?.[0] || conversation.user?.email?.[0] || 'U').toUpperCase()}
+                                </div>
+                              )}
+                              {/* Online Status Indicator */}
+                              <div className="absolute bottom-0 right-0 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full border-4 border-white shadow-md ring-2 ring-green-100"></div>
+                              {/* Unread Badge */}
+                              {hasUnread && (
+                                <div className="absolute -top-1 -right-1 w-6 h-6 sm:w-7 sm:h-7 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg ring-2 ring-white animate-pulse">
+                                  {unreadCount > 9 ? '9+' : unreadCount}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Content Area */}
+                            <div className="flex-1 min-w-0 space-y-2">
+                              {/* Name and Badge Row */}
+                              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                                <h3 className={`font-bold text-gray-900 truncate ${
+                                  hasUnread ? 'text-base sm:text-lg' : 'text-base sm:text-lg'
+                                }`}>
+                                  {conversation.user?.fullName || conversation.user?.email || 'Unknown User'}
+                                </h3>
+                                <span className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-semibold shadow-sm transition-all ${
+                                  conversation.reason === 'trip_verification'
+                                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white border border-blue-400/50'
+                                    : 'bg-gradient-to-r from-purple-500 to-purple-600 text-white border border-purple-400/50'
+                                }`}>
+                                  {getReasonLabel(conversation.reason)}
+                                </span>
                               </div>
-                            )}
-                            {conversation.unreadCount > 0 && (
-                              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                                {conversation.unreadCount > 9 ? '9+' : conversation.unreadCount}
+
+                              {/* Message Preview */}
+                              {conversation.lastMessage && (
+                                <p className={`text-sm sm:text-base text-gray-700 line-clamp-2 leading-relaxed ${
+                                  hasUnread ? 'font-medium' : 'font-normal'
+                                }`}>
+                                  {conversation.lastMessage.text}
+                                </p>
+                              )}
+
+                              {/* Metadata Row */}
+                              <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm text-gray-500 flex-wrap">
+                                <span className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded-lg">
+                                  <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400" />
+                                  <span className="font-medium">{formatDate(conversation.updatedAt)}</span>
+                                </span>
+                                {conversation.user?.email && (
+                                  <span className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded-lg truncate max-w-[200px] sm:max-w-none">
+                                    <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" />
+                                    <span className="font-medium truncate">{conversation.user.email}</span>
+                                  </span>
+                                )}
                               </div>
-                            )}
+                            </div>
                           </div>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-semibold text-gray-900 truncate">
-                                {conversation.user?.fullName || conversation.user?.email || 'Unknown User'}
-                              </h3>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getReasonBadge(conversation.reason)}`}>
-                                {getReasonLabel(conversation.reason)}
-                              </span>
-                            </div>
-                            {conversation.lastMessage && (
-                              <p className="text-sm text-gray-600 truncate mb-1">
-                                {conversation.lastMessage.text}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-3 text-xs text-gray-500">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDate(conversation.updatedAt)}
-                              </span>
-                              {conversation.user?.email && (
-                                <span className="flex items-center gap-1">
-                                  <Mail className="w-3 h-3" />
-                                  {conversation.user.email}
-                                </span>
-                              )}
+                          {/* Arrow Icon with Hover Effect */}
+                          <div className="flex-shrink-0 flex items-center">
+                            <div className={`p-2 rounded-full transition-all duration-300 ${
+                              hasUnread 
+                                ? 'bg-blue-100 group-hover:bg-blue-200' 
+                                : 'bg-gray-100 group-hover:bg-gray-200'
+                            }`}>
+                              <ChevronRight className={`w-5 h-5 sm:w-6 sm:h-6 transition-transform duration-300 ${
+                                hasUnread ? 'text-blue-600' : 'text-gray-400'
+                              } group-hover:translate-x-1`} />
                             </div>
                           </div>
                         </div>
-
-                        <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0 ml-4" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )
+              })}
             </AnimatePresence>
           </div>
         )}
@@ -978,156 +1196,309 @@ const SupportInbox = () => {
           </ModalFooter>
         </Modal>
 
-        {/* Conversation Modal */}
+        {/* Enhanced Conversation Modal - Wider and More Responsive */}
         {selectedConversation && (
-          <Modal isOpen={!!selectedConversation} onClose={closeConversation} size="large">
-            <ModalHeader>
-              <div className="flex items-center gap-3">
-                {selectedConversation.user?.profilePic ? (
-                  <img
-                    src={selectedConversation.user.profilePic}
-                    alt={selectedConversation.user.fullName}
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
-                    {(selectedConversation.user?.fullName?.[0] || selectedConversation.user?.email?.[0] || 'U').toUpperCase()}
+          <Modal isOpen={!!selectedConversation} onClose={closeConversation} className="w-full max-w-[95vw] sm:max-w-[90vw] md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[95vh] sm:max-h-[90vh] flex flex-col mx-2 sm:mx-4 lg:mx-auto">
+            <ModalHeader className="flex-shrink-0 p-0">
+              {/* Enhanced Header with Gradient Background */}
+              <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-4 sm:p-5 lg:p-6 rounded-t-xl">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 lg:gap-6">
+                  <div className="flex items-center gap-3 sm:gap-4 lg:gap-5 flex-1 min-w-0">
+                    {selectedConversation.user?.profilePic ? (
+                      <div className="relative flex-shrink-0">
+                        <img
+                          src={selectedConversation.user.profilePic}
+                          alt={selectedConversation.user.fullName}
+                          className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full object-cover border-4 border-white shadow-xl"
+                        />
+                        <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-5 lg:h-5 bg-green-500 rounded-full border-4 border-white shadow-md"></div>
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-sm flex items-center justify-center text-white font-bold text-lg sm:text-xl lg:text-2xl border-4 border-white shadow-xl flex-shrink-0">
+                        {(selectedConversation.user?.fullName?.[0] || selectedConversation.user?.email?.[0] || 'U').toUpperCase()}
+                      </div>
+                    )}
+                    <div className="text-white min-w-0 flex-1">
+                      <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-1 truncate">
+                        {selectedConversation.user?.fullName || selectedConversation.user?.email || 'Unknown User'}
+                      </h2>
+                      <div className="flex items-center gap-2 sm:gap-2.5 text-blue-100">
+                        <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                        <p className="text-xs sm:text-sm lg:text-base truncate">{selectedConversation.user?.email || 'No email'}</p>
+                      </div>
+                    </div>
                   </div>
-                )}
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {selectedConversation.user?.fullName || selectedConversation.user?.email || 'Unknown User'}
-                  </h2>
-                  <p className="text-sm text-gray-600">{selectedConversation.user?.email}</p>
+                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                    <span className={`px-3 sm:px-4 lg:px-5 py-1.5 sm:py-2 lg:py-2.5 rounded-full text-xs sm:text-sm lg:text-base font-semibold border-2 border-white/30 backdrop-blur-sm whitespace-nowrap ${
+                      selectedConversation.reason === 'trip_verification' 
+                        ? 'bg-blue-500/80 text-white' 
+                        : 'bg-purple-500/80 text-white'
+                    }`}>
+                      {getReasonLabel(selectedConversation.reason)}
+                    </span>
+                    <button
+                      onClick={closeConversation}
+                      className="p-2 sm:p-2.5 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white transition-colors flex-shrink-0"
+                      aria-label="Close chat"
+                    >
+                      <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+                  </div>
                 </div>
-                <span className={`ml-auto px-3 py-1 rounded-full text-xs font-medium border ${getReasonBadge(selectedConversation.reason)}`}>
-                  {getReasonLabel(selectedConversation.reason)}
-                </span>
               </div>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-gray-600">
-                <div className="flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-2 rounded-md border border-blue-100">
-                  <Sparkles className="w-4 h-4" />
-                  <div>
-                    <p className="font-semibold">Conversation ID</p>
-                    <p className="break-all text-xs text-blue-700">{selectedConversation._id}</p>
+
+              {/* Enhanced Metadata Cards - Compact and Responsive */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4 mt-3 sm:mt-4 px-4 sm:px-5 lg:px-6 pb-4 sm:pb-5 lg:pb-6">
+                <div
+                  className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-2.5 hover:shadow-md transition-all cursor-pointer"
+                  onClick={() => {
+                    navigator.clipboard.writeText(selectedConversation._id)
+                    setCopiedId(true)
+                    setTimeout(() => setCopiedId(false), 2000)
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-blue-500 rounded text-white flex-shrink-0">
+                      <Sparkles className="w-3 h-3" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-blue-700">ID</p>
+                      <p className="text-xs text-blue-600 truncate font-mono">{selectedConversation._id.slice(-8)}</p>
+                    </div>
+                    {copiedId ? (
+                      <Check className="w-3 h-3 text-green-600 flex-shrink-0" />
+                    ) : (
+                      <Copy className="w-3 h-3 text-blue-400 group-hover:text-blue-600 transition-colors flex-shrink-0" />
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-md border border-gray-200">
-                  <Clock className="w-4 h-4" />
-                  <div>
-                    <p className="font-semibold text-gray-800">Last updated</p>
-                    <p>{formatDate(selectedConversation.updatedAt)}</p>
+
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-gray-500 rounded text-white flex-shrink-0">
+                      <Clock className="w-3 h-3" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-700">Updated</p>
+                      <p className="text-xs text-gray-600 truncate">{formatDate(selectedConversation.updatedAt)}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 bg-green-50 text-green-800 px-3 py-2 rounded-md border border-green-100">
-                  <Tag className="w-4 h-4" />
-                  <div>
-                    <p className="font-semibold">Reason</p>
-                    <p>{getReasonLabel(selectedConversation.reason)}</p>
+
+                <div className="bg-gradient-to-br from-green-50 to-emerald-100 border border-green-200 rounded-lg p-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-green-500 rounded text-white flex-shrink-0">
+                      <Tag className="w-3 h-3" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-green-700">Reason</p>
+                      <p className="text-xs text-green-600 font-medium truncate">{getReasonLabel(selectedConversation.reason)}</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </ModalHeader>
-            <ModalContent>
-              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+            <ModalContent className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 sm:p-5 lg:p-6">
+              <style>{`
+                .messages-container::-webkit-scrollbar {
+                  width: 6px;
+                }
+                .messages-container::-webkit-scrollbar-track {
+                  background: #f1f5f9;
+                  border-radius: 10px;
+                }
+                .messages-container::-webkit-scrollbar-thumb {
+                  background: #cbd5e1;
+                  border-radius: 10px;
+                }
+                .messages-container::-webkit-scrollbar-thumb:hover {
+                  background: #94a3b8;
+                }
+              `}</style>
+              <div 
+                ref={messagesContainerRef}
+                className="messages-container flex-1 space-y-2 overflow-y-auto pr-2"
+                style={{ minHeight: 0 }}
+                onScroll={() => {
+                  // Update isNearBottom on scroll
+                  const container = messagesContainerRef.current
+                  if (container) {
+                    const { scrollTop, scrollHeight, clientHeight } = container
+                    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+                    setIsNearBottom(distanceFromBottom < 100)
+                  }
+                }}
+              >
                 {selectedConversation.messages && selectedConversation.messages.length > 0 ? (
                   selectedConversation.messages.map((message, index) => {
                     const senderId = message.sender?._id?.toString() || message.sender?.toString() || ''
                     const TAATOM_OFFICIAL_USER_ID = '000000000000000000000001'
-                    const isSystem = senderId === TAATOM_OFFICIAL_USER_ID
+                    // Admin messages (Taatom Official) = LEFT, User messages = RIGHT
+                    const isAdminMessage = senderId === TAATOM_OFFICIAL_USER_ID
+                    const isOwnMessage = isAdminMessage // From admin panel perspective
                     const previousMessage = selectedConversation.messages[index - 1]
+                    const isConsecutive = previousMessage && 
+                      (previousMessage.sender?.toString() === message.sender?.toString() || 
+                       (previousMessage.sender?._id?.toString() === message.sender?._id?.toString())) &&
+                      new Date(message.timestamp) - new Date(previousMessage.timestamp) < 60000 // Within 1 minute
                     const showDivider = !previousMessage || (
                       new Date(previousMessage.timestamp).toDateString() !== new Date(message.timestamp).toDateString()
                     )
+                    
                     return (
                       <React.Fragment key={message._id || index}>
                         {showDivider && (
-                          <div className="flex items-center gap-2 my-2">
-                            <div className="flex-1 h-px bg-gray-200" />
-                            <span className="text-xs text-gray-500">{formatDate(message.timestamp)}</span>
-                            <div className="flex-1 h-px bg-gray-200" />
+                          <div className="flex items-center gap-3 my-4"
+                          >
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent" />
+                            <span className="text-xs font-medium text-gray-500 bg-white px-3 py-1 rounded-full border border-gray-200">
+                              {formatDate(message.timestamp)}
+                            </span>
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-gray-300 to-transparent" />
                           </div>
                         )}
                         <div
-                          className={`flex ${isSystem ? 'justify-start' : 'justify-end'}`}
+                          className={`flex gap-2 ${isAdminMessage ? 'justify-start' : 'justify-end'} ${isConsecutive ? 'mt-1' : 'mt-3'}`}
                         >
-                          <div className={`max-w-[75%] rounded-lg p-3 shadow-sm ${
-                            isSystem 
-                              ? 'bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200' 
-                              : 'bg-white border border-gray-200'
+                          {isAdminMessage && !isConsecutive && (
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+                              TO
+                            </div>
+                          )}
+                          {isAdminMessage && isConsecutive && <div className="w-6 sm:w-7" />}
+                          <div className={`max-w-[75%] sm:max-w-[65%] md:max-w-[60%] lg:max-w-[55%] rounded-xl shadow-sm hover:shadow-md transition-all ${
+                            isAdminMessage
+                              ? 'bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-50 border border-blue-200/50 rounded-bl-sm' // Left: rounded except bottom-left
+                              : 'bg-gradient-to-br from-white to-gray-50 border border-gray-200/50 rounded-br-sm' // Right: rounded except bottom-right
                           }`}>
-                            {isSystem && (
-                              <div className="flex items-center gap-1 mb-1">
-                                <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                                <span className="text-xs font-medium text-blue-700">Taatom Official</span>
+                            <div className="p-2 sm:p-2.5 lg:p-3">
+                              {isAdminMessage && !isConsecutive && (
+                                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                                  <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse flex-shrink-0"></div>
+                                  <span className="text-xs font-semibold text-blue-700">Taatom Official</span>
+                                  <CheckCircle2 className="w-3 h-3 text-blue-600 flex-shrink-0" />
+                                </div>
+                              )}
+                              <p className={`text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed ${
+                                isAdminMessage ? 'text-gray-800' : 'text-gray-900'
+                              }`}>
+                                {message.text}
+                              </p>
+                              <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/30">
+                                <p className="text-xs text-gray-500">
+                                  {new Date(message.timestamp).toLocaleTimeString('en-US', { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit',
+                                    hour12: true 
+                                  })}
+                                </p>
+                                {!isAdminMessage && (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {message.seen ? (
+                                      <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                                    ) : (
+                                      <CheckCircle2 className="w-3 h-3 text-gray-400" />
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            <p className="text-sm text-gray-900 whitespace-pre-wrap break-words">
-                              {message.text}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1 text-right">
-                              {formatDate(message.timestamp)}
-                            </p>
+                            </div>
                           </div>
                         </div>
                       </React.Fragment>
                     )
                   })
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>No messages yet</p>
+                  <div className="text-center py-12"
+                  >
+                    <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                      <MessageSquare className="w-10 h-10 text-blue-400" />
+                    </div>
+                    <p className="text-gray-500 font-medium">No messages yet</p>
+                    <p className="text-sm text-gray-400 mt-1">Start the conversation by sending a message</p>
+                  </div>
+                )}
+                {isTyping && (
+                  <div className="flex justify-start gap-2">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+                      TO
+                    </div>
+                    <div className="bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-50 border border-blue-200/50 rounded-xl rounded-bl-sm p-2.5 sm:p-3 shadow-sm">
+                      <div className="flex gap-1.5">
+                        <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      </div>
+                    </div>
                   </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
             </ModalContent>
-            <ModalFooter>
-              <div className="space-y-3 w-full">
-                <div className="flex flex-wrap gap-2">
-                  {quickReplies.map((text, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setMessageText(text)}
-                      className="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs hover:border-blue-400 hover:text-blue-700 transition-colors"
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 w-full">
-                  <input
-                    type="text"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        sendMessage()
-                      }
+            <ModalFooter className="flex-shrink-0 border-t border-gray-200 bg-white p-4 sm:p-5 lg:p-6">
+              <div className="space-y-3 sm:space-y-4 w-full">
+                {quickReplies.length > 0 && (
+                  <div className="flex flex-wrap gap-2 sm:gap-2.5 pb-2 max-h-28 overflow-y-auto">
+                    {quickReplies.map((text, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setMessageText(text)}
+                        className="px-3 sm:px-3.5 lg:px-4 py-1.5 sm:py-2 bg-gray-50 border border-gray-200 rounded-full text-xs sm:text-sm hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition-colors whitespace-nowrap"
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-end gap-2 sm:gap-3 lg:gap-4">
+                  <div className="flex-1 relative min-w-0">
+                    <textarea
+                      value={messageText}
+                      onChange={(e) => {
+                        setMessageText(e.target.value)
+                        // Show typing indicator when typing
+                        if (e.target.value.trim() && !isTyping) {
+                          setIsTyping(true)
+                        }
+                        // Hide typing indicator after stopping
+                        clearTimeout(window.typingTimeout)
+                        window.typingTimeout = setTimeout(() => setIsTyping(false), 1000)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          setIsTyping(false)
+                          sendMessage()
+                        }
+                      }}
+                      placeholder="Type your message..."
+                      rows={1}
+                      className="w-full px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 bg-white border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-sm sm:text-base lg:text-lg leading-relaxed"
+                      disabled={sendingMessage}
+                      style={{ minHeight: '48px', maxHeight: '120px' }}
+                    />
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: messageText.trim() ? 1.05 : 1 }}
+                    whileTap={{ scale: messageText.trim() ? 0.95 : 1 }}
+                    onClick={() => {
+                      setIsTyping(false)
+                      sendMessage()
                     }}
-                    placeholder="Type your message..."
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={sendingMessage}
-                  />
-                  <button
-                    onClick={sendMessage}
                     disabled={!messageText.trim() || sendingMessage}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 lg:py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold shadow-lg hover:shadow-xl disabled:hover:scale-100 flex-shrink-0 text-sm sm:text-base lg:text-lg"
+                    aria-label="Send message"
                   >
                     {sendingMessage ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Sending...
-                      </>
+                      <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                     ) : (
                       <>
-                        <Send className="w-4 h-4" />
-                        Send
+                        <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <span className="hidden sm:inline">Send</span>
                       </>
                     )}
-                  </button>
+                  </motion.button>
                 </div>
               </div>
             </ModalFooter>
