@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const loadSessionTimeout = async () => {
       try {
-        const response = await api.get('/api/superadmin/settings')
+        const response = await api.get('/api/v1/superadmin/settings')
         if (response.data?.settings?.security?.sessionTimeout) {
           const timeoutMinutes = response.data.settings.security.sessionTimeout
           const timeoutMs = timeoutMinutes * 60 * 1000
@@ -118,7 +118,7 @@ export const AuthProvider = ({ children }) => {
           setTimeout(() => reject(new Error('Token verification timeout')), 10000)
         )
         
-        const verifyPromise = api.get('/api/superadmin/verify')
+        const verifyPromise = api.get('/api/v1/superadmin/verify')
         const response = await Promise.race([verifyPromise, timeoutPromise])
         
         if (isMounted) {
@@ -173,7 +173,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await api.post('/api/superadmin/login', { 
+      const response = await api.post('/api/v1/superadmin/login', { 
         email, 
         password 
       })
@@ -211,7 +211,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'No temporary token found. Please try logging in again.' }
       }
       
-      const response = await api.post('/api/superadmin/verify-2fa', {
+      const response = await api.post('/api/v1/superadmin/verify-2fa', {
         token: tempToken,
         code
       })
@@ -245,7 +245,7 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'No temporary token found. Please try logging in again.' }
       }
       
-      await api.post('/api/superadmin/resend-2fa', {
+      await api.post('/api/v1/superadmin/resend-2fa', {
         token: tempToken
       })
       toast.success('New 2FA code sent to your email')
@@ -260,7 +260,7 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = async (profileData) => {
     try {
-      const response = await api.patch('/api/superadmin/profile', profileData)
+      const response = await api.patch('/api/v1/superadmin/profile', profileData)
       setUser(response.data.user)
       return { success: true }
     } catch (error) {
@@ -271,7 +271,7 @@ export const AuthProvider = ({ children }) => {
 
   const changePassword = async (currentPassword, newPassword) => {
     try {
-      await api.patch('/api/superadmin/change-password', {
+      await api.patch('/api/v1/superadmin/change-password', {
         currentPassword,
         newPassword
       })
@@ -284,7 +284,7 @@ export const AuthProvider = ({ children }) => {
 
   const getSecurityLogs = async () => {
     try {
-      const response = await api.get('/api/superadmin/security-logs')
+      const response = await api.get('/api/v1/superadmin/security-logs')
       return { success: true, data: response.data }
     } catch (error) {
       logger.error('Failed to fetch security logs:', error)

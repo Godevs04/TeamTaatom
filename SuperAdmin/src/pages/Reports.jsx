@@ -486,7 +486,7 @@ const Reports = () => {
     const status = action === 'approve' ? 'resolved' : 'dismissed'
     
     try {
-      await api.patch(`/api/superadmin/reports/${reportId}`, {
+      await api.patch(`/api/v1/superadmin/reports/${reportId}`, {
         status,
         adminNotes: action === 'approve' ? 'Report approved by admin' : 'Report dismissed by admin'
       })
@@ -569,7 +569,7 @@ const Reports = () => {
     if (!isMountedRef.current) return
     
     try {
-      await api.patch(`/api/superadmin/reports/${reportId}`, {
+      await api.patch(`/api/v1/superadmin/reports/${reportId}`, {
         status: previousStatus,
         adminNotes: 'Action undone by admin'
       })

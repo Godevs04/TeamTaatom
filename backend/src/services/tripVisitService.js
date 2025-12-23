@@ -10,6 +10,10 @@ const {
   MAX_REALISTIC_SPEED_KMH, 
   MIN_DISTANCE_FOR_SPEED_CHECK_KM 
 } = require('../config/tripScoreConfig');
+const { 
+  getOrCreateSupportConversation, 
+  sendSystemMessage 
+} = require('./adminSupportChatService');
 
 // Static Taatom Official system user ID (must exist in DB for chat system)
 const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
@@ -690,72 +694,25 @@ const deleteTripVisitForContent = async (postId, contentType = 'post') => {
  * Send pending review notification via chat
  * Fire-and-forget, does not block TripVisit creation
  */
+/**
+ * Create support chat and send notification when TripVisit is pending review
+ * Uses the new admin support chat service
+ */
 const sendPendingReviewNotification = async (userId, tripVisit) => {
   try {
-    // Get or create TAATOM_OFFICIAL system user
-    let officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                       await User.findOne({ email: 'official@taatom.com' }) || 
-                       await User.findOne({ username: 'taatom_official' });
-    
-    if (!officialUser) {
-      // Create TAATOM_OFFICIAL system user if it doesn't exist
-      try {
-        const crypto = require('crypto');
-        officialUser = await User.create({
-          _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
-          email: 'official@taatom.com',
-          username: 'taatom_official',
-          fullName: 'Taatom Official',
-          password: crypto.randomBytes(32).toString('hex'), // Random password, never used
-          isVerified: true,
-          isActive: true,
-          isSystem: true // Mark as system user
-        });
-        logger.info('Created TAATOM_OFFICIAL system user for notifications');
-      } catch (createError) {
-        // If user already exists (race condition), fetch it
-        if (createError.code === 11000) {
-          officialUser = await User.findById(TAATOM_OFFICIAL_USER_ID) ||
-                         await User.findOne({ email: 'official@taatom.com' }) ||
-                         await User.findOne({ username: 'taatom_official' });
-        }
-        if (!officialUser) {
-          logger.error('Failed to create/find TAATOM_OFFICIAL user:', createError);
-          return; // Skip notification if user creation fails
-        }
-      }
-    }
-    
-    // Ensure user has verified status for UI display
-    if (!officialUser.isVerified) {
-      officialUser.isVerified = true;
-      await officialUser.save();
-    }
-
-    const message = '👋 Your recent post is under verification to confirm the trip location.\nWe\'ll notify you shortly.';
-
-    // Get or create chat
-    let chat = await Chat.findOne({ 
-      participants: { $all: [officialUser._id, userId] } 
+    // Get or create support conversation
+    const convo = await getOrCreateSupportConversation({
+      userId: userId.toString(),
+      reason: 'trip_verification',
+      refId: tripVisit._id.toString()
     });
 
-    if (!chat) {
-      chat = await Chat.create({ 
-        participants: [officialUser._id, userId], 
-        messages: [] 
-      });
-    }
-
-    // Add message
-    const chatMessage = {
-      sender: officialUser._id,
-      text: message,
-      timestamp: new Date(),
-      seen: false
-    };
-
-    chat.messages.push(chatMessage);
-    await chat.save();
+    // Send initial message
+    const message = '👋 Your recent post is under verification.\nWe\'ll notify you shortly. You may reply here if needed.';
+    await sendSystemMessage({
+      conversationId: convo._id.toString(),
+      messageText: message
+    });
 
     // Emit socket event if available
     try {
@@ -763,19 +720,22 @@ const sendPendingReviewNotification = async (userId, tripVisit) => {
       const io = getIO();
       if (io && io.of('/app')) {
         const nsp = io.of('/app');
+        const lastMessage = convo.messages[convo.messages.length - 1];
         nsp.to(`user:${userId}`).emit('message:new', { 
-          chatId: chat._id, 
-          message: {
-            ...chatMessage,
-            _id: chat.messages[chat.messages.length - 1]._id
-          }
+          chatId: convo._id, 
+          message: lastMessage
+        });
+        nsp.to(`user:${userId}`).emit('chat:update', { 
+          chatId: convo._id, 
+          lastMessage: message, 
+          timestamp: lastMessage.timestamp 
         });
       }
     } catch (socketError) {
       logger.debug('Socket not available for pending review notification:', socketError);
     }
 
-    logger.debug(`Pending review notification sent to user ${userId}`);
+    logger.debug(`Pending review notification sent to user ${userId} via support chat`);
   } catch (error) {
     logger.error('Error sending pending review notification:', error);
   }
