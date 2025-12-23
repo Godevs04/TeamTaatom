@@ -92,17 +92,22 @@ const ContentCard = memo(({
             className="w-full h-48 bg-gray-200 flex items-center justify-center cursor-pointer"
             onClick={() => onToggleExpand(item._id)}
           >
-            {item.type === 'short' && item.videoUrl && !videoError ? (
-              <video
-                src={item.thumbnailUrl || item.videoUrl}
-                className="w-full h-48 object-cover"
-                muted
-                onError={() => setVideoError(true)}
-                preload="metadata"
-              />
+            {item.type === 'short' ? (
+              // For shorts, show thumbnail image (not video)
+              (item.thumbnailUrl || item.imageUrl) && !imageError ? (
+                <img
+                  src={item.thumbnailUrl || item.imageUrl}
+                  alt={item.caption || 'Short thumbnail'}
+                  className="w-full h-48 object-cover"
+                  onError={() => setImageError(true)}
+                  loading="lazy"
+                />
+              ) : (
+                <div className="text-gray-400">Click to load thumbnail</div>
+              )
             ) : item.imageUrl && !imageError ? (
               <img
-                src={item.thumbnailUrl || item.imageUrl}
+                src={item.imageUrl}
                 alt={item.caption || 'Travel content'}
                 className="w-full h-48 object-cover"
                 onError={() => setImageError(true)}
@@ -1245,19 +1250,35 @@ const TravelContent = () => {
           {selectedContent?.action === 'view' && (
             <div className="space-y-4">
               {/* Display image or video thumbnail in modal */}
-              {selectedContent.type === 'short' && selectedContent.videoUrl ? (
-                <video
-                  src={selectedContent.videoUrl}
-                  className="w-full h-64 object-cover rounded-lg"
-                  controls
-                  loop
-                  onError={(e) => {
-                    e.target.parentElement.innerHTML = '<img src="/placeholder.svg" class="w-full h-64 object-cover rounded-lg" alt="Video error" />'
-                  }}
-                />
+              {selectedContent.type === 'short' ? (
+                // For shorts, show thumbnail in modal preview, video on expand
+                selectedContent.thumbnailUrl || selectedContent.imageUrl ? (
+                  <img
+                    src={selectedContent.thumbnailUrl || selectedContent.imageUrl}
+                    onError={(e) => {
+                      e.target.src = '/placeholder.svg'
+                    }}
+                    alt={selectedContent.caption || 'Short thumbnail'}
+                    className="w-full h-64 object-cover rounded-lg"
+                  />
+                ) : selectedContent.videoUrl ? (
+                  <video
+                    src={selectedContent.videoUrl}
+                    className="w-full h-64 object-cover rounded-lg"
+                    controls
+                    loop
+                    onError={(e) => {
+                      e.target.parentElement.innerHTML = '<img src="/placeholder.svg" class="w-full h-64 object-cover rounded-lg" alt="Video error" />'
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-64 bg-gray-200 flex items-center justify-center rounded-lg">
+                    <span className="text-gray-400">No thumbnail available</span>
+                  </div>
+                )
               ) : (
                 <img
-                  src={selectedContent.imageUrl || selectedContent.thumbnailUrl || '/placeholder.svg'}
+                  src={selectedContent.imageUrl || '/placeholder.svg'}
                   onError={(e) => {
                     e.target.src = '/placeholder.svg'
                   }}

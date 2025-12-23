@@ -2467,6 +2467,30 @@ const TripScoreAnalytics = () => {
                             </div>
                           )
                         })
+                      ) : selectedReview.post.type === 'short' && selectedReview.post.thumbnailUrl ? (
+                        (() => {
+                          const imageKey = `short-thumbnail-${selectedReview.post.thumbnailUrl}`
+                          const hasError = failedImages.has(imageKey)
+                          return (
+                            <div className="relative rounded-lg overflow-hidden border-2 border-gray-200 bg-gray-100">
+                              {hasError ? (
+                                <div className="w-full h-48 flex flex-col items-center justify-center text-gray-400">
+                                  <ImageIcon className="w-12 h-12 mb-2 opacity-50" />
+                                  <p className="text-xs">Thumbnail not available</p>
+                                </div>
+                              ) : (
+                                <img
+                                  src={selectedReview.post.thumbnailUrl}
+                                  alt="Short thumbnail"
+                                  className="w-full h-48 object-cover"
+                                  onError={() => {
+                                    setFailedImages(prev => new Set([...prev, imageKey]))
+                                  }}
+                                />
+                              )}
+                            </div>
+                          )
+                        })()
                       ) : selectedReview.post.imageUrl ? (
                         (() => {
                           const imageKey = `single-image-${selectedReview.post.imageUrl}`

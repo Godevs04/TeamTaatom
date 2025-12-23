@@ -1511,7 +1511,9 @@ const toggleLike = async (req, res) => {
 
     const isLiked = !post.likes.some(like => like.toString() === req.user._id.toString());
     
-    await Post.findByIdAndUpdate(req.params.id, update, { new: true });
+    // Update and get the updated post to get correct likes count
+    const updatedPost = await Post.findByIdAndUpdate(req.params.id, update, { new: true });
+    const updatedLikesCount = updatedPost ? updatedPost.likes.length : post.likes.length;
 
     // Create activity for like (respect user's privacy settings)
     if (isLiked) {
@@ -1599,7 +1601,7 @@ const toggleLike = async (req, res) => {
       if (io) {
         const nsp = io.of('/app');
         // Emit the new real-time post like update
-        nsp.emitPostLike(post._id.toString(), isLiked, post.likes.length, req.user._id.toString());
+        nsp.emitPostLike(post._id.toString(), isLiked, updatedLikesCount, req.user._id.toString());
         // Also emit the legacy notification event
         nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
       }
@@ -1609,7 +1611,7 @@ const toggleLike = async (req, res) => {
 
     return sendSuccess(res, 200, isLiked ? 'Post liked' : 'Post unliked', {
       isLiked,
-      likesCount: post.likes.length
+      likesCount: updatedLikesCount
     });
 
   } catch (error) {
@@ -2201,7 +2203,7 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'user',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1, followers: 1 } }
+            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1, followers: 1 } }
           ]
         }
       },
@@ -2228,7 +2230,7 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'commentUsers',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1 } }
+            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
           ]
         }
       },
@@ -2294,7 +2296,7 @@ const getShorts = async (req, res) => {
       }
     ]);
 
-    // Add isLiked field if user is authenticated and include virtual fields
+    // Generate signed URLs for profile pictures and add isLiked field
     // Defensive guards: validate media URLs and handle missing data gracefully
     const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
       let isFollowing = false;
@@ -2305,6 +2307,47 @@ const getShorts = async (req, res) => {
           isFollowing = short.user.followers.some(follower => 
             (typeof follower === 'object' ? follower.toString() : follower) === req.user._id.toString()
           );
+        }
+      }
+      
+      // Generate signed URL for short author's profile picture
+      if (short.user && short.user.profilePicStorageKey) {
+        try {
+          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for short author:', { 
+            shortId: short._id, 
+            userId: short.user._id,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          short.user.profilePic = short.user.profilePic || null;
+        }
+      } else if (short.user && short.user.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        // Keep the existing profilePic value
+      }
+      
+      // Generate signed URLs for comment users' profile pictures
+      if (short.comments && short.comments.length > 0) {
+        for (const comment of short.comments) {
+          if (comment.user && comment.user.profilePicStorageKey) {
+            try {
+              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
+            } catch (error) {
+              logger.warn('Failed to generate profile picture URL for comment user:', { 
+                shortId: short._id, 
+                commentId: comment._id,
+                userId: comment.user._id,
+                error: error.message 
+              });
+              // Fallback to legacy URL if available
+              comment.user.profilePic = comment.user.profilePic || null;
+            }
+          } else if (comment.user && comment.user.profilePic) {
+            // Legacy: use existing profilePic if no storage key
+            // Keep the existing profilePic value
+          }
         }
       }
       
@@ -2394,7 +2437,35 @@ const createShort = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid video file. Please try uploading again.');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume, spotType, travelInfo } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume, spotType, travelInfo, audioSource, copyrightAccepted, copyrightAcceptedAt } = req.body;
+    
+    // Copyright validation for shorts
+    // If audioSource is 'user_original', copyrightAccepted MUST be true and copyrightAcceptedAt MUST be present
+    if (audioSource === 'user_original') {
+      if (copyrightAccepted !== true && copyrightAccepted !== 'true') {
+        logger.warn('Copyright validation failed: user_original requires copyrightAccepted=true', {
+          userId: req.user._id,
+          audioSource,
+          copyrightAccepted
+        });
+        return sendError(res, 'VAL_2001', 'Copyright confirmation is required for user-uploaded audio. Please confirm you have rights to use the audio.');
+      }
+      if (!copyrightAcceptedAt) {
+        logger.warn('Copyright validation failed: user_original requires copyrightAcceptedAt timestamp', {
+          userId: req.user._id,
+          audioSource
+        });
+        return sendError(res, 'VAL_2001', 'Copyright acceptance timestamp is required for user-uploaded audio.');
+      }
+    }
+    
+    // Auto-set copyright fields for taatom_library
+    let finalCopyrightAccepted = copyrightAccepted;
+    let finalCopyrightAcceptedAt = copyrightAcceptedAt;
+    if (audioSource === 'taatom_library') {
+      finalCopyrightAccepted = true;
+      finalCopyrightAcceptedAt = new Date();
+    }
 
     // Upload video to Sevalla Object Storage
     const extension = videoFile.originalname.split('.').pop() || 'mp4';
@@ -2466,7 +2537,8 @@ const createShort = async (req, res) => {
     const short = new Post({
       user: req.user._id,
       caption,
-      imageUrl: thumbnailUrl || '',
+      imageUrl: thumbnailUrl || '', // Backward compatibility - thumbnail stored here too
+      thumbnailUrl: thumbnailUrl || '', // New field for clarity - thumbnail for shorts
       videoUrl: videoUploadResult.url, // Video URL goes here
       storageKey: videoStorageKey, // Primary storage key for video
       cloudinaryPublicId: videoStorageKey, // Backward compatibility
@@ -2492,7 +2564,12 @@ const createShort = async (req, res) => {
       } : undefined,
       // TripScore metadata from user dropdowns
       spotType: spotType || null,
-      travelInfo: travelInfo || null
+      travelInfo: travelInfo || null,
+      // Copyright compliance fields
+      audioSource: audioSource || null,
+      copyrightAccepted: finalCopyrightAccepted,
+      copyrightAcceptedAt: finalCopyrightAcceptedAt ? new Date(finalCopyrightAcceptedAt) : null,
+      status: 'active'
     });
 
     await short.save();
