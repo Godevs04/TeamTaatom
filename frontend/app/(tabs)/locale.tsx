@@ -15,6 +15,7 @@ import {
   Modal,
   ScrollView,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -1709,7 +1710,11 @@ export default function LocaleScreen() {
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
       />
-      
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       {/* Elegant Top Navigation */}
       <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
         <View style={styles.tabContainer}>
@@ -1792,6 +1797,8 @@ export default function LocaleScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1813,6 +1820,8 @@ export default function LocaleScreen() {
           initialNumToRender={6}
           maxToRenderPerBatch={4}
           windowSize={7}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           getItemLayout={(data, index) => ({
             length: 200 + 16, // card height + margin
             offset: (200 + 16) * index,
@@ -1864,6 +1873,7 @@ export default function LocaleScreen() {
 
       {/* Filter Modal */}
       {renderFilterModal()}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

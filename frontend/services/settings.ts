@@ -59,7 +59,20 @@ export const getSettings = async (): Promise<SettingsResponse> => {
     const response = await api.get('/api/v1/settings');
     return response.data;
   } catch (error: any) {
+    // Handle 401 gracefully - session expired
+    if (error.response?.status === 401) {
+      logger.debug('Settings fetch failed: Session expired');
+      throw new Error('Session expired. Please log in again.');
+    }
+    
+    // Handle network errors gracefully
+    if (!error.response) {
+      logger.debug('Settings fetch failed: Network error');
+      throw new Error('Network error. Please check your connection.');
+    }
+    
     const parsedError = parseError(error);
+    logger.error('Failed to load settings:', parsedError.userMessage);
     throw new Error(parsedError.userMessage);
   }
 };
