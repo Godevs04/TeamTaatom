@@ -9,6 +9,7 @@ import {
   TextInput,
   Platform,
   Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -94,6 +95,11 @@ export default function TripScoreCountriesScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity
@@ -170,6 +176,7 @@ export default function TripScoreCountriesScreen() {
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

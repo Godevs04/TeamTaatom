@@ -15,6 +15,8 @@ import {
   Switch,
   Platform,
   Dimensions,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -315,7 +317,11 @@ export default function SearchScreen() {
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
       />
-      
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       {/* Elegant Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -423,6 +429,8 @@ export default function SearchScreen() {
           renderItem={renderUserItem}
           keyExtractor={(item) => item._id}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.users.length === 0 ? styles.emptyListContainer : undefined}
         />
@@ -445,6 +453,8 @@ export default function SearchScreen() {
           )}
           keyExtractor={(item) => item.name}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.hashtags.length === 0 ? styles.emptyListContainer : undefined}
         />
@@ -454,6 +464,8 @@ export default function SearchScreen() {
           renderItem={renderPostItem}
           keyExtractor={(item) => item._id}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.posts.length === 0 ? styles.emptyListContainer : undefined}
         />
@@ -475,7 +487,11 @@ export default function SearchScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView 
+              style={styles.modalBody}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <View style={styles.filterSection}>
                 <Text style={[styles.filterLabel, { color: theme.colors.text }]}>Hashtag</Text>
                 <TextInput
@@ -581,6 +597,7 @@ export default function SearchScreen() {
           </View>
         </View>
       </Modal>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

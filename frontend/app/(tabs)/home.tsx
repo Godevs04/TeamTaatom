@@ -632,6 +632,8 @@ export default function HomeScreen() {
         <FlatList
         data={posts}
         keyExtractor={keyExtractor}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         renderItem={renderItem}
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
