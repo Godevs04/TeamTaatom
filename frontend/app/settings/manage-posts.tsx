@@ -21,6 +21,7 @@ import { PostType } from '../../types/post';
 import CustomAlert from '../../components/CustomAlert';
 import { createLogger } from '../../utils/logger';
 import { theme } from '../../constants/theme';
+import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -93,7 +94,7 @@ export default function ManagePostsScreen() {
       setCurrentPage(page);
     } catch (error: any) {
       logger.error('Error loading posts', error);
-      showAlertMessage('Error', error.message || 'Failed to load posts', 'error');
+      showAlertMessage('Error', sanitizeErrorForDisplay(error, 'ManagePosts.loadPosts') || 'Failed to load posts', 'error');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -139,7 +140,7 @@ export default function ManagePostsScreen() {
       setArchivedPosts((prev) => prev.filter((p) => p._id !== postId));
       showAlertMessage('Success', 'Post restored successfully!', 'success');
     } catch (error: any) {
-      showAlertMessage('Error', error.message || 'Failed to restore post', 'error');
+      showAlertMessage('Error', sanitizeErrorForDisplay(error, 'ManagePosts.restorePost') || 'Failed to restore post', 'error');
     } finally {
       setProcessingIds((prev) => {
         const newSet = new Set(prev);
@@ -156,7 +157,7 @@ export default function ManagePostsScreen() {
       setHiddenPosts((prev) => prev.filter((p) => p._id !== postId));
       showAlertMessage('Success', 'Post restored successfully!', 'success');
     } catch (error: any) {
-      showAlertMessage('Error', error.message || 'Failed to restore post', 'error');
+      showAlertMessage('Error', sanitizeErrorForDisplay(error, 'ManagePosts.restorePost') || 'Failed to restore post', 'error');
     } finally {
       setProcessingIds((prev) => {
         const newSet = new Set(prev);
@@ -205,6 +206,11 @@ export default function ManagePostsScreen() {
   }, [currentPage, hasMore, loadingMore, searchQuery, loadPosts]);
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <NavBar
         title="Manage Posts"
@@ -288,6 +294,8 @@ export default function ManagePostsScreen() {
       ) : (
         <ScrollView
           style={styles.scrollView}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -419,6 +427,7 @@ export default function ManagePostsScreen() {
         }}
       />
     </View>
+    </KeyboardAvoidingView>
   );
 }
 

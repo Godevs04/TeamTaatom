@@ -7,6 +7,8 @@ import {
   FlatList,
   StyleSheet,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
@@ -52,7 +54,11 @@ export default function CommentBox({
   );
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Comments</Text>
         <TouchableOpacity onPress={onClose}>
@@ -66,6 +72,7 @@ export default function CommentBox({
         keyExtractor={(item) => item._id}
         style={styles.commentsList}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       />
 
       <View style={styles.inputContainer}>
@@ -89,7 +96,7 @@ export default function CommentBox({
           />
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 

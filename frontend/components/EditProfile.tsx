@@ -9,6 +9,9 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -257,7 +260,11 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       animationType="fade"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.overlay}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
         <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Edit Profile</Text>
@@ -266,47 +273,54 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
             </TouchableOpacity>
           </View>
 
-          <View style={styles.avatarContainer}>
-            <Image
-              source={
-                selectedImage
-                  ? { uri: selectedImage }
-                  : user.profilePic
-                  ? { uri: user.profilePic }
-                  : require('../assets/avatars/male_avatar.png')
-              }
-              style={styles.avatar}
-            />
-            <TouchableOpacity style={styles.changePhotoButton} onPress={showImagePicker}>
-              <Text style={styles.changePhotoText}>Change Photo</Text>
-            </TouchableOpacity>
-          </View>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 20 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.avatarContainer}>
+              <Image
+                source={
+                  selectedImage
+                    ? { uri: selectedImage }
+                    : user.profilePic
+                    ? { uri: user.profilePic }
+                    : require('../assets/avatars/male_avatar.png')
+                }
+                style={styles.avatar}
+              />
+              <TouchableOpacity style={styles.changePhotoButton} onPress={showImagePicker}>
+                <Text style={styles.changePhotoText}>Change Photo</Text>
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Enter your full name"
-              placeholderTextColor={theme.colors.textSecondary}
-            />
-          </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Full Name</Text>
+              <TextInput
+                style={styles.input}
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Enter your full name"
+                placeholderTextColor={theme.colors.textSecondary}
+              />
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Bio</Text>
-            <TextInput
-              style={[styles.input, styles.bioInput]}
-              value={bio}
-              onChangeText={handleBioChange}
-              placeholder="Tell us about yourself (max 3 lines, 300 characters)"
-              placeholderTextColor={theme.colors.textSecondary}
-              multiline
-              numberOfLines={3}
-              maxLength={300}
-            />
-            <Text style={styles.characterCount}>{bio.length}/300</Text>
-          </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Bio</Text>
+              <TextInput
+                style={[styles.input, styles.bioInput]}
+                value={bio}
+                onChangeText={handleBioChange}
+                placeholder="Tell us about yourself (max 3 lines, 300 characters)"
+                placeholderTextColor={theme.colors.textSecondary}
+                multiline
+                numberOfLines={3}
+                maxLength={300}
+              />
+              <Text style={styles.characterCount}>{bio.length}/300</Text>
+            </View>
+          </ScrollView>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
@@ -329,7 +343,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

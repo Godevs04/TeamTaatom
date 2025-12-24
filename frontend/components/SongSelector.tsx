@@ -694,6 +694,11 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         {/* Enhanced Header */}
         <LinearGradient
@@ -855,6 +860,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           </View>
         )}
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
