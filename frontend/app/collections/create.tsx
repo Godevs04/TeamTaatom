@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,6 +103,11 @@ export default function CreateCollectionScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity 
           onPress={() => router.back()}
@@ -130,7 +136,12 @@ export default function CreateCollectionScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.colors.text }]}>Name *</Text>
           <TextInput
@@ -181,6 +192,7 @@ export default function CreateCollectionScreen() {
           />
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -14,6 +14,7 @@ import {
   AppState,
   BackHandler,
   Dimensions,
+  KeyboardAvoidingView,
 } from "react-native";
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
@@ -39,6 +40,7 @@ import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
@@ -1625,12 +1627,14 @@ export default function PostScreen() {
         return; // Don't show error for user-initiated cancellation
       }
       
-      setUploadError(error?.message || 'Upload failed. Please try again.');
+      // Sanitize error message for user display
+      const sanitizedError = sanitizeErrorForDisplay(error, 'PostUpload');
+      setUploadError(sanitizedError);
       
       // Error & retry UX: show clear error message with retry option
       Alert.alert(
         'Upload failed',
-        error?.message || 'Please try again later.',
+        sanitizedError,
         [
           {
             text: 'OK',
@@ -1772,15 +1776,22 @@ export default function PostScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <NavBar title="New Post" />
-      <ScrollView 
-        style={{ flex: 1, padding: theme.spacing.md }} 
-        showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        nestedScrollEnabled={true}
-      >
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <NavBar title="New Post" />
+        <ScrollView 
+          style={{ flex: 1, padding: theme.spacing.md }} 
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          nestedScrollEnabled={true}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
         {/* User Profile Section */}
         {user && (
           <View style={{ 
@@ -3224,6 +3235,8 @@ export default function PostScreen() {
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 style={{ paddingHorizontal: theme.spacing.md }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
                 {[
                   { value: '', label: 'None', icon: 'remove-circle-outline' },
@@ -3348,6 +3361,8 @@ export default function PostScreen() {
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 style={{ paddingHorizontal: theme.spacing.md }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
                 {[
                   { value: '', label: 'None', icon: 'remove-circle-outline' },
@@ -3563,13 +3578,14 @@ export default function PostScreen() {
         selectedEndTime={songEndTime}
       />
 
-      {/* Copyright Confirmation Modal */}
-      <CopyrightConfirmationModal
-        visible={showCopyrightModal}
-        onCancel={handleCopyrightCancel}
-        onAgree={handleCopyrightAgree}
-      />
-    </View>
+        {/* Copyright Confirmation Modal */}
+        <CopyrightConfirmationModal
+          visible={showCopyrightModal}
+          onCancel={handleCopyrightCancel}
+          onAgree={handleCopyrightAgree}
+        />
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 

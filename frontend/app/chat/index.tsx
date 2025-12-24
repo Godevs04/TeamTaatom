@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -59,6 +59,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  
+  // Check if this is Taatom Official user - using properties set by backend
+  // Backend sets isVerified: true and fullName: 'Taatom Official' for Taatom Official user
+  const isTaatomOfficial = otherUser?.isVerified === true && 
+    (otherUser?.fullName === 'Taatom Official' || otherUser?.username === 'taatom_official');
   const [lastSeenId, setLastSeenId] = useState<string | null>(null);
   const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -79,6 +84,13 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Sort messages ascending by timestamp (oldest first)
   const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+  // Always set Taatom Official as online
+  useEffect(() => {
+    if (isTaatomOfficial) {
+      setIsOnline(true);
+    }
+  }, [isTaatomOfficial]);
+
   // Fetch block status and mute status when component mounts or otherUser changes
   useEffect(() => {
     const fetchStatuses = async () => {
@@ -97,6 +109,22 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     };
     fetchStatuses();
   }, [otherUser?._id]);
+
+  // Auto-scroll to bottom when keyboard opens
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+    };
+  }, []);
 
   useEffect(() => {
     // Subscribe to socket for new messages, typing, seen, presence
@@ -133,10 +161,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     };
     const onOnline = (payload: any) => {
-      if (payload.userId === otherUser._id) setIsOnline(true);
+      if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(true);
     };
     const onOffline = (payload: any) => {
-      if (payload.userId === otherUser._id) setIsOnline(false);
+      if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(false);
     };
     socketService.subscribe('message:new', onMessageNew);
     socketService.subscribe('message:sent', onMessageSent);
@@ -457,7 +485,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     <>
       
       <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }} 
+          behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
         {/* Enhanced Header */}
         <View style={styles.chatHeader}>
           <TouchableOpacity onPress={onClose} style={styles.headerBack}>
@@ -477,23 +509,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                 color={isOnline ? theme.colors.primary : theme.colors.textSecondary} 
               />
             )}
-            {isOnline && <View style={styles.onlineDot} />}
+            {isTaatomOfficial && isOnline && <View style={styles.onlineDot} />}
           </View>
           
           <View style={styles.headerCenter}>
-            <Text 
-              style={styles.chatName} 
-              numberOfLines={1} 
-              ellipsizeMode="tail"
-            >
-              {otherUser.fullName}
-            </Text>
-            <Text style={[
-              styles.onlineStatus,
-              { color: isOnline ? theme.colors.primary : theme.colors.textSecondary }
-            ]}>
-              {isOnline ? 'Online' : 'Offline'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text 
+                style={styles.chatName} 
+                numberOfLines={1} 
+                ellipsizeMode="tail"
+              >
+                {otherUser.fullName}
+              </Text>
+              {isTaatomOfficial && (
+                <Ionicons 
+                  name="checkmark-circle" 
+                  size={18} 
+                  color={theme.colors.success || '#4CAF50'} 
+                />
+              )}
+            </View>
+            {isTaatomOfficial && (
+              <Text style={[
+                styles.onlineStatus,
+                { color: theme.colors.primary }
+              ]}>
+                Online
+              </Text>
+            )}
           </View>
           
           <View style={styles.headerActions}>
@@ -671,6 +714,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
             contentContainerStyle={{ paddingVertical: 16 }}
             onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           />
         </View>
 
@@ -808,8 +852,19 @@ export default function ChatModal() {
   const [forceRender, setForceRender] = useState(0);
   const [isCalling, setIsCalling] = useState(false);
 
-  // Move handleNewMessage here
-  const handleNewMessage = (msg: any) => setActiveMessages((prev: any[]) => [...prev, msg]);
+  // Move handleNewMessage here with deduplication
+  const handleNewMessage = (msg: any) => {
+    if (!msg || !msg._id) return; // Guard against invalid messages
+    setActiveMessages((prev: any[]) => {
+      // Deduplicate by _id to prevent duplicate messages
+      const exists = prev.some(m => m._id === msg._id);
+      if (exists) {
+        logger.debug('Duplicate message detected, skipping:', msg._id);
+        return prev;
+      }
+      return [...prev, msg];
+    });
+  };
 
   // Handle call functionality
   const handleVoiceCall = async (otherUser: any) => {

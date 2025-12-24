@@ -80,11 +80,12 @@ export default function ResetPassword() {
         style={styles.keyboardView}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces={!isWeb}
-        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={!isWeb}
+            keyboardShouldPersistTaps="handled"
+          >
           <View style={styles.navBar}>
             <TouchableOpacity
               style={styles.backButton}
