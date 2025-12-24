@@ -235,15 +235,28 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     
-    // Parse and log errors (skip 400 and 409 to reduce noise)
-    if (error.response?.status !== 400 && error.response?.status !== 409) {
+    // Parse and log errors (skip 400, 409, and 401 on refresh to reduce noise)
+    const isRefresh401 = error.response?.status === 401 && error.config?.url?.includes('/auth/refresh');
+    const isAuth401 = error.response?.status === 401 && error.config?.url?.includes('/auth/');
+    
+    if (error.response?.status !== 400 && error.response?.status !== 409 && !isRefresh401) {
       const parsedError = parseError(error);
-      logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url);
+      // Only log as error if it's not an expected auth error
+      if (!isAuth401) {
+        logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url);
+      } else {
+        // Log auth errors as debug to reduce noise
+        logger.debug('API Auth Error:', parsedError.code, error.config?.url);
+      }
       error.parsedError = parsedError;
     } else {
-      // Still parse errors for 400/409 but don't log
+      // Still parse errors for 400/409/refresh-401 but don't log as errors
       const parsedError = parseError(error);
       error.parsedError = parsedError;
+      if (isRefresh401) {
+        // Refresh token expired - this is expected, just debug log
+        logger.debug('Refresh token expired or invalid:', error.config?.url);
+      }
     }
     
     // Handle rate limiting (429) with retry logic

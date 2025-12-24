@@ -11,6 +11,7 @@ import {
   Animated,
   TextInput,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -36,6 +37,7 @@ import PostActions from './post/PostActions';
 import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
 import { createLogger } from '../utils/logger';
+import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 
 interface PhotoCardProps {
   post: PostType;
@@ -572,7 +574,7 @@ function PhotoCard({
               if (onRefresh) onRefresh();
             } catch (error: any) {
               logger.error('Error deleting post', error);
-              showCustomAlertMessage('Error', error.message || 'Failed to delete post.', 'error');
+              showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.deletePost') || 'Failed to delete post.', 'error');
             } finally {
               setIsMenuLoading(false);
             }
@@ -599,7 +601,7 @@ function PhotoCard({
       logger.error('Error archiving post', error);
       setIsMenuLoading(false);
       setShowMenu(false);
-      showCustomAlertMessage('Error', error.message || 'Failed to archive post.', 'error');
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.archivePost') || 'Failed to archive post.', 'error');
     }
   };
 
@@ -620,7 +622,7 @@ function PhotoCard({
       logger.error('Error hiding post', error);
       setIsMenuLoading(false);
       setShowMenu(false);
-      showCustomAlertMessage('Error', error.message || 'Failed to hide post.', 'error');
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.hidePost') || 'Failed to hide post.', 'error');
     }
   };
 
@@ -636,7 +638,7 @@ function PhotoCard({
       );
     } catch (error: any) {
       logger.error('Error toggling comments', error);
-      showCustomAlertMessage('Error', error.message || 'Failed to toggle comments.', 'error');
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.toggleComments') || 'Failed to toggle comments.', 'error');
     } finally {
       setIsMenuLoading(false);
       setShowMenu(false);
@@ -655,7 +657,7 @@ function PhotoCard({
       if (onRefresh) onRefresh();
     } catch (error: any) {
       logger.error('Error updating post', error);
-      showCustomAlertMessage('Error', error.message || 'Failed to update post.', 'error');
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.updatePost') || 'Failed to update post.', 'error');
     } finally {
       setIsMenuLoading(false);
       setShowEditModal(false);
@@ -987,36 +989,41 @@ function PhotoCard({
           }
         }}
       >
-        <TouchableOpacity 
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.editModalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            if (!isMenuLoading) {
-              setShowEditModal(false);
-              setEditCaption(post.caption || '');
-            }
-          }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <TouchableOpacity 
+            style={{ flex: 1 }}
             activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
+            onPress={() => {
+              if (!isMenuLoading) {
+                setShowEditModal(false);
+                setEditCaption(post.caption || '');
+              }
+            }}
           >
-            <View style={[styles.editModalContainer, { backgroundColor: theme.colors.surface }]}>
-              <Text style={[styles.editModalTitle, { color: theme.colors.text }]}>Edit Post</Text>
-              <TextInput
-                style={[styles.editInput, { 
-                  color: theme.colors.text, 
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border 
-                }]}
-                value={editCaption}
-                onChangeText={setEditCaption}
-                placeholder="Enter caption..."
-                placeholderTextColor={theme.colors.textSecondary}
-                multiline
-                maxLength={1000}
-                autoFocus
-              />
+            <TouchableOpacity 
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={[styles.editModalContainer, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[styles.editModalTitle, { color: theme.colors.text }]}>Edit Post</Text>
+                <TextInput
+                  style={[styles.editInput, { 
+                    color: theme.colors.text, 
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border 
+                  }]}
+                  value={editCaption}
+                  onChangeText={setEditCaption}
+                  placeholder="Enter caption..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  multiline
+                  maxLength={1000}
+                  autoFocus
+                />
               <View style={styles.editModalActions}>
                 <TouchableOpacity
                   style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
@@ -1042,6 +1049,7 @@ function PhotoCard({
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Comment Modal */}

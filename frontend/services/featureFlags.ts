@@ -80,7 +80,22 @@ class FeatureFlagsService {
         this.lastFetchTime = now;
         await this.saveCachedFlags();
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Handle 401 (unauthorized) gracefully - user not logged in or session expired
+      if (error.response?.status === 401) {
+        logger.debug('Feature flags fetch failed: Session expired or not authenticated');
+        // Use cached flags on auth error
+        return;
+      }
+      
+      // Handle network errors gracefully
+      if (!error.response) {
+        logger.debug('Feature flags fetch failed: Network error');
+        // Use cached flags on network error
+        return;
+      }
+      
+      // Only log unexpected errors
       logger.error('Error fetching feature flags:', error);
       // Use cached flags on error
     }

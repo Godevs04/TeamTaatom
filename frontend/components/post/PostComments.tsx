@@ -8,11 +8,13 @@ import {
   Modal,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Platform,
   Dimensions,
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { addComment } from '../../services/posts';
@@ -50,6 +52,7 @@ export default function PostComments({
   commentsDisabled = false,
 }: PostCommentsProps) {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -60,10 +63,12 @@ export default function PostComments({
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
     onConfirm: () => {},
   });
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.8)).current;
+  const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     if (visible) {
@@ -99,6 +104,38 @@ export default function PostComments({
     };
     loadUser();
   }, []);
+
+  // Handle keyboard show/hide for proper input visibility
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+      return;
+    }
+
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        const height = e.endCoordinates.height;
+        setKeyboardHeight(height);
+        // Scroll to end when keyboard opens
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, [visible]);
 
   const showCustomAlertMessage = (
     title: string,
@@ -256,38 +293,45 @@ export default function PostComments({
                   { scale: scale }
                 ],
                 opacity: opacity,
+                // Force Bottom Sheet container to lift using animated marginBottom
+                marginBottom: keyboardHeight,
               },
             ]}
           >
-            <KeyboardAvoidingView
+            <View style={styles.handleBar}>
+              <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+            </View>
+
+            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+              <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+                Comments ({comments.length})
+              </Text>
+              <TouchableOpacity style={styles.moreButton}>
+                <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Wrap only the Bottom Sheet CONTENT (not the sheet container) with KeyboardAvoidingView */}
+            <KeyboardAvoidingView 
+              behavior="padding" 
               style={styles.container}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-              enabled
+              keyboardVerticalOffset={0}
             >
-              <View style={styles.handleBar}>
-                <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-              </View>
-
-              <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color={theme.colors.text} />
-                </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-                  Comments ({comments.length})
-                </Text>
-                <TouchableOpacity style={styles.moreButton}>
-                  <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
-                </TouchableOpacity>
-              </View>
-
               <FlatList
+                ref={flatListRef}
                 data={comments}
                 renderItem={renderComment}
                 keyExtractor={(item) => item._id}
                 style={styles.commentsList}
-                contentContainerStyle={styles.commentsContent}
+                contentContainerStyle={[
+                  styles.commentsContent,
+                  keyboardHeight > 0 && { paddingBottom: 20 }
+                ]}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 ListEmptyComponent={
                   <View style={styles.emptyComments}>
                     <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textSecondary} />
@@ -312,7 +356,16 @@ export default function PostComments({
                   </Text>
                 </View>
               ) : (
-                <View style={[styles.inputContainer, { borderTopColor: theme.colors.border }]}>
+                <View 
+                  style={[
+                    styles.inputContainer, 
+                    { 
+                      borderTopColor: theme.colors.border,
+                      // Ensure input box is always above keyboard
+                      paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12,
+                    }
+                  ]}
+                >
                   <Image
                     source={{
                       uri: currentUser?.profilePic || 'https://via.placeholder.com/32',
@@ -336,6 +389,12 @@ export default function PostComments({
                     maxLength={500}
                     returnKeyType="default"
                     blurOnSubmit={false}
+                    onFocus={() => {
+                      // Scroll to end when input is focused
+                      setTimeout(() => {
+                        flatListRef.current?.scrollToEnd({ animated: true });
+                      }, 300);
+                    }}
                   />
                   <TouchableOpacity
                     style={[
@@ -390,9 +449,11 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingBottom: Platform.OS === 'ios' ? 34 : 24,
     maxHeight: '90%',
+    minHeight: 400,
   },
   container: {
-    flex: 0,
+    flex: 1,
+    minHeight: 0,
   },
   handleBar: {
     alignItems: 'center',
@@ -423,12 +484,13 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   commentsList: {
-    maxHeight: screenHeight * 0.45,
+    flex: 1,
   },
   commentsContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 80,
+    paddingBottom: 20,
+    flexGrow: 1,
   },
   commentItem: {
     flexDirection: 'row',

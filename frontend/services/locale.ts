@@ -38,7 +38,8 @@ export interface LocalesResponse {
  * Get all active locales from backend
  * @param {string} search - Search query
  * @param {string} countryCode - Optional country code filter
- * @param {string} spotType - Optional spot type filter
+ * @param {string} stateCode - Optional state code filter
+ * @param {string|string[]} spotTypes - Optional spot type filter (single string or array)
  * @param {number} page - Page number
  * @param {number} limit - Items per page
  * @param {boolean} includeInactive - Whether to include inactive locales
@@ -47,7 +48,8 @@ export interface LocalesResponse {
 export const getLocales = async (
   search: string = '',
   countryCode: string = '',
-  spotType: string = '',
+  stateCode: string = '',
+  spotTypes: string | string[] = '',
   page: number = 1,
   limit: number = 50,
   includeInactive: boolean = false
@@ -59,11 +61,19 @@ export const getLocales = async (
     if (search && search.trim()) {
       params.append('search', search.trim());
     }
-    if (countryCode && countryCode !== 'all') {
-      params.append('countryCode', countryCode);
+    if (countryCode && countryCode.trim() !== '' && countryCode !== 'all') {
+      params.append('countryCode', countryCode.trim());
     }
-    if (spotType && spotType !== 'all') {
-      params.append('spotType', spotType);
+    if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
+      params.append('stateCode', stateCode.trim());
+    }
+    // Support multiple spot types
+    if (spotTypes) {
+      if (Array.isArray(spotTypes) && spotTypes.length > 0) {
+        params.append('spotTypes', spotTypes.join(','));
+      } else if (typeof spotTypes === 'string' && spotTypes !== 'all' && spotTypes.trim() !== '') {
+        params.append('spotTypes', spotTypes);
+      }
     }
     if (includeInactive) {
       params.append('includeInactive', 'true');

@@ -101,6 +101,9 @@ class CallService {
     return currentUserId;
   }
 
+  // Store socket event handlers for cleanup
+  private socketHandlers: { [event: string]: (data: any) => void } = {};
+
   private async setupSocketListeners() {
     logger.debug('📞 Setting up call service socket listeners...');
     
@@ -109,60 +112,82 @@ class CallService {
     logger.debug('📞 Socket connected, setting up listeners');
     
     // Listen for incoming calls
-    await socketService.subscribe('call:incoming', (data: any) => {
+    const onIncomingCall = (data: any) => {
       logger.debug('📞 Incoming call received:', data);
       this.handleIncomingCall(data);
-    });
+    };
+    this.socketHandlers['call:incoming'] = onIncomingCall;
+    await socketService.subscribe('call:incoming', onIncomingCall);
 
     // Listen for call accepted
-    await socketService.subscribe('call:accepted', (data: any) => {
+    const onCallAccepted = (data: any) => {
       logger.debug('📞 Call accepted:', data);
       this.handleCallAccepted(data);
-    });
+    };
+    this.socketHandlers['call:accepted'] = onCallAccepted;
+    await socketService.subscribe('call:accepted', onCallAccepted);
 
     // Listen for call rejected
-    await socketService.subscribe('call:rejected', (data: any) => {
+    const onCallRejected = (data: any) => {
       logger.debug('📞 Call rejected:', data);
       this.handleCallRejected(data);
-    });
+    };
+    this.socketHandlers['call:rejected'] = onCallRejected;
+    await socketService.subscribe('call:rejected', onCallRejected);
 
     // Listen for call ended
-    await socketService.subscribe('call:ended', (data: any) => {
+    const onCallEnded = (data: any) => {
       logger.debug('📞 Call ended:', data);
       this.handleCallEnded(data);
-    });
+    };
+    this.socketHandlers['call:ended'] = onCallEnded;
+    await socketService.subscribe('call:ended', onCallEnded);
 
     // WebRTC signaling events
-    await socketService.subscribe('call:offer', async (data: any) => {
+    const onOffer = async (data: any) => {
       logger.debug('📞 Signaling - offer received', !!data?.offer);
       await this.onOfferReceived(data);
-    });
-    await socketService.subscribe('call:answer', async (data: any) => {
+    };
+    this.socketHandlers['call:offer'] = onOffer;
+    await socketService.subscribe('call:offer', onOffer);
+    
+    const onAnswer = async (data: any) => {
       logger.debug('📞 Signaling - answer received', !!data?.answer);
       await this.onAnswerReceived(data);
-    });
-    await socketService.subscribe('call:ice-candidate', async (data: any) => {
+    };
+    this.socketHandlers['call:answer'] = onAnswer;
+    await socketService.subscribe('call:answer', onAnswer);
+    
+    const onIceCandidate = async (data: any) => {
       logger.debug('📞 Signaling - candidate received', !!data?.candidate);
       await this.onIceCandidateReceived(data);
-    });
+    };
+    this.socketHandlers['call:ice-candidate'] = onIceCandidate;
+    await socketService.subscribe('call:ice-candidate', onIceCandidate);
 
     // Listen for mute state changes
-    await socketService.subscribe('call:mute', (data: any) => {
+    const onMute = (data: any) => {
       logger.debug('📞 Mute state changed:', data);
       this.handleMuteChange(data);
-    });
+    };
+    this.socketHandlers['call:mute'] = onMute;
+    await socketService.subscribe('call:mute', onMute);
 
     // Listen for video state changes
-    await socketService.subscribe('call:video', (data: any) => {
+    const onVideo = (data: any) => {
       logger.debug('📞 Video state changed:', data);
       this.handleVideoChange(data);
-    });
+    };
+    this.socketHandlers['call:video'] = onVideo;
+    await socketService.subscribe('call:video', onVideo);
 
     // Listen for camera switch
-    await socketService.subscribe('call:camera-switch', (data: any) => {
+    const onCameraSwitch = (data: any) => {
       logger.debug('📞 Camera switched:', data);
       this.handleCameraSwitch(data);
-    });
+    };
+    this.socketHandlers['call:camera-switch'] = onCameraSwitch;
+    await socketService.subscribe('call:camera-switch', onCameraSwitch);
     
     logger.debug('📞 All call socket listeners set up successfully');
   }
@@ -426,6 +451,16 @@ class CallService {
 
   private cleanup(): void {
     this.stopCallTimer();
+    
+    // Clean up socket listeners to prevent memory leaks
+    Object.keys(this.socketHandlers).forEach(event => {
+      const handler = this.socketHandlers[event];
+      if (handler) {
+        socketService.unsubscribe(event, handler);
+      }
+    });
+    this.socketHandlers = {};
+    logger.debug('📞 Socket listeners cleaned up');
     
     // Clean up audio resources
     this.cleanupAudio();

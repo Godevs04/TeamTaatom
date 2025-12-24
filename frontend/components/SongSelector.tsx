@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,9 @@ import {
   Alert,
   PanResponder,
   Dimensions,
-  Animated
+  Animated,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { getSongs, Song } from '../services/songs';
 import { useTheme } from '../context/ThemeContext';
@@ -46,6 +48,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -87,8 +90,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [selectedSong, selectedStartTime, selectedEndTime, visible]);
 
+  // Optimized audio status polling - reduce frequency to 200ms for better performance
   useEffect(() => {
-    if (currentSong && isPlaying) {
+    if (currentSong && isPlaying && soundRef.current) {
       const interval = setInterval(async () => {
         if (soundRef.current) {
           try {
@@ -108,7 +112,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
             logger.error('Error getting audio status:', error);
           }
         }
-      }, 100);
+      }, 200); // Reduced from 100ms to 200ms for better performance
 
       return () => clearInterval(interval);
     }
@@ -123,11 +127,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       
       progressAnim.setValue(progress);
       startHandleAnim.setValue(startProgress);
-      endHandleAnim.setValue(endProgress);
+      // Ensure end handle doesn't go beyond 100% (clamp to max)
+      endHandleAnim.setValue(Math.min(endProgress, 100));
     }
   }, [currentTime, startTime, endTime, currentSong]);
 
-  const loadSongs = async (pageNum: number = 1) => {
+  const loadSongs = useCallback(async (pageNum: number = 1) => {
     if (loading) return;
 
     setLoading(true);
@@ -146,25 +151,38 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, searchQuery]);
 
+  // Debounced search to prevent excessive API calls
   useEffect(() => {
-    if (visible) {
-      const timer = setTimeout(() => {
-        setPage(1);
-        setSongs([]);
-        loadSongs(1);
-      }, 500);
-
-      return () => clearTimeout(timer);
+    if (!visible) return;
+    
+    // Clear previous debounce
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
     }
+    
+    // Reset state for new search
+    setPage(1);
+    setSongs([]);
+    
+    // Debounce search by 300ms
+    searchDebounceRef.current = setTimeout(() => {
+      loadSongs(1);
+    }, 300);
+
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
   }, [searchQuery, visible]);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (!loading && hasMore) {
       loadSongs(page + 1);
     }
-  };
+  }, [loading, hasMore, page, loadSongs]);
 
   const loadAudio = async (song: Song) => {
     try {
@@ -219,9 +237,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     setCurrentTime(0);
   };
 
-  const handleSelect = async (song: Song) => {
+  const handleSelect = useCallback(async (song: Song) => {
     await loadAudio(song);
-  };
+  }, []);
 
   const handleConfirm = () => {
     if (currentSong) {
@@ -406,12 +424,15 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     const selectionDuration = endTime - startTime;
     const isMaxDuration = selectionDuration >= MAX_SELECTION_DURATION;
 
-    // Generate waveform-like bars for visual appeal
+    // Generate waveform bars with deterministic heights for consistent rendering
+    // Note: Cannot use useMemo here as it's inside a render function (violates Rules of Hooks)
+    // Using deterministic calculation instead of random for better performance
     const waveformBars = Array.from({ length: 50 }, (_, i) => {
       const barTime = (i / 50) * duration;
       const isInSelection = barTime >= startTime && barTime <= endTime;
       const isPlaying = barTime <= currentTime;
-      const height = 20 + Math.random() * 30; // Random height for waveform effect
+      // Use sine wave for consistent waveform pattern instead of random
+      const height = 20 + Math.sin(i * 0.3) * 15 + Math.cos(i * 0.5) * 10;
       return { height, isInSelection, isPlaying };
     });
 
@@ -448,9 +469,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         </LinearGradient>
 
         {/* Enhanced Timeline with Waveform */}
-        <View style={styles.timelineSection}>
+        <View style={[styles.timelineSection, { overflow: 'visible' }]}>
           <View 
-            style={styles.timelineWrapper} 
+            style={[styles.timelineWrapper, { overflow: 'visible' }]} 
             onLayout={(event) => {
               timelineWidthRef.current = event.nativeEvent.layout.width;
             }}
@@ -476,7 +497,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
             </View>
 
             {/* Timeline Track */}
-            <View style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40' }]}>
+            <View style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40', overflow: 'visible' }]}>
               {/* Selection Area */}
               <View 
                 style={[
@@ -520,6 +541,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                       inputRange: [0, 100],
                       outputRange: ['0%', '100%'],
                     }),
+                    transform: [
+                      { translateX: -28 } // Center handle on position (half of 56px width)
+                    ],
                   }
                 ]}
                 {...startHandlePanResponder.panHandlers}
@@ -544,6 +568,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                       inputRange: [0, 100],
                       outputRange: ['0%', '100%'],
                     }),
+                    transform: [
+                      { translateX: -28 } // Center handle on position (half of 56px width)
+                    ],
                   }
                 ]}
                 {...endHandlePanResponder.panHandlers}
@@ -617,7 +644,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>5s</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.quickAdjustGroup}>
+            <View style={[styles.quickAdjustGroup, styles.quickAdjustGroupEnd]}>
               <Text style={[styles.quickAdjustLabel, { color: theme.colors.textSecondary }]}>End</Text>
               <TouchableOpacity
                 onPress={() => adjustEndTime(-5)}
@@ -694,6 +721,11 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         {/* Enhanced Header */}
         <LinearGradient
@@ -816,6 +848,14 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 </View>
               ) : null
             }
+            // Performance optimizations
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            initialNumToRender={15}
+            windowSize={10}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           />
         )}
 
@@ -855,6 +895,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           </View>
         )}
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -956,9 +997,12 @@ const styles = StyleSheet.create({
   },
   timelineSection: {
     marginBottom: 20,
+    overflow: 'visible', // Allow handles to extend beyond container
   },
   timelineWrapper: {
     marginBottom: 16,
+    overflow: 'visible', // Allow handles to extend beyond container
+    paddingHorizontal: 28, // Add padding to ensure handles are visible at edges
   },
   waveformContainer: {
     flexDirection: 'row',
@@ -967,6 +1011,7 @@ const styles = StyleSheet.create({
     height: 50,
     marginBottom: 12,
     paddingHorizontal: 4,
+    overflow: 'visible', // Allow handles to extend beyond waveform
   },
   waveformBar: {
     width: 3,
@@ -978,6 +1023,8 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     position: 'relative',
     marginBottom: 16,
+    overflow: 'visible', // Ensure handles extending beyond track are visible
+    width: '100%',
   },
   timelineSelection: {
     position: 'absolute',
@@ -1007,10 +1054,10 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   startHandle: {
-    marginLeft: -28,
+    // marginLeft handled inline to work with Animated
   },
   endHandle: {
-    marginLeft: -28,
+    // marginLeft handled inline to work with Animated
   },
   handleGradient: {
     width: '100%',
@@ -1048,14 +1095,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   quickAdjustContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexDirection: 'column',
+    gap: 12,
     marginTop: 12,
   },
   quickAdjustGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    justifyContent: 'flex-start',
+  },
+  quickAdjustGroupEnd: {
+    marginTop: 0, // No extra margin, gap handles spacing
   },
   quickAdjustLabel: {
     fontSize: 12,

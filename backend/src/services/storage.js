@@ -63,7 +63,8 @@ const buildMediaKey = ({ type, userId, filename, extension }) => {
   switch (type) {
     case 'post':
     case 'short':
-      basePath = `posts/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
+      // Organize posts by user ID for better organization and management
+      basePath = `posts/${userId || 'unknown'}/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
       break;
     case 'profile':
       basePath = `profiles/${userId || 'unknown'}/${timestamp}-${uniqueId}`;

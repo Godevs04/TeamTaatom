@@ -1346,6 +1346,8 @@ export default function ShortsScreen() {
         getItemLayout={getItemLayout}
         pagingEnabled
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         snapToInterval={SCREEN_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
