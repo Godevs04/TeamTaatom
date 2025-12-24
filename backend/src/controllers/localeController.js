@@ -11,7 +11,7 @@ const logger = require('../utils/logger');
 const getLocales = async (req, res) => {
   try {
     // Backend Defensive Guards: Validate and sanitize query params
-    let { search, countryCode, page = 1, limit = 50, includeInactive, spotType } = req.query;
+    let { search, countryCode, stateCode, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
     
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
@@ -37,30 +37,93 @@ const getLocales = async (req, res) => {
       countryCode = countryCode.substring(0, 10);
     }
     
-    // Backend Defensive Guards: Validate spotType
+    // Backend Defensive Guards: Validate stateCode
+    if (stateCode && typeof stateCode !== 'string') {
+      logger.warn('Invalid stateCode parameter type:', typeof stateCode);
+      stateCode = '';
+    }
+    if (stateCode && stateCode.length > 50) {
+      logger.warn('stateCode too long, truncating');
+      stateCode = stateCode.substring(0, 50);
+    }
+    
+    // Backend Defensive Guards: Validate spotType (single) or spotTypes (multiple)
     if (spotType && typeof spotType !== 'string') {
       logger.warn('Invalid spotType parameter type:', typeof spotType);
       spotType = '';
+    }
+    
+    // Handle multiple spot types (comma-separated or array)
+    let spotTypesArray = [];
+    if (spotTypes) {
+      if (typeof spotTypes === 'string') {
+        // Comma-separated string
+        spotTypesArray = spotTypes.split(',').map(s => s.trim()).filter(s => s.length > 0);
+      } else if (Array.isArray(spotTypes)) {
+        spotTypesArray = spotTypes.map(s => String(s).trim()).filter(s => s.length > 0);
+      }
+    }
+    // If single spotType provided, add it to array
+    if (spotType && spotType !== 'all' && !spotTypesArray.includes(spotType)) {
+      spotTypesArray.push(spotType);
     }
 
     // For SuperAdmin, allow viewing inactive locales if requested
     const query = includeInactive === 'true' ? {} : { isActive: true };
     
-    // Handle search - use regex search (sanitized)
+    // Build search conditions
+    const searchConditions = [];
     if (search) {
-      query.$or = [
+      searchConditions.push(
         { name: { $regex: search, $options: 'i' } },
         { country: { $regex: search, $options: 'i' } },
         { stateProvince: { $regex: search, $options: 'i' } }
-      ];
+      );
     }
     
+    // Build state filter conditions (handle optional state fields)
+    const stateConditions = [];
+    if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
+      stateConditions.push(
+        { stateCode: stateCode.trim() },
+        { stateCode: { $regex: stateCode.trim(), $options: 'i' } },
+        { stateProvince: { $regex: stateCode.trim(), $options: 'i' } }
+      );
+    }
+    
+    // Combine search and state filters properly
+    const andConditions = [];
+    
+    if (searchConditions.length > 0) {
+      andConditions.push({ $or: searchConditions });
+    }
+    
+    if (stateConditions.length > 0) {
+      andConditions.push({ $or: stateConditions });
+    }
+    
+    // Apply country filter directly
     if (countryCode && countryCode !== 'all') {
       query.countryCode = countryCode.toUpperCase();
     }
     
-    // Backend Defensive Guards: Add spotType filter if provided
-    if (spotType && spotType !== 'all') {
+    // Apply combined search and state filters
+    if (andConditions.length > 0) {
+      if (andConditions.length === 1) {
+        // Only one condition, merge it directly
+        Object.assign(query, andConditions[0]);
+      } else {
+        // Multiple conditions, use $and
+        query.$and = andConditions;
+      }
+    }
+    
+    // Backend Defensive Guards: Add spotType filter if provided (supports multiple)
+    if (spotTypesArray.length > 0) {
+      // Filter locales that have ANY of the selected spot types
+      query.spotTypes = { $in: spotTypesArray };
+    } else if (spotType && spotType !== 'all') {
+      // Backward compatibility: single spotType
       query.spotTypes = { $in: [spotType] };
     }
 

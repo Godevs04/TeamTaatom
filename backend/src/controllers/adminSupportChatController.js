@@ -23,10 +23,10 @@ const { generateSignedUrl } = require('../services/mediaService');
 // Ensure Taatom Official user exists in database
 const ensureTaatomOfficialUser = async () => {
   try {
+    const { TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
     const existingUser = await User.findById(TAATOM_OFFICIAL_USER_ID);
     if (!existingUser) {
       logger.info('Creating Taatom Official user in database...');
-      const { TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
       const bcrypt = require('bcryptjs');
       const hashedPassword = await bcrypt.hash('system_user_no_login', 10);
       
@@ -38,10 +38,18 @@ const ensureTaatomOfficialUser = async () => {
         password: hashedPassword,
         isVerified: true,
         isActive: true,
-        bio: 'Official Taatom support account'
+        bio: 'Official Taatom support account',
+        profilePic: TAATOM_OFFICIAL_USER.profilePic
       });
       await officialUser.save();
       logger.info('Taatom Official user created successfully');
+    } else {
+      // Update profile picture if it's not set or different
+      if (!existingUser.profilePic || existingUser.profilePic !== TAATOM_OFFICIAL_USER.profilePic) {
+        existingUser.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+        await existingUser.save();
+        logger.info('Taatom Official user profile picture updated');
+      }
     }
   } catch (error) {
     // If user already exists (duplicate key) or other error, log but don't fail
