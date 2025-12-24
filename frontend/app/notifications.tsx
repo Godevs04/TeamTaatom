@@ -553,6 +553,8 @@ export default function NotificationsScreen() {
       ) : (
         <FlatList
           data={sections}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           renderItem={({ item }) => (
             <View>
               {renderSectionHeader({ section: item })}

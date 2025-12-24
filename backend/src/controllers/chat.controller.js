@@ -3,6 +3,8 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
+const { generateSignedUrl } = require('../services/mediaService');
 
 // Import socket and fetch with proper error handling
 let getIO;
@@ -75,26 +77,49 @@ exports.listChats = async (req, res) => {
   
   // Get all chats (user_chat and admin_support)
   const chats = await Chat.find({ participants: userId })
-    .populate('participants', 'fullName profilePic isVerified')
+    .populate('participants', 'fullName profilePic profilePicStorageKey isVerified')
     .sort('-updatedAt')
     .lean();
   
   // Ensure every message has a 'seen' property (for backward compatibility)
-  chats.forEach(chat => {
+  // Generate signed URLs for profile pictures
+  for (const chat of chats) {
     if (Array.isArray(chat.messages)) {
       chat.messages = chat.messages.map(msg => ({ ...msg, seen: typeof msg.seen === 'boolean' ? msg.seen : false }));
     }
     
-    // For admin_support chats, ensure Taatom Official user has verified badge
-    if (chat.type === 'admin_support' && chat.participants) {
-      chat.participants.forEach(participant => {
-        if (participant._id && participant._id.toString() === process.env.TAATOM_OFFICIAL_USER_ID) {
+    // Generate signed URLs for participant profile pictures
+    if (chat.participants && Array.isArray(chat.participants)) {
+      for (const participant of chat.participants) {
+        // Special handling for Taatom Official user
+        if (participant._id && participant._id.toString() === TAATOM_OFFICIAL_USER_ID) {
           participant.isVerified = true;
-          participant.fullName = participant.fullName || 'Taatom Official';
+          participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
+          // Always use the constant profile picture for Taatom Official
+          participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+        } else if (participant._id) {
+          // Generate signed URL for regular users
+          let profilePicUrl = null;
+          if (participant.profilePicStorageKey) {
+            try {
+              profilePicUrl = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
+            } catch (error) {
+              logger.warn('Failed to generate profile picture URL for chat participant:', { 
+                userId: participant._id, 
+                error: error.message 
+              });
+              // Fallback to legacy URL if available
+              profilePicUrl = participant.profilePic || null;
+            }
+          } else if (participant.profilePic) {
+            // Legacy: use existing profilePic if no storage key
+            profilePicUrl = participant.profilePic;
+          }
+          participant.profilePic = profilePicUrl;
         }
-      });
+      }
     }
-  });
+  }
   
   // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
   // BUT: Keep admin_support chats separate from user_chat chats
@@ -149,7 +174,7 @@ exports.getChat = async (req, res) => {
     }
     
     let chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } })
-      .populate('participants', 'fullName profilePic')
+      .populate('participants', 'fullName profilePic profilePicStorageKey')
       .lean();
     
     if (!chat) {
@@ -158,7 +183,7 @@ exports.getChat = async (req, res) => {
         chat = await Chat.create({ participants: [userId, otherUserId], messages: [] });
         // Populate the newly created chat
         chat = await Chat.findById(chat._id)
-          .populate('participants', 'fullName profilePic')
+          .populate('participants', 'fullName profilePic profilePicStorageKey')
           .lean();
         logger.debug('Created new chat:', chat._id);
       } catch (error) {
@@ -167,6 +192,37 @@ exports.getChat = async (req, res) => {
       }
     } else {
       logger.debug('Found existing chat:', chat._id);
+    }
+    
+    // Generate signed URLs for participant profile pictures
+    if (chat.participants && Array.isArray(chat.participants)) {
+      for (const participant of chat.participants) {
+        // Special handling for Taatom Official user
+        if (participant._id && participant._id.toString() === TAATOM_OFFICIAL_USER_ID) {
+          participant.isVerified = true;
+          participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
+          participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+        } else if (participant._id) {
+          // Generate signed URL for regular users
+          let profilePicUrl = null;
+          if (participant.profilePicStorageKey) {
+            try {
+              profilePicUrl = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
+            } catch (error) {
+              logger.warn('Failed to generate profile picture URL for chat participant:', { 
+                userId: participant._id, 
+                error: error.message 
+              });
+              // Fallback to legacy URL if available
+              profilePicUrl = participant.profilePic || null;
+            }
+          } else if (participant.profilePic) {
+            // Legacy: use existing profilePic if no storage key
+            profilePicUrl = participant.profilePic;
+          }
+          participant.profilePic = profilePicUrl;
+        }
+      }
     }
     
     return sendSuccess(res, 200, 'Chat fetched successfully', { chat });

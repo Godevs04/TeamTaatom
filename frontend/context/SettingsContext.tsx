@@ -72,6 +72,22 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         return;
       }
       if (!isMountedRef.current) return;
+      
+      // Handle 401 (unauthorized) gracefully - don't show alert
+      if (error.response?.status === 401) {
+        logger.debug('Settings load failed: Session expired or not authenticated');
+        // Don't show alert for auth errors - user will be redirected to login
+        return;
+      }
+      
+      // Handle network errors gracefully
+      if (!error.response) {
+        logger.debug('Settings load failed: Network error');
+        // Don't show alert for network errors - user can retry later
+        return;
+      }
+      
+      // Only show alert for unexpected errors
       logger.error('Failed to load settings:', error);
       Alert.alert('Error', 'Failed to load settings');
     } finally {
