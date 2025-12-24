@@ -15,6 +15,7 @@ const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { sendNotificationToUser } = require('../utils/sendNotification');
+const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -24,6 +25,39 @@ const getProfile = async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
+    }
+
+    // Ensure Taatom Official user exists with correct profile picture
+    if (id === TAATOM_OFFICIAL_USER_ID) {
+      try {
+        const existingUser = await User.findById(TAATOM_OFFICIAL_USER_ID);
+        if (!existingUser) {
+          // Create Taatom Official user if it doesn't exist
+          const bcrypt = require('bcryptjs');
+          const hashedPassword = await bcrypt.hash('system_user_no_login', 10);
+          const officialUser = new User({
+            _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
+            username: TAATOM_OFFICIAL_USER.username,
+            fullName: TAATOM_OFFICIAL_USER.fullName,
+            email: `taatom_official@taatom.com`,
+            password: hashedPassword,
+            isVerified: true,
+            isActive: true,
+            bio: 'Official Taatom support account',
+            profilePic: TAATOM_OFFICIAL_USER.profilePic
+          });
+          await officialUser.save();
+          logger.info('Taatom Official user created from profile request');
+        } else if (!existingUser.profilePic || existingUser.profilePic !== TAATOM_OFFICIAL_USER.profilePic) {
+          // Update profile picture if missing or different
+          existingUser.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+          await existingUser.save();
+          logger.info('Taatom Official user profile picture updated from profile request');
+        }
+      } catch (error) {
+        // Log but don't fail - profile will still be returned with constant profilePic
+        logger.debug('Error ensuring Taatom Official user:', error.message);
+      }
     }
 
     // Cache key
@@ -246,7 +280,21 @@ const getProfile = async (req, res) => {
 
     // Generate signed URL for profile picture dynamically
     let profilePicUrl = null;
-    if (user.profilePicStorageKey) {
+    
+    // Special handling for Taatom Official user - always use the constant profile picture
+    const isTaatomOfficial = user._id.toString() === TAATOM_OFFICIAL_USER_ID;
+    
+    if (isTaatomOfficial) {
+      // For Taatom Official, always use the constant profile picture
+      profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
+      
+      // Also ensure it's saved to the database (async, don't block response)
+      if (!user.profilePic || user.profilePic !== TAATOM_OFFICIAL_USER.profilePic) {
+        User.findByIdAndUpdate(TAATOM_OFFICIAL_USER_ID, { 
+          profilePic: TAATOM_OFFICIAL_USER.profilePic 
+        }).catch(err => logger.debug('Failed to update Taatom Official profilePic:', err));
+      }
+    } else if (user.profilePicStorageKey) {
       try {
         profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
       } catch (error) {

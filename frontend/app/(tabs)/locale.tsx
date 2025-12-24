@@ -90,11 +90,18 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
         : [...state.spotTypes, action.payload];
       return { ...state, spotTypes };
     case 'SET_SEARCH_RADIUS':
-      return { ...state, searchRadius: action.payload };
+      // Validate and sanitize search radius input
+      const radiusValue = action.payload;
+      // Allow empty string, numbers, and decimal points
+      if (radiusValue === '' || /^[0-9]*\.?[0-9]*$/.test(radiusValue)) {
+        return { ...state, searchRadius: radiusValue };
+      }
+      // Invalid input, don't update
+      return state;
     case 'RESET':
       return {
-        country: 'United Kingdom',
-        countryCode: 'GB',
+        country: '',
+        countryCode: '',
         stateProvince: '',
         stateCode: '',
         spotTypes: [],
@@ -244,8 +251,8 @@ export default function LocaleScreen() {
       return;
     }
     
-    // Generate fetch key from params
-    const fetchKey = `${searchQuery}|${filters.countryCode}|${filters.spotTypes.join(',')}|${currentPageRef.current}`;
+    // Generate fetch key from params (include stateCode for proper cache invalidation)
+    const fetchKey = `${searchQuery}|${filters.countryCode}|${filters.stateCode}|${filters.spotTypes.join(',')}|${currentPageRef.current}`;
     
     // LAST FETCH KEY LOCK: If same key, return immediately
     if (!forceRefresh && fetchKey === lastFetchKeyRef.current) {
@@ -287,20 +294,26 @@ export default function LocaleScreen() {
         params.search = searchQuery.trim();
       }
       
-      // Add country filter if provided
-      if (filters.countryCode && filters.countryCode !== 'all') {
+      // Add country filter if provided (only if not empty)
+      if (filters.countryCode && filters.countryCode.trim() !== '' && filters.countryCode !== 'all') {
         params.countryCode = filters.countryCode;
       }
       
-      // Add spot type filter if provided
-      if (filters.spotTypes && filters.spotTypes.length > 0) {
-        params.spotType = filters.spotTypes[0]; // API supports single spot type
+      // Add state filter if provided (only if not empty)
+      if (filters.stateCode && filters.stateCode.trim() !== '' && filters.stateCode !== 'all') {
+        params.stateCode = filters.stateCode;
       }
+      
+      // Add spot type filter if provided (send all selected spot types)
+      const spotTypesParam = filters.spotTypes && filters.spotTypes.length > 0 
+        ? filters.spotTypes 
+        : '';
       
       const response = await getLocales(
         params.search || '',
         params.countryCode || '',
-        params.spotType || '',
+        params.stateCode || '',
+        spotTypesParam,
         params.page,
         params.limit,
         params.includeInactive
@@ -384,7 +397,7 @@ export default function LocaleScreen() {
       }
       isSearchingRef.current = false;
     }
-  }, [searchQuery, filters.countryCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Added userLocation dependencies for geocoding
+  }, [searchQuery, filters.countryCode, filters.stateCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Added userLocation dependencies for geocoding
   
   // Geocode locale if coordinates are missing
   const geocodeLocale = useCallback(async (locale: Locale): Promise<Locale> => {
@@ -561,9 +574,35 @@ export default function LocaleScreen() {
     }
   }, [sortLocalesByDistance]);
   
-  // Apply client-side filters (for spot types that API doesn't support)
-  const applyFilters = useCallback((locales: Locale[]) => {
+  // Apply client-side filters (for spot types that API doesn't support and saved locales)
+  const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
     let filtered = [...locales];
+    
+    // Filter by country (for saved locales - API handles this for locale tab)
+    if (filters.countryCode && filters.countryCode.trim() !== '' && isSavedTab) {
+      filtered = filtered.filter(locale => 
+        locale.countryCode && locale.countryCode.toUpperCase() === filters.countryCode.toUpperCase()
+      );
+    }
+    
+    // Filter by state/province (for saved locales - API handles this for locale tab)
+    // Handle optional state fields: match by stateCode or stateProvince
+    if (filters.stateCode && filters.stateCode.trim() !== '' && isSavedTab) {
+      filtered = filtered.filter(locale => {
+        // If locale has stateCode, match exactly
+        if (locale.stateCode && locale.stateCode.trim() !== '') {
+          return locale.stateCode === filters.stateCode || 
+                 locale.stateCode.toUpperCase() === filters.stateCode.toUpperCase();
+        }
+        // If locale has stateProvince, match by name (case-insensitive)
+        if (locale.stateProvince && locale.stateProvince.trim() !== '') {
+          return locale.stateProvince.toLowerCase() === filters.stateProvince.toLowerCase() ||
+                 locale.stateProvince.toLowerCase().includes(filters.stateProvince.toLowerCase());
+        }
+        // If locale has no state info, exclude it when state filter is applied
+        return false;
+      });
+    }
     
     // Filter by spot types (if multiple selected, show locales that match any)
     if (filters.spotTypes && filters.spotTypes.length > 0) {
@@ -572,14 +611,57 @@ export default function LocaleScreen() {
       );
     }
     
-    // Filter by search query (if not already filtered by API)
-    if (searchQuery.trim() && !searchQuery.includes(' ')) {
+    // Filter by search query (client-side for saved, or when not using API)
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(locale =>
         locale.name.toLowerCase().includes(query) ||
         locale.description?.toLowerCase().includes(query) ||
-        locale.countryCode.toLowerCase().includes(query)
+        locale.countryCode.toLowerCase().includes(query) ||
+        locale.stateProvince?.toLowerCase().includes(query)
       );
+    }
+    
+    // Filter by search radius (if user location available)
+    if (filters.searchRadius && filters.searchRadius.trim() !== '') {
+      const radiusKm = parseFloat(filters.searchRadius.trim());
+      if (!isNaN(radiusKm) && radiusKm > 0 && isFinite(radiusKm)) {
+        // Check if user location is available
+        if (!userLocation || !locationPermissionGranted) {
+          logger.warn(`Search radius filter requires location permission. userLocation: ${!!userLocation}, permission: ${locationPermissionGranted}`);
+          // If location is not available, exclude all locales to show empty state
+          // This prompts user to enable location
+          filtered = [];
+        } else {
+          const beforeCount = filtered.length;
+          filtered = filtered.filter(locale => {
+            try {
+              // Check if locale has coordinates
+              if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
+                // Exclude locales without coordinates when radius filter is active
+                return false;
+              }
+              
+              const distance = getLocaleDistance(locale);
+              if (distance === null) {
+                // Exclude if distance cannot be calculated
+                return false;
+              }
+              
+              const isWithinRadius = distance <= radiusKm;
+              return isWithinRadius;
+            } catch (error) {
+              logger.error('Error calculating distance for locale:', error);
+              return false; // Exclude if distance calculation fails
+            }
+          });
+          
+          const afterCount = filtered.length;
+          logger.debug(`Search radius filter: ${beforeCount} locales before, ${afterCount} locales after (radius: ${radiusKm}km, userLocation: ${userLocation.latitude},${userLocation.longitude})`);
+        }
+      } else {
+        logger.warn(`Invalid search radius value: ${filters.searchRadius}`);
+      }
     }
     
     // PRODUCTION-GRADE: Sort ONLY by distance (nearest first)
@@ -587,28 +669,41 @@ export default function LocaleScreen() {
     // Use shared sorting function for consistency
     const sorted = sortLocalesByDistance(filtered);
     
-    setFilteredLocales(sorted);
-  }, [filters.spotTypes, searchQuery, sortLocalesByDistance]);
+    return sorted;
+  }, [filters, searchQuery, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
   
+  // Memoized filtered saved locales for performance
+  const filteredSavedLocales = useMemo(() => {
+    if (activeTab === 'saved' && savedLocales.length > 0) {
+      return applyFilters(savedLocales, true);
+    }
+    return savedLocales;
+  }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted]);
+
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
+  // Also apply client-side filters for multiple spot types and search radius which require client-side processing
   useEffect(() => {
-    if (adminLocales.length > 0) {
-      // Always apply filters to ensure sorting is applied
-      applyFilters(adminLocales);
+    if (activeTab === 'locale' && adminLocales.length > 0) {
+      // Apply client-side filters for:
+      // - Multiple spot types (API supports this, but we also apply client-side for consistency)
+      // - Search radius (requires user location, client-side only)
+      const filtered = applyFilters(adminLocales, false);
+      setFilteredLocales(filtered);
     } else {
       setFilteredLocales([]);
     }
-  }, [adminLocales, applyFilters]);
+  }, [adminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, userLocation, locationPermissionGranted]);
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
   useEffect(() => {
-    if (adminLocales.length > 0) {
+    if (activeTab === 'locale' && adminLocales.length > 0) {
       // Re-apply filters to trigger distance-based sorting when location becomes available
       // This will re-sort using the updated userLocation (or fallback to createdAt if not available)
-      applyFilters(adminLocales);
+      const filtered = applyFilters(adminLocales, false);
+      setFilteredLocales(filtered);
     }
-  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters]);
+  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters, activeTab]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -777,52 +872,151 @@ export default function LocaleScreen() {
   };
 
   const loadCountries = async () => {
+    if (!isMountedRef.current) return;
+    
     try {
-      setLoadingCountries(true);
-      const countriesData = await getCountries();
-      setCountries(countriesData);
+      if (isMountedRef.current) {
+        setLoadingCountries(true);
+      }
       
-      // Load states for the default country
-      if (countriesData.length > 0) {
+      const countriesData = await getCountries();
+      
+      if (!isMountedRef.current) return;
+      
+      setCountries(Array.isArray(countriesData) ? countriesData : []);
+      
+      // Load states only if a country is selected
+      if (countriesData && countriesData.length > 0 && filters.countryCode && filters.countryCode.trim() !== '') {
         await loadStatesForCountry(filters.countryCode);
+      } else {
+        // Clear states if no country selected
+        if (isMountedRef.current) {
+          setStates([]);
+        }
       }
     } catch (error) {
-      logger.debug('Countries loaded from static data');
-      // Countries will be loaded from static data automatically
+      logger.error('Error loading countries:', error);
+      if (isMountedRef.current) {
+        // Countries will be loaded from static data automatically
+        setStates([]);
+      }
     } finally {
-      setLoadingCountries(false);
+      if (isMountedRef.current) {
+        setLoadingCountries(false);
+      }
     }
   };
 
   const loadStatesForCountry = async (countryCode: string) => {
+    if (!isMountedRef.current || !countryCode || countryCode.trim() === '') {
+      if (isMountedRef.current) {
+        setStates([]);
+        setLoadingStates(false);
+      }
+      return;
+    }
+    
+    // Create a timeout promise to prevent hanging
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('States loading timeout')), 10000); // 10 second timeout
+    });
+    
     try {
-      setLoadingStates(true);
-      const statesData = await getStatesByCountry(countryCode);
-      setStates(statesData);
+      if (isMountedRef.current) {
+        setLoadingStates(true);
+      }
+      
+      // Race between the actual API call and timeout
+      const statesData = await Promise.race([
+        getStatesByCountry(countryCode),
+        timeoutPromise
+      ]);
+      
+      if (!isMountedRef.current) return;
+      
+      // Validate and set states
+      const validStates = Array.isArray(statesData) ? statesData : [];
+      setStates(validStates);
       
       // If no states found, show a message
-      if (statesData.length === 0) {
+      if (validStates.length === 0) {
         logger.debug(`No states/provinces available for country code: ${countryCode}`);
+      } else {
+        logger.debug(`Loaded ${validStates.length} states for ${countryCode}`);
       }
-    } catch (error) {
-      logger.debug(`States loaded from static data for ${countryCode}`);
-      setStates([]); // Ensure states array is empty on error
+    } catch (error: any) {
+      logger.error(`Error loading states for ${countryCode}:`, error);
+      if (isMountedRef.current) {
+        // Set empty array on error to prevent UI issues
+        setStates([]);
+        // Don't show error to user, just log it
+        if (error.message === 'States loading timeout') {
+          logger.warn(`States loading timed out for ${countryCode}`);
+        }
+      }
     } finally {
-      setLoadingStates(false);
+      if (isMountedRef.current) {
+        setLoadingStates(false);
+      }
     }
   };
 
   const handleCountrySelect = async (country: Country) => {
-    dispatchFilter({ type: 'SET_COUNTRY', payload: { country: country.name, countryCode: country.code } });
-    setShowCountryDropdown(false);
+    if (!isMountedRef.current || !country || !country.code) {
+      return;
+    }
     
-    // Load states for the selected country
-    await loadStatesForCountry(country.code);
+    try {
+      // Close dropdown first to prevent UI issues
+      setShowCountryDropdown(false);
+      
+      // Clear states immediately to prevent showing old states
+      if (isMountedRef.current) {
+        setStates([]);
+        setShowStateDropdown(false);
+      }
+      
+      // Update filter state
+      dispatchFilter({ type: 'SET_COUNTRY', payload: { country: country.name, countryCode: country.code } });
+      
+      // Load states for the selected country (with error handling)
+      // Use setTimeout to ensure UI updates first, preventing white screen
+      setTimeout(async () => {
+        if (isMountedRef.current) {
+          try {
+            await loadStatesForCountry(country.code);
+          } catch (error) {
+            logger.error('Error in delayed states load:', error);
+            if (isMountedRef.current) {
+              setStates([]);
+              setLoadingStates(false);
+            }
+          }
+        }
+      }, 50); // Small delay to ensure UI updates first
+    } catch (error) {
+      logger.error('Error selecting country:', error);
+      // Ensure UI doesn't break even if there's an error
+      if (isMountedRef.current) {
+        setShowCountryDropdown(false);
+        setShowStateDropdown(false);
+        setStates([]);
+        setLoadingStates(false);
+      }
+    }
   };
 
   const handleStateSelect = (state: State) => {
-    dispatchFilter({ type: 'SET_STATE', payload: { stateProvince: state.name, stateCode: state.code } });
-    setShowStateDropdown(false);
+    if (!isMountedRef.current || !state) return;
+    try {
+      dispatchFilter({ type: 'SET_STATE', payload: { stateProvince: state.name, stateCode: state.code } });
+      setShowStateDropdown(false);
+    } catch (error) {
+      logger.error('Error selecting state:', error);
+      if (isMountedRef.current) {
+        setShowStateDropdown(false);
+      }
+    }
   };
 
 
@@ -847,19 +1041,114 @@ export default function LocaleScreen() {
   }, [loadAdminLocales]);
 
   const toggleSpotType = (spotType: string) => {
-    dispatchFilter({ type: 'TOGGLE_SPOT_TYPE', payload: spotType });
+    if (!isMountedRef.current || !spotType) return;
+    try {
+      dispatchFilter({ type: 'TOGGLE_SPOT_TYPE', payload: spotType });
+    } catch (error) {
+      logger.error('Error toggling spot type:', error);
+    }
   };
+
+  // Calculate active filter count for badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.countryCode) count++;
+    if (filters.stateCode) count++;
+    if (filters.spotTypes.length > 0) count += filters.spotTypes.length;
+    if (filters.searchRadius && parseFloat(filters.searchRadius) > 0) count++;
+    return count;
+  }, [filters]);
+
+  // Clear all filters
+  const handleClearFilters = useCallback(() => {
+    if (!isMountedRef.current) return;
+    
+    try {
+      // Close modal first to prevent white screen
+      setShowFilterModal(false);
+      
+      // Close dropdowns
+      setShowCountryDropdown(false);
+      setShowStateDropdown(false);
+      
+      // Clear states
+      setStates([]);
+      
+      // Reset filters to empty state (not default country)
+      dispatchFilter({ type: 'RESET' });
+      setSearchQuery('');
+      
+      // Reset pagination
+      currentPageRef.current = 1;
+      lastFetchKeyRef.current = null;
+      
+      // Reload locales without filters (only for locale tab) - use setTimeout to avoid blocking UI
+      if (activeTab === 'locale') {
+        // Use setTimeout to ensure modal closes before reloading
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            loadAdminLocales(true).catch(err => {
+              logger.error('Error reloading locales after reset:', err);
+            });
+          }
+        }, 100);
+      }
+      // For saved tab, filtering is handled by useMemo - no reload needed
+    } catch (error) {
+      logger.error('Error clearing filters:', error);
+      // Ensure UI doesn't break even if there's an error
+      if (isMountedRef.current) {
+        setShowFilterModal(false);
+        setShowCountryDropdown(false);
+        setShowStateDropdown(false);
+        setStates([]);
+      }
+    }
+  }, [activeTab, loadAdminLocales]);
 
   // Pagination & Filter Race Safety: Reset pagination when filters change
   const handleSearch = useCallback(() => {
-    setShowFilterModal(false);
-    // Reset pagination cleanly when filters change
-    currentPageRef.current = 1;
-    // Reset fetch key to force new fetch
-    lastFetchKeyRef.current = null;
-    // Reload locales with filters applied
-    loadAdminLocales(true);
-  }, [loadAdminLocales]);
+    if (!isMountedRef.current) return;
+    
+    try {
+      // Close modal first to prevent white screen
+      setShowFilterModal(false);
+      
+      // Close dropdowns
+      setShowCountryDropdown(false);
+      setShowStateDropdown(false);
+      
+      // Reset pagination cleanly when filters change
+      currentPageRef.current = 1;
+      // Reset fetch key to force new fetch
+      lastFetchKeyRef.current = null;
+      
+      // Reload locales with filters applied (only for locale tab)
+      // Use setTimeout to ensure modal closes before reloading
+      if (activeTab === 'locale') {
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            loadAdminLocales(true).catch(err => {
+              logger.error('Error loading locales after search:', err);
+              // Ensure UI doesn't break even if there's an error
+              if (isMountedRef.current) {
+                setLoadingLocales(false);
+              }
+            });
+          }
+        }, 100);
+      }
+      // For saved tab, filtering is handled by useMemo
+    } catch (error) {
+      logger.error('Error in handleSearch:', error);
+      // Ensure UI doesn't break even if there's an error
+      if (isMountedRef.current) {
+        setShowFilterModal(false);
+        setShowCountryDropdown(false);
+        setShowStateDropdown(false);
+      }
+    }
+  }, [loadAdminLocales, activeTab]);
   
   // Search Input Stability: Debounced search with request cancellation
   useEffect(() => {
@@ -891,14 +1180,18 @@ export default function LocaleScreen() {
     };
   }, [searchQuery, loadAdminLocales]);
 
-  const renderFilterModal = () => (
-    <Modal
-      visible={showFilterModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
-    >
-      <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
-        <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
+  const renderFilterModal = () => {
+    if (!showFilterModal) return null;
+    
+    return (
+      <Modal
+        visible={showFilterModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
+          <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
         
         {/* Header */}
         <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
@@ -908,8 +1201,23 @@ export default function LocaleScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.filterTitleContainer}>
+            <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
+            {activeFilterCount > 0 && (
+              <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
+          </View>
+          {activeFilterCount > 0 && (
+            <TouchableOpacity 
+              style={styles.clearButton}
+              onPress={handleClearFilters}
+            >
+              <Text style={[styles.clearButtonText, { color: theme.colors.primary }]}>Clear</Text>
+            </TouchableOpacity>
+          )}
+          {activeFilterCount === 0 && <View style={styles.placeholder} />}
         </View>
 
         <ScrollView 
@@ -953,12 +1261,18 @@ export default function LocaleScreen() {
                 <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
                   {countries.map((country, index) => (
                     <TouchableOpacity
-                      key={index}
+                      key={country.code || index}
                       style={[styles.dropdownItem, { 
                         backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
                         borderBottomColor: theme.colors.border,
                       }]}
-                      onPress={() => handleCountrySelect(country)}
+                      onPress={() => {
+                        if (country && country.code) {
+                          handleCountrySelect(country).catch(err => {
+                            logger.error('Error in country selection:', err);
+                          });
+                        }
+                      }}
                     >
                       <Text style={[styles.dropdownItemText, { 
                         color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
@@ -1099,16 +1413,32 @@ export default function LocaleScreen() {
 
         {/* Search Button */}
         <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
-          <TouchableOpacity 
-            style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
-            onPress={handleSearch}
-          >
-            <Text style={styles.searchButtonText}>Search</Text>
-          </TouchableOpacity>
+          <View style={styles.filterFooterButtons}>
+            <TouchableOpacity 
+              style={[styles.resetButton, { 
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+              }]} 
+              onPress={handleClearFilters}
+            >
+              <Ionicons name="refresh-outline" size={18} color={theme.colors.text} />
+              <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
+              onPress={handleSearch}
+            >
+              <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.searchButtonText}>
+                {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </SafeAreaView>
     </Modal>
-  );
+    );
+  };
 
 
 
@@ -1198,7 +1528,12 @@ export default function LocaleScreen() {
   }, [router, theme, userLocation, locationPermissionGranted, getLocaleDistance]);
 
   const renderAdminLocales = () => {
-    const localesToShow = filteredLocales.length > 0 ? filteredLocales : adminLocales;
+    // Always use filteredLocales when filters are active, even if empty
+    // Only fallback to adminLocales if no filters are applied and filteredLocales is empty
+    const hasActiveFilters = filters.countryCode || filters.stateCode || filters.spotTypes.length > 0 || 
+                            (filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0) ||
+                            searchQuery.trim() !== '';
+    const localesToShow = (hasActiveFilters || filteredLocales.length > 0) ? filteredLocales : adminLocales;
     
     if (loadingLocales) {
       return (
@@ -1217,7 +1552,8 @@ export default function LocaleScreen() {
             <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
             <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
             <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-              {searchQuery || filters.spotTypes.length > 0 || filters.countryCode
+              {searchQuery || filters.spotTypes.length > 0 || filters.countryCode || filters.stateCode || 
+               (filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0)
                 ? 'Try adjusting your search or filters'
                 : 'Check back later for exciting new destinations!'}
             </Text>
@@ -1441,6 +1777,11 @@ export default function LocaleScreen() {
             activeOpacity={0.7}
           >
             <Ionicons name="options-outline" size={isTabletLocal ? 24 : 20} color={theme.colors.textSecondary} />
+            {activeFilterCount > 0 && (
+              <View style={[styles.filterButtonBadge, { backgroundColor: theme.colors.primary }]}>
+                <Text style={styles.filterButtonBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -1464,7 +1805,7 @@ export default function LocaleScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={savedLocales}
+          data={filteredSavedLocales}
           renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
           keyExtractor={(item, index) => item._id || `locale-${index}`}
           // List Rendering Performance: FlatList optimization
@@ -1477,7 +1818,27 @@ export default function LocaleScreen() {
             offset: (200 + 16) * index,
             index,
           })}
-          ListEmptyComponent={savedLocales.length === 0 ? renderEmptySavedState() : null}
+          ListEmptyComponent={
+            savedLocales.length === 0 
+              ? renderEmptySavedState() 
+              : filteredSavedLocales.length === 0 
+                ? (
+                    <View style={styles.emptyContainer}>
+                      <Ionicons name="filter-outline" size={60} color={theme.colors.textSecondary} />
+                      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Results</Text>
+                      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                        Try adjusting your filters or search query
+                      </Text>
+                      <TouchableOpacity 
+                        style={[styles.clearFiltersButton, { backgroundColor: theme.colors.primary }]}
+                        onPress={handleClearFilters}
+                      >
+                        <Text style={styles.clearFiltersButtonText}>Clear Filters</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )
+                : null
+          }
           onScroll={handleScroll}
           scrollEventThrottle={16}
           refreshControl={
@@ -1876,6 +2237,31 @@ const createStyles = () => {
     fontWeight: '800',
     letterSpacing: 1,
   },
+  filterTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  filterBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  clearButton: {
+    padding: 8,
+  },
+  clearButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
   placeholder: {
     width: 40,
   },
@@ -1982,10 +2368,31 @@ const createStyles = () => {
     paddingVertical: 20,
     borderTopWidth: 1,
   },
-  searchButton: {
+  filterFooterButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  resetButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 12,
     paddingVertical: 16,
+    borderWidth: 1,
+    gap: 6,
+  },
+  resetButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  searchButton: {
+    flex: 2,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 16,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
@@ -1996,6 +2403,37 @@ const createStyles = () => {
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  filterButtonBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: theme.colors.background,
+  },
+  filterButtonBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  clearFiltersButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearFiltersButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
     saveButton: {
       position: 'absolute',

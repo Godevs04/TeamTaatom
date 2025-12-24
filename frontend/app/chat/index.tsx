@@ -59,6 +59,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  
+  // Check if this is Taatom Official user - using properties set by backend
+  // Backend sets isVerified: true and fullName: 'Taatom Official' for Taatom Official user
+  const isTaatomOfficial = otherUser?.isVerified === true && 
+    (otherUser?.fullName === 'Taatom Official' || otherUser?.username === 'taatom_official');
   const [lastSeenId, setLastSeenId] = useState<string | null>(null);
   const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -78,6 +83,13 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
 
   // Sort messages ascending by timestamp (oldest first)
   const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  // Always set Taatom Official as online
+  useEffect(() => {
+    if (isTaatomOfficial) {
+      setIsOnline(true);
+    }
+  }, [isTaatomOfficial]);
 
   // Fetch block status and mute status when component mounts or otherUser changes
   useEffect(() => {
@@ -133,10 +145,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     };
     const onOnline = (payload: any) => {
-      if (payload.userId === otherUser._id) setIsOnline(true);
+      if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(true);
     };
     const onOffline = (payload: any) => {
-      if (payload.userId === otherUser._id) setIsOnline(false);
+      if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(false);
     };
     socketService.subscribe('message:new', onMessageNew);
     socketService.subscribe('message:sent', onMessageSent);
@@ -477,23 +489,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                 color={isOnline ? theme.colors.primary : theme.colors.textSecondary} 
               />
             )}
-            {isOnline && <View style={styles.onlineDot} />}
+            {isTaatomOfficial && isOnline && <View style={styles.onlineDot} />}
           </View>
           
           <View style={styles.headerCenter}>
-            <Text 
-              style={styles.chatName} 
-              numberOfLines={1} 
-              ellipsizeMode="tail"
-            >
-              {otherUser.fullName}
-            </Text>
-            <Text style={[
-              styles.onlineStatus,
-              { color: isOnline ? theme.colors.primary : theme.colors.textSecondary }
-            ]}>
-              {isOnline ? 'Online' : 'Offline'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text 
+                style={styles.chatName} 
+                numberOfLines={1} 
+                ellipsizeMode="tail"
+              >
+                {otherUser.fullName}
+              </Text>
+              {isTaatomOfficial && (
+                <Ionicons 
+                  name="checkmark-circle" 
+                  size={18} 
+                  color={theme.colors.success || '#4CAF50'} 
+                />
+              )}
+            </View>
+            {isTaatomOfficial && (
+              <Text style={[
+                styles.onlineStatus,
+                { color: theme.colors.primary }
+              ]}>
+                Online
+              </Text>
+            )}
           </View>
           
           <View style={styles.headerActions}>

@@ -15,7 +15,7 @@ const TAATOM_OFFICIAL_USER = {
   isSystem: true,
   isVerified: true,
   role: 'system',
-  profilePic: null, // Can be set to a default Taatom logo URL if needed
+  profilePic: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png',
   profilePicStorageKey: null
 };
 
