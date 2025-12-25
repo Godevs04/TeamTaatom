@@ -3,37 +3,60 @@ import { Linking, Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
-import { WEB_SHARE_URL } from '../utils/config';
+import { WEB_SHARE_URL, getApiBaseUrl } from '../utils/config';
 
 interface AboutPoliciesProps {
   onLinkPress?: (url: string) => void;
 }
 
-// Helper function to get base domain from WEB_SHARE_URL
+// Helper function to get base domain from environment variables
+// Priority: WEB_SHARE_URL > API_BASE_URL (derived) > fallback
 const getBaseDomain = (): string => {
   try {
+    // Priority 1: Use WEB_SHARE_URL if available
     const shareUrl = WEB_SHARE_URL || '';
-    if (!shareUrl) {
-      // Fallback to default domain if WEB_SHARE_URL is not set
-      return 'https://taatom.com';
+    if (shareUrl) {
+      const url = shareUrl.trim();
+      const urlObj = new URL(url);
+      return `${urlObj.protocol}//${urlObj.host}`;
     }
     
-    // Extract domain from URL (handle both http and https)
-    const url = shareUrl.trim();
-    const urlObj = new URL(url);
-    return `${urlObj.protocol}//${urlObj.host}`;
-  } catch (error) {
-    // If URL parsing fails, try to extract domain manually
-    const shareUrl = WEB_SHARE_URL || '';
-    if (shareUrl.startsWith('http://') || shareUrl.startsWith('https://')) {
-      const match = shareUrl.match(/^https?:\/\/([^\/]+)/);
-      if (match) {
-        return shareUrl.startsWith('https') ? `https://${match[1]}` : `http://${match[1]}`;
+    // Priority 2: Derive from API_BASE_URL
+    const apiUrl = getApiBaseUrl();
+    if (apiUrl) {
+      try {
+        const apiUrlObj = new URL(apiUrl);
+        // Convert to HTTPS for web share domain (production)
+        return `https://${apiUrlObj.host.replace(/:\d+$/, '')}`;
+      } catch {
+        // If API URL parsing fails, try manual extraction
+        const match = apiUrl.match(/^https?:\/\/([^\/:]+)/);
+        if (match) {
+          return `https://${match[1]}`;
+        }
       }
     }
-    // Final fallback
-    return 'https://taatom.com';
+    
+    // Priority 3: Try to extract from API URL manually
+    if (apiUrl.startsWith('http://') || apiUrl.startsWith('https://')) {
+      const match = apiUrl.match(/^https?:\/\/([^\/:]+)/);
+      if (match) {
+        return `https://${match[1]}`;
+      }
+    }
+  } catch (error) {
+    console.error('Error extracting base domain:', error);
   }
+  
+  // Final fallback: This should not happen in production if env vars are set
+  // In production, this will cause an error if env vars are missing
+  const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    console.error('PRODUCTION ERROR: WEB_SHARE_URL or API_BASE_URL must be set in environment variables');
+  }
+  
+  // Development fallback only
+  return 'https://taatom.com';
 };
 
 export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
