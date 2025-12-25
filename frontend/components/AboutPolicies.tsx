@@ -1,16 +1,47 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Linking, Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
+import { WEB_SHARE_URL } from '../utils/config';
 
 interface AboutPoliciesProps {
   onLinkPress?: (url: string) => void;
 }
 
+// Helper function to get base domain from WEB_SHARE_URL
+const getBaseDomain = (): string => {
+  try {
+    const shareUrl = WEB_SHARE_URL || '';
+    if (!shareUrl) {
+      // Fallback to default domain if WEB_SHARE_URL is not set
+      return 'https://taatom.com';
+    }
+    
+    // Extract domain from URL (handle both http and https)
+    const url = shareUrl.trim();
+    const urlObj = new URL(url);
+    return `${urlObj.protocol}//${urlObj.host}`;
+  } catch (error) {
+    // If URL parsing fails, try to extract domain manually
+    const shareUrl = WEB_SHARE_URL || '';
+    if (shareUrl.startsWith('http://') || shareUrl.startsWith('https://')) {
+      const match = shareUrl.match(/^https?:\/\/([^\/]+)/);
+      if (match) {
+        return shareUrl.startsWith('https') ? `https://${match[1]}` : `http://${match[1]}`;
+      }
+    }
+    // Final fallback
+    return 'https://taatom.com';
+  }
+};
+
 export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
   const { theme: themeContext } = useTheme();
   const activeTheme = themeContext || theme;
+
+  // Get base domain from environment variable
+  const baseDomain = useMemo(() => getBaseDomain(), []);
 
   const handleOpenLink = async (url: string) => {
     if (onLinkPress) {
@@ -28,23 +59,23 @@ export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
     }
   };
 
-  const policyLinks = [
+  const policyLinks = useMemo(() => [
     {
       title: 'Privacy Policy',
-      url: 'https://taatom.com/privacy',
+      url: `${baseDomain}/privacy`,
       icon: 'shield-outline' as const,
     },
     {
       title: 'Terms of Service',
-      url: 'https://taatom.com/terms',
+      url: `${baseDomain}/terms`,
       icon: 'document-text-outline' as const,
     },
     {
       title: 'Copyright Consent',
-      url: 'https://taatom.com/copyright',
+      url: `${baseDomain}/copyright`,
       icon: 'lock-closed-outline' as const,
     },
-  ];
+  ], [baseDomain]);
 
   return (
     <View style={styles.container}>
