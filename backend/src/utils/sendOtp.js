@@ -139,7 +139,7 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
             
             <div class="footer">
               <p>If you have any questions, contact us at support@taatom.com</p>
-              <p>&copy; 2024 Taatom. All rights reserved.</p>
+              <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -263,7 +263,7 @@ const sendWelcomeEmail = async (email, fullName) => {
             
             <div class="footer">
               <p>If you need help getting started, contact us at support@taatom.com</p>
-              <p>&copy; 2024 Taatom. All rights reserved.</p>
+              <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -326,7 +326,7 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
           <div class="footer">
             <p>If you did not request this, you can safely ignore this email.</p>
             <p>Need help? Contact us at support@taatom.com</p>
-            <p>&copy; 2024 Taatom. All rights reserved.</p>
+            <p>&copy; 2026 Taatom. All rights reserved.</p>
           </div>
         </div>
       </body>
@@ -389,7 +389,7 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
             </div>
             <div class="divider"></div>
             <div class="footer">
-              &copy; 2024 Taatom. All rights reserved.<br>
+              &copy; 2026 Taatom. All rights reserved.<br>
               Need help? <a href="mailto:support@taatom.com" class="support">support@taatom.com</a>
             </div>
           </div>
@@ -442,7 +442,7 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
             If this was you, you can safely ignore this email.<br>
             If you did <b>not</b> sign in, please <a href="mailto:support@taatom.com" style="color: #4A90E2;">contact support</a> immediately and consider changing your password.
           </p>
-          <p style="color: #888; font-size: 13px; margin-top: 32px;">&copy; 2024 Taatom. All rights reserved.</p>
+          <p style="color: #888; font-size: 13px; margin-top: 32px;">&copy; 2026 Taatom. All rights reserved.</p>
         </div>
       `
     };
@@ -562,7 +562,7 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
             
             <div class="footer">
               <p>If you have any questions, contact us at support@taatom.com</p>
-              <p>&copy; 2024 TeamTaatom. All rights reserved.</p>
+              <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
         </body>
