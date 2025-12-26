@@ -1383,26 +1383,26 @@ const Moderators = () => {
           Add New Moderator
         </ModalHeader>
         <ModalContent>
-          <div className="space-y-4">
+          <div className="space-y-4 sm:space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Full Name
               </label>
               <input
                 type="text"
-                className="input w-full"
+                className="input w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base"
                 value={newModerator.fullName}
                 onChange={(e) => setNewModerator({ ...newModerator, fullName: e.target.value })}
                 placeholder="Enter full name"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Email Address <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
-                className="input w-full"
+                className="input w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base"
                 value={newModerator.email}
                 onChange={(e) => setNewModerator({ ...newModerator, email: sanitizeText(e.target.value) })}
                 placeholder="Enter email address"
@@ -1410,12 +1410,12 @@ const Moderators = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Password <span className="text-red-500">*</span>
               </label>
               <input
                 type="password"
-                className="input w-full"
+                className="input w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base"
                 value={newModerator.password}
                 onChange={(e) => setNewModerator({ ...newModerator, password: e.target.value })}
                 placeholder="Enter password (min 8 characters)"
@@ -1423,11 +1423,11 @@ const Moderators = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Role
               </label>
               <select
-                className="input w-full"
+                className="input w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base"
                 value={newModerator.role}
                 onChange={(e) => setNewModerator({ ...newModerator, role: e.target.value })}
               >
@@ -1436,10 +1436,10 @@ const Moderators = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
                 Permissions
               </label>
-              <div className="space-y-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-3">
+              <div className="space-y-2 max-h-40 sm:max-h-48 overflow-y-auto border-2 border-gray-200 rounded-lg p-3 sm:p-4">
                 {permissions.map((permission) => {
                   const Icon = permission.icon
                   return (

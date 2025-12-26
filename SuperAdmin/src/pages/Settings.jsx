@@ -556,7 +556,7 @@ const Settings = () => {
     <SafeComponent>
       <div className="space-y-6">
         {/* Header */}
-        <div className="bg-gradient-to-r from-slate-50 via-gray-50 to-zinc-50 rounded-2xl p-8 shadow-lg border border-slate-100">
+        <div className="bg-gradient-to-r from-slate-50 via-gray-50 to-zinc-50 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-lg border border-slate-100">
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center space-x-3 mb-3">
@@ -666,11 +666,11 @@ const Settings = () => {
         </div>
 
         {/* Settings Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6">
           {/* Security Settings */}
           {activeSection === 'security' && loadedSections.has('security') && (
             <>
-              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-6 border border-blue-200 shadow-lg">
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-blue-200 shadow-lg">
                 <div className="flex items-center space-x-3 mb-6">
                   <div className="p-3 bg-gradient-to-br from-blue-400 to-cyan-500 rounded-xl shadow-md">
                     <Shield className="w-6 h-6 text-white" />
@@ -1221,8 +1221,8 @@ const Settings = () => {
         </div>
 
         {/* Stats Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 shadow-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-green-200 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Active Features</p>

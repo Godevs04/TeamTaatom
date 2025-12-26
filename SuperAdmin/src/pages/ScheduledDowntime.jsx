@@ -94,7 +94,7 @@ const ScheduledDowntime = () => {
     <SafeComponent>
       <div className="space-y-6">
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-50 via-red-50 to-pink-50 rounded-2xl p-8 shadow-lg border border-orange-100">
+        <div className="bg-gradient-to-r from-orange-50 via-red-50 to-pink-50 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-lg border border-orange-100">
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center space-x-3 mb-3">
@@ -118,8 +118,8 @@ const ScheduledDowntime = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-2xl p-6 border border-yellow-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
+          <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-yellow-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-3 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-xl shadow-md">
@@ -134,7 +134,7 @@ const ScheduledDowntime = () => {
             </div>
           </div>
           
-          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-6 border border-blue-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
+          <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-blue-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-3 bg-gradient-to-br from-blue-400 to-cyan-500 rounded-xl shadow-md">
@@ -149,7 +149,7 @@ const ScheduledDowntime = () => {
             </div>
           </div>
           
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-green-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-3 bg-gradient-to-br from-green-400 to-emerald-500 rounded-xl shadow-md">
@@ -222,7 +222,7 @@ const ScheduledDowntime = () => {
                       </div>
                     </div>
 
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-3 sm:mt-4">
                         <div>
                           <p className="text-sm text-gray-600">Scheduled Date</p>
                           <p className="text-sm font-medium text-gray-900">
