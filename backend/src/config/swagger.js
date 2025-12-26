@@ -21,11 +21,11 @@ const isProduction = process.env.NODE_ENV === 'production';
 const DEV_SERVER_URL = process.env.API_BASE_URL || `http://localhost:${DEFAULT_PORT}`;
 
 // Production server URL - must be explicitly set
-const PROD_SERVER_URL = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isProduction ? '' : DEV_SERVER_URL);
+const PROD_SERVER_URL = process.env.API_BASE_URL || process.env.API_BASE_URL_PROD || (isProduction ? '' : DEV_SERVER_URL);
 
 // Validate production configuration
-if (isProduction && !process.env.API_PUBLIC_URL && !process.env.API_BASE_URL_PROD) {
-  console.warn('⚠️  WARNING: API_PUBLIC_URL or API_BASE_URL_PROD should be set for production Swagger docs');
+if (isProduction && !process.env.API_BASE_URL && !process.env.API_BASE_URL_PROD) {
+  console.warn('⚠️  WARNING: API_BASE_URL or API_BASE_URL_PROD should be set for production Swagger docs');
 }
 
 const options = {
@@ -112,7 +112,7 @@ All errors follow this format:
       `,
       contact: {
         name: 'API Support',
-        email: 'support@taatom.com',
+        email: 'contact@taatom.com',
         url: 'https://docs.taatom.com'
       },
       license: {
@@ -328,7 +328,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
             },
             email: {
               type: 'string',
-              example: 'john@example.com'
+              example: 'kavin@taatom.com'
             },
             profilePic: {
               type: 'string',
