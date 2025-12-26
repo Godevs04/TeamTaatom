@@ -1,7 +1,6 @@
 const express = require('express');
 const fs = require('fs').promises;
 const path = require('path');
-const { marked } = require('marked');
 const router = express.Router();
 
 /**
@@ -93,7 +92,8 @@ const servePolicyFile = async (filename, res) => {
     
     const markdownContent = await fs.readFile(filePath, 'utf-8');
     
-    // Convert markdown to HTML using marked
+    // Convert markdown to HTML using marked (ES module - use dynamic import)
+    const { marked } = await import('marked');
     const htmlBody = marked(markdownContent);
     
     // Get page title from filename
