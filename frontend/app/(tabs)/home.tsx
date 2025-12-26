@@ -519,7 +519,12 @@ export default function HomeScreen() {
     },
   });
 
-  const renderHeader = () => <AnimatedHeader unseenMessageCount={unseenMessageCount} />;
+  const renderHeader = () => (
+    <AnimatedHeader 
+      unseenMessageCount={unseenMessageCount} 
+      onRefresh={handleRefresh}
+    />
+  );
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
   // MUST be defined before conditional returns to follow Rules of Hooks

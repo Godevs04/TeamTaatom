@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 BACKEND_URL="http://localhost:3000"
-API_ENDPOINT="$BACKEND_URL/api/founder"
+API_ENDPOINT="$BACKEND_URL/api/v1/superadmin"
 
 echo -e "${BLUE}🔐 TeamTaatom SuperAdmin Security Setup${NC}"
 echo -e "${YELLOW}=====================================${NC}"
@@ -66,7 +66,7 @@ validate_password() {
 # Function to check if backend is running
 check_backend() {
     echo -e "${YELLOW}🔍 Checking backend server...${NC}"
-    if curl -s "$BACKEND_URL/api/founder/login" > /dev/null 2>&1; then
+    if curl -s "$BACKEND_URL/api/v1/superadmin/csrf-token" > /dev/null 2>&1; then
         echo -e "${GREEN}✅ Backend server is running${NC}"
         return 0
     else
@@ -92,27 +92,54 @@ create_superadmin() {
     
     echo -e "${YELLOW}🔐 Creating SuperAdmin account...${NC}"
     
-    local response=$(curl -s -X POST "$API_ENDPOINT/create" \
-        -H "Content-Type: application/json" \
+    # First, get CSRF token (optional, but helps with some setups)
+    local csrf_response=$(curl -s -c /tmp/cookies.txt "$BACKEND_URL/api/v1/superadmin/csrf-token")
+    local csrf_token=$(echo "$csrf_response" | grep -o '"csrfToken":"[^"]*"' | cut -d'"' -f4)
+    
+    # Build curl command with cookies and CSRF token if available
+    local headers=(-H "Content-Type: application/json" -b /tmp/cookies.txt)
+    if [[ -n "$csrf_token" ]]; then
+        headers+=(-H "X-CSRF-Token: $csrf_token")
+    fi
+    
+    # Make the request and capture both response and HTTP code
+    local http_code response
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_ENDPOINT/create" \
+        "${headers[@]}" \
         -d "{\"email\":\"$email\",\"password\":\"$password\"}")
     
+    # Extract HTTP code (last line) and response body (everything else)
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+    
     echo -e "${BLUE}API Response: $response${NC}"
+    echo -e "${BLUE}HTTP Status Code: $http_code${NC}"
+    
+    # Clean up cookies file
+    rm -f /tmp/cookies.txt 2>/dev/null
+    
+    # Check for errors first
+    if echo "$response" | grep -qi "\"error\"" || echo "$response" | grep -qi "CSRF\|Forbidden\|Unauthorized"; then
+        echo -e "${RED}❌ Failed to create SuperAdmin account${NC}"
+        echo -e "${RED}Error: $response${NC}"
+        return 1
+    fi
     
     # Check if the response contains success indicators
-    if echo "$response" | grep -q "SuperAdmin created successfully\|token\|success"; then
+    if [[ "$http_code" == "201" ]] || echo "$response" | grep -qi "SuperAdmin created successfully\|message.*success"; then
         echo -e "${GREEN}✅ SuperAdmin account created successfully!${NC}"
         
-        # Extract token for testing
-        local token=$(echo "$response" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-        if [[ -n "$token" ]]; then
-            echo -e "${GREEN}🔑 Authentication token generated${NC}"
-            echo -e "${BLUE}Token: ${token:0:20}...${NC}"
+        # Extract user info if available
+        local user_id=$(echo "$response" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+        if [[ -n "$user_id" ]]; then
+            echo -e "${GREEN}📝 SuperAdmin ID: $user_id${NC}"
         fi
         
         return 0
     else
         echo -e "${RED}❌ Failed to create SuperAdmin account${NC}"
         echo -e "${RED}Response: $response${NC}"
+        echo -e "${RED}HTTP Code: $http_code${NC}"
         return 1
     fi
 }

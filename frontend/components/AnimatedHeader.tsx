@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -10,6 +10,7 @@ interface AnimatedHeaderProps {
   rightComponent?: React.ReactNode;
   adjustRightComponent?: boolean;
   unseenMessageCount?: number;
+  onRefresh?: () => void;
 }
 
 export default function AnimatedHeader({ 
@@ -17,15 +18,63 @@ export default function AnimatedHeader({
   showChat = true, 
   rightComponent,
   adjustRightComponent = false,
-  unseenMessageCount = 0
+  unseenMessageCount = 0,
+  onRefresh
 }: AnimatedHeaderProps) {
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   
   // Animation refs
   const titleAnim = useRef(new Animated.Value(0)).current;
   const searchIconAnim = useRef(new Animated.Value(1)).current;
   const chatIconAnim = useRef(new Animated.Value(1)).current;
+  const logoAnim = useRef(new Animated.Value(1)).current;
+  
+  // Determine if dark mode
+  const isDark = mode === 'dark' || (mode === 'auto' && theme.colors.background === '#000000' || theme.colors.background === '#111114');
+  
+  // Taatom app logo
+  const taatomLogo = 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png';
+  
+  const handleLogoPress = useCallback(() => {
+    // Animate logo rotation/scale for refresh feedback
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(logoAnim, {
+          toValue: 0.8,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(titleAnim, {
+          toValue: -5,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(logoAnim, {
+          toValue: 1.1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(titleAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(logoAnim, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    
+    // Trigger refresh if callback provided
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, [logoAnim, titleAnim, onRefresh]);
 
   const handleSearch = useCallback(() => {
     // Animate title to the left and search icon scale
@@ -82,17 +131,28 @@ export default function AnimatedHeader({
   return (
     <View style={[styles.header, { backgroundColor: 'transparent' }]}>
       {(showSearch || showChat) && (
-        <Animated.Text 
-          style={[
-            styles.logo,
-            { color: theme.colors.text },
-            {
-              transform: [{ translateX: titleAnim }]
-            }
-          ]}
+        <TouchableOpacity 
+          onPress={handleLogoPress}
+          activeOpacity={0.7}
         >
-          Taatom
-        </Animated.Text>
+          <Animated.View
+            style={[
+              styles.logoImageContainer,
+              {
+                transform: [
+                  { translateX: titleAnim },
+                  { scale: logoAnim }
+                ],
+              }
+            ]}
+          >
+            <Image 
+              source={{ uri: taatomLogo }}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </TouchableOpacity>
       )}
       
       <View style={[(showSearch || showChat) ? styles.headerIcons : styles.headerIconsRight, adjustRightComponent && styles.headerIconsAdjusted]}>
@@ -132,9 +192,10 @@ const getStyles = (theme: any) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    paddingTop: 0,
+    minHeight: 36,
     borderBottomWidth: 0,
     shadowColor: 'transparent',
     shadowOffset: { width: 0, height: 0 },
@@ -142,10 +203,16 @@ const getStyles = (theme: any) => StyleSheet.create({
     shadowRadius: 0,
     elevation: 0,
   },
-  logo: {
-    fontSize: 24,
-    fontWeight: '600',
-    letterSpacing: 0.5,
+  logoImageContainer: {
+    width: 56,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  logoImage: {
+    width: 56,
+    height: 56,
   },
   headerIcons: {
     flexDirection: 'row',
@@ -162,11 +229,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     marginTop: 24,
   },
   iconButton: {
-    padding: 6,
+    padding: 4,
     borderRadius: 16,
     backgroundColor: 'transparent',
-    minWidth: 36,
-    minHeight: 36,
+    minWidth: 32,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
