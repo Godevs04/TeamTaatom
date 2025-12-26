@@ -24,7 +24,7 @@ TeamTaatom/
 │   └── .env         # Environment variables
 ├── superAdmin/       # Admin dashboard (React)
 └── Tool/Notes/      # Documentation & guides
-``` 
+```
 
 ## 🚀 Quick Start
 
