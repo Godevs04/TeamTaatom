@@ -22,6 +22,7 @@ import CustomAlert from '../../components/CustomAlert';
 import Constants from 'expo-constants';
 import logger from '../../utils/logger';
 import { theme } from '../../constants/theme';
+import AboutPolicies from '../../components/AboutPolicies';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -369,7 +370,7 @@ export default function AboutSettingsScreen() {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={handleContactSupport}
+            onPress={() => router.push('/support/contact')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="help-circle-outline" size={20} color={theme.colors.primary} />
@@ -382,7 +383,7 @@ export default function AboutSettingsScreen() {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => handleOpenLink('https://taatom.com/help')}
+            onPress={() => router.push('/support/help')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="book-outline" size={20} color={theme.colors.primary} />
@@ -392,32 +393,14 @@ export default function AboutSettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
           </TouchableOpacity>
+        </View>
 
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => handleOpenLink('https://taatom.com/privacy')}
-          >
-            <View style={styles.settingContent}>
-              <Ionicons name="shield-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
-                Privacy Policy
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => handleOpenLink('https://taatom.com/terms')}
-          >
-            <View style={styles.settingContent}>
-              <Ionicons name="document-text-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
-                Terms of Service
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
+        {/* Legal & Policies */}
+        <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+            Legal & Policies
+          </Text>
+          <AboutPolicies />
         </View>
 
         {/* App Actions */}

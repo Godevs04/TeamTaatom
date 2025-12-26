@@ -202,9 +202,11 @@ export default function UserProfileScreen() {
   // Remove selectedPost and modal logic
 
   // Use expoConfig for SDK 49+, fallback to manifest for older
+  // PRODUCTION-GRADE: No hardcoded fallback - must come from environment variable
   const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || 
                                Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY || 
-                               "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"; // Fallback key
+                               process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 
+                               '';
   
   // Debug logging
   logger.debug('Profile - API Key check:', {
