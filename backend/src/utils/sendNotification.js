@@ -1,7 +1,7 @@
 const { getAdmin, isInitialized } = require('../config/firebase');
 const User = require('../models/User');
 const logger = require('./logger');
-const fetch = require('node-fetch');
+const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
 
 /**
  * Taatom Notification Payload Standard

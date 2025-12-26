@@ -58,12 +58,12 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "your-apple-id@example.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "your-apple-team-id"
+        "appleId": "${APPLE_ID}",
+        "ascAppId": "${APPLE_ASC_APP_ID}",
+        "appleTeamId": "${APPLE_TEAM_ID}"
       },
       "android": {
-        "serviceAccountKeyPath": "./path/to/api-key.json",
+        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_PATH}",
         "track": "internal"
       }
     }
