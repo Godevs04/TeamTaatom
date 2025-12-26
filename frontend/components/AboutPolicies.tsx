@@ -1,59 +1,49 @@
 import React from 'react';
-import { Pressable, Text, View, StyleSheet, Platform } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as WebBrowser from 'expo-web-browser';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
-import { PRIVACY_URL, TERMS_URL, COPYRIGHT_URL } from '../constants/policies';
+import logger from '../utils/logger';
 
 interface AboutPoliciesProps {
-  onLinkPress?: (url: string) => void;
+  onLinkPress?: (path: string) => void;
 }
 
 export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
   const { theme: themeContext } = useTheme();
   const activeTheme = themeContext || theme;
+  const router = useRouter();
 
-  const handleOpenLink = async (url: string) => {
+  const handlePress = (pathname: string) => {
     if (onLinkPress) {
-      onLinkPress(url);
+      onLinkPress(pathname);
       return;
     }
 
     try {
-      // Use WebBrowser for better in-app experience on iOS/Android
-      // Falls back to system browser on web
-      if (Platform.OS === 'web') {
-        // For web, open in new tab
-        if (typeof window !== 'undefined') {
-          window.open(url, '_blank', 'noopener,noreferrer');
-        }
-      } else {
-        // For iOS/Android, use WebBrowser for in-app Safari/Chrome sheet
-        await WebBrowser.openBrowserAsync(url, {
-          presentationStyle: WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
-          controlsColor: activeTheme.colors.primary,
-        });
-      }
+      // Navigate to the policy page using Expo Router
+      // Use pathname directly as string (Expo Router handles route resolution)
+      router.push(pathname);
     } catch (error) {
-      console.error('Error opening link:', error);
+      logger.error('Error navigating to policy page:', error);
     }
   };
 
   const policyLinks = [
     {
       title: 'Privacy Policy',
-      url: PRIVACY_URL,
+      pathname: '/policies/privacy',
       icon: 'shield-outline' as const,
     },
     {
       title: 'Terms of Service',
-      url: TERMS_URL,
+      pathname: '/policies/terms',
       icon: 'document-text-outline' as const,
     },
     {
       title: 'Copyright Consent',
-      url: COPYRIGHT_URL,
+      pathname: '/policies/copyright',
       icon: 'lock-closed-outline' as const,
     },
   ];
@@ -70,7 +60,7 @@ export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
               opacity: pressed ? 0.7 : 1,
             },
           ]}
-          onPress={() => handleOpenLink(link.url)}
+          onPress={() => handlePress(link.pathname)}
         >
           <View style={styles.linkContent}>
             <Ionicons
@@ -122,4 +112,3 @@ const styles = StyleSheet.create({
     marginLeft: theme.spacing.md,
   },
 });
-

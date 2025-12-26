@@ -668,7 +668,7 @@ const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, 
 
           <!-- Dashboard Access -->
           <div style="text-align: center; margin-bottom: 24px;">
-            <a href="${process.env.SUPERADMIN_URL || 'http://localhost:5001'}/dashboard" 
+            <a href="${process.env.SUPERADMIN_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5001')}/dashboard" 
                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
               🚀 Access Dashboard
             </a>

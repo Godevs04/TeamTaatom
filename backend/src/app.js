@@ -25,6 +25,7 @@ const hashtagRoutes = require('./routes/hashtagRoutes');
 const collectionRoutes = require('./routes/collectionRoutes');
 const songRoutes = require('./routes/songRoutes');
 const localeRoutes = require('./routes/localeRoutes');
+const policyRoutes = require('./routes/policyRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -121,17 +122,21 @@ app.use(cors({
       return callback(new Error('Not allowed by CORS'));
     }
     
-    // Development: Allow localhost and local network
+    // Development: Allow localhost and local network (development-only fallbacks)
+    // In production, these should never be used - only FRONTEND_URL and SUPERADMIN_URL from env
     const devOrigins = [
-      process.env.FRONTEND_URL || 'http://localhost:8081',
-      process.env.SUPERADMIN_URL || 'http://localhost:5001',
-      'http://localhost:5003',
-      'http://localhost:8081',
-      'http://x:8081',
-      'http://x:3000',
-      'file://',
-      'null'
-    ];
+      process.env.FRONTEND_URL,
+      process.env.SUPERADMIN_URL,
+      // Development-only fallbacks (never used in production)
+      ...(isDevelopment ? [
+        'http://localhost:5003',
+        'http://localhost:8081',
+        'http://x:8081',
+        'http://x:3000',
+        'file://',
+        'null'
+      ] : [])
+    ].filter(Boolean); // Remove undefined values
     
     // In development, also allow localhost with any port and local network IPs
     const devPatterns = [
@@ -350,15 +355,22 @@ if (process.env.NODE_ENV === 'development') {
           return request;
         },
         onComplete: () => {
-          console.log('Swagger UI loaded successfully');
+          logger.log('Swagger UI loaded successfully');
         }
       }
     }));
-    console.log('📚 Swagger docs available at http://localhost:3000/api-docs');
+    const port = process.env.PORT || 3000;
+    const swaggerUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isDevelopment ? `http://localhost:${port}` : '');
+    if (swaggerUrl) {
+      logger.log(`📚 Swagger docs available at ${swaggerUrl}/api-docs`);
+    }
   } catch (error) {
-    console.warn('⚠️  Swagger not available. Install dependencies: npm install swagger-jsdoc swagger-ui-express');
+    logger.warn('⚠️  Swagger not available. Install dependencies: npm install swagger-jsdoc swagger-ui-express');
   }
 }
+
+// Policy routes (serve markdown files - public access, before 404 handler)
+app.use('/', policyRoutes);
 
 // Health check routes (before other routes for quick access)
 const healthRoutes = require('./routes/healthRoutes');

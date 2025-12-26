@@ -134,10 +134,10 @@
       "GOOGLE_MAPS_API_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png",
       "EXPO_PROJECT_ID": "10a6919b-ba8b-4dfb-b379-d36909e67701",
-      "GOOGLE_CLIENT_ID": "",
-      "GOOGLE_CLIENT_ID_IOS": "",
-      "GOOGLE_CLIENT_ID_ANDROID": "",
-      "GOOGLE_REDIRECT_URI": ""
+      "GOOGLE_CLIENT_ID": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
+      "GOOGLE_CLIENT_ID_IOS": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
+      "GOOGLE_CLIENT_ID_ANDROID": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
+      "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@teamgodevs/taatom"
     }
   }
 }

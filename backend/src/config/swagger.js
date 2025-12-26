@@ -13,9 +13,20 @@ if (!process.env.API_BASE_URL) {
   });
 }
 
-const DEFAULT_PORT = process.env.PORT || 5000;
+// PRODUCTION-GRADE: Use environment variables, no hardcoded localhost for production
+const DEFAULT_PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Development server URL
 const DEV_SERVER_URL = process.env.API_BASE_URL || `http://localhost:${DEFAULT_PORT}`;
-const PROD_SERVER_URL = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || DEV_SERVER_URL;
+
+// Production server URL - must be explicitly set
+const PROD_SERVER_URL = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isProduction ? '' : DEV_SERVER_URL);
+
+// Validate production configuration
+if (isProduction && !process.env.API_PUBLIC_URL && !process.env.API_BASE_URL_PROD) {
+  console.warn('⚠️  WARNING: API_PUBLIC_URL or API_BASE_URL_PROD should be set for production Swagger docs');
+}
 
 const options = {
   definition: {
@@ -656,6 +667,42 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
       {
         name: 'Feature Flags',
         description: 'Feature flag management for A/B testing and feature rollouts'
+      },
+      {
+        name: 'Health',
+        description: 'Health check endpoints for monitoring and load balancers - Basic health, detailed health, readiness, and liveness probes'
+      },
+      {
+        name: 'Policies',
+        description: 'Public policy documents - Privacy Policy, Terms of Service, and Copyright Consent'
+      },
+      {
+        name: 'Collections',
+        description: 'User collections management - Create, manage, and organize post collections'
+      },
+      {
+        name: 'Search',
+        description: 'Search functionality - Search posts, users, and locations'
+      },
+      {
+        name: 'Activity',
+        description: 'Activity feed endpoints - Get user activity and activity feed'
+      },
+      {
+        name: 'User Management',
+        description: 'User account management - Activity logs, account settings, and user operations'
+      },
+      {
+        name: 'Songs',
+        description: 'Music library endpoints - Get available songs for posts and shorts'
+      },
+      {
+        name: 'Locales',
+        description: 'Location/locale management - Get and manage travel locations and destinations'
+      },
+      {
+        name: 'Mentions',
+        description: 'User mention functionality - Search users for @mentions in posts and comments'
       }
     ]
   },

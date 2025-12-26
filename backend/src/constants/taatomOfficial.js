@@ -1,12 +1,13 @@
 /**
  * Taatom Official System User Identity
  * 
- * This is a static system identity used for admin support chats.
- * DO NOT persist this to the database - it's a read-only constant.
+ * PRODUCTION-GRADE: Fetch from environment variable or database
+ * If not found in env, the system will automatically create the user in the database
+ * No hardcoded fallback - must be configured via environment variable or database
  * 
  * The ID must match a valid ObjectId format for MongoDB references.
  */
-const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || null;
 
 const TAATOM_OFFICIAL_USER = {
   _id: TAATOM_OFFICIAL_USER_ID,
