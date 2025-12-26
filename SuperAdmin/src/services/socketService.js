@@ -57,8 +57,15 @@ class SocketService {
       logger.debug('🔌 Attempting to connect socket...')
       this.isConnecting = true
       
+      // PRODUCTION-GRADE: Use environment variable, no hardcoded fallback
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      if (!apiUrl && import.meta.env.PROD) {
+        logger.error('❌ VITE_API_URL is required for production!');
+        throw new Error('VITE_API_URL environment variable is required for production builds');
+      }
+      
       // Create socket with autoConnect enabled to avoid race conditions
-      this.socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3000', {
+      this.socket = io(apiUrl || 'http://localhost:3000', {
         path: '/socket.io/',
         transports: ['websocket', 'polling'], // Add polling as fallback
         autoConnect: true, // Enable autoConnect to prevent premature disconnection

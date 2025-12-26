@@ -8,18 +8,9 @@ const { generateSignedUrl } = require('../services/mediaService');
 
 // Import socket and fetch with proper error handling
 let getIO;
-let fetch;
 
-// Use dynamic import for fetch to handle different Node.js versions
-try {
-  fetch = require('node-fetch');
-} catch (error) {
-  // Fallback to global fetch if available (Node.js 18+)
-  fetch = globalThis.fetch || global.fetch;
-  if (!fetch) {
-    logger.error('Fetch not available');
-  }
-}
+// Use dynamic import for fetch to handle CommonJS compatibility
+const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
 
 // Function to get socket instance - will be called when needed
 const getSocketInstance = () => {
@@ -262,7 +253,11 @@ exports.sendMessage = async (req, res) => {
     }
     if (!text) return sendError(res, 'VAL_2001', 'Text required');
     
-    const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+    // PRODUCTION-GRADE: Get from environment variable, no hardcoded fallback
+    const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID;
+    if (!TAATOM_OFFICIAL_USER_ID) {
+      logger.warn('TAATOM_OFFICIAL_USER_ID not set in environment variables');
+    }
     const isTaatomOfficialRecipient = otherUserId.toString() === TAATOM_OFFICIAL_USER_ID;
     
     // Safety: Prevent user from sending messages AS Taatom Official (spoofing)
@@ -351,7 +346,11 @@ exports.sendMessage = async (req, res) => {
         
         // For admin_support conversations, also emit to admin rooms
         if (chat.type === 'admin_support') {
-          const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
+          // PRODUCTION-GRADE: Get from environment variable, no hardcoded fallback
+    const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID;
+    if (!TAATOM_OFFICIAL_USER_ID) {
+      logger.warn('TAATOM_OFFICIAL_USER_ID not set in environment variables');
+    }
           // Emit to admin support room for real-time updates in admin panel
           nsp.to('admin_support').emit('admin_support:message:new', { 
             chatId: chat._id, 

@@ -7,7 +7,12 @@ const logger = require('../utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const WS_PATH = process.env.WS_PATH || '/socket.io';
-const WS_ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || 'http://localhost:19006';
+// PRODUCTION-GRADE: Require WS_ALLOWED_ORIGIN in production, allow fallback only in development
+const isProduction = process.env.NODE_ENV === 'production';
+const WS_ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || (isProduction ? null : 'http://localhost:19006');
+if (isProduction && !WS_ALLOWED_ORIGIN) {
+  throw new Error('WS_ALLOWED_ORIGIN environment variable is required for production');
+}
 
 let io;
 const onlineUsers = new Map(); // userId -> Set<socketId>

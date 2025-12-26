@@ -256,7 +256,7 @@ const signin = async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
     let location = 'Unknown location';
     try {
-      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+      const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
       const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
       if (geoRes.ok) {
         const geo = await geoRes.json();
@@ -392,7 +392,11 @@ const googleSignIn = async (req, res) => {
 const forgotPassword = async (req, res) => {
   const isMobile = /iphone|android|ipad/i.test(req.headers['user-agent'] || "");
 
-  const prefix = isMobile ? 'myapp://reset?token=' : 'http://localhost:19006/reset?token=';
+  // Use environment variable for web reset URL, fallback to app scheme for mobile
+  const webResetUrl = process.env.WEB_RESET_PASSWORD_URL || process.env.FRONTEND_URL || '';
+  const prefix = isMobile 
+    ? 'myapp://reset?token=' 
+    : (webResetUrl ? `${webResetUrl}/reset?token=` : 'myapp://reset?token=');
   logger.debug('Prefix for reset link:', prefix);
 
   try {

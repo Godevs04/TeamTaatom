@@ -51,23 +51,50 @@ export const getApiBaseUrl = (): string => {
       return fallbackUrl;
     }
     
-    // Last resort for web: Use default IP
-    logger.error(`[Config] ❌ [WEB] No valid API URL found! Using default: http://192.168.1.15:3000`);
-    return 'http://192.168.1.15:3000';
+    // PRODUCTION-GRADE: No hardcoded fallback - require environment variable
+    const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      logger.error(`[Config] ❌ [WEB] PRODUCTION: EXPO_PUBLIC_API_BASE_URL is required!`);
+      throw new Error('EXPO_PUBLIC_API_BASE_URL environment variable is required for production builds');
+    }
+    
+    // Development fallback only
+    logger.error(`[Config] ❌ [WEB] No valid API URL found! Please set EXPO_PUBLIC_API_BASE_URL in .env file`);
+    return 'http://localhost:3000'; // Development fallback only
   }
   
   // For mobile: Use .env or app.json
   const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-  if (envUrl && envUrl !== '' && !envUrl.includes('localhost')) {
+  if (envUrl && envUrl !== '') {
+    // In production, reject localhost/local IPs
+    const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction && (envUrl.includes('localhost') || envUrl.includes('192.168.') || envUrl.includes('10.') || envUrl.includes('172.'))) {
+      logger.error(`[Config] ❌ [MOBILE] PRODUCTION: Cannot use localhost or local IP!`);
+      throw new Error('EXPO_PUBLIC_API_BASE_URL must be a production URL (not localhost/local IP) for production builds');
+    }
     return envUrl;
   }
   
   const fallbackUrl = Constants.expoConfig?.extra?.API_BASE_URL;
-  if (fallbackUrl && !fallbackUrl.includes('localhost')) {
+  if (fallbackUrl && fallbackUrl !== '') {
+    const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction && (fallbackUrl.includes('localhost') || fallbackUrl.includes('192.168.') || fallbackUrl.includes('10.') || fallbackUrl.includes('172.'))) {
+      logger.error(`[Config] ❌ [MOBILE] PRODUCTION: Cannot use localhost or local IP!`);
+      throw new Error('API_BASE_URL in app.json must be a production URL for production builds');
+    }
     return fallbackUrl;
   }
   
-  return 'http://192.168.1.15:3000';
+  // PRODUCTION-GRADE: No hardcoded fallback for production
+  const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    logger.error(`[Config] ❌ [MOBILE] PRODUCTION: EXPO_PUBLIC_API_BASE_URL is required!`);
+    throw new Error('EXPO_PUBLIC_API_BASE_URL environment variable is required for production builds');
+  }
+  
+  // Development fallback only
+  logger.warn(`[Config] ⚠️  [MOBILE] No API URL configured. Using localhost fallback. Please set EXPO_PUBLIC_API_BASE_URL in .env`);
+  return 'http://localhost:3000'; // Development fallback only
 };
 
 // API Configuration - Use getter function for dynamic evaluation

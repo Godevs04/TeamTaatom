@@ -1,6 +1,6 @@
 const logger = require('../../utils/logger');
 const { buildMediaKey, uploadObject, getDownloadUrl } = require('../../services/storage');
-const fetch = require('node-fetch');
+const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
 
 /**
  * Process image job - Migrated to Sevalla Object Storage

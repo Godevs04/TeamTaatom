@@ -92,7 +92,7 @@ const getActiveSessions = async (req, res) => {
 
     // Try to get location from IP
     try {
-      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+      const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
       const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
       if (ip) {
         const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);

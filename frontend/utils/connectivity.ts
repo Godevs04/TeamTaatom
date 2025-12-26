@@ -1,11 +1,14 @@
 import { Alert } from 'react-native';
 import { createLogger } from './logger';
+import { getApiUrl } from './config';
 
 const logger = createLogger('Connectivity');
 
 export const testAPIConnectivity = async (): Promise<boolean> => {
   try {
-    const response = await fetch('http://192.168.1.8:3000/api/health', {
+    // PRODUCTION-GRADE: Use config utility instead of hardcoded URL
+    const healthCheckUrl = getApiUrl('/api/health');
+    const response = await fetch(healthCheckUrl, {
       method: 'GET',
       timeout: 5000,
     });
@@ -24,9 +27,11 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
 };
 
 export const showConnectivityAlert = () => {
+  // PRODUCTION-GRADE: Get API URL from config instead of hardcoded
+  const apiUrl = getApiUrl('/api');
   Alert.alert(
     'Connection Issue',
-    'Unable to connect to the server. Please ensure:\n\n1. The backend server is running\n2. Your device is on the same network\n3. The server IP address is correct\n\nCurrent server: http://192.168.1.8:3000',
+    `Unable to connect to the server. Please ensure:\n\n1. The backend server is running\n2. Your device is on the same network\n3. The server address is correct\n\nCurrent server: ${apiUrl}`,
     [
       { text: 'OK', style: 'default' }
     ]
