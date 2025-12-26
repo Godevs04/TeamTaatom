@@ -137,7 +137,10 @@ export default function SignUpScreen() {
       // Ensure onboarding flag is not set for new users
       await AsyncStorage.removeItem('onboarding_completed');
 
-      showSuccess(response.message);
+      showSuccess(
+        `${response.message}\n\n📧 Please check your inbox and spam folder for the verification code.`,
+        'Verification Code Sent'
+      );
       setTimeout(() => {
         router.push({
           pathname: '/(auth)/verifyOtp',

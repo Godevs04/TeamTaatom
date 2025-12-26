@@ -1,43 +1,10 @@
-const nodemailer = require('nodemailer');
 const logger = require('./logger');
-
-// Get email credentials (support both EMAIL_* and SMTP_* for backward compatibility)
-const emailUser = process.env.SMTP_USER || process.env.EMAIL_USER;
-const emailPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
-
-// Create transporter only if credentials are available
-let transporter = null;
-
-if (emailUser && emailPass) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: emailUser,
-      pass: emailPass
-    }
-  });
-} else {
-  logger.warn('⚠️  Email credentials not found. Email functionality disabled.');
-  logger.warn('   Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-  
-  // Create a dummy transporter that will fail gracefully
-  transporter = {
-    sendMail: async () => {
-      throw new Error('Email credentials not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-    }
-  };
-}
+const { sendEmail } = require('./brevoService');
 
 // Send downtime notification email to all users
 const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate, scheduledTime, duration, reason) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom',
-        address: emailUser
-      },
-      to: userEmail,
-      subject: '🔧 Scheduled Maintenance - Taatom',
+    const subject = '🔧 Scheduled Maintenance - Taatom';
       html: `
         <!DOCTYPE html>
         <html lang="en">
@@ -171,10 +138,9 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
           </div>
         </body>
         </html>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(userEmail, subject, html, null, 'Taatom');
     logger.info('✅ Downtime notification email sent to', userEmail);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -186,13 +152,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
 // Send maintenance completion email
 const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom',
-        address: emailUser
-      },
-      to: userEmail,
-      subject: '✅ Maintenance Complete - Taatom is Back Online!',
+    const subject = '✅ Maintenance Complete - Taatom is Back Online!';
       html: `
         <!DOCTYPE html>
         <html lang="en">
@@ -323,10 +283,9 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
           </div>
         </body>
         </html>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(userEmail, subject, html, null, 'Taatom');
     logger.info('✅ Maintenance completion email sent to', userEmail);
     return { success: true, messageId: info.messageId };
   } catch (error) {
