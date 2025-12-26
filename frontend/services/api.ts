@@ -246,7 +246,7 @@ api.interceptors.response.use(
         logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url);
       } else {
         // Log auth errors as debug to reduce noise
-        logger.debug('API Auth Error:', parsedError.code, error.config?.url);
+        logger.debug('API Auth Error:', { code: parsedError.code, url: error.config?.url });
       }
       error.parsedError = parsedError;
     } else {
