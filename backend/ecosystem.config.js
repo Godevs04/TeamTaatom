@@ -74,7 +74,7 @@ module.exports = {
       ref: 'origin/main',
       repo: 'git@github.com:your-org/taatom-backend.git',
       path: '/var/www/taatom-backend',
-      'post-deploy': 'npm install --omit=dev && pm2 reload ecosystem.config.js --env production',
+      // 'post-deploy': 'npm install --omit=dev && pm2 reload ecosystem.config.js --env production',
       'pre-setup': 'apt-get update && apt-get install -y git',
     },
   },
