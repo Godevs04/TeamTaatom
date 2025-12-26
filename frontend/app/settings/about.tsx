@@ -10,7 +10,8 @@ import {
   Linking,
   Share,
   Platform,
-  Dimensions
+  Dimensions,
+  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -39,8 +40,12 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 };
 
 export default function AboutSettingsScreen() {
+  const { theme, mode } = useTheme();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Determine if dark mode
+  const isDark = mode === 'dark' || (mode === 'auto' && (theme.colors.background === '#000000' || theme.colors.background === '#111114'));
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -51,7 +56,6 @@ export default function AboutSettingsScreen() {
     onConfirm: undefined as (() => void) | undefined,
   });
   const router = useRouter();
-  const { theme } = useTheme();
 
   const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', showCancel: boolean = false, onConfirm?: () => void) => {
     setAlertConfig({ 
@@ -257,8 +261,21 @@ export default function AboutSettingsScreen() {
         {/* App Info */}
         <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
           <View style={styles.appInfoContainer}>
-            <View style={[styles.appIcon, { backgroundColor: theme.colors.primary }]}>
-              <Ionicons name="camera" size={32} color="white" />
+            <View style={[
+              styles.appIconContainer,
+              {
+                backgroundColor: isDark ? '#000000' : '#FFFFFF',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }
+            ]}>
+              <Image 
+                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
+                style={[
+                  styles.appIconImage,
+                  { tintColor: isDark ? '#FFFFFF' : '#000000' }
+                ]}
+                resizeMode="contain"
+              />
             </View>
             <Text style={[styles.appName, { color: theme.colors.text }]}>
               Taatom
@@ -460,25 +477,25 @@ export default function AboutSettingsScreen() {
               Copyright
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              © 2024 Taatom Inc.
+              © 2026 Taatom Inc.
             </Text>
           </View>
 
           <View style={styles.infoItem}>
             <Text style={[styles.infoLabel, { color: theme.colors.textSecondary }]}>
-              Build Version
+              Support Email
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              {Constants.expoConfig?.version || '1.0.0'} ({Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '100'})
+              contact@taatom.com
             </Text>
           </View>
 
           <View style={styles.infoItem}>
             <Text style={[styles.infoLabel, { color: theme.colors.textSecondary }]}>
-              Platform
+              Website
             </Text>
             <Text style={[styles.infoValue, { color: theme.colors.text }]}>
-              React Native / Expo
+              https://taatom.com
             </Text>
           </View>
         </View>
@@ -486,7 +503,7 @@ export default function AboutSettingsScreen() {
         {/* Footer */}
         <View style={styles.footerContainer}>
           <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
-            Made with ❤️ by the Taatom Team
+            Made with ❤️ by Taatom
           </Text>
         </View>
       </ScrollView>
@@ -540,13 +557,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: isTablet ? theme.spacing.xl : 20,
   },
-  appIcon: {
+  appIconContainer: {
     width: isTablet ? 100 : 80,
     height: isTablet ? 100 : 80,
     borderRadius: isTablet ? 25 : 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    overflow: 'hidden',
     marginBottom: isTablet ? theme.spacing.lg : 16,
+    borderWidth: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  appIconImage: {
+    width: '100%',
+    height: '100%',
   },
   appName: {
     fontSize: isTablet ? theme.typography.h2.fontSize : 24,

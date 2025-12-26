@@ -33,7 +33,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
   try {
     const mailOptions = {
       from: {
-        name: 'Taatom Team',
+        name: 'Taatom',
         address: emailUser
       },
       to: userEmail,
@@ -166,7 +166,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
             
             <div class="footer">
               <p>If you have any questions, contact us at support@taatom.com</p>
-              <p>&copy; 2024 Taatom. All rights reserved.</p>
+              <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -188,7 +188,7 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
   try {
     const mailOptions = {
       from: {
-        name: 'Taatom Team',
+        name: 'Taatom',
         address: emailUser
       },
       to: userEmail,
@@ -318,7 +318,7 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
             
             <div class="footer">
               <p>If you have any questions, contact us at support@taatom.com</p>
-              <p>&copy; 2024 Taatom. All rights reserved.</p>
+              <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
         </body>

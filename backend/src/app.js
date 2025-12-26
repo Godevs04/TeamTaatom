@@ -317,11 +317,19 @@ app.use('/collections', collectionRoutes);
 app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
 
-// Swagger API Documentation (only in development)
-if (process.env.NODE_ENV === 'development') {
+// Swagger API Documentation
+// Enable in development or when ENABLE_SWAGGER=true (for production)
+const enableSwagger = process.env.NODE_ENV === 'development' || process.env.ENABLE_SWAGGER === 'true';
+if (enableSwagger) {
   try {
     const swaggerUi = require('swagger-ui-express');
     const swaggerSpec = require('./config/swagger');
+    
+    // Handle both /api-docs and /api-docs/ (with trailing slash)
+    app.get('/api-docs', (req, res) => {
+      res.redirect('/api-docs/');
+    });
+    
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
       customCss: `
         .swagger-ui .topbar { display: none }
@@ -363,6 +371,8 @@ if (process.env.NODE_ENV === 'development') {
     const swaggerUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isDevelopment ? `http://localhost:${port}` : '');
     if (swaggerUrl) {
       logger.log(`📚 Swagger docs available at ${swaggerUrl}/api-docs`);
+    } else {
+      logger.log(`📚 Swagger docs available at /api-docs`);
     }
   } catch (error) {
     logger.warn('⚠️  Swagger not available. Install dependencies: npm install swagger-jsdoc swagger-ui-express');

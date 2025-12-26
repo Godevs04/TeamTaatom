@@ -12,7 +12,7 @@ import { AlertProvider } from '../context/AlertContext';
 import { ScrollProvider } from '../context/ScrollContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname, useSegments } from 'expo-router';
 // Removed expo-notifications - using native FCM instead
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
@@ -88,7 +88,10 @@ function RootLayoutInner() {
   const [isOffline, setIsOffline] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [showSessionBanner, setShowSessionBanner] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
+  const segments = useSegments();
   
   // Apply web optimizations
   useWebOptimizations();
@@ -268,6 +271,7 @@ function RootLayoutInner() {
           setSessionExpired(false);
         }
       } finally {
+        setIsInitializing(false);
         SplashScreen.hideAsync();
       }
     };
@@ -275,8 +279,24 @@ function RootLayoutInner() {
   }, []);
 
   useEffect(() => {
+    // Don't navigate during initialization to prevent flash to signin screen
+    if (isInitializing || isAuthenticated === null) {
+      return;
+    }
+    
     const checkOnboardingAndNavigate = async () => {
+      // Get current route to avoid navigation during hot reload/refresh
+      const currentPath = pathname || segments.join('/');
+      const isOnAuthScreen = currentPath.includes('(auth)') || currentPath.includes('signin') || currentPath.includes('signup') || currentPath.includes('verifyOtp') || currentPath.includes('forgot');
+      const isOnHomeScreen = currentPath.includes('(tabs)/home') || currentPath === '/(tabs)/home' || currentPath === '/home' || segments[0] === '(tabs)';
+      
       if (isAuthenticated) {
+        // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
+        if (isOnHomeScreen && !isOnAuthScreen) {
+          logger.debug('[Navigation] Already on home screen, skipping navigation');
+          return;
+        }
+        
         // Check if onboarding is completed
         const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
         if (!onboardingCompleted) {
@@ -286,19 +306,36 @@ function RootLayoutInner() {
           return;
         }
         
-        // Only navigate if we're definitely authenticated and onboarding is done
-        // Remove setTimeout for immediate navigation
-        logger.debug('[Navigation] User authenticated, navigating to home');
-        router.replace('/(tabs)/home');
+        // Only navigate if we're not already on home screen
+        if (!isOnHomeScreen) {
+          logger.debug('[Navigation] User authenticated, navigating to home');
+          router.replace('/(tabs)/home');
+        }
       } else if (isAuthenticated === false && !sessionExpired) {
+        // If already on auth screen, don't navigate (prevents flash during refresh)
+        if (isOnAuthScreen) {
+          logger.debug('[Navigation] Already on auth screen, skipping navigation');
+          return;
+        }
+        
         // Only navigate to auth if we're definitely not authenticated and not due to session expiry
-        logger.debug('[Navigation] User not authenticated, navigating to auth');
-        router.replace('/(auth)/signin');
+        // Double-check we have no stored auth data before navigating to signin
+        const token = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('userData');
+        
+        if (!token && !userData) {
+          logger.debug('[Navigation] User not authenticated, navigating to auth');
+          router.replace('/(auth)/signin');
+        } else {
+          // We have stored data but auth check failed - might be network issue
+          // Don't navigate to signin, let the user stay on current screen
+          logger.debug('[Navigation] Auth check failed but stored data exists, not navigating to signin');
+        }
       }
     };
     
     checkOnboardingAndNavigate();
-  }, [isAuthenticated, sessionExpired, router]);
+  }, [isAuthenticated, sessionExpired, isInitializing, router, pathname, segments]);
 
   useEffect(() => {
     // Skip push notifications on web (requires VAPID keys)
@@ -426,7 +463,7 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated, isOffline, sessionExpired]);
 
-  if (isAuthenticated === null) {
+  if (isAuthenticated === null || isInitializing) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
         <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -465,7 +502,6 @@ function RootLayoutInner() {
           {/* Public routes - accessible without authentication */}
           <Stack.Screen name="help" options={{ presentation: 'card' }} />
           <Stack.Screen name="support" options={{ presentation: 'card' }} />
-          <Stack.Screen name="policies" options={{ presentation: 'card' }} />
           {/* Support sub-routes - must be public for web URLs */}
           <Stack.Screen name="support/help" options={{ presentation: 'card' }} />
           <Stack.Screen name="support/contact" options={{ presentation: 'card' }} />

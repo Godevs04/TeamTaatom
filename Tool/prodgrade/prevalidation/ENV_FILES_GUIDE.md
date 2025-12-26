@@ -78,6 +78,9 @@ NODE_ENV=development
 # Database Configuration (REQUIRED)
 # ============================================
 MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/taatom?retryWrites=true&w=majority
+# Optional: Explicit database name (if not specified in MONGO_URL)
+# If not set, database name will be extracted from MONGO_URL or default to 'TaatomProd'
+MONGO_DB_NAME=TaatomProd
 
 # ============================================
 # JWT & Security (REQUIRED)
