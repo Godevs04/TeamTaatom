@@ -642,7 +642,7 @@ const Logs = () => {
     <SafeComponent>
       <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-gray-50 via-slate-50 to-zinc-50 rounded-2xl p-8 shadow-lg border border-gray-100">
+      <div className="bg-gradient-to-r from-gray-50 via-slate-50 to-zinc-50 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-lg border border-gray-100">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center space-x-3 mb-3">
@@ -709,9 +709,9 @@ const Logs = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-5 md:gap-6">
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-2 bg-red-100 rounded-lg">
@@ -727,7 +727,7 @@ const Logs = () => {
           </CardContent>
         </Card>
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-2 bg-yellow-100 rounded-lg">
@@ -743,7 +743,7 @@ const Logs = () => {
           </CardContent>
         </Card>
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-2 bg-blue-100 rounded-lg">
@@ -759,7 +759,7 @@ const Logs = () => {
           </CardContent>
         </Card>
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-2 bg-green-100 rounded-lg">
@@ -775,7 +775,7 @@ const Logs = () => {
           </CardContent>
         </Card>
         <Card className="hover:shadow-lg transition-shadow">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-5 md:p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <div className="p-2 bg-purple-100 rounded-lg">
@@ -794,8 +794,8 @@ const Logs = () => {
 
       {/* Filters */}
       <Card>
-        <CardContent className="p-6">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+        <CardContent className="p-4 sm:p-5 md:p-6">
+          <div className="flex flex-col lg:flex-row gap-3 sm:gap-4 items-start lg:items-center">
             {/* Search Bar */}
             <div className="flex-1 w-full lg:w-auto min-w-0">
               <div className="relative">
@@ -940,7 +940,7 @@ const Logs = () => {
           {/* More Filters */}
           {showMoreFilters && (
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-2">
                     Date Range

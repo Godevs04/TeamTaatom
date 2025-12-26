@@ -1142,7 +1142,7 @@ const TravelContent = () => {
           setShowBulkActionModal(false)
           setBulkActionType(null)
         }
-      }} className="max-w-md bg-white">
+      }} className="bg-white">
         <ModalHeader onClose={() => {
           if (!isBulkActionInProgress) {
             setShowBulkActionModal(false)
