@@ -1,5 +1,13 @@
 require('dotenv').config();
 
+// PRODUCTION-GRADE: Ensure NODE_ENV is set correctly for staging/production deployments
+// If deploying to staging or production, force NODE_ENV to production
+// This ensures consistent behavior across cloud environments
+if (process.env.STAGING === 'true' || process.env.PRODUCTION === 'true' || process.env.DEPLOY_ENV === 'staging' || process.env.DEPLOY_ENV === 'production') {
+  process.env.NODE_ENV = 'production';
+  console.log('📡 Deployment environment detected - Setting NODE_ENV=production');
+}
+
 // Validate required environment variables before starting
 const validateEnvironment = () => {
   const requiredVars = [
@@ -203,8 +211,15 @@ process.on('unhandledRejection', async (reason, promise) => {
     io = global.socketIO;
 
     server.listen(PORT, '0.0.0.0', () => {
+      const env = process.env.NODE_ENV || 'development';
       logger.info(`🚀 Server running on port ${PORT}`);
-      logger.info(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`📡 Environment: ${env}`);
+      
+      // Warn if environment is not set correctly for production deployments
+      if (env === 'development' && (process.env.STAGING === 'true' || process.env.PRODUCTION === 'true')) {
+        logger.warn('⚠️  WARNING: NODE_ENV is "development" but deployment flags detected!');
+        logger.warn('⚠️  This may cause issues. Ensure NODE_ENV=production in your deployment environment.');
+      }
       
       // Signal PM2 that app is ready (if using PM2)
       if (process.send) {
