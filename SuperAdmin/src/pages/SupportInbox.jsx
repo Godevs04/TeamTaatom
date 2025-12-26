@@ -641,45 +641,46 @@ const SupportInbox = () => {
 
   return (
     <SafeComponent>
-      <div className="p-6 space-y-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+      <div className="p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
         {/* Enhanced Header with Gradient */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl p-8 shadow-xl border border-blue-200"
+          className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-xl border border-blue-200"
         >
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-white/20 backdrop-blur-sm rounded-xl shadow-lg">
-                <MessageSquare className="w-8 h-8 text-white" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+              <div className="p-2 sm:p-3 md:p-4 bg-white/20 backdrop-blur-sm rounded-lg sm:rounded-xl shadow-lg flex-shrink-0">
+                <MessageSquare className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
               </div>
-              <div>
-                <h1 className="text-4xl font-bold text-white mb-2">Support Inbox</h1>
-                <p className="text-blue-100 text-lg">Manage user support conversations</p>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-1 sm:mb-2 truncate">Support Inbox</h1>
+                <p className="text-blue-100 text-sm sm:text-base md:text-lg truncate">Manage user support conversations</p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
               <button
                 onClick={() => setShowNewConversationModal(true)}
-                className="flex items-center gap-2 px-6 py-2 bg-white text-blue-600 rounded-lg transition-all shadow-lg hover:shadow-xl font-semibold hover:bg-blue-50"
+                className="flex items-center justify-center gap-2 px-4 sm:px-5 md:px-6 py-2 sm:py-2.5 bg-white text-blue-600 rounded-lg transition-all shadow-lg hover:shadow-xl font-semibold hover:bg-blue-50 text-sm sm:text-base flex-1 sm:flex-initial"
               >
-                <Plus className="w-5 h-5" />
-                Start New Chat
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Start New Chat</span>
+                <span className="sm:hidden">New</span>
               </button>
               <button
                 onClick={refreshConversations}
                 disabled={refreshing}
-                className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-lg transition-all shadow-lg hover:shadow-xl disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-lg transition-all shadow-lg hover:shadow-xl disabled:opacity-50 flex-shrink-0"
               >
-                <RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
               </button>
             </div>
           </div>
         </motion.div>
 
         {/* Enhanced Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -763,62 +764,67 @@ const SupportInbox = () => {
 
         {/* Search and Filters */}
         <Card className="shadow-lg border-gray-200">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row gap-4">
+          <CardContent className="p-4 sm:p-5 md:p-6">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 sm:left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
                 <input
                   type="text"
                   placeholder="Search by user name or message..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-lg sm:rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 mt-4 text-sm">
-              <div className="flex items-center gap-2 text-gray-500">
-                <Filter className="w-4 h-4" />
-                <span>Quick filters:</span>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 sm:gap-2.5 mt-3 sm:mt-4 text-xs sm:text-sm">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-gray-500 flex-shrink-0">
+                <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Quick filters:</span>
+                <span className="sm:hidden">Filters:</span>
               </div>
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'unread', label: 'Unread' },
-                { id: 'trip_verification', label: 'Trip Verification' },
-                { id: 'support', label: 'General Support' }
-              ].map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setFilter(item.id)}
-                  className={`px-3 py-1 rounded-full border text-xs transition-colors ${
-                    filter === item.id
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-              <div className="flex items-center gap-2 text-gray-500 ml-auto">
-                <ArrowUpDown className="w-4 h-4" />
-                <span>Sort:</span>
+              <div className="flex flex-wrap gap-2 flex-1">
                 {[
-                  { id: 'recent', label: 'Newest' },
-                  { id: 'oldest', label: 'Oldest' },
-                  { id: 'unread', label: 'Unread first' }
+                  { id: 'all', label: 'All' },
+                  { id: 'unread', label: 'Unread' },
+                  { id: 'trip_verification', label: 'Trip Verification' },
+                  { id: 'support', label: 'General Support' }
                 ].map(item => (
                   <button
                     key={item.id}
-                    onClick={() => setSortBy(item.id)}
-                    className={`px-3 py-1 rounded-full border text-xs transition-colors ${
-                      sortBy === item.id
-                        ? 'bg-purple-600 text-white border-purple-600'
+                    onClick={() => setFilter(item.id)}
+                    className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border text-xs transition-colors whitespace-nowrap ${
+                      filter === item.id
+                        ? 'bg-blue-600 text-white border-blue-600'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
                     {item.label}
                   </button>
                 ))}
+              </div>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-gray-500 w-full sm:w-auto mt-2 sm:mt-0">
+                <ArrowUpDown className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="flex-shrink-0">Sort:</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 'recent', label: 'Newest' },
+                    { id: 'oldest', label: 'Oldest' },
+                    { id: 'unread', label: 'Unread first' }
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSortBy(item.id)}
+                      className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border text-xs transition-colors whitespace-nowrap ${
+                        sortBy === item.id
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </CardContent>
@@ -875,9 +881,9 @@ const SupportInbox = () => {
                       }`}
                       onClick={() => openConversation(conversation)}
                     >
-                      <CardContent className="p-4 sm:p-5 lg:p-6">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <CardContent className="p-3 sm:p-4 md:p-5 lg:p-6">
+                        <div className="flex items-start justify-between gap-2 sm:gap-3 md:gap-4">
+                          <div className="flex items-start gap-2 sm:gap-3 md:gap-4 flex-1 min-w-0">
                             {/* Enhanced Avatar with Status */}
                             <div className="relative flex-shrink-0">
                               {conversation.user?.profilePic ? (
@@ -885,7 +891,7 @@ const SupportInbox = () => {
                                   <img
                                     src={conversation.user.profilePic}
                                     alt={conversation.user.fullName}
-                                    className="w-14 h-14 sm:w-16 sm:h-16 rounded-full object-cover border-4 border-white shadow-lg ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all"
+                                    className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-full object-cover border-2 sm:border-4 border-white shadow-lg ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all"
                                     onError={(e) => {
                                       e.target.style.display = 'none'
                                       e.target.nextSibling.style.display = 'flex'
@@ -896,15 +902,15 @@ const SupportInbox = () => {
                                   </div>
                                 </div>
                               ) : (
-                                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-lg border-4 border-white ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all">
+                                <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-base sm:text-lg md:text-xl shadow-lg border-2 sm:border-4 border-white ring-2 ring-blue-100 group-hover:ring-blue-300 transition-all">
                                   {(conversation.user?.fullName?.[0] || conversation.user?.email?.[0] || 'U').toUpperCase()}
                                 </div>
                               )}
                               {/* Online Status Indicator */}
-                              <div className="absolute bottom-0 right-0 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full border-4 border-white shadow-md ring-2 ring-green-100"></div>
+                              <div className="absolute bottom-0 right-0 w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 bg-green-500 rounded-full border-2 sm:border-3 md:border-4 border-white shadow-md ring-1 sm:ring-2 ring-green-100"></div>
                               {/* Unread Badge */}
                               {hasUnread && (
-                                <div className="absolute -top-1 -right-1 w-6 h-6 sm:w-7 sm:h-7 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-lg ring-2 ring-white animate-pulse">
+                                <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7 bg-gradient-to-br from-red-500 to-pink-600 rounded-full flex items-center justify-center text-white text-[10px] sm:text-xs font-bold shadow-lg ring-1 sm:ring-2 ring-white animate-pulse">
                                   {unreadCount > 9 ? '9+' : unreadCount}
                                 </div>
                               )}
@@ -1001,27 +1007,27 @@ const SupportInbox = () => {
           setNewConversationReason('support')
         }} size="large">
           <ModalHeader>
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Plus className="w-5 h-5 text-blue-600" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="p-1.5 sm:p-2 bg-blue-100 rounded-lg flex-shrink-0">
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Start New Conversation</h2>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Start New Conversation</h2>
             </div>
           </ModalHeader>
-          <ModalContent className="space-y-6">
+          <ModalContent className="space-y-4 sm:space-y-6">
             {/* User Search */}
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
+              <label className="block text-sm font-semibold text-gray-800">
                 Search User <span className="text-red-500">*</span>
               </label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search by name or email..."
                   value={userSearchQuery}
                   onChange={(e) => setUserSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-2.5 sm:py-3 text-sm sm:text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
                 />
                 {searchingUsers && (
                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -1111,36 +1117,36 @@ const SupportInbox = () => {
 
             {/* Reason Selection */}
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
+              <label className="block text-sm font-semibold text-gray-800">
                 Conversation Reason <span className="text-red-500">*</span>
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   onClick={() => setNewConversationReason('support')}
-                  className={`p-4 rounded-xl border-2 transition-all ${
+                  className={`p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all ${
                     newConversationReason === 'support'
                       ? 'border-purple-500 bg-purple-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <Users className={`w-5 h-5 ${newConversationReason === 'support' ? 'text-purple-600' : 'text-gray-400'}`} />
-                    <span className={`font-medium ${newConversationReason === 'support' ? 'text-purple-700' : 'text-gray-700'}`}>
+                  <div className="flex items-center gap-2 sm:gap-2.5">
+                    <Users className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 ${newConversationReason === 'support' ? 'text-purple-600' : 'text-gray-400'}`} />
+                    <span className={`font-medium text-sm sm:text-base ${newConversationReason === 'support' ? 'text-purple-700' : 'text-gray-700'}`}>
                       General Support
                     </span>
                   </div>
                 </button>
                 <button
                   onClick={() => setNewConversationReason('trip_verification')}
-                  className={`p-4 rounded-xl border-2 transition-all ${
+                  className={`p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all ${
                     newConversationReason === 'trip_verification'
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <MapPin className={`w-5 h-5 ${newConversationReason === 'trip_verification' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className={`font-medium ${newConversationReason === 'trip_verification' ? 'text-blue-700' : 'text-gray-700'}`}>
+                  <div className="flex items-center gap-2 sm:gap-2.5">
+                    <MapPin className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 ${newConversationReason === 'trip_verification' ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <span className={`font-medium text-sm sm:text-base ${newConversationReason === 'trip_verification' ? 'text-blue-700' : 'text-gray-700'}`}>
                       Trip Verification
                     </span>
                   </div>
@@ -1150,15 +1156,15 @@ const SupportInbox = () => {
 
             {/* Initial Message (Optional) */}
             <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
-                Initial Message <span className="text-gray-400 text-xs">(Optional)</span>
+              <label className="block text-sm font-semibold text-gray-800">
+                Initial Message <span className="text-gray-500 text-xs font-normal">(Optional)</span>
               </label>
               <textarea
                 value={newConversationMessage}
                 onChange={(e) => setNewConversationMessage(e.target.value)}
                 placeholder="Type an optional initial message..."
                 rows={4}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none shadow-sm min-h-[100px]"
               />
             </div>
           </ModalContent>
@@ -1172,14 +1178,14 @@ const SupportInbox = () => {
                 setNewConversationMessage('')
                 setNewConversationReason('support')
               }}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+              className="w-full sm:w-auto px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
             >
               Cancel
             </button>
             <button
               onClick={createNewConversation}
               disabled={!selectedUser || creatingConversation}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
             >
               {creatingConversation ? (
                 <>
@@ -1200,36 +1206,36 @@ const SupportInbox = () => {
         {selectedConversation && (
           <Modal isOpen={!!selectedConversation} onClose={closeConversation} className="w-full max-w-[95vw] sm:max-w-[90vw] md:max-w-5xl lg:max-w-6xl xl:max-w-7xl max-h-[95vh] sm:max-h-[90vh] flex flex-col mx-2 sm:mx-4 lg:mx-auto">
             <ModalHeader className="flex-shrink-0 p-0">
-              {/* Enhanced Header with Gradient Background */}
-              <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-4 sm:p-5 lg:p-6 rounded-t-xl">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 lg:gap-6">
-                  <div className="flex items-center gap-3 sm:gap-4 lg:gap-5 flex-1 min-w-0">
+              {/* Enhanced Header with Gradient Background - More Compact on Mobile */}
+              <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-2.5 sm:p-4 md:p-5 lg:p-6 rounded-t-xl">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-3 md:gap-4 lg:gap-6">
+                  <div className="flex items-center gap-2 sm:gap-3 md:gap-4 lg:gap-5 flex-1 min-w-0">
                     {selectedConversation.user?.profilePic ? (
                       <div className="relative flex-shrink-0">
                         <img
                           src={selectedConversation.user.profilePic}
                           alt={selectedConversation.user.fullName}
-                          className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full object-cover border-4 border-white shadow-xl"
+                          className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full object-cover border-2 sm:border-3 md:border-4 border-white shadow-xl"
                         />
-                        <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-5 lg:h-5 bg-green-500 rounded-full border-4 border-white shadow-md"></div>
+                        <div className="absolute -bottom-0.5 -right-0.5 sm:-bottom-1 sm:-right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 bg-green-500 rounded-full border-2 sm:border-3 md:border-4 border-white shadow-md"></div>
                       </div>
                     ) : (
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-full bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-sm flex items-center justify-center text-white font-bold text-lg sm:text-xl lg:text-2xl border-4 border-white shadow-xl flex-shrink-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-sm flex items-center justify-center text-white font-bold text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl border-2 sm:border-3 md:border-4 border-white shadow-xl flex-shrink-0">
                         {(selectedConversation.user?.fullName?.[0] || selectedConversation.user?.email?.[0] || 'U').toUpperCase()}
                       </div>
                     )}
                     <div className="text-white min-w-0 flex-1">
-                      <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-1 truncate">
+                      <h2 className="text-base sm:text-lg md:text-xl lg:text-2xl font-bold mb-0.5 sm:mb-1 truncate">
                         {selectedConversation.user?.fullName || selectedConversation.user?.email || 'Unknown User'}
                       </h2>
-                      <div className="flex items-center gap-2 sm:gap-2.5 text-blue-100">
-                        <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <p className="text-xs sm:text-sm lg:text-base truncate">{selectedConversation.user?.email || 'No email'}</p>
+                      <div className="flex items-center gap-1.5 sm:gap-2 md:gap-2.5 text-blue-100">
+                        <Mail className="w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 flex-shrink-0" />
+                        <p className="text-[10px] sm:text-xs md:text-sm lg:text-base truncate">{selectedConversation.user?.email || 'No email'}</p>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                    <span className={`px-3 sm:px-4 lg:px-5 py-1.5 sm:py-2 lg:py-2.5 rounded-full text-xs sm:text-sm lg:text-base font-semibold border-2 border-white/30 backdrop-blur-sm whitespace-nowrap ${
+                  <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                    <span className={`px-2 sm:px-3 md:px-4 lg:px-5 py-1 sm:py-1.5 md:py-2 lg:py-2.5 rounded-full text-[10px] sm:text-xs md:text-sm lg:text-base font-semibold border border-white/30 sm:border-2 backdrop-blur-sm whitespace-nowrap ${
                       selectedConversation.reason === 'trip_verification' 
                         ? 'bg-blue-500/80 text-white' 
                         : 'bg-purple-500/80 text-white'
@@ -1238,67 +1244,69 @@ const SupportInbox = () => {
                     </span>
                     <button
                       onClick={closeConversation}
-                      className="p-2 sm:p-2.5 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white transition-colors flex-shrink-0"
+                      className="p-1.5 sm:p-2 md:p-2.5 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white transition-colors flex-shrink-0"
                       aria-label="Close chat"
                     >
-                      <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5" />
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Enhanced Metadata Cards - Compact and Responsive */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4 mt-3 sm:mt-4 px-4 sm:px-5 lg:px-6 pb-4 sm:pb-5 lg:pb-6">
-                <div
-                  className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-2.5 hover:shadow-md transition-all cursor-pointer"
-                  onClick={() => {
-                    navigator.clipboard.writeText(selectedConversation._id)
-                    setCopiedId(true)
-                    setTimeout(() => setCopiedId(false), 2000)
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-blue-500 rounded text-white flex-shrink-0">
-                      <Sparkles className="w-3 h-3" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-blue-700">ID</p>
-                      <p className="text-xs text-blue-600 truncate font-mono">{selectedConversation._id.slice(-8)}</p>
-                    </div>
-                    {copiedId ? (
-                      <Check className="w-3 h-3 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <Copy className="w-3 h-3 text-blue-400 group-hover:text-blue-600 transition-colors flex-shrink-0" />
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-lg p-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-gray-500 rounded text-white flex-shrink-0">
-                      <Clock className="w-3 h-3" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-700">Updated</p>
-                      <p className="text-xs text-gray-600 truncate">{formatDate(selectedConversation.updatedAt)}</p>
+              {/* Enhanced Metadata Cards - More Compact on Mobile, Horizontal Scroll */}
+              <div className="overflow-x-auto -mx-2 sm:mx-0 px-2 sm:px-0">
+                <div className="flex sm:grid sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4 mt-2 sm:mt-3 md:mt-4 px-2 sm:px-4 md:px-5 lg:px-6 pb-2 sm:pb-3 md:pb-4 lg:pb-6 min-w-max sm:min-w-0">
+                  <div
+                    className="group relative overflow-hidden bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-md sm:rounded-lg p-2 sm:p-2.5 hover:shadow-md transition-all cursor-pointer flex-shrink-0 w-[140px] sm:w-auto"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedConversation._id)
+                      setCopiedId(true)
+                      setTimeout(() => setCopiedId(false), 2000)
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <div className="p-1 sm:p-1.5 bg-blue-500 rounded text-white flex-shrink-0">
+                        <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] sm:text-xs font-semibold text-blue-700">ID</p>
+                        <p className="text-[10px] sm:text-xs text-blue-600 truncate font-mono">{selectedConversation._id.slice(-8)}</p>
+                      </div>
+                      {copiedId ? (
+                        <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-green-600 flex-shrink-0" />
+                      ) : (
+                        <Copy className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-blue-400 group-hover:text-blue-600 transition-colors flex-shrink-0" />
+                      )}
                     </div>
                   </div>
-                </div>
 
-                <div className="bg-gradient-to-br from-green-50 to-emerald-100 border border-green-200 rounded-lg p-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-green-500 rounded text-white flex-shrink-0">
-                      <Tag className="w-3 h-3" />
+                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 rounded-md sm:rounded-lg p-2 sm:p-2.5 flex-shrink-0 w-[140px] sm:w-auto">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <div className="p-1 sm:p-1.5 bg-gray-500 rounded text-white flex-shrink-0">
+                        <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] sm:text-xs font-semibold text-gray-700">Updated</p>
+                        <p className="text-[10px] sm:text-xs text-gray-600 truncate">{formatDate(selectedConversation.updatedAt)}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-green-700">Reason</p>
-                      <p className="text-xs text-green-600 font-medium truncate">{getReasonLabel(selectedConversation.reason)}</p>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-100 border border-green-200 rounded-md sm:rounded-lg p-2 sm:p-2.5 flex-shrink-0 w-[140px] sm:w-auto">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <div className="p-1 sm:p-1.5 bg-green-500 rounded text-white flex-shrink-0">
+                        <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] sm:text-xs font-semibold text-green-700">Reason</p>
+                        <p className="text-[10px] sm:text-xs text-green-600 font-medium truncate">{getReasonLabel(selectedConversation.reason)}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </ModalHeader>
-            <ModalContent className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 sm:p-5 lg:p-6">
+            <ModalContent className="flex-1 flex flex-col min-h-0 overflow-hidden p-2 sm:p-3 md:p-4 lg:p-5 xl:p-6">
               <style>{`
                 .messages-container::-webkit-scrollbar {
                   width: 6px;
@@ -1366,12 +1374,12 @@ const SupportInbox = () => {
                             </div>
                           )}
                           {isAdminMessage && isConsecutive && <div className="w-6 sm:w-7" />}
-                          <div className={`max-w-[75%] sm:max-w-[65%] md:max-w-[60%] lg:max-w-[55%] rounded-xl shadow-sm hover:shadow-md transition-all ${
+                          <div className={`max-w-[85%] sm:max-w-[75%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%] rounded-lg sm:rounded-xl shadow-sm hover:shadow-md transition-all ${
                             isAdminMessage
                               ? 'bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-50 border border-blue-200/50 rounded-bl-sm' // Left: rounded except bottom-left
                               : 'bg-gradient-to-br from-white to-gray-50 border border-gray-200/50 rounded-br-sm' // Right: rounded except bottom-right
                           }`}>
-                            <div className="p-2 sm:p-2.5 lg:p-3">
+                            <div className="p-2 sm:p-2.5 md:p-3">
                               {isAdminMessage && !isConsecutive && (
                                 <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
                                   <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-pulse flex-shrink-0"></div>
@@ -1435,23 +1443,23 @@ const SupportInbox = () => {
                 <div ref={messagesEndRef} />
               </div>
             </ModalContent>
-            <ModalFooter className="flex-shrink-0 border-t border-gray-200 bg-white p-4 sm:p-5 lg:p-6">
-              <div className="space-y-3 sm:space-y-4 w-full">
+            <ModalFooter className="flex-shrink-0 border-t border-gray-200 bg-white p-2 sm:p-3 md:p-4 lg:p-5 xl:p-6">
+              <div className="space-y-2 sm:space-y-3 md:space-y-4 w-full">
                 {quickReplies.length > 0 && (
-                  <div className="flex flex-wrap gap-2 sm:gap-2.5 pb-2 max-h-28 overflow-y-auto">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 md:gap-2.5 pb-1.5 sm:pb-2 max-h-20 sm:max-h-24 md:max-h-28 overflow-y-auto">
                     {quickReplies.map((text, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => setMessageText(text)}
-                        className="px-3 sm:px-3.5 lg:px-4 py-1.5 sm:py-2 bg-gray-50 border border-gray-200 rounded-full text-xs sm:text-sm hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition-colors whitespace-nowrap"
+                        className="px-2 sm:px-2.5 md:px-3 lg:px-3.5 xl:px-4 py-1 sm:py-1.5 md:py-2 bg-gray-50 border border-gray-200 rounded-full text-[10px] sm:text-xs md:text-sm hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 transition-colors whitespace-nowrap"
                       >
                         {text}
                       </button>
                     ))}
                   </div>
                 )}
-                <div className="flex items-end gap-2 sm:gap-3 lg:gap-4">
+                <div className="flex items-end gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
                   <div className="flex-1 relative min-w-0">
                     <textarea
                       value={messageText}
@@ -1474,9 +1482,9 @@ const SupportInbox = () => {
                       }}
                       placeholder="Type your message..."
                       rows={1}
-                      className="w-full px-3 sm:px-4 lg:px-5 py-2.5 sm:py-3 lg:py-3.5 bg-white border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-sm sm:text-base lg:text-lg leading-relaxed"
+                      className="w-full px-2.5 sm:px-3 md:px-4 lg:px-5 py-2 sm:py-2.5 md:py-3 lg:py-3.5 bg-white border-2 border-gray-300 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-xs sm:text-sm md:text-base lg:text-lg leading-relaxed"
                       disabled={sendingMessage}
-                      style={{ minHeight: '48px', maxHeight: '120px' }}
+                      style={{ minHeight: '40px', maxHeight: '100px' }}
                     />
                   </div>
                   <motion.button
@@ -1487,14 +1495,14 @@ const SupportInbox = () => {
                       sendMessage()
                     }}
                     disabled={!messageText.trim() || sendingMessage}
-                    className="px-4 sm:px-5 lg:px-6 py-2.5 sm:py-3 lg:py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold shadow-lg hover:shadow-xl disabled:hover:scale-100 flex-shrink-0 text-sm sm:text-base lg:text-lg"
+                    className="px-3 sm:px-4 md:px-5 lg:px-6 py-2 sm:py-2.5 md:py-3 lg:py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg sm:rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2 font-semibold shadow-lg hover:shadow-xl disabled:hover:scale-100 flex-shrink-0 text-xs sm:text-sm md:text-base lg:text-lg"
                     aria-label="Send message"
                   >
                     {sendingMessage ? (
-                      <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 animate-spin" />
                     ) : (
                       <>
-                        <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <Send className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5" />
                         <span className="hidden sm:inline">Send</span>
                       </>
                     )}

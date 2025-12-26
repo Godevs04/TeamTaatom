@@ -589,7 +589,7 @@ const QueryMonitor = () => {
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Enhanced Header with Gradient */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-2xl">
+      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 text-white shadow-2xl">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-4 mb-4">
@@ -666,9 +666,9 @@ const QueryMonitor = () => {
       ) : (
         <>
           {/* Enhanced Key Metrics with Animations */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
             <Card className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-l-blue-500">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-5 md:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <div className="p-3 bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl shadow-lg">
@@ -687,7 +687,7 @@ const QueryMonitor = () => {
             </Card>
 
             <Card className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-l-red-500">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-5 md:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <div className="p-3 bg-gradient-to-br from-red-400 to-red-600 rounded-xl shadow-lg">
@@ -717,7 +717,7 @@ const QueryMonitor = () => {
             </Card>
 
             <Card className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-l-green-500">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-5 md:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <div className="p-3 bg-gradient-to-br from-green-400 to-green-600 rounded-xl shadow-lg">
@@ -742,7 +742,7 @@ const QueryMonitor = () => {
             </Card>
 
             <Card className="hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-l-yellow-500">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-5 md:p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <div className="p-3 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl shadow-lg">
@@ -769,7 +769,7 @@ const QueryMonitor = () => {
 
           {/* Charts Section */}
           {stats?.slowQueries && stats.slowQueries.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 md:gap-6">
               <Card className="hover:shadow-xl transition-all duration-300">
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -864,7 +864,7 @@ const QueryMonitor = () => {
               </div>
               
               {/* Filters */}
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
@@ -1266,7 +1266,7 @@ const QueryMonitor = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
                 <div className="p-4 bg-white rounded-lg shadow-sm">
                   <p className="text-sm font-medium text-gray-600 mb-2">Slow Query Threshold</p>
                   <p className="text-2xl font-bold text-gray-900">

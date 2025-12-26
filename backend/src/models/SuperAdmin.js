@@ -107,6 +107,7 @@ const superAdminSchema = new mongoose.Schema({
     firstName: String,
     lastName: String,
     avatar: String,
+    avatarStorageKey: String,
     phone: String,
     timezone: {
       type: String,

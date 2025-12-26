@@ -1,10 +1,27 @@
 const express = require('express')
 const router = express.Router()
+const multer = require('multer')
 const SuperAdmin = require('../models/SuperAdmin')
 const SystemSettings = require('../models/SystemSettings')
 const logger = require('../utils/logger')
 const { sendError, sendSuccess } = require('../utils/errorCodes')
 const { generateCSRF } = require('../middleware/csrfProtection')
+
+// Multer configuration for avatar uploads
+const storage = multer.memoryStorage()
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only image files are allowed'), false)
+    }
+  }
+})
 const {
   verifySuperAdminToken,
   checkPermission,
@@ -259,25 +276,102 @@ router.patch('/change-password', changePassword)
  * /api/v1/superadmin/profile:
  *   patch:
  *     summary: Update SuperAdmin profile details
+ *     description: Update SuperAdmin profile information including personal details and avatar image. Avatar upload is optional.
  *     tags: [SuperAdmin]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
- *               fullName:
+ *               firstName:
  *                 type: string
+ *                 description: First name of the SuperAdmin
+ *                 example: John
+ *               lastName:
+ *                 type: string
+ *                 description: Last name of the SuperAdmin
+ *                 example: Doe
+ *               phone:
+ *                 type: string
+ *                 description: Phone number
+ *                 example: "+1234567890"
+ *               timezone:
+ *                 type: string
+ *                 description: Timezone
+ *                 example: "America/New_York"
+ *                 default: "UTC"
  *               avatar:
  *                 type: string
+ *                 format: binary
+ *                 description: Profile picture image file (JPEG, PNG, WebP, GIF - Max 5MB)
  *     responses:
  *       200:
- *         description: Profile updated
+ *         description: Profile updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Profile updated successfully"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439011"
+ *                     email:
+ *                       type: string
+ *                       example: "admin@example.com"
+ *                     role:
+ *                       type: string
+ *                       example: "superadmin"
+ *                     organization:
+ *                       type: string
+ *                       example: "Taatom"
+ *                     permissions:
+ *                       type: object
+ *                     profile:
+ *                       type: object
+ *                       properties:
+ *                         firstName:
+ *                           type: string
+ *                         lastName:
+ *                           type: string
+ *                         avatar:
+ *                           type: string
+ *                           description: Signed URL to the profile picture
+ *                         phone:
+ *                           type: string
+ *                         timezone:
+ *                           type: string
+ *       400:
+ *         description: Bad request - Invalid file format or validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Only image files are allowed"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Internal server error
  */
-router.patch('/profile', updateProfile)
+router.patch('/profile', upload.single('avatar'), updateProfile)
 
 // Notifications endpoint
 /**

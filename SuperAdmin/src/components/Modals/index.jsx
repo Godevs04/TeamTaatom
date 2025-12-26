@@ -36,15 +36,18 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) =
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 overflow-y-auto">
       <div 
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
       <div 
         className={cn(
-          'relative bg-white rounded-lg shadow-lg max-w-md w-full z-50 flex flex-col max-h-[95vh] sm:max-h-[90vh]',
+          'relative bg-white rounded-none sm:rounded-lg shadow-2xl w-full z-50 flex flex-col',
+          'h-screen sm:h-auto max-h-screen sm:max-h-[90vh]',
+          'max-w-full sm:max-w-md md:max-w-lg lg:max-w-2xl xl:max-w-3xl',
+          'mx-0 sm:mx-auto my-0 sm:my-auto',
           className
         )}
         role="dialog"
@@ -67,19 +70,23 @@ Modal.propTypes = {
 
 const ModalHeader = ({ children, onClose, className }) => {
   return (
-    <div className={cn('flex items-center justify-between p-6 border-b', className)}>
+    <div className={cn(
+      'flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0',
+      'bg-white sticky top-0 z-10',
+      className
+    )}>
       {typeof children === 'string' ? (
-        <h3 className="text-lg font-semibold">{children}</h3>
+        <h3 className="text-lg sm:text-xl font-bold text-gray-900 pr-2">{children}</h3>
       ) : (
-        children
+        <div className="flex-1 min-w-0">{children}</div>
       )}
       {onClose && (
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-gray-500 hover:text-gray-700 transition-colors flex-shrink-0 ml-3 p-1 rounded-md hover:bg-gray-100"
           aria-label="Close modal"
         >
-          <X className="w-5 h-5" />
+          <X className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
     </div>
@@ -94,7 +101,11 @@ ModalHeader.propTypes = {
 
 const ModalContent = ({ children, className }) => {
   return (
-    <div className={cn('p-6 overflow-y-auto flex-1', className)}>
+    <div className={cn(
+      'p-4 sm:p-6 overflow-y-auto flex-1 min-h-0',
+      'bg-gray-50 sm:bg-white',
+      className
+    )}>
       {children || null}
     </div>
   )
@@ -107,7 +118,13 @@ ModalContent.propTypes = {
 
 const ModalFooter = ({ children, className }) => {
   return (
-    <div className={cn('flex items-center justify-end gap-3 p-6 border-t flex-shrink-0 bg-white', className)}>
+    <div className={cn(
+      'flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 sm:gap-3',
+      'p-4 sm:p-6 border-t border-gray-200 flex-shrink-0 bg-white',
+      'sticky bottom-0 z-10 shadow-lg sm:shadow-none',
+      'rounded-none sm:rounded-b-lg',
+      className
+    )}>
       {children || null}
     </div>
   )
