@@ -384,7 +384,7 @@ const System = () => {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl p-8 text-white shadow-xl"
+          className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 text-white shadow-xl"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -440,7 +440,7 @@ const System = () => {
               </div>
             )}
             {healthData && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
                 <Card className="border-0 shadow-lg">
                   <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                     <CardTitle className="flex items-center gap-2">
@@ -639,7 +639,7 @@ const System = () => {
               </div>
             )}
             {performanceData && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 md:gap-6">
                 <Card className="border-0 shadow-lg">
                   <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50">
                     <CardTitle className="flex items-center gap-2">
@@ -976,7 +976,7 @@ const System = () => {
                     </button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                     <button
                       onClick={() => handleClearCache('user:*')}
                       className="p-4 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-all text-left"

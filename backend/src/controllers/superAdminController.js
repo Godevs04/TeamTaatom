@@ -289,11 +289,57 @@ const updateProfile = async (req, res) => {
     if (phone) superAdmin.profile.phone = phone
     if (timezone) superAdmin.profile.timezone = timezone
     
+    // Handle avatar upload
+    if (req.file) {
+      try {
+        const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage')
+        const { generateSignedUrl } = require('../services/mediaService')
+        
+        // Delete old avatar if it exists
+        if (superAdmin.profile.avatar) {
+          try {
+            // Try to extract storage key from URL
+            const oldKey = superAdmin.profile.avatarStorageKey || superAdmin.profile.avatar.split('/').pop()
+            if (oldKey) {
+              await deleteObject(oldKey).catch(err => {
+                logger.debug('Failed to delete old avatar:', err)
+              })
+            }
+          } catch (deleteError) {
+            logger.warn('Error deleting old avatar:', deleteError)
+          }
+        }
+        
+        // Upload new avatar to storage
+        const extension = req.file.originalname.split('.').pop() || 'jpg'
+        const avatarStorageKey = buildMediaKey({
+          type: 'superadmin',
+          userId: superAdmin._id.toString(),
+          filename: req.file.originalname,
+          extension
+        })
+        
+        await uploadObject(req.file.buffer, avatarStorageKey, req.file.mimetype)
+        logger.info('SuperAdmin avatar uploaded successfully:', { avatarStorageKey })
+        
+        // Generate signed URL for response
+        const avatarUrl = await generateSignedUrl(avatarStorageKey, 'PROFILE')
+        
+        // Save avatar URL and storage key
+        superAdmin.profile.avatar = avatarUrl
+        superAdmin.profile.avatarStorageKey = avatarStorageKey
+      } catch (uploadError) {
+        logger.error('Avatar upload error:', uploadError)
+        return sendError(res, 'FILE_4004', uploadError.message || 'Error uploading avatar')
+      }
+    }
+    
     await superAdmin.save()
     
     await superAdmin.logSecurityEvent('profile_updated', 'Profile information updated', req.ip, req.get('User-Agent'), true)
     
     res.json({
+      success: true,
       message: 'Profile updated successfully',
       user: {
         id: superAdmin._id,

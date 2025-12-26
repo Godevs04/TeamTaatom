@@ -1255,7 +1255,7 @@ const Songs = () => {
       </Card>
 
       {/* Upload Modal */}
-      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="max-w-2xl bg-white">
+      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="bg-white">
         <ModalHeader onClose={() => setShowUploadModal(false)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -1265,9 +1265,9 @@ const Songs = () => {
           </div>
         </ModalHeader>
         <form onSubmit={handleUpload}>
-          <ModalContent className="space-y-6">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
+          <ModalContent className="space-y-5 sm:space-y-6">
+            <div className="space-y-2.5">
+              <label className="block text-sm font-semibold text-gray-800">
                 Song File <span className="text-red-500">*</span>
               </label>
               <div className="relative">
@@ -1275,7 +1275,7 @@ const Songs = () => {
                   type="file"
                   accept="audio/*"
                   onChange={handleFileChange}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer hover:border-gray-400"
                   required
                 />
                 {formData.file && (
@@ -1293,16 +1293,16 @@ const Songs = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
                   Title <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
                   placeholder="Song title"
                   required
                   minLength={1}
@@ -1310,15 +1310,15 @@ const Songs = () => {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
                   Artist <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.artist}
                   onChange={(e) => setFormData({ ...formData, artist: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
                   placeholder="Artist name"
                   required
                   minLength={1}
@@ -1327,13 +1327,13 @@ const Songs = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">Genre</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">Genre</label>
                 <select
                   value={formData.genre}
                   onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
                 >
                   {genres.map((genre) => (
                     <option key={genre} value={genre}>
@@ -1343,20 +1343,20 @@ const Songs = () => {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
-                  Duration (minutes) <span className="text-gray-400 text-xs">Optional</span>
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Duration (minutes) <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   value={formData.durationMinutes}
                   onChange={(e) => setFormData({ ...formData, durationMinutes: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
                   placeholder="Duration in minutes (e.g., 3.5)"
                   min="0"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1.5">
                   Enter duration in minutes (e.g., 3.5 for 3 minutes 30 seconds)
                 </p>
               </div>
@@ -1366,18 +1366,18 @@ const Songs = () => {
             <button
               type="button"
               onClick={() => setShowUploadModal(false)}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={uploading}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
             >
               {uploading ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
                   Uploading...
                 </>
               ) : (
@@ -1392,7 +1392,7 @@ const Songs = () => {
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setSongToDelete)} className="max-w-md bg-white">
+      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setSongToDelete)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setSongToDelete)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-100 rounded-lg">
@@ -1436,7 +1436,7 @@ const Songs = () => {
           <button
             type="button"
             onClick={() => handleModalClose(setShowDeleteModal, setSongToDelete)}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+            className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
           >
             Cancel
           </button>
@@ -1444,7 +1444,7 @@ const Songs = () => {
             type="button"
             onClick={handleDeleteConfirm}
             disabled={(songToDelete?.usageCount || 0) > 0}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-base"
           >
             <Trash2 className="w-5 h-5" />
             Delete Song
@@ -1458,7 +1458,7 @@ const Songs = () => {
           setShowBulkActionModal(false)
           setBulkActionType(null)
         }
-      }} className="max-w-md bg-white">
+      }} className="bg-white">
         <ModalHeader onClose={() => {
           if (!isBulkActionInProgress) {
             setShowBulkActionModal(false)
@@ -1517,7 +1517,7 @@ const Songs = () => {
               }
             }}
             disabled={isBulkActionInProgress}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isBulkActionInProgress ? 'Processing...' : 'Cancel'}
           </button>
@@ -1531,7 +1531,7 @@ const Songs = () => {
                   handleBulkToggleStatus(false)
                 }
               }}
-              className={`px-6 py-3 rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2 ${
+              className={`w-full sm:w-auto px-6 py-3.5 rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-base ${
                 bulkActionType === 'activate'
                   ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
                   : 'bg-gradient-to-r from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white'
@@ -1556,7 +1556,7 @@ const Songs = () => {
       {/* Edit Modal */}
       <Modal isOpen={showEditModal} onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
         setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
-      })} className="max-w-2xl bg-white">
+      })} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
           setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
         })}>
@@ -1656,18 +1656,18 @@ const Songs = () => {
                 setSongToEdit(null)
                 setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
               }}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={editing}
-              className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
             >
               {editing ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
                   Updating...
                 </>
               ) : (
@@ -1682,7 +1682,7 @@ const Songs = () => {
       </Modal>
 
       {/* Preview Modal */}
-      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewSong)} className="max-w-lg bg-white">
+      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewSong)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowPreviewModal, setPreviewSong)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-100 rounded-lg">
@@ -1751,7 +1751,7 @@ const Songs = () => {
           <button
             type="button"
             onClick={() => handleModalClose(setShowPreviewModal, setPreviewSong)}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+            className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
           >
             Close
           </button>
