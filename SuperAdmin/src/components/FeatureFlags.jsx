@@ -42,7 +42,7 @@ const FeatureFlagCard = memo(({
   
   return (
     <div 
-      className="group bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 border border-gray-200 shadow-lg hover:shadow-2xl transform hover:-translate-y-2 transition-all duration-300"
+      className="group bg-gradient-to-br from-white to-gray-50 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 border border-gray-200 shadow-lg hover:shadow-2xl transform hover:-translate-y-2 transition-all duration-300"
       style={{
         background: flag.enabled 
           ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'

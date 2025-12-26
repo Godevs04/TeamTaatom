@@ -30,9 +30,32 @@ async function getOrCreateSupportConversation({ userId, reason, refId = null }) 
       throw new Error('Invalid reason. Must be "trip_verification" or "support"');
     }
 
+    // Get Taatom Official user ID - try from constant first, then find by email/username
+    let officialUserId = null;
+    
+    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+      officialUserId = TAATOM_OFFICIAL_USER_ID;
+    } else {
+      // Fallback: find user by email or username
+      const User = require('../models/User');
+      const officialUser = await User.findOne({
+        $or: [
+          { email: 'taatom_official@taatom.com' },
+          { username: 'taatom_official' }
+        ]
+      }).select('_id').lean();
+      
+      if (officialUser && officialUser._id) {
+        officialUserId = officialUser._id.toString();
+        logger.warn('TAATOM_OFFICIAL_USER_ID not set, using found user ID:', officialUserId);
+      } else {
+        throw new Error('TAATOM_OFFICIAL_USER_ID is not configured and Taatom Official user not found in database');
+      }
+    }
+
     // Convert to ObjectId
     const userIdObj = new mongoose.Types.ObjectId(userId);
-    const officialUserIdObj = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID);
+    const officialUserIdObj = new mongoose.Types.ObjectId(officialUserId);
 
     // Find existing support conversation for this user
     // Support conversations have type 'admin_support' and include both user and official user
@@ -90,6 +113,34 @@ async function sendSystemMessage({ conversationId, messageText }) {
       throw new Error('Message text is required');
     }
 
+    // Get Taatom Official user ID - try from constant first, then find by email/username
+    let officialUserId = null;
+    
+    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+      officialUserId = TAATOM_OFFICIAL_USER_ID;
+    } else {
+      // Fallback: find user by email or username
+      const User = require('../models/User');
+      const officialUser = await User.findOne({
+        $or: [
+          { email: 'taatom_official@taatom.com' },
+          { username: 'taatom_official' }
+        ]
+      }).select('_id').lean();
+      
+      if (officialUser && officialUser._id) {
+        officialUserId = officialUser._id.toString();
+        logger.warn('TAATOM_OFFICIAL_USER_ID not set, using found user ID:', officialUserId);
+      } else {
+        logger.error('TAATOM_OFFICIAL_USER_ID is not configured and Taatom Official user not found in database');
+        throw new Error('System configuration error: Taatom Official user not found');
+      }
+    }
+
+    if (!officialUserId || !mongoose.Types.ObjectId.isValid(officialUserId)) {
+      throw new Error('Invalid Taatom Official user ID');
+    }
+
     const convo = await Chat.findById(conversationId);
     if (!convo) {
       throw new Error('Conversation not found');
@@ -101,7 +152,7 @@ async function sendSystemMessage({ conversationId, messageText }) {
 
     // Create message with Taatom Official as sender
     const message = {
-      sender: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
+      sender: new mongoose.Types.ObjectId(officialUserId),
       text: messageText.trim(),
       timestamp: new Date(),
       seen: false
@@ -135,8 +186,31 @@ async function getSupportConversation(userId) {
       throw new Error('Invalid userId provided');
     }
 
+    // Get Taatom Official user ID - try from constant first, then find by email/username
+    let officialUserId = null;
+    
+    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+      officialUserId = TAATOM_OFFICIAL_USER_ID;
+    } else {
+      // Fallback: find user by email or username
+      const User = require('../models/User');
+      const officialUser = await User.findOne({
+        $or: [
+          { email: 'taatom_official@taatom.com' },
+          { username: 'taatom_official' }
+        ]
+      }).select('_id').lean();
+      
+      if (officialUser && officialUser._id) {
+        officialUserId = officialUser._id.toString();
+        logger.warn('TAATOM_OFFICIAL_USER_ID not set, using found user ID:', officialUserId);
+      } else {
+        throw new Error('TAATOM_OFFICIAL_USER_ID is not configured and Taatom Official user not found in database');
+      }
+    }
+
     const userIdObj = new mongoose.Types.ObjectId(userId);
-    const officialUserIdObj = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID);
+    const officialUserIdObj = new mongoose.Types.ObjectId(officialUserId);
 
     const convo = await Chat.findOne({
       type: 'admin_support',
