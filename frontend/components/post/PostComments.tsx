@@ -203,34 +203,45 @@ export default function PostComments({
     }
   };
 
-  const renderComment = ({ item }: { item: Comment }) => (
-    <View style={styles.commentItem}>
-      <Image
-        source={{
-          uri: item.user.profilePic || 'https://via.placeholder.com/32',
-        }}
-        style={styles.commentAvatar}
-      />
-      <View style={styles.commentContent}>
-        <View style={styles.commentHeader}>
-          <Text style={[styles.commentUsername, { color: theme.colors.text }]}>
-            {item.user.fullName}
-          </Text>
-          <Text style={[styles.commentTime, { color: theme.colors.textSecondary }]}>
-            {new Date(item.createdAt).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+  const renderComment = ({ item }: { item: Comment }) => {
+    // Handle case where user might be undefined or missing profilePic
+    const commentUser = item.user || { 
+      _id: 'unknown', 
+      fullName: 'Unknown User', 
+      profilePic: null 
+    };
+    const profilePicUri = commentUser.profilePic || 'https://via.placeholder.com/32';
+    
+    return (
+      <View style={styles.commentItem}>
+        <Image
+          source={{ uri: profilePicUri }}
+          style={styles.commentAvatar}
+          onError={() => {
+            // Image failed to load - fallback handled by placeholder in uri
+          }}
+        />
+        <View style={styles.commentContent}>
+          <View style={styles.commentHeader}>
+            <Text style={[styles.commentUsername, { color: theme.colors.text }]}>
+              {commentUser.fullName || 'Unknown User'}
+            </Text>
+            <Text style={[styles.commentTime, { color: theme.colors.textSecondary }]}>
+              {new Date(item.createdAt).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
+          <Text style={[styles.commentText, { color: theme.colors.text }]}>
+            {item.text}
           </Text>
         </View>
-        <Text style={[styles.commentText, { color: theme.colors.text }]}>
-          {item.text}
-        </Text>
       </View>
-    </View>
-  );
+    );
+  };
 
   const handleClose = () => {
     setNewComment('');
