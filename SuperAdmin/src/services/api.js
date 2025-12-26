@@ -6,13 +6,13 @@ import rateLimiter from '../utils/rateLimiter'
 // PRODUCTION-GRADE: Use environment variable, no hardcoded fallbacks for production
 // In development, Vite proxy will handle /api requests (empty string = relative path)
 // In production, use the full API URL from environment variable
-const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : (isProduction ? '' : 'http://localhost:3000'));
+const isProduction = process.env.NODE_ENV === 'production';
+const API_BASE_URL = process.env.VITE_API_URL || (process.env.NODE_ENV === 'development' ? '' : (isProduction ? '' : 'http://localhost:3000'));
 
 // Validate production configuration
-if (isProduction && !import.meta.env.VITE_API_URL) {
-  console.error('❌ ERROR: VITE_API_URL is required for production builds!');
-  console.error('   Please set VITE_API_URL in your .env file');
+if (isProduction && !process.env.VITE_API_URL && process.env.NODE_ENV === 'production') {
+  logger.error('❌ ERROR: VITE_API_URL is required for production builds!');
+  logger.error('   Please set VITE_API_URL in your .env file');
   throw new Error('VITE_API_URL environment variable is required for production builds');
 }
 
