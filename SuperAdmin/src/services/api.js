@@ -6,14 +6,44 @@ import rateLimiter from '../utils/rateLimiter'
 // PRODUCTION-GRADE: Use environment variable, no hardcoded fallbacks for production
 // In development, Vite proxy will handle /api requests (empty string = relative path)
 // In production, use the full API URL from environment variable
-const isProduction = process.env.NODE_ENV === 'production';
-const API_BASE_URL = process.env.VITE_API_URL || (process.env.NODE_ENV === 'development' ? '' : (isProduction ? '' : 'http://localhost:3000'));
+//
+// NOTE: import.meta.env.PROD and import.meta.env.DEV are BUILT-IN Vite variables
+// They are automatically set by Vite based on build mode:
+// - PROD = true when running "npm run build" (production)
+// - DEV = true when running "npm run dev" (development)
+// You DON'T need to (and can't) set these in .env file
+const isProduction = import.meta.env.PROD;
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://localhost:3000');
+
+// Debug logging to help diagnose environment variable issues
+if (isProduction) {
+  console.log('🔍 Environment Check:', {
+    PROD: import.meta.env.PROD,
+    MODE: import.meta.env.MODE,
+    VITE_API_URL: import.meta.env.VITE_API_URL ? '✅ Set' : '❌ Missing',
+    API_BASE_URL: API_BASE_URL || '❌ Not configured'
+  });
+}
 
 // Validate production configuration
-if (isProduction && !process.env.VITE_API_URL && process.env.NODE_ENV === 'production') {
-  logger.error('❌ ERROR: VITE_API_URL is required for production builds!');
-  logger.error('   Please set VITE_API_URL in your .env file');
-  throw new Error('VITE_API_URL environment variable is required for production builds');
+if (isProduction && !import.meta.env.VITE_API_URL) {
+  const errorMessage = [
+    '❌ ERROR: VITE_API_URL is required for production builds!',
+    '',
+    '📋 To fix this issue:',
+    '1. Go to your Vercel project dashboard',
+    '2. Navigate to Settings → Environment Variables',
+    '3. Add VITE_API_URL with your API URL (e.g., https://your-api-domain.com)',
+    '4. Make sure it\'s set for "Production" environment',
+    '5. Redeploy your application',
+    '',
+    '⚠️  Note: Vite environment variables must be set BEFORE building.',
+    '   If you set it after deployment, you must redeploy for it to take effect.'
+  ].join('\n');
+  
+  logger.error(errorMessage);
+  console.error(errorMessage);
+  throw new Error('VITE_API_URL environment variable is required for production builds. Please set it in Vercel and redeploy.');
 }
 
 export const api = axios.create({

@@ -325,12 +325,9 @@ if (enableSwagger) {
     const swaggerUi = require('swagger-ui-express');
     const swaggerSpec = require('./config/swagger');
     
-    // Handle both /api-docs and /api-docs/ (with trailing slash)
-    app.get('/api-docs', (req, res) => {
-      res.redirect('/api-docs/');
-    });
-    
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    // Swagger UI setup - swagger-ui-express handles both /api-docs and /api-docs/ automatically
+    // Removed manual redirect to prevent ERR_TOO_MANY_REDIRECTS error
+    const swaggerOptions = {
       customCss: `
         .swagger-ui .topbar { display: none }
         .swagger-ui .info { margin: 50px 0; }
@@ -352,7 +349,7 @@ if (enableSwagger) {
         showCommonExtensions: true,
         tryItOutEnabled: true,
         requestInterceptor: (request) => {
-          // Add CSRF token if available
+          // Add CSRF token if available (runs in browser)
           const csrfToken = document.cookie
             .split('; ')
             .find(row => row.startsWith('csrf-token='))
@@ -366,7 +363,11 @@ if (enableSwagger) {
           logger.log('Swagger UI loaded successfully');
         }
       }
-    }));
+    };
+    
+    // Setup Swagger UI - this handles both /api-docs and /api-docs/ routes
+    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
+    
     const port = process.env.PORT || 3000;
     const swaggerUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isDevelopment ? `http://localhost:${port}` : '');
     if (swaggerUrl) {
@@ -375,8 +376,11 @@ if (enableSwagger) {
       logger.log(`📚 Swagger docs available at /api-docs`);
     }
   } catch (error) {
+    logger.error('⚠️  Swagger setup failed:', error.message);
     logger.warn('⚠️  Swagger not available. Install dependencies: npm install swagger-jsdoc swagger-ui-express');
   }
+} else {
+  logger.info('📚 Swagger is disabled. Set ENABLE_SWAGGER=true to enable in production.');
 }
 
 // Policy routes (serve markdown files - public access, before 404 handler)
