@@ -11,8 +11,20 @@
 const fs = require('fs');
 const path = require('path');
 
-const frontendPoliciesDir = path.join(__dirname, '../../frontend/policies');
-const backendPoliciesDir = path.join(__dirname, '../policies');
+// Resolve paths relative to project root (where package.json is)
+// __dirname is backend/scripts, so we need to go up to project root
+// Use path.resolve to ensure absolute paths
+const projectRoot = path.resolve(__dirname, '../..');
+const frontendPoliciesDir = path.resolve(projectRoot, 'frontend', 'policies');
+const backendPoliciesDir = path.resolve(__dirname, '..', 'policies');
+
+// Debug: Log paths (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  console.log('📁 Project root:', projectRoot);
+  console.log('📁 Frontend policies dir:', frontendPoliciesDir);
+  console.log('📁 Backend policies dir:', backendPoliciesDir);
+  console.log('📁 Frontend policies exists:', fs.existsSync(frontendPoliciesDir));
+}
 
 // Create backend/policies directory if it doesn't exist
 if (!fs.existsSync(backendPoliciesDir)) {
@@ -34,6 +46,26 @@ policyFiles.forEach(filename => {
     copiedCount++;
   } else {
     console.warn(`⚠️  Source file not found: ${sourcePath}`);
+    // Try alternative paths as fallback
+    const altPaths = [
+      path.resolve(projectRoot, 'frontend', 'policies', filename),
+      path.resolve(process.cwd(), 'frontend', 'policies', filename),
+      path.resolve(process.cwd(), '..', 'frontend', 'policies', filename),
+    ];
+    let found = false;
+    for (const altPath of altPaths) {
+      if (fs.existsSync(altPath)) {
+        console.log(`   Found at alternative path: ${altPath}`);
+        fs.copyFileSync(altPath, destPath);
+        console.log(`✅ Copied ${filename} from alternative path`);
+        copiedCount++;
+        found = true;
+        break;
+      }
+    }
+    if (!found && process.env.NODE_ENV !== 'production') {
+      console.log(`   Tried alternative paths:`, altPaths);
+    }
   }
 });
 
