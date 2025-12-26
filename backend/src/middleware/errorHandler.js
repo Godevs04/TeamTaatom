@@ -68,9 +68,9 @@ const errorHandler = async (err, req, res, next) => {
     Sentry.setTag('http_path', req.path);
     Sentry.setTag('authenticated', !!req.user);
     
-    // Set error level based on status code
-    const level = err.status >= 500 ? 'error' : err.status >= 400 ? 'warning' : 'info';
-    Sentry.setLevel(level);
+    // Note: Sentry's Express error handler already captures the error
+    // We're just adding context here. The level is set automatically by Sentry
+    // based on the error severity. No need to call setLevel or captureException again.
     
     // CRITICAL: Flush Sentry BEFORE sending response (await to ensure it's sent)
     try {
