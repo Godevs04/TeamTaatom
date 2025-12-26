@@ -1,53 +1,10 @@
-const nodemailer = require('nodemailer');
 const logger = require('./logger');
-
-// Get email credentials (support both EMAIL_* and SMTP_* for backward compatibility)
-const emailUser = process.env.SMTP_USER || process.env.EMAIL_USER;
-const emailPass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
-
-// Create transporter only if credentials are available
-let transporter = null;
-
-if (emailUser && emailPass) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: emailUser,
-      pass: emailPass
-    }
-  });
-
-  // Verify transporter configuration (non-blocking)
-  transporter.verify((error, success) => {
-    if (error) {
-      logger.warn('Email transporter verification failed:', error.message);
-      logger.warn('Email functionality may not work. Please check EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-    } else {
-      logger.info('✅ Email transporter is ready to send messages');
-    }
-  });
-} else {
-  logger.warn('⚠️  Email credentials not found. Email functionality disabled.');
-  logger.warn('   Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-  
-  // Create a dummy transporter that will fail gracefully
-  transporter = {
-    sendMail: async () => {
-      throw new Error('Email credentials not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-    }
-  };
-}
+const { sendEmail } = require('./brevoService');
 
 const sendOTPEmail = async (email, resetLink, fullName) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom App',
-        address: emailUser
-      },
-      to: email,
-      subject: 'Reset Password Taatom Account - OTP Code',
-      html: `
+    const subject = 'Reset Password Taatom Account - OTP Code';
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -144,10 +101,9 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
           </div>
         </body>
         </html>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(email, subject, html, null, 'Taatom App');
     logger.info('OTP email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -159,13 +115,7 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
 // Send welcome email after verification
 const sendWelcomeEmail = async (email, fullName) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom App',
-        address: emailUser
-      },
-      to: email,
-      subject: '🎉 Welcome to Taatom - Your Account is Verified!',
+    const subject = '🎉 Welcome to Taatom - Your Account is Verified!';
       html: `
         <!DOCTYPE html>
         <html lang="en">
@@ -268,10 +218,9 @@ const sendWelcomeEmail = async (email, fullName) => {
           </div>
         </body>
         </html>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(email, subject, html, null, 'Taatom App');
     logger.info('✅ Welcome email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -284,13 +233,7 @@ const sendWelcomeEmail = async (email, fullName) => {
 // Send welcome email after verification
 const sendForgotPasswordMail = async (email, token, fullName) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom App',
-        address: emailUser
-      },
-      to: email,
-      subject: '🔐 Taatom Password Reset Code',
+    const subject = '🔐 Taatom Password Reset Code';
       html: `
       <!DOCTYPE html>
       <html lang="en">
@@ -331,9 +274,9 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
         </div>
       </body>
       </html>
-      `
-    };
-    const info = await transporter.sendMail(mailOptions);
+      `;
+
+    const info = await sendEmail(email, subject, html, null, 'Taatom App');
     logger.info('✅ Password Reset email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -345,13 +288,7 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
 // Send password reset confirmation email
 const sendPasswordResetConfirmationEmail = async (email, fullName) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom App',
-        address: emailUser
-      },
-      to: email,
-      subject: '✅ Your Taatom Password Has Been Reset',
+    const subject = '✅ Your Taatom Password Has Been Reset';
       html: `
         <!DOCTYPE html>
         <html lang="en">
@@ -395,9 +332,9 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
           </div>
         </body>
         </html>
-      `
-    };
-    const info = await transporter.sendMail(mailOptions);
+      `;
+
+    const info = await sendEmail(email, subject, html, null, 'Taatom App');
     logger.info('✅ Password reset confirmation email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -408,14 +345,8 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
 
 const sendLoginNotificationEmail = async (email, fullName, device, location) => {
   try {
-    const mailOptions = {
-      from: {
-        name: 'Taatom App',
-        address: emailUser
-      },
-      to: email,
-      subject: '🔔 New Login Detected on Your Taatom Account',
-      html: `
+    const subject = '🔔 New Login Detected on Your Taatom Account';
+    const html = `
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px;">
           <h2 style="color: #4A90E2; margin-bottom: 24px;">New Login Detected</h2>
           <p style="font-size: 16px;">Hi <b>${fullName}</b>,</p>
@@ -444,9 +375,9 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
           </p>
           <p style="color: #888; font-size: 13px; margin-top: 32px;">&copy; 2026 Taatom. All rights reserved.</p>
         </div>
-      `
-    };
-    const info = await transporter.sendMail(mailOptions);
+      `;
+
+    const info = await sendEmail(email, subject, html, null, 'Taatom App');
     logger.info('✅ Login notification email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -457,20 +388,8 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
 
 const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') => {
   try {
-    // Check if transporter is properly configured
-    if (!transporter || !emailUser) {
-      logger.error('❌ Email transporter not configured. Cannot send 2FA email.');
-      throw new Error('Email service not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-    }
-
-    const mailOptions = {
-      from: {
-        name: 'TeamTaatom SuperAdmin',
-        address: emailUser
-      },
-      to: email,
-      subject: '🔐 SuperAdmin 2FA Verification Code',
-      html: `
+    const subject = '🔐 SuperAdmin 2FA Verification Code';
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -567,10 +486,9 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
           </div>
         </body>
         </html>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(email, subject, html, null, 'TeamTaatom SuperAdmin');
     logger.info('✅ SuperAdmin 2FA email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -582,20 +500,8 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
 // SuperAdmin Login Alert Email
 const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, ipAddress) => {
   try {
-    // Check if transporter is properly configured
-    if (!transporter || !emailUser) {
-      logger.error('❌ Email transporter not configured. Cannot send login alert email.');
-      throw new Error('Email service not configured. Please set EMAIL_USER/EMAIL_PASS or SMTP_USER/SMTP_PASS in .env');
-    }
-
-    const mailOptions = {
-      from: {
-        name: 'TeamTaatom SuperAdmin',
-        address: emailUser
-      },
-      to: email,
-      subject: '🔐 SuperAdmin Login Alert - TeamTaatom Dashboard',
-      html: `
+    const subject = '🔐 SuperAdmin Login Alert - TeamTaatom Dashboard';
+    const html = `
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <div style="text-align: center; margin-bottom: 32px;">
@@ -680,10 +586,9 @@ const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, 
             <p style="margin: 0;">For security reasons, please do not reply to this email</p>
           </div>
         </div>
-      `
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await sendEmail(email, subject, html, null, 'TeamTaatom SuperAdmin');
     logger.info('✅ SuperAdmin login alert email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
