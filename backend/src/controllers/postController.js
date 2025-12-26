@@ -1681,9 +1681,30 @@ const addComment = async (req, res) => {
       isPublic: shareActivity
     }).catch(err => logger.error('Error creating activity:', err));
 
-    // Populate the new comment with user data
-    await post.populate('comments.user', 'fullName profilePic');
+    // Populate the new comment with user data (include profilePicStorageKey for signed URL generation)
+    await post.populate('comments.user', 'fullName profilePic profilePicStorageKey');
     const populatedComment = post.comments.id(newComment._id);
+    
+    // Generate signed URL for commenter's profile picture
+    if (populatedComment && populatedComment.user) {
+      if (populatedComment.user.profilePicStorageKey) {
+        try {
+          populatedComment.user.profilePic = await generateSignedUrl(populatedComment.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for new comment user:', { 
+            postId: post._id, 
+            commentId: populatedComment._id,
+            userId: populatedComment.user._id,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          populatedComment.user.profilePic = populatedComment.user.profilePic || null;
+        }
+      } else if (populatedComment.user.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        // Keep the existing profilePic value
+      }
+    }
 
     // Create mention notifications for comment
     if (mentionUserIds.length > 0) {
@@ -1800,8 +1821,11 @@ const addComment = async (req, res) => {
       nsp.emitEvent('comment:created', audience, { postId: post._id });
     }
 
+    // Convert populated comment to plain object for response
+    const commentResponse = populatedComment.toObject ? populatedComment.toObject() : populatedComment;
+    
     return sendSuccess(res, 201, 'Comment added successfully', {
-      comment: populatedComment,
+      comment: commentResponse,
       commentsCount: post.comments.length
     });
 
