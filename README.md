@@ -1,7 +1,7 @@
 # Taatom - Travel & Location-Based Social Platform
 
 A comprehensive React Native + Express.js social media platform focused on travel, location sharing, and community building. Built with modern best practices, security-first architecture, and scalable infrastructure.
-
+ 
 ## 🏗️ Project Structure
 
 ```
