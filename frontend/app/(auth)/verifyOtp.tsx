@@ -161,7 +161,10 @@ export default function VerifyOTPScreen() {
     try {
       await resendOTP(email);
       setCountdown(60); // 60 seconds countdown
-      showSuccess('A new OTP has been sent to your email.');
+      showSuccess(
+        'A new OTP has been sent to your email.\n\n📧 Please check your inbox and spam folder for the verification code.',
+        'Code Resent'
+      );
     } catch (error: any) {
       showError(error.message);
     } finally {
@@ -204,6 +207,11 @@ export default function VerifyOTPScreen() {
                   We've sent a 6-digit verification code to
                 </Text>
                 <Text style={styles.email}>{email}</Text>
+                <View style={styles.spamReminder}>
+                  <Text style={styles.spamReminderText}>
+                    📧 Don't see the email? Check your spam folder as well!
+                  </Text>
+                </View>
               </View>
 
             <Formik
@@ -371,6 +379,25 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     textAlign: 'center',
     marginTop: theme.spacing.xs,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    }),
+  },
+  spamReminder: {
+    marginTop: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: '#FFF3CD',
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FFEAA7',
+    width: '100%',
+  },
+  spamReminderText: {
+    fontSize: theme.typography.small.fontSize,
+    fontFamily: getFontFamily('400'),
+    color: '#856404',
+    textAlign: 'center',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     }),

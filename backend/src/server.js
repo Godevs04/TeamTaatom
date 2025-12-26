@@ -49,6 +49,21 @@ const validateEnvironment = () => {
         console.warn(`   - ${varName}`);
       });
     }
+    
+    // CRITICAL: Check Brevo configuration for SuperAdmin 2FA
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    const smtpFrom = process.env.SMTP_FROM;
+    if (!brevoApiKey) {
+      console.error('❌ CRITICAL: BREVO_API_KEY not configured!');
+      console.error('   SuperAdmin login requires 2FA email sending.');
+      console.error('   Please set BREVO_API_KEY in production environment.');
+      console.error('   Without this, SuperAdmin login will fail with SRV_6001 errors.');
+    } else if (!smtpFrom) {
+      console.warn('⚠️  SMTP_FROM not configured. Using default: contact@taatom.com');
+      console.log('✅ Brevo email service configured');
+    } else {
+      console.log('✅ Brevo email service configured');
+    }
   }
 };
 
@@ -214,6 +229,30 @@ process.on('unhandledRejection', async (reason, promise) => {
       const env = process.env.NODE_ENV || 'development';
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📡 Environment: ${env}`);
+      
+      // Log Brevo email service configuration status
+      const brevoApiKey = process.env.BREVO_API_KEY;
+      const smtpFrom = process.env.SMTP_FROM;
+      const { isConfigured } = require('./utils/brevoService');
+      
+      if (isConfigured) {
+        const maskedKey = brevoApiKey && brevoApiKey.length > 8 
+          ? `${brevoApiKey.substring(0, 4)}...${brevoApiKey.substring(brevoApiKey.length - 4)}`
+          : '***';
+        logger.info(`✅ Brevo email service: Configured`);
+        logger.info(`   API Key: ${maskedKey}`);
+        logger.info(`   From Email: ${smtpFrom || 'contact@taatom.com (default)'}`);
+      } else {
+        logger.warn('⚠️  Brevo email service: NOT configured - Email functionality disabled');
+        if (!brevoApiKey) {
+          logger.warn('   ❌ BREVO_API_KEY not found in environment variables');
+          logger.warn('   📝 Add BREVO_API_KEY=d2K7bZEGX0mqagjA to your backend/.env file');
+        }
+        if (!smtpFrom) {
+          logger.warn('   ⚠️  SMTP_FROM not set (using default: contact@taatom.com)');
+        }
+        logger.warn('   💡 After setting variables, restart the server');
+      }
       
       // Warn if environment is not set correctly for production deployments
       if (env === 'development' && (process.env.STAGING === 'true' || process.env.PRODUCTION === 'true')) {

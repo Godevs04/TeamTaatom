@@ -34,7 +34,10 @@ const Login = () => {
       const result = await login(email, password)
       
       if (result.success && result.requires2FA) {
-        toast.success('2FA code sent to your email')
+        toast.success('2FA code sent to your email. Please check your inbox and spam folder.', {
+          duration: 5000,
+          icon: '📧',
+        })
       } else if (result.success) {
         navigate('/dashboard')
       } else {

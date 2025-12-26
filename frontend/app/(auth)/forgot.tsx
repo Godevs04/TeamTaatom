@@ -58,7 +58,7 @@ export default function ForgotPasswordScreen() {
     setSuccess('');
     try {
       await forgotPassword(values.email);
-      setSuccess('Password reset instructions have been sent to your email.');
+      setSuccess('Password reset instructions have been sent to your email.\n\n📧 Please check your inbox and spam folder for the reset link.');
       setTimeout(() => {
         router.push({ pathname: '/(auth)/reset-password', params: { email: values.email } });
       }, 1200);
