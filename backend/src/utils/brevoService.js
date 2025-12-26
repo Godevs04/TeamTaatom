@@ -85,10 +85,23 @@ const sendEmail = async (to, subject, html, text = null, fromName = 'TeamTaatom'
 
     const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
     
-    logger.info('✅ Email sent via Brevo:', result.messageId);
+    // Brevo API response structure varies - check both possible locations
+    // The response might be: result.body.messageId or result.messageId
+    const messageId = result?.body?.messageId || result?.messageId || null;
+    
+    if (messageId) {
+      logger.info(`✅ Email sent via Brevo to ${to}: ${messageId}`);
+    } else {
+      // Log the full response structure in development for debugging
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug('Brevo response structure:', JSON.stringify(result, null, 2));
+      }
+      logger.info(`✅ Email sent via Brevo to ${to} (messageId not available in response)`);
+    }
+    
     return {
       success: true,
-      messageId: result.messageId,
+      messageId: messageId,
       service: 'brevo'
     };
   } catch (error) {
