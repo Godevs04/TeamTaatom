@@ -24,25 +24,54 @@ const { generateSignedUrl } = require('../services/mediaService');
 const ensureTaatomOfficialUser = async () => {
   try {
     const { TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
-    const existingUser = await User.findById(TAATOM_OFFICIAL_USER_ID);
+    
+    let existingUser = null;
+    
+    // Try to find user by ID if TAATOM_OFFICIAL_USER_ID is set and valid
+    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+      existingUser = await User.findById(TAATOM_OFFICIAL_USER_ID);
+    }
+    
+    // If not found by ID, try to find by email or username
+    if (!existingUser) {
+      existingUser = await User.findOne({
+        $or: [
+          { email: 'taatom_official@taatom.com' },
+          { username: 'taatom_official' }
+        ]
+      });
+    }
+    
     if (!existingUser) {
       logger.info('Creating Taatom Official user in database...');
       const bcrypt = require('bcryptjs');
       const hashedPassword = await bcrypt.hash('system_user_no_login', 10);
       
-      const officialUser = new User({
-        _id: new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID),
+      const userData = {
         username: TAATOM_OFFICIAL_USER.username,
         fullName: TAATOM_OFFICIAL_USER.fullName,
-        email: `taatom_official@taatom.com`,
+        email: 'taatom_official@taatom.com',
         password: hashedPassword,
         isVerified: true,
         isActive: true,
         bio: 'Official Taatom support account',
         profilePic: TAATOM_OFFICIAL_USER.profilePic
-      });
+      };
+      
+      // Only set _id if TAATOM_OFFICIAL_USER_ID is valid
+      if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+        userData._id = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID);
+      }
+      
+      const officialUser = new User(userData);
       await officialUser.save();
-      logger.info('Taatom Official user created successfully');
+      logger.info('Taatom Official user created successfully', { userId: officialUser._id.toString() });
+      
+      // Update the constant if it was null (for this session)
+      if (!TAATOM_OFFICIAL_USER_ID) {
+        logger.warn('TAATOM_OFFICIAL_USER_ID not set in environment. Using created user ID:', officialUser._id.toString());
+        logger.warn('Please set TAATOM_OFFICIAL_USER_ID in your .env file for consistency');
+      }
     } else {
       // Update profile picture if it's not set or different
       if (!existingUser.profilePic || existingUser.profilePic !== TAATOM_OFFICIAL_USER.profilePic) {
@@ -56,7 +85,8 @@ const ensureTaatomOfficialUser = async () => {
     if (error.code === 11000) {
       logger.debug('Taatom Official user already exists');
     } else {
-      logger.debug('Taatom Official user check:', error.message);
+      logger.error('Error ensuring Taatom Official user:', error);
+      // Don't throw - allow the system to continue, but log the error
     }
   }
 };
@@ -256,34 +286,61 @@ const getSupportConversation = async (req, res) => {
     let userId = null;
     if (conversation.participants && Array.isArray(conversation.participants)) {
       for (const pId of conversation.participants) {
-        let idStr;
-        if (pId && typeof pId === 'object') {
-          // Handle ObjectId objects
-          if (pId._id) {
-            idStr = pId._id.toString();
-          } else if (pId.toString) {
+        let idStr = null;
+        
+        try {
+          // Handle different participant ID formats
+          if (pId instanceof mongoose.Types.ObjectId) {
             idStr = pId.toString();
+          } else if (Buffer.isBuffer(pId)) {
+            // Convert buffer to ObjectId string
+            const objId = new mongoose.Types.ObjectId(pId);
+            idStr = objId.toString();
+          } else if (pId && typeof pId === 'object') {
+            // Handle ObjectId objects or objects with _id
+            if (pId._id) {
+              if (pId._id instanceof mongoose.Types.ObjectId) {
+                idStr = pId._id.toString();
+              } else if (Buffer.isBuffer(pId._id)) {
+                const objId = new mongoose.Types.ObjectId(pId._id);
+                idStr = objId.toString();
+              } else {
+                idStr = String(pId._id);
+              }
+            } else if (pId.toString && typeof pId.toString === 'function') {
+              idStr = pId.toString();
+            } else {
+              continue;
+            }
+          } else if (pId) {
+            idStr = String(pId);
           } else {
             continue;
           }
-        } else if (pId) {
-          idStr = pId.toString();
-        } else {
-          continue;
-        }
-        
-        // Skip Taatom Official user ID
-        if (idStr !== TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(idStr)) {
+          
+          // Validate the ID string
+          if (!idStr || !mongoose.Types.ObjectId.isValid(idStr)) {
+            continue;
+          }
+          
+          // Skip Taatom Official user ID
+          if (TAATOM_OFFICIAL_USER_ID && idStr === TAATOM_OFFICIAL_USER_ID) {
+            continue;
+          }
+          
           userId = idStr;
           break;
+        } catch (error) {
+          logger.warn(`Error processing participant ID:`, error);
+          continue;
         }
       }
     }
 
-    logger.debug(`Extracted userId for conversation ${conversationId}: ${userId}, participants:`, conversation.participants);
+    logger.debug(`Extracted userId for conversation ${conversationId}: ${userId}`);
 
     if (!userId) {
-      logger.warn(`No valid user ID found for conversation ${conversationId}, participants:`, conversation.participants);
+      logger.warn(`No valid user ID found for conversation ${conversationId}, participants count: ${conversation.participants?.length || 0}`);
       return sendError(res, 'RES_3001', 'No valid user found in conversation participants');
     }
 
@@ -597,16 +654,43 @@ const markConversationAsRead = async (req, res) => {
     }
 
     // Mark all user messages (not from Taatom Official) as seen
-    const TAATOM_OFFICIAL_ID = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID)
+    let officialIdStr = null
+    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
+      try {
+        const TAATOM_OFFICIAL_ID = new mongoose.Types.ObjectId(TAATOM_OFFICIAL_USER_ID)
+        officialIdStr = TAATOM_OFFICIAL_ID.toString()
+      } catch (error) {
+        logger.warn('Invalid TAATOM_OFFICIAL_USER_ID format:', TAATOM_OFFICIAL_USER_ID)
+      }
+    }
+    
     let updated = false
 
     if (conversation.messages && Array.isArray(conversation.messages)) {
       conversation.messages.forEach(msg => {
-        const senderId = msg.sender?.toString() || msg.sender?.toString()
-        const officialIdStr = TAATOM_OFFICIAL_ID.toString()
+        if (!msg.sender) return
+        
+        // Handle different sender ID formats (ObjectId, string, buffer)
+        let senderId = null
+        if (msg.sender instanceof mongoose.Types.ObjectId) {
+          senderId = msg.sender.toString()
+        } else if (typeof msg.sender === 'object' && msg.sender.toString) {
+          senderId = msg.sender.toString()
+        } else if (typeof msg.sender === 'string') {
+          senderId = msg.sender
+        } else if (Buffer.isBuffer(msg.sender)) {
+          // Convert buffer to ObjectId string
+          try {
+            const objId = new mongoose.Types.ObjectId(msg.sender)
+            senderId = objId.toString()
+          } catch (error) {
+            logger.warn('Failed to convert sender buffer to ObjectId:', error)
+            return
+          }
+        }
         
         // Mark messages from users (not Taatom Official) as seen
-        if (senderId && senderId !== officialIdStr && !msg.seen) {
+        if (senderId && (!officialIdStr || senderId !== officialIdStr) && !msg.seen) {
           msg.seen = true
           updated = true
         }

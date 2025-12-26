@@ -1215,62 +1215,62 @@ const Reports = () => {
         </ModalHeader>
         <ModalContent>
           {selectedReport?.action === 'view' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 lg:gap-6">
               {/* Left: Report Details */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-3 sm:space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Report Type</label>
-                    <p className="text-sm text-gray-900 capitalize">
+                    <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Report Type</label>
+                    <p className="text-sm sm:text-base text-gray-900 capitalize">
                       {selectedReport.type?.replace('_', ' ') || 'Unknown'}
                     </p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Priority</label>
-                    <p className="text-sm text-gray-900 capitalize">{selectedReport.priority || 'medium'}</p>
+                    <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Priority</label>
+                    <p className="text-sm sm:text-base text-gray-900 capitalize">{selectedReport.priority || 'medium'}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Status</label>
-                    <p className="text-sm text-gray-900 capitalize">{selectedReport.status || 'pending'}</p>
+                    <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Status</label>
+                    <p className="text-sm sm:text-base text-gray-900 capitalize">{selectedReport.status || 'pending'}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Created</label>
-                    <p className="text-sm text-gray-900">{formatDate(selectedReport.createdAt)}</p>
+                    <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Created</label>
+                    <p className="text-sm sm:text-base text-gray-900">{formatDate(selectedReport.createdAt)}</p>
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Reporter</label>
+                  <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Reporter</label>
                   <div className="flex items-center space-x-2 mt-1">
                     {selectedReport.reportedBy?.profilePic && (
-                      <img src={selectedReport.reportedBy.profilePic} alt={selectedReport.reportedBy.fullName} className="w-8 h-8 rounded-full" />
+                      <img src={selectedReport.reportedBy.profilePic} alt={selectedReport.reportedBy.fullName} className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex-shrink-0" />
                     )}
-                    <p className="text-sm text-gray-900">{selectedReport.reportedBy?.fullName || selectedReport.reportedBy?.email || 'Unknown'}</p>
+                    <p className="text-sm sm:text-base text-gray-900 truncate">{selectedReport.reportedBy?.fullName || selectedReport.reportedBy?.email || 'Unknown'}</p>
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Reported User</label>
+                  <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Reported User</label>
                   <div className="flex items-center space-x-2 mt-1">
                     {selectedReport.reportedUser?.profilePic && (
-                      <img src={selectedReport.reportedUser.profilePic} alt={selectedReport.reportedUser.fullName} className="w-8 h-8 rounded-full" />
+                      <img src={selectedReport.reportedUser.profilePic} alt={selectedReport.reportedUser.fullName} className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex-shrink-0" />
                     )}
-                    <p className="text-sm text-gray-900">{selectedReport.reportedUser?.fullName || selectedReport.reportedUser?.email || 'Unknown'}</p>
+                    <p className="text-sm sm:text-base text-gray-900 truncate">{selectedReport.reportedUser?.fullName || selectedReport.reportedUser?.email || 'Unknown'}</p>
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Reason</label>
-                  <p className="text-sm text-gray-900 mt-1">{selectedReport.reason || 'No reason provided'}</p>
+                  <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Reason</label>
+                  <p className="text-sm sm:text-base text-gray-900 mt-1 break-words">{selectedReport.reason || 'No reason provided'}</p>
                 </div>
                 {selectedReport.description && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Description</label>
-                    <p className="text-sm text-gray-900 mt-1">{selectedReport.description}</p>
+                    <label className="text-xs sm:text-sm font-semibold text-gray-800 mb-1 block">Description</label>
+                    <p className="text-sm sm:text-base text-gray-900 mt-1 break-words">{selectedReport.description}</p>
                   </div>
                 )}
               </div>
               
               {/* Right: Content Preview (Lazy-loaded) */}
-              <div className="space-y-4">
-                <label className="text-sm font-medium text-gray-700">Reported Content Preview</label>
+              <div className="space-y-3 sm:space-y-4">
+                <label className="text-xs sm:text-sm font-semibold text-gray-800 block">Reported Content Preview</label>
                 {selectedReport.reportedContent ? (
                   <ContentPreview content={selectedReport.reportedContent} />
                 ) : (

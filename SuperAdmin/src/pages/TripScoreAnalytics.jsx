@@ -950,79 +950,133 @@ const TripScoreAnalytics = () => {
     return total
   }, [stats, sourceFilters])
 
-  // Enhanced KPI cards with animations and filtering
-  const kpiCards = [
-    {
-      title: 'Total Visits',
-      value: showTotalsSeparately 
-        ? `${stats?.totalVisits?.toLocaleString() || 0} (All)`
-        : stats?.totalVisits?.toLocaleString() || 0,
-      icon: Globe,
-      color: 'blue',
-      bgGradient: 'from-blue-500 to-blue-600',
-      change: calculateChange(stats?.totalVisits, previousStats?.totalVisits),
-      subtitle: showTotalsSeparately 
-        ? `${stats?.trustedVisits?.toLocaleString() || 0} trusted`
-        : 'All recorded visits',
-      showSeparate: showTotalsSeparately,
-      detail: showTotalsSeparately ? `Filtered: ${filteredTotalVisits.toLocaleString()}` : null
-    },
-    {
-      title: 'Unique Places',
-      value: stats?.uniquePlaces?.toLocaleString() || 0,
-      icon: MapPin,
-      color: 'green',
-      bgGradient: 'from-green-500 to-emerald-600',
-      change: calculateChange(stats?.uniquePlaces, previousStats?.uniquePlaces),
-      subtitle: 'Distinct locations',
-      detail: showTotalsSeparately ? `From ${stats?.trustedVisits || 0} trusted visits` : null
-    },
-    {
-      title: 'Trusted Visits',
-      value: stats?.trustedVisits?.toLocaleString() || 0,
-      icon: Shield,
-      color: 'purple',
-      bgGradient: 'from-purple-500 to-purple-600',
-      change: calculateChange(stats?.trustedVisits, previousStats?.trustedVisits),
-      subtitle: `${trustScorePercentage}% trust score`,
-      percentage: trustScorePercentage,
-      detail: showTotalsSeparately ? `High: ${stats?.trustBreakdown?.high || 0} | Medium: ${stats?.trustBreakdown?.medium || 0}` : null
-    },
-    {
-      title: 'Suspicious Visits',
-      value: stats?.suspiciousVisits?.toLocaleString() || 0,
-      icon: AlertTriangle,
-      color: 'red',
-      bgGradient: 'from-red-500 to-red-600',
-      change: calculateChange(stats?.suspiciousVisits, previousStats?.suspiciousVisits),
-      subtitle: `${fraudRate}% fraud rate`,
-      detail: showTotalsSeparately ? `Out of ${stats?.totalVisits || 0} total` : null
-    },
-    {
-      title: 'Active Users',
-      value: stats?.uniqueUsers?.toLocaleString() || 0,
-      icon: Users,
-      color: 'indigo',
-      bgGradient: 'from-indigo-500 to-indigo-600',
-      change: calculateChange(stats?.uniqueUsers, previousStats?.uniqueUsers),
-      subtitle: 'Users with visits',
-      detail: showTotalsSeparately && stats?.uniqueUsers > 0 
-        ? `Avg ${Math.round((stats?.trustedVisits || 0) / stats.uniqueUsers)} trusted visits/user` 
-        : null
-    },
-    {
-      title: 'Trust Score',
-      value: `${trustScorePercentage}%`,
-      icon: Award,
-      color: 'amber',
-      bgGradient: 'from-amber-500 to-amber-600',
-      subtitle: 'High + Medium trust',
-      isPercentage: true,
-      detail: showTotalsSeparately 
-        ? `High: ${stats?.trustBreakdown?.high || 0} + Medium: ${stats?.trustBreakdown?.medium || 0}` 
-        : null
-    }
-  ]
+  // Enhanced KPI cards with animations and filtering - Memoized to prevent blinking
+  const kpiCards = useMemo(() => {
+    if (!stats) return []
+    
+    // Pre-calculate stable numeric values
+    const totalVisits = Number(stats.totalVisits) || 0
+    const trustedVisits = Number(stats.trustedVisits) || 0
+    const uniquePlaces = Number(stats.uniquePlaces) || 0
+    const suspiciousVisits = Number(stats.suspiciousVisits) || 0
+    const uniqueUsers = Number(stats.uniqueUsers) || 0
+    
+    // Pre-calculate stable strings
+    const totalVisitsStr = totalVisits.toLocaleString()
+    const trustedVisitsStr = trustedVisits.toLocaleString()
+    const uniquePlacesStr = uniquePlaces.toLocaleString()
+    const suspiciousVisitsStr = suspiciousVisits.toLocaleString()
+    const uniqueUsersStr = uniqueUsers.toLocaleString()
+    const filteredTotalVisitsStr = filteredTotalVisits.toLocaleString()
+    
+    // Pre-calculate changes with stable references
+    const totalVisitsChange = calculateChange(totalVisits, previousStats?.totalVisits)
+    const uniquePlacesChange = calculateChange(uniquePlaces, previousStats?.uniquePlaces)
+    const trustedVisitsChange = calculateChange(trustedVisits, previousStats?.trustedVisits)
+    const suspiciousVisitsChange = calculateChange(suspiciousVisits, previousStats?.suspiciousVisits)
+    const uniqueUsersChange = calculateChange(uniqueUsers, previousStats?.uniqueUsers)
+    
+    return [
+      {
+        title: 'Total Visits',
+        value: showTotalsSeparately 
+          ? `${totalVisitsStr} (All)`
+          : totalVisitsStr,
+        valueNum: totalVisits,
+        icon: Globe,
+        color: 'blue',
+        bgGradient: 'from-blue-500 to-blue-600',
+        change: totalVisitsChange,
+        changeKey: totalVisitsChange ? `${totalVisitsChange.trend}-${totalVisitsChange.value}` : null,
+        subtitle: showTotalsSeparately 
+          ? `${trustedVisitsStr} trusted`
+          : 'All recorded visits',
+        showSeparate: showTotalsSeparately,
+        detail: showTotalsSeparately ? `Filtered: ${filteredTotalVisitsStr}` : null
+      },
+      {
+        title: 'Unique Places',
+        value: uniquePlacesStr,
+        valueNum: uniquePlaces,
+        icon: MapPin,
+        color: 'green',
+        bgGradient: 'from-green-500 to-emerald-600',
+        change: uniquePlacesChange,
+        changeKey: uniquePlacesChange ? `${uniquePlacesChange.trend}-${uniquePlacesChange.value}` : null,
+        subtitle: 'Distinct locations',
+        detail: showTotalsSeparately ? `From ${trustedVisitsStr} trusted visits` : null
+      },
+      {
+        title: 'Trusted Visits',
+        value: trustedVisitsStr,
+        valueNum: trustedVisits,
+        icon: Shield,
+        color: 'purple',
+        bgGradient: 'from-purple-500 to-purple-600',
+        change: trustedVisitsChange,
+        changeKey: trustedVisitsChange ? `${trustedVisitsChange.trend}-${trustedVisitsChange.value}` : null,
+        subtitle: `${trustScorePercentage}% trust score`,
+        percentage: trustScorePercentage,
+        detail: showTotalsSeparately ? `High: ${stats?.trustBreakdown?.high || 0} | Medium: ${stats?.trustBreakdown?.medium || 0}` : null
+      },
+      {
+        title: 'Suspicious Visits',
+        value: suspiciousVisitsStr,
+        valueNum: suspiciousVisits,
+        icon: AlertTriangle,
+        color: 'red',
+        bgGradient: 'from-red-500 to-red-600',
+        change: suspiciousVisitsChange,
+        changeKey: suspiciousVisitsChange ? `${suspiciousVisitsChange.trend}-${suspiciousVisitsChange.value}` : null,
+        subtitle: `${fraudRate}% fraud rate`,
+        detail: showTotalsSeparately ? `Out of ${totalVisitsStr} total` : null
+      },
+      {
+        title: 'Active Users',
+        value: uniqueUsersStr,
+        valueNum: uniqueUsers,
+        icon: Users,
+        color: 'indigo',
+        bgGradient: 'from-indigo-500 to-indigo-600',
+        change: uniqueUsersChange,
+        changeKey: uniqueUsersChange ? `${uniqueUsersChange.trend}-${uniqueUsersChange.value}` : null,
+        subtitle: 'Users with visits',
+        detail: showTotalsSeparately && uniqueUsers > 0 
+          ? `Avg ${Math.round(trustedVisits / uniqueUsers)} trusted visits/user` 
+          : null
+      },
+      {
+        title: 'Trust Score',
+        value: `${trustScorePercentage}%`,
+        valueNum: trustScorePercentage,
+        icon: Award,
+        color: 'amber',
+        bgGradient: 'from-amber-500 to-amber-600',
+        subtitle: 'High + Medium trust',
+        isPercentage: true,
+        detail: showTotalsSeparately 
+          ? `High: ${stats?.trustBreakdown?.high || 0} + Medium: ${stats?.trustBreakdown?.medium || 0}` 
+          : null
+      }
+    ]
+  }, [
+    stats?.totalVisits,
+    stats?.trustedVisits,
+    stats?.uniquePlaces,
+    stats?.suspiciousVisits,
+    stats?.uniqueUsers,
+    stats?.trustBreakdown?.high,
+    stats?.trustBreakdown?.medium,
+    previousStats?.totalVisits,
+    previousStats?.trustedVisits,
+    previousStats?.uniquePlaces,
+    previousStats?.suspiciousVisits,
+    previousStats?.uniqueUsers,
+    showTotalsSeparately,
+    filteredTotalVisits,
+    trustScorePercentage,
+    fraudRate
+  ])
 
   // Additional detailed breakdown cards
   const breakdownCards = [
@@ -1092,7 +1146,7 @@ const TripScoreAnalytics = () => {
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl p-8 text-white shadow-xl"
+        className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 text-white shadow-xl"
       >
         <div className="absolute inset-0 bg-black/10"></div>
         <div className="relative z-10">
@@ -1361,10 +1415,10 @@ const TripScoreAnalytics = () => {
             </div>
           )}
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
             {kpiCards.map((card, index) => (
               <motion.div
-                key={card.title}
+                key={`${card.title}-${card.valueNum || card.value}-${card.changeKey || 'no-change'}`}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
@@ -1434,7 +1488,7 @@ const TripScoreAnalytics = () => {
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 border-t">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4 pt-3 sm:pt-4 border-t">
                   {trustBreakdownChartData.map((item) => {
                     const percentage = stats?.totalVisits ? ((item.value / stats.totalVisits) * 100).toFixed(1) : 0
                     return (
@@ -1459,7 +1513,7 @@ const TripScoreAnalytics = () => {
           </Card>
 
           {/* Detailed Trust Level Breakdown Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {breakdownCards.map((card, index) => (
               <motion.div
                 key={card.title}
@@ -1495,7 +1549,7 @@ const TripScoreAnalytics = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {sourceBreakdownChartData.map((item, index) => {
                   const percentage = stats?.totalVisits ? ((item.value / stats.totalVisits) * 100).toFixed(1) : 0
                   return (
@@ -1520,7 +1574,7 @@ const TripScoreAnalytics = () => {
           </Card>
 
           {/* Charts Row 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 md:gap-6">
             {/* Trust Level Breakdown */}
             <Card className="border-0 shadow-lg">
               <CardHeader className="bg-gradient-to-r from-purple-50 to-blue-50">
@@ -2432,7 +2486,7 @@ const TripScoreAnalytics = () => {
               </button>
             </div>
             
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-5 md:p-6 space-y-4 sm:space-y-5 md:space-y-6">
               {/* User Information */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -2475,7 +2529,7 @@ const TripScoreAnalytics = () => {
                         <p className="text-sm text-gray-900 bg-white p-3 rounded border">{selectedReview.post.caption}</p>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {selectedReview.post.images && selectedReview.post.images.length > 0 ? (
                         selectedReview.post.images.map((imageUrl, idx) => {
                           const imageKey = `image-${idx}-${imageUrl}`

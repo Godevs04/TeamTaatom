@@ -1931,19 +1931,19 @@ const Locales = () => {
       </Card>
 
       {/* Upload Modal */}
-      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="max-w-2xl bg-white">
+      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="bg-white">
         <ModalHeader onClose={() => setShowUploadModal(false)}>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <Upload className="w-5 h-5 text-green-600" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="p-1.5 sm:p-2 bg-green-100 rounded-lg flex-shrink-0">
+              <Upload className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Add New Locale</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Add New Locale</h2>
           </div>
         </ModalHeader>
         <form onSubmit={handleUpload}>
-          <ModalContent className="space-y-6">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
+          <ModalContent className="space-y-5 sm:space-y-6">
+            <div className="space-y-2.5">
+              <label className="block text-sm font-semibold text-gray-800">
                 Image <span className="text-red-500">*</span>
               </label>
               <div className="relative">
@@ -1951,7 +1951,7 @@ const Locales = () => {
                   type="file"
                   accept="image/*"
                   onChange={handleFileChange}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all cursor-pointer"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all cursor-pointer hover:border-gray-400"
                   required
                 />
                 {formData.file && (
@@ -1969,16 +1969,16 @@ const Locales = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
                   Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="Locale name"
                   required
                   minLength={1}
@@ -1986,15 +1986,15 @@ const Locales = () => {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
                   Country <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.country}
                   onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="Country name"
                   required
                   minLength={1}
@@ -2003,16 +2003,16 @@ const Locales = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
                   Country Code <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.countryCode}
                   onChange={(e) => setFormData({ ...formData, countryCode: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="US, GB, IN, etc."
                   minLength={1}
                   maxLength={10}
@@ -2020,69 +2020,69 @@ const Locales = () => {
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
-                  Display Order <span className="text-gray-400 text-xs">Optional</span>
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Display Order <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <input
                   type="number"
                   value={formData.displayOrder}
                   onChange={(e) => setFormData({ ...formData, displayOrder: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="0"
                   min="0"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
-                  State/Province <span className="text-gray-400 text-xs">Optional</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
+                  State/Province <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <input
                   type="text"
                   value={formData.stateProvince}
                   onChange={(e) => setFormData({ ...formData, stateProvince: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="State or province"
                   maxLength={200}
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-700">
-                  State Code <span className="text-gray-400 text-xs">Optional</span>
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
+                  State Code <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <input
                   type="text"
                   value={formData.stateCode}
                   onChange={(e) => setFormData({ ...formData, stateCode: e.target.value })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
                   placeholder="State code"
                   maxLength={50}
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-700">
-                Description <span className="text-gray-400 text-xs">Optional</span>
+            <div className="space-y-2.5">
+              <label className="block text-sm font-semibold text-gray-800">
+                Description <span className="text-gray-500 text-xs font-normal">(Optional)</span>
               </label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all resize-y shadow-sm min-h-[100px]"
                 placeholder="Locale description"
-                rows="3"
+                rows="4"
                 maxLength={1000}
               />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
               <div className="space-y-2.5">
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Spot Type <span className="text-gray-400 text-xs font-normal">Optional</span>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+                  Spot Type <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <div className="relative">
                   <select
@@ -2095,7 +2095,7 @@ const Locales = () => {
                         setFormData({ ...formData, spotTypes: [] });
                       }
                     }}
-                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                    className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
                   >
                     <option value="">Select spot type</option>
                     <option value="Historical spots">🏛️ Historical spots</option>
@@ -2112,20 +2112,20 @@ const Locales = () => {
                     </svg>
                   </div>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 mt-1.5">
                   Category of this location
                 </p>
               </div>
 
               <div className="space-y-2.5">
-                <label className="block text-sm font-semibold text-gray-700 mb-1">
-                  Travel Info <span className="text-gray-400 text-xs font-normal">Optional</span>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+                  Travel Info <span className="text-gray-500 text-xs font-normal">(Optional)</span>
                 </label>
                 <div className="relative">
                   <select
                     value={formData.travelInfo || 'Drivable'}
                     onChange={(e) => setFormData({ ...formData, travelInfo: e.target.value })}
-                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                    className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
                   >
                     <option value="Drivable">🚗 Drivable</option>
                     <option value="Walkable">🚶 Walkable</option>
@@ -2139,7 +2139,7 @@ const Locales = () => {
                     </svg>
                   </div>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 mt-1.5">
                   How users can reach this location
                 </p>
               </div>
@@ -2149,18 +2149,18 @@ const Locales = () => {
             <button
               type="button"
               onClick={() => setShowUploadModal(false)}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={uploading}
-              className="px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-base"
             >
               {uploading ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
                   Uploading...
                 </>
               ) : (
@@ -2175,13 +2175,13 @@ const Locales = () => {
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="max-w-md bg-white">
+      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-100 rounded-lg">
               <AlertCircle className="w-5 h-5 text-red-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Delete Locale</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Delete Locale</h2>
           </div>
         </ModalHeader>
         <ModalContent>
@@ -2203,16 +2203,16 @@ const Locales = () => {
           <button
             type="button"
             onClick={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium text-sm sm:text-base"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleDeleteConfirm}
-            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center gap-2"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-sm sm:text-base"
           >
-            <Trash2 className="w-5 h-5" />
+            <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
             Delete Locale
           </button>
         </ModalFooter>
@@ -2231,7 +2231,7 @@ const Locales = () => {
           spotTypes: [],
           travelInfo: 'Drivable'
         })
-      })} className="max-w-2xl bg-white overflow-hidden">
+      })} className="bg-white overflow-hidden">
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setLocaleToEdit, () => {
           setEditFormData({ 
             name: '', 
@@ -2247,12 +2247,12 @@ const Locales = () => {
             <div className="p-2 bg-blue-100 rounded-lg">
               <Edit2 className="w-5 h-5 text-blue-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Edit Locale</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Edit Locale</h2>
           </div>
         </ModalHeader>
         <form onSubmit={handleUpdate}>
-          <ModalContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ModalContent className="space-y-5 sm:space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
                   Name <span className="text-red-500">*</span>
@@ -2261,7 +2261,7 @@ const Locales = () => {
                   type="text"
                   value={editFormData.name}
                   onChange={(e) => setEditFormData({ ...editFormData, name: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Locale name"
                   required
                   minLength={1}
@@ -2277,7 +2277,7 @@ const Locales = () => {
                   type="text"
                   value={editFormData.country}
                   onChange={(e) => setEditFormData({ ...editFormData, country: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Country name"
                   required
                   minLength={1}
@@ -2286,7 +2286,7 @@ const Locales = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
                   Country Code <span className="text-red-500">*</span>
@@ -2295,7 +2295,7 @@ const Locales = () => {
                   type="text"
                   value={editFormData.countryCode}
                   onChange={(e) => setEditFormData({ ...editFormData, countryCode: sanitizeText(e.target.value).toUpperCase() })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="US, GB, IN, etc."
                   minLength={1}
                   maxLength={10}
@@ -2311,14 +2311,14 @@ const Locales = () => {
                   type="number"
                   value={editFormData.displayOrder}
                   onChange={(e) => setEditFormData({ ...editFormData, displayOrder: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="0"
                   min="0"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
                   State/Province <span className="text-gray-400 text-xs">Optional</span>
@@ -2327,7 +2327,7 @@ const Locales = () => {
                   type="text"
                   value={editFormData.stateProvince}
                   onChange={(e) => setEditFormData({ ...editFormData, stateProvince: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="State or province"
                   maxLength={200}
                 />
@@ -2341,7 +2341,7 @@ const Locales = () => {
                   type="text"
                   value={editFormData.stateCode}
                   onChange={(e) => setEditFormData({ ...editFormData, stateCode: sanitizeText(e.target.value) })}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="State code"
                   maxLength={50}
                 />
@@ -2355,14 +2355,14 @@ const Locales = () => {
               <textarea
                 value={editFormData.description}
                 onChange={(e) => setEditFormData({ ...editFormData, description: sanitizeText(e.target.value) })}
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-y"
                 placeholder="Locale description"
                 rows="3"
                 maxLength={1000}
               />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-2.5">
                 <label className="block text-sm font-semibold text-gray-700 mb-1">
                   Spot Type <span className="text-gray-400 text-xs font-normal">Optional</span>
@@ -2378,7 +2378,7 @@ const Locales = () => {
                         setEditFormData({ ...editFormData, spotTypes: [] });
                       }
                     }}
-                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
                   >
                     <option value="">Select spot type</option>
                     <option value="Historical spots">🏛️ Historical spots</option>
@@ -2390,7 +2390,7 @@ const Locales = () => {
                     <option value="Beach spots">🏖️ Beach spots</option>
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
@@ -2408,7 +2408,7 @@ const Locales = () => {
                   <select
                     value={editFormData.travelInfo || 'Drivable'}
                     onChange={(e) => setEditFormData({ ...editFormData, travelInfo: e.target.value })}
-                    className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-gray-300 font-medium"
                   >
                     <option value="Drivable">🚗 Drivable</option>
                     <option value="Walkable">🚶 Walkable</option>
@@ -2417,7 +2417,7 @@ const Locales = () => {
                     <option value="Not Accessible">🚫 Not Accessible</option>
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
@@ -2466,14 +2466,14 @@ const Locales = () => {
                   travelInfo: 'Drivable'
                 })
               }}
-              className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium shadow-sm"
+              className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium shadow-sm text-sm sm:text-base"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={editing}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base"
             >
               {editing ? (
                 <>
@@ -2482,7 +2482,7 @@ const Locales = () => {
                 </>
               ) : (
                 <>
-                  <Edit2 className="w-5 h-5" />
+                  <Edit2 className="w-4 h-4 sm:w-5 sm:h-5" />
                   Update Locale
                 </>
               )}
@@ -2499,7 +2499,7 @@ const Locales = () => {
             setShowBulkActionModal(false)
           }
         }} 
-        className="max-w-md bg-white"
+        className="bg-white"
       >
         <ModalHeader onClose={() => {
           if (!isBulkActionInProgress) {
@@ -2562,7 +2562,7 @@ const Locales = () => {
               }
             }}
             disabled={isBulkActionInProgress}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
           >
             Cancel
           </button>
@@ -2570,7 +2570,7 @@ const Locales = () => {
             type="button"
             onClick={() => handleBulkToggleStatus(bulkActionType === 'enable')}
             disabled={isBulkActionInProgress}
-            className={`px-6 py-3 rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
+            className={`w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl transition-all font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base ${
               bulkActionType === 'enable'
                 ? 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white'
                 : 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white'
@@ -2592,13 +2592,13 @@ const Locales = () => {
       </Modal>
 
       {/* Preview Modal */}
-      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)} className="max-w-lg bg-white">
+      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-100 rounded-lg">
               <Eye className="w-5 h-5 text-purple-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Locale Preview</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Locale Preview</h2>
           </div>
         </ModalHeader>
         <ModalContent>
@@ -2654,7 +2654,7 @@ const Locales = () => {
           <button
             type="button"
             onClick={() => handleModalClose(setShowPreviewModal, setPreviewLocale)}
-            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium"
+            className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium text-sm sm:text-base"
           >
             Close
           </button>

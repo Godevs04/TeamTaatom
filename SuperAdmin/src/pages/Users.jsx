@@ -1048,7 +1048,7 @@ const Users = () => {
           setBulkActionType(null)
           setBulkActionPreview(null)
         }
-      }} className="max-w-2xl bg-white">
+      }} className="bg-white">
         <ModalHeader onClose={() => {
           setShowBulkActionModal(false)
           setBulkActionType(null)
@@ -1586,7 +1586,7 @@ const Users = () => {
             onClick={handleConfirmAction}
             className={`btn ${
               selectedUser?.action === 'ban' || selectedUser?.action === 'delete' 
-                ? 'bg-red-600 hover:bg-red-700' 
+                ? 'btn-destructive' 
                 : 'btn-primary'
             }`}
           >
