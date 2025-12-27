@@ -112,6 +112,8 @@ export default function PostScreen() {
   const [showSongSelector, setShowSongSelector] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
+  // Ref to track if a song was just selected to prevent race condition with onClose
+  const songJustSelectedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showSpotTypePicker, setShowSpotTypePicker] = useState(false);
@@ -1528,8 +1530,28 @@ export default function PostScreen() {
       // Detect audio source for copyright compliance
       // audioSource = "taatom_library" if background music from Taatom is selected
       // audioSource = "user_original" if using original video audio (no Taatom music)
-      const audioSource: 'taatom_library' | 'user_original' = 
-        (audioChoice === 'background' && selectedSong) ? 'taatom_library' : 'user_original';
+      // CRITICAL: Check if user selected background music AND has a song selected
+      const hasBackgroundMusic = audioChoice === 'background' && selectedSong && selectedSong._id;
+      const audioSource: 'taatom_library' | 'user_original' = hasBackgroundMusic ? 'taatom_library' : 'user_original';
+      
+      // Log for debugging
+      if (__DEV__) {
+        console.log('🎵 [handleShort] Audio source determination:', {
+          audioChoice: audioChoice,
+          hasSelectedSong: !!selectedSong,
+          selectedSongId: selectedSong?._id,
+          selectedSongTitle: selectedSong?.title,
+          hasBackgroundMusic: hasBackgroundMusic,
+          audioSource: audioSource
+        });
+      }
+      logger.info('handleShort - Audio source determination:', {
+        audioChoice: audioChoice,
+        hasSelectedSong: !!selectedSong,
+        selectedSongId: selectedSong?._id,
+        hasBackgroundMusic: hasBackgroundMusic,
+        audioSource: audioSource
+      });
 
       // If user_original, show copyright confirmation modal
       if (audioSource === 'user_original') {
@@ -1587,7 +1609,7 @@ export default function PostScreen() {
         audioSource: audioSource,
       });
 
-      const response = await createShort({
+      const shortData = {
         video: {
           uri: selectedVideo,
           type: type,
@@ -1603,10 +1625,12 @@ export default function PostScreen() {
         // If background music is selected, send music data with volume 1.0
         // Backend should mix music with original video audio (video at 0.6, music at 1.0)
         // If original only, don't send song data (video audio plays at 1.0)
-        songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
-        songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
-        songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
-        songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined, // Music at full volume, video will be at 0.6
+        // Use hasBackgroundMusic to ensure consistency with audioSource
+        // DEFENSIVE: Also check if selectedSong exists and has _id before using it
+        songId: (hasBackgroundMusic && selectedSong?._id) ? selectedSong._id : undefined,
+        songStartTime: (hasBackgroundMusic && selectedSong?._id) ? songStartTime : undefined,
+        songEndTime: (hasBackgroundMusic && selectedSong?._id) ? songEndTime : undefined,
+        songVolume: (hasBackgroundMusic && selectedSong?._id) ? 1.0 : undefined, // Music at full volume, video will be at 0.6
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
@@ -1620,7 +1644,59 @@ export default function PostScreen() {
         audioSource: audioSource,
         copyrightAccepted: true, // Auto-accepted for taatom_library
         copyrightAcceptedAt: new Date().toISOString(),
+      };
+      
+      // Log data being sent for debugging
+      if (__DEV__) {
+        console.log('📤 [handleShort] Sending short data:', {
+          hasSongId: !!shortData.songId,
+          songId: shortData.songId,
+          audioSource: shortData.audioSource,
+          audioChoice: audioChoice,
+          hasSelectedSong: !!selectedSong,
+          selectedSongId: selectedSong?._id,
+          selectedSongTitle: selectedSong?.title,
+          hasBackgroundMusic: hasBackgroundMusic,
+          songStartTime: shortData.songStartTime,
+          songEndTime: shortData.songEndTime,
+          songVolume: shortData.songVolume
+        });
+      }
+      logger.info('handleShort - Sending short data:', {
+        hasSongId: !!shortData.songId,
+        songId: shortData.songId,
+        audioSource: shortData.audioSource,
+        audioChoice: audioChoice,
+        hasSelectedSong: !!selectedSong,
+        selectedSongId: selectedSong?._id,
+        selectedSongTitle: selectedSong?.title,
+        hasBackgroundMusic: hasBackgroundMusic,
+        songStartTime: shortData.songStartTime,
+        songEndTime: shortData.songEndTime,
+        songVolume: shortData.songVolume
       });
+      
+      // CRITICAL VALIDATION: Warn if background music is expected but not being sent
+      if (audioChoice === 'background' && selectedSong && !shortData.songId) {
+        if (__DEV__) {
+          console.error('❌ [handleShort] ERROR: Background music selected but songId is missing!', {
+            audioChoice,
+            selectedSongId: selectedSong._id,
+            hasBackgroundMusic,
+            shortDataSongId: shortData.songId,
+            audioSource: shortData.audioSource
+          });
+        }
+        logger.error('handleShort - ERROR: Background music selected but songId is missing!', {
+          audioChoice,
+          selectedSongId: selectedSong._id,
+          hasBackgroundMusic,
+          shortDataSongId: shortData.songId,
+          audioSource: shortData.audioSource
+        });
+      }
+      
+      const response = await createShort(shortData);
 
       logger.debug('Short created successfully:', response);
       
@@ -3622,22 +3698,70 @@ export default function PostScreen() {
       <SongSelector
         visible={showSongSelector}
         onClose={() => {
-          setShowSongSelector(false);
-          // If user closes without selecting, reset audio choice
-          if (!selectedSong) {
-            setAudioChoice(null);
+          // CRITICAL FIX: Use ref to prevent race condition
+          // If a song was just selected, don't reset audioChoice
+          if (!songJustSelectedRef.current) {
+            // User closed modal without selecting - reset audio choice
+            if (!selectedSong) {
+              setAudioChoice(null);
+            }
+          } else {
+            // Song was just selected, reset the ref
+            songJustSelectedRef.current = false;
           }
+          setShowSongSelector(false);
         }}
         onSelect={(song, startTime, endTime) => {
-          setSelectedSong(song);
+          if (__DEV__) {
+            console.log('🎵 [SongSelector] onSelect called:', {
+              hasSong: !!song,
+              songId: song?._id,
+              songTitle: song?.title,
+              startTime: startTime,
+              endTime: endTime
+            });
+          }
+          
+          // CRITICAL: Update state in the correct order to avoid race conditions
+          // First, update selectedSong and audioChoice together
           if (song && startTime !== undefined && endTime !== undefined) {
+            // Mark that a song was just selected to prevent onClose from resetting
+            songJustSelectedRef.current = true;
+            
+            // When a song is selected, set audioChoice to 'background'
+            // This ensures audioSource will be 'taatom_library' when uploading
+            setSelectedSong(song);
+            setAudioChoice('background'); // CRITICAL: Set this BEFORE closing modal
             setSongStartTime(startTime);
             setSongEndTime(endTime);
+            if (__DEV__) {
+              console.log('✅ [SongSelector] Song selected, audioChoice set to background:', {
+                songId: song._id,
+                title: song.title,
+                audioChoice: 'background',
+                startTime: startTime,
+                endTime: endTime
+              });
+            }
+            logger.info('SongSelector - Song selected:', {
+              songId: song._id,
+              title: song.title,
+              audioChoice: 'background'
+            });
           } else if (!song) {
+            // When song is removed, reset everything
+            songJustSelectedRef.current = false;
+            setSelectedSong(null);
+            setAudioChoice(null);
             setSongStartTime(0);
             setSongEndTime(60);
-            setAudioChoice(null);
+            if (__DEV__) {
+              console.log('🔄 [SongSelector] Song removed, audioChoice reset to null');
+            }
+            logger.info('SongSelector - Song removed, audioChoice reset to null');
           }
+          
+          // Close modal AFTER state updates
           setShowSongSelector(false);
         }}
         selectedSong={selectedSong}

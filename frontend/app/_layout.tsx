@@ -195,13 +195,42 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Initialize analytics, feature flags, crash reporting, and service worker
+        // Validate production environment configuration
+        try {
+          const { validateProductionEnvironment } = require('../utils/productionValidator');
+          validateProductionEnvironment();
+        } catch (validationError: any) {
+          // In production, this will prevent the app from starting
+          // In development, log the error but allow the app to continue
+          if (process.env.NODE_ENV === 'production' || process.env.EXPO_PUBLIC_ENV === 'production') {
+            logger.error('Production validation failed:', validationError);
+            throw validationError;
+          } else {
+            logger.warn('Production validation warning (development mode):', validationError.message);
+          }
+        }
+
+        // Initialize analytics, feature flags, crash reporting, service worker, and update service
         await Promise.all([
           analyticsService.initialize(),
           featureFlagsService.initialize(),
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Initialize update service and check for updates
+        try {
+          const { updateService } = require('../services/updateService');
+          // Start automatic update checking (checks every 24 hours)
+          updateService.startAutomaticChecking();
+          // Also check immediately on app launch
+          updateService.checkForUpdatesIfNeeded().catch((error: any) => {
+            logger.debug('Update check failed (non-critical):', error);
+          });
+        } catch (error: any) {
+          // Update service might not be available in development - that's okay
+          logger.debug('Update service not available (development mode):', error.message);
+        }
 
         const user = await initializeAuth();
         
@@ -297,6 +326,20 @@ function RootLayoutInner() {
                              normalizedPath === '/(tabs)/home' || 
                              normalizedPath === '/home';
       
+      // Public routes that don't require authentication
+      const isPublicRoute = segments[0] === 'policies' ||
+                          segments[0] === 'support' ||
+                          segments[0] === 'help' ||
+                          segments[0] === 'privacy' ||
+                          segments[0] === 'terms' ||
+                          segments[0] === 'copyright' ||
+                          normalizedPath.startsWith('/policies') ||
+                          normalizedPath.startsWith('/support') ||
+                          normalizedPath.startsWith('/help') ||
+                          normalizedPath.startsWith('/privacy') ||
+                          normalizedPath.startsWith('/terms') ||
+                          normalizedPath.startsWith('/copyright');
+      
       // Check if we're on any valid authenticated route (not just home)
       // Include all possible route formats and nested routes
       const isOnValidRoute = segments[0] === '(tabs)' || 
@@ -358,6 +401,12 @@ function RootLayoutInner() {
         // If already on auth screen, don't navigate (prevents flash during refresh)
         if (isOnAuthScreen) {
           logger.debug('[Navigation] Already on auth screen, skipping navigation');
+          return;
+        }
+        
+        // Allow public routes without authentication
+        if (isPublicRoute) {
+          logger.debug('[Navigation] On public route, allowing access without authentication', { currentPath, segments });
           return;
         }
         
@@ -543,15 +592,9 @@ function RootLayoutInner() {
           }}
         >
           {/* Public routes - accessible without authentication */}
+          {/* Note: support, policies, privacy, terms, copyright are handled by file-based routing */}
+          {/* They have _layout.tsx files or redirect files that Expo Router handles automatically */}
           <Stack.Screen name="help" options={{ presentation: 'card' }} />
-          <Stack.Screen name="support" options={{ presentation: 'card' }} />
-          {/* Support sub-routes - must be public for web URLs */}
-          <Stack.Screen name="support/help" options={{ presentation: 'card' }} />
-          <Stack.Screen name="support/contact" options={{ presentation: 'card' }} />
-          {/* Policy sub-routes - must be public for web URLs */}
-          <Stack.Screen name="policies/privacy" options={{ presentation: 'card' }} />
-          <Stack.Screen name="policies/terms" options={{ presentation: 'card' }} />
-          <Stack.Screen name="policies/copyright" options={{ presentation: 'card' }} />
           
           {/* Auth routes - always defined, access controlled by navigation guard */}
           <Stack.Screen name="(auth)" />

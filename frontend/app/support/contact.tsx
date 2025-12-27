@@ -50,7 +50,7 @@ export default function ContactSupport() {
   };
 
   const handleSendEmail = async () => {
-    const supportEmail = 'support@taatom.com';
+    const supportEmail = 'contact@taatom.com';
     const encodedSubject = encodeURIComponent(subject || 'Taatom Support Request');
     const encodedBody = encodeURIComponent(message || '');
     const mailtoUrl = `mailto:${supportEmail}?subject=${encodedSubject}&body=${encodedBody}`;
@@ -71,7 +71,7 @@ export default function ContactSupport() {
   };
 
   const handleCopyEmail = async () => {
-    const supportEmail = 'support@taatom.com';
+    const supportEmail = 'contact@taatom.com';
     try {
       if (Platform.OS === 'web') {
         // Web: Use navigator.clipboard API

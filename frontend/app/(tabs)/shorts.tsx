@@ -27,7 +27,7 @@ import { getShorts, toggleLike, addComment, getPostById, deleteShort } from '../
 import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
@@ -105,6 +105,7 @@ export default function ShortsScreen() {
   
   const { theme, mode } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
   const { handleScroll } = useScrollToHideNav();
 
@@ -580,6 +581,22 @@ export default function ShortsScreen() {
       const response = await getShorts(1, 20);
       setShorts(response.shorts);
       
+      // Scroll to specific short if shortId is provided in params
+      if (params.shortId && typeof params.shortId === 'string' && response.shorts.length > 0) {
+        const targetIndex = response.shorts.findIndex(s => s._id === params.shortId);
+        if (targetIndex !== -1 && flatListRef.current) {
+          // Use setTimeout to ensure FlatList is rendered before scrolling
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ 
+              index: targetIndex, 
+              animated: false 
+            });
+            setCurrentIndex(targetIndex);
+            setCurrentVisibleIndex(targetIndex);
+          }, 100);
+        }
+      }
+      
       // Initialize follow states
       const followStatesMap: { [key: string]: boolean } = {};
       response.shorts.forEach((short: PostType) => {
@@ -964,14 +981,20 @@ export default function ShortsScreen() {
     
     // Debug: Log song data
     if (item.song) {
-      logger.debug('Short has song data:', {
+      logger.info('Short has song data:', {
+        shortId: item._id,
         hasSong: !!item.song,
         hasSongId: !!item.song.songId,
-        songId: item.song.songId,
-        s3Url: item.song.songId?.s3Url,
+        songId: item.song.songId?._id || item.song.songId,
+        hasS3Url: !!item.song.songId?.s3Url,
+        s3Url: item.song.songId?.s3Url ? item.song.songId.s3Url.substring(0, 50) + '...' : 'NONE',
         title: item.song.songId?.title,
         artist: item.song.songId?.artist,
+        startTime: item.song.startTime,
+        volume: item.song.volume
       });
+    } else {
+      logger.debug('Short has NO song data:', { shortId: item._id });
     }
 
     return (
@@ -1009,14 +1032,41 @@ export default function ShortsScreen() {
                 // Force play when index matches currentVisibleIndex to ensure consistent playback
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
-                // Mute videos that are not in focus to save audio resources
-                // Only the current visible video should have audio
-                isMuted={index !== currentVisibleIndex}
-                // Use onLoadStart to ensure video starts playing when it loads
+                // CRITICAL: Mute video when music is playing
+                // If song exists with valid s3Url, video must be muted so only music plays
+                // Also mute videos that are not in focus to save audio resources
+                isMuted={(() => {
+                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  const shouldMute = index !== currentVisibleIndex || hasMusic;
+                  if (__DEV__ && index === currentVisibleIndex) {
+                    logger.info('Video mute check:', {
+                      shortId: item._id,
+                      hasMusic,
+                      isCurrentVisible: index === currentVisibleIndex,
+                      shouldMute
+                    });
+                  }
+                  return shouldMute;
+                })()}
+                volume={(() => {
+                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  return hasMusic ? 0.0 : 1.0;
+                })()}
+                // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
+                      // If music exists, ensure video is muted
+                      const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                      if (hasMusic) {
+                        video.setIsMutedAsync(true).catch(() => {
+                          // Silently handle mute errors
+                        });
+                        video.setVolumeAsync(0.0).catch(() => {
+                          // Silently handle volume errors
+                        });
+                      }
                       video.playAsync().catch(() => {
                         // Silently handle play errors
                       });
@@ -1027,6 +1077,17 @@ export default function ShortsScreen() {
                   if (status.isLoaded) {
                     const wasPlaying = videoStates[item._id];
                     const isNowPlaying = status.isPlaying;
+                    
+                    // CRITICAL: If music exists, ensure video stays muted
+                    const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                    if (hasMusic && index === currentVisibleIndex) {
+                      const video = videoRefs.current[item._id];
+                      if (video && !status.isMuted) {
+                        // Force mute if music is playing
+                        video.setIsMutedAsync(true).catch(() => {});
+                        video.setVolumeAsync(0.0).catch(() => {});
+                      }
+                    }
                     
                     // Ensure only one video plays at a time
                     // If this video started playing but it's not the active one, pause it
@@ -1241,15 +1302,33 @@ export default function ShortsScreen() {
               </TouchableOpacity>
               
               {/* Song Player - Elegant Design - Synced with Video */}
-              {item.song?.songId && item.song.songId.s3Url ? (
-                <View style={styles.songPlayerWrapper} pointerEvents="box-none">
-                  <SongPlayer 
-                    post={item} 
-                    isVisible={index === currentVisibleIndex} 
-                    autoPlay={isVideoPlaying} 
-                  />
-                </View>
-              ) : null}
+              {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
+              {(() => {
+                const hasSong = !!item.song?.songId;
+                const hasS3Url = !!item.song?.songId?.s3Url;
+                const shouldRender = hasSong && hasS3Url;
+                
+                if (__DEV__ && index === currentVisibleIndex) {
+                  logger.info('SongPlayer render check:', {
+                    shortId: item._id,
+                    hasSong,
+                    hasS3Url,
+                    shouldRender,
+                    songId: item.song?.songId?._id || item.song?.songId,
+                    s3Url: item.song?.songId?.s3Url ? 'EXISTS' : 'MISSING'
+                  });
+                }
+                
+                return shouldRender ? (
+                  <View style={styles.songPlayerWrapper} pointerEvents="box-none">
+                    <SongPlayer 
+                      post={item} 
+                      isVisible={index === currentVisibleIndex} 
+                      autoPlay={isVideoPlaying} 
+                    />
+                  </View>
+                ) : null;
+              })()}
             </View>
           </View>
       </View>
@@ -1398,6 +1477,13 @@ export default function ShortsScreen() {
         snapToInterval={SCREEN_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        onScrollToIndexFailed={(info) => {
+          // Handle scroll to index failure gracefully
+          const wait = new Promise(resolve => setTimeout(resolve, 500));
+          wait.then(() => {
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+          });
+        }}
         // Performance optimizations for video-heavy feed:
         // - removeClippedSubviews: Unmount off-screen items to free memory
         // - initialNumToRender: Only render 3 items initially for faster first paint

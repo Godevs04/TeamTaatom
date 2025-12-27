@@ -624,7 +624,19 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
     
     // Add copyright compliance fields
-    if (data.audioSource) formData.append('audioSource', data.audioSource);
+    if (data.audioSource) {
+      formData.append('audioSource', data.audioSource);
+      if (__DEV__) {
+        logger.debug('createShort service - Appending audioSource:', data.audioSource);
+      }
+    } else {
+      if (__DEV__) {
+        logger.warn('createShort service - No audioSource provided!');
+      }
+    }
+    
+    // Log all FormData entries for debugging (FormData.keys() not available in TypeScript)
+    // Note: Can't easily log FormData contents, but we log what we're appending above
     if (data.copyrightAccepted !== undefined) {
       formData.append('copyrightAccepted', data.copyrightAccepted ? 'true' : 'false');
     }
