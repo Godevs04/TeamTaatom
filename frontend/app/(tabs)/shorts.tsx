@@ -141,26 +141,62 @@ export default function ShortsScreen() {
    */
   const stopAndUnloadVideo = useCallback(async (videoId: string) => {
     const video = videoRefs.current[videoId];
-    if (video) {
-      try {
-        // Stop playback first
-        await video.pauseAsync();
-        // Then unload to release GPU/memory resources
-        await video.unloadAsync();
-        // Remove from refs
-        delete videoRefs.current[videoId];
-        // Update state
-        setVideoStates(prev => {
-          const newState = { ...prev };
-          delete newState[videoId];
-          return newState;
-        });
-        logger.debug(`Stopped and unloaded video: ${videoId}`);
-      } catch (error) {
-        logger.warn(`Error stopping/unloading video ${videoId}:`, error);
-        // Still remove from refs even if cleanup fails
-        delete videoRefs.current[videoId];
+    if (!video) {
+      return;
+    }
+
+    try {
+      // Check if video is still valid before operations
+      const status = await video.getStatusAsync();
+      
+      // Stop playback first if video is loaded
+      if (status.isLoaded) {
+        try {
+          await video.pauseAsync();
+        } catch (pauseError) {
+          logger.debug(`Video ${videoId} already paused or pause failed:`, pauseError);
+        }
       }
+
+      // Then unload to release GPU/memory resources
+      // Check if unloadAsync exists and video is still loaded
+      if (status.isLoaded && typeof video.unloadAsync === 'function') {
+        try {
+          await video.unloadAsync();
+        } catch (unloadError) {
+          // Video might already be unloaded, this is okay
+          logger.debug(`Video ${videoId} unload failed (may already be unloaded):`, unloadError);
+        }
+      }
+
+      // Remove from refs
+      delete videoRefs.current[videoId];
+      
+      // Update state
+      setVideoStates(prev => {
+        const newState = { ...prev };
+        delete newState[videoId];
+        return newState;
+      });
+      
+      logger.debug(`Stopped and unloaded video: ${videoId}`);
+    } catch (error) {
+      // Safely handle and log errors
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : typeof error === 'string' 
+        ? error 
+        : 'Unknown video cleanup error';
+      
+      logger.warn(`Error stopping/unloading video ${videoId}:`, errorMessage);
+      
+      // Still remove from refs even if cleanup fails to prevent memory leaks
+      delete videoRefs.current[videoId];
+      setVideoStates(prev => {
+        const newState = { ...prev };
+        delete newState[videoId];
+        return newState;
+      });
     }
   }, []);
 
@@ -181,12 +217,23 @@ export default function ShortsScreen() {
     return () => {
       clearTimeout(timer);
       // Cleanup all video refs
-      Object.values(videoRefs.current).forEach(video => {
+      const cleanupPromises = Object.values(videoRefs.current).map(async (video) => {
         if (video) {
-          video.unloadAsync().catch(() => {
-            // Silently fail cleanup
-          });
+          try {
+            // Check if video is still valid
+            const status = await video.getStatusAsync();
+            if (status.isLoaded && typeof video.unloadAsync === 'function') {
+              await video.unloadAsync();
+            }
+          } catch (error) {
+            // Silently fail cleanup - video may already be unloaded
+            logger.debug('Video cleanup error (expected on unmount):', error instanceof Error ? error.message : String(error));
+          }
         }
+      });
+      // Don't await - cleanup happens in background
+      Promise.all(cleanupPromises).catch(() => {
+        // Ignore cleanup errors
       });
       videoRefs.current = {};
       
