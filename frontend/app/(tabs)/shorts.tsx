@@ -19,7 +19,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -260,6 +260,18 @@ export default function ShortsScreen() {
   // Uses centralized pauseCurrentVideo helper to prevent race conditions
   useFocusEffect(
     useCallback(() => {
+      // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
+      // This ensures audio plays through main speaker even if call service changed it
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false, // CRITICAL: Use main speaker for shorts
+      }).catch(err => {
+        logger.error('Error setting audio mode for shorts:', err);
+      });
+      
       // Screen focused - resume current video if it exists
       if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
         const currentVideoId = shorts[currentVisibleIndex]._id;

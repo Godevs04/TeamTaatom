@@ -336,13 +336,16 @@ exports.sendMessage = async (req, res) => {
         const nsp = io.of('/app');
         logger.debug('Namespace available:', !!nsp);
         
+        // CRITICAL: Convert chat._id to string for consistent comparison on frontend
+        const chatIdStr = chat._id.toString();
+        
         // Emit to recipient (all devices)
-        nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chat._id, message });
+        nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chatIdStr, message });
         // Emit ack to sender (all devices)
-        nsp.to(`user:${userId}`).emit('message:sent', { chatId: chat._id, message });
+        nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message });
         // Emit chat list update to both users
-        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
-        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: message.text, timestamp: message.timestamp });
+        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: message.text, timestamp: message.timestamp });
         
         // For admin_support conversations, also emit to admin rooms
         if (chat.type === 'admin_support') {
@@ -353,23 +356,23 @@ exports.sendMessage = async (req, res) => {
     }
           // Emit to admin support room for real-time updates in admin panel
           nsp.to('admin_support').emit('admin_support:message:new', { 
-            chatId: chat._id, 
+            chatId: chatIdStr, 
             message,
             userId: userId.toString(),
             otherUserId: otherUserId.toString()
           });
           nsp.to('admin_support').emit('admin_support:chat:update', { 
-            chatId: chat._id, 
+            chatId: chatIdStr, 
             lastMessage: message.text, 
             timestamp: message.timestamp,
             userId: userId.toString()
           });
-          logger.debug('Emitted admin_support socket events for chat:', chat._id);
+          logger.debug('Emitted admin_support socket events for chat:', chatIdStr);
         }
         
         logger.debug('Socket events emitted successfully for message:', message._id);
         logger.debug('Emitted to users:', { sender: userId, recipient: otherUserId });
-        logger.debug('Chat ID:', chat._id);
+        logger.debug('Chat ID:', chatIdStr);
       } else {
         logger.debug('Socket not available, skipping real-time events');
       }

@@ -109,10 +109,32 @@ const connectSocket = async () => {
   // If URL changed (e.g., IP changed), we MUST disconnect and reconnect
   if (socket && socket.connected) {
     if (lastConnectedUrl === fullUrl) {
-      // Same URL, socket is good
+      // Same URL, socket is good - but ensure event forwarding is set up
       if (process.env.NODE_ENV === 'development') {
-        logger.debug('Socket service - Already connected to correct URL');
+        logger.debug('Socket service - Already connected to correct URL, ensuring event forwarding');
       }
+      // Ensure onAny handler is set up even if socket was already connected
+      // Remove existing handler first to avoid duplicates
+      socket.offAny();
+      socket.onAny((event, ...args) => {
+        if (process.env.NODE_ENV === 'development') {
+          logger.debug(`[Socket] Event received (existing connection): ${event}`, { 
+            hasListeners: !!listeners[event],
+            listenerCount: listeners[event]?.size || 0,
+            argsLength: args.length
+          });
+        }
+        if (listeners[event]) {
+          listeners[event].forEach((cb) => {
+            try {
+              // CRITICAL: Socket.io sends payload as first argument, not spread
+              cb(args[0]);
+            } catch (error) {
+              logger.error(`Error in socket event handler for ${event}:`, error);
+            }
+          });
+        }
+      });
       return socket;
     } else {
       // URL changed! Must disconnect and reconnect
@@ -176,7 +198,7 @@ const connectSocket = async () => {
   // Store the URL we're connecting to
   lastConnectedUrl = fullUrl;
 
-  socket.on('connect', () => {
+  socket.on('connect', async () => {
     connectionState = 'connected';
     reconnectAttempts = 0;
     
@@ -184,6 +206,24 @@ const connectSocket = async () => {
       logger.debug(`[Socket] ✅ [WEB] Connected successfully to: ${lastConnectedUrl}`);
     } else if (process.env.NODE_ENV === 'development') {
       logger.debug('Socket service - Connected successfully to /app namespace');
+    }
+
+    // CRITICAL: Join user room immediately after connection
+    // Backend emits messages to 'user:${userId}' rooms, so we must join it
+    try {
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        const user = JSON.parse(userData);
+        const userId = user._id;
+        if (userId) {
+          socket.emit('join', `user:${userId}`);
+          if (process.env.NODE_ENV === 'development') {
+            logger.debug(`[Socket] Joined user room: user:${userId}`);
+          }
+        }
+      }
+    } catch (e) {
+      logger.error('Error joining user room on connect:', e);
     }
 
     // Process queued messages
@@ -266,13 +306,35 @@ const connectSocket = async () => {
     }
   });
 
+  // CRITICAL: Set up event forwarding BEFORE connecting
+  // This ensures we catch all events, even if socket was already connected
+  // Remove any existing onAny handler first to avoid duplicates
+  if ((socket as any)._onAnyHandlers) {
+    socket.offAny();
+  }
+  
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
     if (process.env.NODE_ENV === 'development') {
-      logger.debug(`Socket event received: ${event}`, { args });
+      logger.debug(`[Socket] Event received: ${event}`, { 
+        hasListeners: !!listeners[event],
+        listenerCount: listeners[event]?.size || 0,
+        args: args.length > 0 ? 'present' : 'empty'
+      });
     }
     if (listeners[event]) {
-      listeners[event].forEach((cb) => cb(...args));
+      listeners[event].forEach((cb) => {
+        try {
+          // Call with first argument (payload) - socket.io sends single payload object
+          cb(args[0]);
+        } catch (error) {
+          logger.error(`Error in socket event handler for ${event}:`, error);
+        }
+      });
+    } else {
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug(`[Socket] No listeners registered for event: ${event}`);
+      }
     }
   });
 
