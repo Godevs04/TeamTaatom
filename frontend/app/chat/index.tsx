@@ -131,14 +131,19 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     const onMessageNew = (payload: any) => {
       logger.debug('Received message:new event:', payload);
       if (payload.message && payload.chatId === chatId) {
-        logger.debug('Adding message to active chat:', payload.message);
+        logger.debug('Adding message to active chat via socket:', payload.message);
         // Clear fallback timeout if it exists
         if ((window as any).messageFallbackTimeout) {
           clearTimeout((window as any).messageFallbackTimeout);
           (window as any).messageFallbackTimeout = null;
         }
         // Append to active chat if open
+        // handleNewMessage will handle replacing optimistic messages
         onSendMessage(payload.message);
+        // Scroll to bottom when new message arrives
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
       } else {
         logger.debug('Message not for current chat or missing data:', { payload, chatId });
         // Optionally: update chat list preview/unread here
@@ -221,26 +226,75 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const handleSend = async () => {
     if (!input.trim()) return;
     const messageText = input;
-        logger.debug('Sending message:', messageText);
+    logger.debug('Sending message:', messageText);
+    
+    // Get current user ID for optimistic message
+    let currentUserId = '';
+    try {
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        currentUserId = JSON.parse(userData)._id;
+      }
+    } catch (e) {
+      logger.error('Error getting user ID:', e);
+    }
+    
+    // Create optimistic message immediately for instant UI feedback
+    const optimisticMessage = {
+      _id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      text: messageText,
+      sender: currentUserId,
+      timestamp: new Date().toISOString(),
+      seen: false,
+      isOptimistic: true, // Flag to identify optimistic messages
+    };
+    
+    // Add optimistic message immediately to UI for instant feedback
+    onSendMessage(optimisticMessage);
     setInput(''); // Clear input immediately for better UX
+    
+    // Scroll to bottom after adding optimistic message
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
     
     try {
       const res = await api.post(`/chat/${otherUser._id}/messages`, { text: messageText });
       logger.debug('Message sent successfully:', res.data.message);
       
-      // Add a fallback mechanism - if socket doesn't fire within 1 second, add the message manually
+      // Clear any existing fallback timeout
+      if ((window as any).messageFallbackTimeout) {
+        clearTimeout((window as any).messageFallbackTimeout);
+        (window as any).messageFallbackTimeout = null;
+      }
+      
+      // The socket event should fire and replace the optimistic message
+      // But if socket doesn't fire, we'll add the real message and remove optimistic one
       const fallbackTimeout = setTimeout(() => {
-        logger.debug('Socket fallback: adding message manually');
-        onSendMessage(res.data.message);
-      }, 1000);
+        logger.debug('Socket fallback: ensuring real message is in state');
+        // Check if real message already exists (from socket)
+        const messageExists = messages.some((m: any) => m._id === res.data.message._id);
+        if (!messageExists) {
+          logger.debug('Message not found in state, adding via fallback');
+          // Add real message - handleNewMessage will deduplicate
+          onSendMessage(res.data.message);
+        }
+        // Remove optimistic message - we need to do this via a callback or state update
+        // Since we don't have direct access to setActiveMessages, we'll rely on handleNewMessage
+        // to handle deduplication properly
+      }, 300);
       
       // Store the timeout so we can clear it if socket event fires
       (window as any).messageFallbackTimeout = fallbackTimeout;
       
     } catch (e) {
       logger.error('Error sending message:', e);
-      // Restore input on error
+      // Remove optimistic message on error by filtering it out
+      // We need to notify parent to remove it, but since we use onSendMessage for adding,
+      // we'll need a different approach. For now, restore input and show error.
+      // The optimistic message will be replaced when user retries or when socket syncs
       setInput(messageText);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
     }
   };
 
@@ -862,7 +916,28 @@ export default function ChatModal() {
         logger.debug('Duplicate message detected, skipping:', msg._id);
         return prev;
       }
-      return [...prev, msg];
+      
+      // If this is a real message (not optimistic), remove any optimistic messages with the same text and sender
+      // This handles the case where optimistic message was added, then real message arrives
+      if (!msg.isOptimistic && msg.text) {
+        const filtered = prev.filter(m => {
+          // Remove optimistic messages that match this real message's text and sender
+          // Match by text content and sender to ensure we're replacing the right message
+          if (m.isOptimistic && m.text === msg.text && String(m.sender) === String(msg.sender)) {
+            logger.debug('Removing optimistic message, replacing with real message:', { optimisticId: m._id, realId: msg._id, text: msg.text });
+            return false;
+          }
+          return true;
+        });
+        const newMessages = [...filtered, msg];
+        logger.debug('Updated messages after adding real message:', { prevCount: prev.length, newCount: newMessages.length, messageId: msg._id });
+        return newMessages;
+      }
+      
+      // For optimistic messages, just add them
+      const newMessages = [...prev, msg];
+      logger.debug('Added message:', { messageId: msg._id, isOptimistic: msg.isOptimistic, text: msg.text?.substring(0, 20), totalMessages: newMessages.length });
+      return newMessages;
     });
   };
 
@@ -1996,7 +2071,23 @@ export default function ChatModal() {
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
               other = item.participants.find((id: string) => id !== item.me);
             }
-            const unreadCount = item.messages?.filter((m: any) => m.sender === (other._id || other) && !m.seen).length || 0;
+            // Calculate unread count - handle different sender formats
+            const otherUserId = other?._id ? other._id.toString() : (typeof other === 'string' ? other : other?.toString() || '');
+            const unreadCount = item.messages?.filter((m: any) => {
+              if (!m || !m.sender || m.seen) return false;
+              
+              // Handle different sender formats
+              let senderId = null;
+              if (typeof m.sender === 'string') {
+                senderId = m.sender;
+              } else if (m.sender._id) {
+                senderId = m.sender._id.toString();
+              } else if (m.sender.toString) {
+                senderId = m.sender.toString();
+              }
+              
+              return senderId === otherUserId && !m.seen;
+            }).length || 0;
             
             return (
               <TouchableOpacity

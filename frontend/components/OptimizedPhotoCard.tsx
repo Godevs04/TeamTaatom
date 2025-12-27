@@ -665,13 +665,27 @@ function PhotoCard({
     }
   };
 
-  const handlePress = () => {
-    if (onPress) {
-      onPress();
-    } else {
-      router.push(`/post/${post._id}`);
+  const handlePress = useCallback(() => {
+    try {
+      if (onPress) {
+        onPress();
+      } else {
+        const postId = post._id;
+        if (postId) {
+          // Expo Router's router.push() doesn't return a Promise
+          // It's a synchronous navigation method, so we just call it directly
+          router.push(`/post/${postId}`);
+        } else {
+          logger.warn('Cannot navigate: post._id is missing', { post });
+        }
+      }
+    } catch (error) {
+      logger.error('Error in handlePress:', error);
+      // If navigation fails, log it but don't crash the app
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('Navigation error details:', errorMessage);
     }
-  };
+  }, [onPress, post._id, router]);
 
   // Image loading safety: stop retrying failed image loads to prevent retry loops
   const imageRetryCountRef = useRef(0);
@@ -725,8 +739,10 @@ function PhotoCard({
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
-      {/* Header */}
-      <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
+      {/* Header - Must be above image to receive touches */}
+      <View pointerEvents="box-none">
+        <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
+      </View>
 
       {/* Image - Conditional rendering: only render Image component when visible */}
       {/* This drastically reduces memory usage for off-screen images without changing UX */}
@@ -748,17 +764,19 @@ function PhotoCard({
         <View style={{ width: '100%', aspectRatio: 1, backgroundColor: theme.colors.surface }} />
       )}
 
-      {/* Actions */}
-      <PostActions
-        isLiked={isLiked}
-        isSaved={isSaved}
-        onLike={handleLike}
-        onComment={handleOpenComments}
-        onShare={handleShareClick}
-        onSave={handleSave}
-        showBookmark={showBookmark && currentUser && currentUser._id !== postUser._id}
-        isLoading={actionLoading.size > 0}
-      />
+      {/* Actions - Must be above image to receive touches */}
+      <View pointerEvents="box-none">
+        <PostActions
+          isLiked={isLiked}
+          isSaved={isSaved}
+          onLike={handleLike}
+          onComment={handleOpenComments}
+          onShare={handleShareClick}
+          onSave={handleSave}
+          showBookmark={showBookmark && currentUser && currentUser._id !== postUser._id}
+          isLoading={actionLoading.size > 0}
+        />
+      </View>
 
       {/* Likes Count */}
       <PostLikesCount likesCount={likesCount} />
