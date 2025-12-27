@@ -196,17 +196,39 @@ export default function LocaleScreen() {
       return;
     }
 
+    // Early return if component is unmounted
+    if (!isMountedRef.current) {
+      return;
+    }
+
     try {
       // Check if location services are available
-      const isLocationEnabled = await Location.hasServicesEnabledAsync();
+      let isLocationEnabled = false;
+      try {
+        isLocationEnabled = await Location.hasServicesEnabledAsync();
+      } catch (serviceError) {
+        logger.debug('Error checking location services:', serviceError);
+        // Continue anyway - some Android devices might not support this check
+      }
+
       if (!isLocationEnabled) {
         logger.debug('Location services are disabled on device');
         setLocationPermissionGranted(false);
         return;
       }
 
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      // Request permissions with better error handling for Android
+      let permissionStatus = 'undetermined';
+      try {
+        const permissionResult = await Location.requestForegroundPermissionsAsync();
+        permissionStatus = permissionResult.status;
+      } catch (permissionError) {
+        logger.debug('Error requesting location permission:', permissionError);
+        setLocationPermissionGranted(false);
+        return;
+      }
+
+      if (permissionStatus !== 'granted') {
         logger.debug('Location permission denied, distance sorting will be unavailable');
         setLocationPermissionGranted(false);
         return;
@@ -214,25 +236,42 @@ export default function LocaleScreen() {
       
       setLocationPermissionGranted(true);
       
-      // Get location with timeout protection
+      // Get location with timeout protection and Android-specific handling
       let timeoutId: NodeJS.Timeout | null = null;
-      const locationPromise = Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error('Location request timeout after 10 seconds'));
-        }, 10000);
-      });
+      let locationPromise: Promise<Location.LocationObject> | null = null;
 
       try {
+        // Use lower accuracy on Android for better compatibility
+        const accuracy = isAndroid 
+          ? Location.Accuracy.Low 
+          : Location.Accuracy.Balanced;
+
+        locationPromise = Location.getCurrentPositionAsync({
+          accuracy,
+          // Android-specific options
+          ...(isAndroid && {
+            maximumAge: 60000, // Accept cached location up to 1 minute old
+            timeout: 15000, // 15 second timeout for Android
+          }),
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error('Location request timeout after 15 seconds'));
+          }, 15000); // Increased timeout for Android
+        });
+
         const location = await Promise.race([locationPromise, timeoutPromise]);
         
         // Clear timeout if location was obtained
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
+        }
+
+        // Check if component is still mounted
+        if (!isMountedRef.current) {
+          return;
         }
 
         if (location && location.coords) {
@@ -260,15 +299,44 @@ export default function LocaleScreen() {
             logger.warn('Invalid coordinates received:', coords);
             setLocationPermissionGranted(false);
           }
+        } else {
+          logger.warn('Location object missing coordinates');
+          setLocationPermissionGranted(false);
         }
-      } catch (raceError) {
+      } catch (locationError) {
         // Clear timeout on error
         if (timeoutId) {
           clearTimeout(timeoutId);
+          timeoutId = null;
         }
-        throw raceError;
+
+        // Check if component is still mounted before setting state
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        // Handle specific Android location errors
+        const errorMessage = locationError instanceof Error 
+          ? locationError.message 
+          : typeof locationError === 'string' 
+          ? locationError 
+          : 'Unknown location error';
+
+        // Don't log timeout errors as errors - they're expected in some cases
+        if (errorMessage.includes('timeout')) {
+          logger.debug('Location request timed out (this is normal on some devices)');
+        } else {
+          logger.debug('Location request failed:', errorMessage);
+        }
+        
+        setLocationPermissionGranted(false);
       }
     } catch (error) {
+      // Check if component is still mounted before setting state
+      if (!isMountedRef.current) {
+        return;
+      }
+
       // Safely handle and log errors
       const errorMessage = error instanceof Error 
         ? error.message 
@@ -280,14 +348,21 @@ export default function LocaleScreen() {
         ? {
             message: error.message,
             name: error.name,
+            code: (error as any).code, // Android might provide error codes
             stack: error.stack?.substring(0, 200), // Limit stack trace length
           }
         : { error: String(error) };
 
-      logger.error('Error getting user location:', errorMessage, errorDetails);
+      // Only log as error if it's not a permission or timeout issue
+      if (!errorMessage.includes('permission') && !errorMessage.includes('timeout') && !errorMessage.includes('denied')) {
+        logger.error('[LocaleScreen] Error getting user location:', errorMessage, errorDetails);
+      } else {
+        logger.debug('[LocaleScreen] Location unavailable:', errorMessage);
+      }
+      
       setLocationPermissionGranted(false);
     }
-  }, []);
+  }, [isAndroid]);
   
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
