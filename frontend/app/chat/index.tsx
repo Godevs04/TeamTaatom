@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,111 @@ import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
+
+// Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+// Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
+const normalizeId = (id: any): string | null => {
+  if (!id) return null;
+  
+  // If it's already a string, validate and return it
+  if (typeof id === 'string') {
+    // Check if it's a valid ObjectId format (24 hex characters)
+    if (/^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    return id; // Return even if not valid format, let caller handle it
+  }
+  
+  // If it's an object with _id property, recurse
+  if (id._id) {
+    return normalizeId(id._id);
+  }
+  
+  // If it has a buffer property (serialized Buffer from backend)
+  // This handles: { buffer: { '0': 104, '1': 235, ... } }
+  if (id.buffer && typeof id.buffer === 'object') {
+    try {
+      const bufferObj = id.buffer;
+      const bytes: number[] = [];
+      
+      // Try to extract bytes from buffer object (can have numeric string keys)
+      for (let i = 0; i < 12; i++) {
+        const byte = bufferObj[i] ?? bufferObj[String(i)];
+        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+          bytes.push(byte);
+        }
+      }
+      
+      if (bytes.length === 12) {
+        // Convert bytes to hex string (24 characters)
+        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+          return hex;
+        }
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error converting buffer to hex', { error, id });
+      }
+    }
+  }
+  
+  // If the object itself looks like a buffer (has numeric keys directly)
+  // This handles: { '0': 104, '1': 235, ... } (direct buffer serialization)
+  if (typeof id === 'object' && !Array.isArray(id)) {
+    const keys = Object.keys(id);
+    // Check if it looks like a buffer (has numeric keys 0-11)
+    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+      try {
+        const bytes: number[] = [];
+        for (let i = 0; i < 12; i++) {
+          const byte = id[i] ?? id[String(i)];
+          if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+            bytes.push(byte);
+          }
+        }
+        if (bytes.length === 12) {
+          const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          logger.debug('Error converting direct buffer to hex', { error, id });
+        }
+      }
+    }
+  }
+  
+  // If it has toString method
+  if (id.toString && typeof id.toString === 'function') {
+    try {
+      const str = id.toString();
+      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error calling toString on ID:', error);
+      }
+    }
+  }
+  
+  // Last resort: try to convert to string
+  try {
+    const str = String(id);
+    if (/^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+  } catch (error) {
+    if (__DEV__) {
+      logger.debug('Error converting ID to string:', error);
+    }
+  }
+  
+  return null;
+};
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -126,33 +231,95 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     };
   }, []);
 
+  // CRITICAL: Use ref to store onSendMessage to avoid stale closures
+  const onSendMessageRef = useRef(onSendMessage);
   useEffect(() => {
+    onSendMessageRef.current = onSendMessage;
+  }, [onSendMessage]);
+
+  useEffect(() => {
+    // CRITICAL: Ensure socket is connected and subscribed properly
+    // Based on documented solution in USER_TO_USER_CHAT_SYSTEM.md
+    let isMounted = true;
+    
     // Subscribe to socket for new messages, typing, seen, presence
     const onMessageNew = (payload: any) => {
-      logger.debug('Received message:new event:', payload);
-      if (payload.message && payload.chatId === chatId) {
-        logger.debug('Adding message to active chat via socket:', payload.message);
+      if (!isMounted) return;
+      
+      logger.debug('[ChatWindow] Received message:new event:', { 
+        payload, 
+        currentChatId: chatId,
+        hasMessage: !!payload?.message 
+      });
+      
+      if (!payload || !payload.message) {
+        logger.debug('[ChatWindow] Invalid payload - missing message');
+        return;
+      }
+      
+      // CRITICAL: Normalize chatId for comparison (handle ObjectId, string, Buffer)
+      const payloadChatId = normalizeId(payload.chatId);
+      const currentChatId = normalizeId(chatId);
+      
+      logger.debug('[ChatWindow] Comparing chatIds:', { 
+        payloadChatId, 
+        currentChatId, 
+        match: payloadChatId === currentChatId 
+      });
+      
+      if (payloadChatId && currentChatId && payloadChatId === currentChatId) {
+        logger.debug('[ChatWindow] ✅ Message matches current chat, adding to UI');
         // Clear fallback timeout if it exists
         if ((window as any).messageFallbackTimeout) {
           clearTimeout((window as any).messageFallbackTimeout);
           (window as any).messageFallbackTimeout = null;
         }
-        // Append to active chat if open
-        // handleNewMessage will handle replacing optimistic messages
-        onSendMessage(payload.message);
+        // CRITICAL: Use ref to get latest onSendMessage callback
+        // This ensures we always use the current callback, avoiding stale closures
+        onSendMessageRef.current(payload.message);
         // Scroll to bottom when new message arrives
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
       } else {
-        logger.debug('Message not for current chat or missing data:', { payload, chatId });
-        // Optionally: update chat list preview/unread here
-        // (You may want to trigger a chat list refresh or update state)
+        logger.debug('[ChatWindow] ❌ Message not for current chat:', { 
+          payloadChatId, 
+          currentChatId,
+          messageText: payload.message?.text?.substring(0, 30)
+        });
       }
     };
     const onMessageSent = (payload: any) => {
-      // Optionally: update message status in UI (e.g., from 'pending' to 'sent')
-      // You may want to update the message in your state by _id
+      if (!isMounted) return;
+      
+      logger.debug('[ChatWindow] Received message:sent event:', payload);
+      
+      if (!payload || !payload.message) {
+        logger.debug('[ChatWindow] Invalid message:sent payload - missing message');
+        return;
+      }
+      
+      // CRITICAL: Normalize chatId for comparison
+      const payloadChatId = normalizeId(payload.chatId);
+      const currentChatId = normalizeId(chatId);
+      
+      // This is confirmation that our message was sent successfully
+      // Replace optimistic message with real message from server
+      if (payloadChatId && currentChatId && payloadChatId === currentChatId) {
+        logger.debug('[ChatWindow] ✅ Message sent confirmation matches current chat, updating UI');
+        // Clear any existing fallback timeout
+        if ((window as any).messageFallbackTimeout) {
+          clearTimeout((window as any).messageFallbackTimeout);
+          (window as any).messageFallbackTimeout = null;
+        }
+        // Replace optimistic message with real message
+        onSendMessageRef.current(payload.message);
+      } else {
+        logger.debug('[ChatWindow] ❌ Message sent confirmation not for current chat:', { 
+          payloadChatId, 
+          currentChatId 
+        });
+      }
     };
     const onTyping = (payload: any) => {
       if (payload.from === otherUser._id) {
@@ -171,13 +338,39 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     const onOffline = (payload: any) => {
       if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(false);
     };
+    
+    // CRITICAL: Subscribe to socket events immediately
+    // socketService.subscribe will handle connection if needed
+    // Based on documented solution: subscribe first, then ensure connection
+    // This ensures listeners are registered before any events arrive
     socketService.subscribe('message:new', onMessageNew);
     socketService.subscribe('message:sent', onMessageSent);
     socketService.subscribe('typing', onTyping);
     socketService.subscribe('seen', onSeen);
     socketService.subscribe('user:online', onOnline);
     socketService.subscribe('user:offline', onOffline);
+    
+    logger.debug('[ChatWindow] Socket events subscribed');
+    
+    // CRITICAL: Ensure socket is connected
+    // This ensures we're ready to receive events
+    const ensureConnection = async () => {
+      try {
+        const connectedSocket = await socketService.connect();
+        if (connectedSocket && connectedSocket.connected) {
+          logger.debug('[ChatWindow] Socket connected and ready');
+        } else {
+          logger.debug('[ChatWindow] Socket connection in progress...');
+        }
+      } catch (e) {
+        logger.error('[ChatWindow] Error ensuring socket connection:', e);
+      }
+    };
+    
+    ensureConnection();
+    
     return () => {
+      isMounted = false;
       socketService.unsubscribe('message:new', onMessageNew);
       socketService.unsubscribe('message:sent', onMessageSent);
       socketService.unsubscribe('typing', onTyping);
@@ -191,7 +384,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         (window as any).messageFallbackTimeout = null;
       }
     };
-  }, [otherUser, chatId]); // Add chatId to dependency array
+  }, [otherUser?._id, chatId, onSendMessage]); // Include onSendMessage to ensure ref is updated
 
   // Emit typing event
   const handleInput = (text: string) => {
@@ -2071,22 +2264,15 @@ export default function ChatModal() {
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
               other = item.participants.find((id: string) => id !== item.me);
             }
-            // Calculate unread count - handle different sender formats
-            const otherUserId = other?._id ? other._id.toString() : (typeof other === 'string' ? other : other?.toString() || '');
+            // Calculate unread count - handle Buffer objects from backend
+            const otherUserId = normalizeId(other?._id || other);
             const unreadCount = item.messages?.filter((m: any) => {
               if (!m || !m.sender || m.seen) return false;
               
-              // Handle different sender formats
-              let senderId = null;
-              if (typeof m.sender === 'string') {
-                senderId = m.sender;
-              } else if (m.sender._id) {
-                senderId = m.sender._id.toString();
-              } else if (m.sender.toString) {
-                senderId = m.sender.toString();
-              }
+              // Normalize sender ID - handle Buffer objects from backend
+              const senderId = normalizeId(m.sender?._id || m.sender);
               
-              return senderId === otherUserId && !m.seen;
+              return senderId && senderId === otherUserId && !m.seen;
             }).length || 0;
             
             return (
