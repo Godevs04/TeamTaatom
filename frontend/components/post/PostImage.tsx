@@ -52,15 +52,20 @@ export default function PostImage({
 
   return (
       <View style={styles.imageContainer}>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={StyleSheet.absoluteFill}>
+      <TouchableOpacity 
+        onPress={onPress} 
+        activeOpacity={0.9} 
+        style={StyleSheet.absoluteFill}
+        pointerEvents="box-only"
+      >
         {imageLoading && (
-          <View style={styles.imageLoader}>
+          <View style={styles.imageLoader} pointerEvents="none">
             <ActivityIndicator color={theme.colors.primary} size="large" />
           </View>
         )}
         
         {imageUri && !imageError ? (
-          <View style={styles.imageWrapper}>
+          <View style={styles.imageWrapper} pointerEvents="none">
             {/* Blur-up placeholder for progressive loading */}
             {blurUpUri && showBlur && (
               <Image
@@ -94,7 +99,7 @@ export default function PostImage({
             
             {/* Multiple Images Indicator */}
             {post.images && post.images.length > 1 && (
-              <View style={styles.multipleImagesIndicator}>
+              <View style={styles.multipleImagesIndicator} pointerEvents="none">
                 <Animated.View 
                   style={[
                     styles.imageCountBadge, 
@@ -135,14 +140,17 @@ export default function PostImage({
 
           </View>
         ) : imageError ? (
-          <View style={[styles.image, styles.imageError]}>
+          <View style={[styles.image, styles.imageError]} pointerEvents="box-none">
             <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
             <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
               Failed to load image
             </Text>
             <TouchableOpacity 
               style={styles.retryButton}
-              onPress={onRetry}
+              onPress={(e) => {
+                e.stopPropagation();
+                onRetry();
+              }}
             >
               <Ionicons name="refresh" size={20} color={theme.colors.primary} />
               <Text style={[styles.retryText, { color: theme.colors.primary }]}>

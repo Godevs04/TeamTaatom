@@ -28,6 +28,7 @@ import EmptyState from '../../components/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
+import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
@@ -279,21 +280,39 @@ export default function HomeScreen() {
       let totalUnseen = 0;
       chats.forEach((chat: any) => {
         if (chat.messages && Array.isArray(chat.messages)) {
-          const otherUser = chat.participants.find((p: any) => 
-            (p._id ? p._id.toString() : p.toString()) !== myUserId
-          );
+          const otherUser = chat.participants.find((p: any) => {
+            const pId = p._id ? p._id.toString() : (typeof p === 'string' ? p : p.toString());
+            return pId !== myUserId;
+          });
+          
           if (otherUser) {
-            const unseen = chat.messages.filter((msg: any) => 
-              msg.sender && 
-              (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) === 
-              (otherUser._id ? otherUser._id.toString() : otherUser.toString()) &&
-              !msg.seen
-            ).length;
+            const otherUserId = otherUser._id ? otherUser._id.toString() : (typeof otherUser === 'string' ? otherUser : otherUser.toString());
+            
+            const unseen = chat.messages.filter((msg: any) => {
+              // Handle different message sender formats
+              let senderId = null;
+              if (msg.sender) {
+                if (typeof msg.sender === 'string') {
+                  senderId = msg.sender;
+                } else if (msg.sender._id) {
+                  senderId = msg.sender._id.toString();
+                } else if (msg.sender.toString) {
+                  senderId = msg.sender.toString();
+                }
+              }
+              
+              // Message is unseen if:
+              // 1. It's from the other user (not me)
+              // 2. It hasn't been seen
+              return senderId === otherUserId && !msg.seen;
+            }).length;
+            
             totalUnseen += unseen;
           }
         }
       });
       
+      logger.debug('Unread message count calculated:', { totalUnseen, chatsCount: chats.length });
       setUnseenMessageCount(totalUnseen);
     } catch (error) {
       logger.error('fetchUnseenMessageCount', error);
@@ -389,8 +408,44 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchUnseenMessageCount();
+      
+      // Set up periodic refresh every 10 seconds when screen is focused
+      const interval = setInterval(() => {
+        fetchUnseenMessageCount();
+      }, 10000);
+      
+      return () => clearInterval(interval);
     }, [fetchUnseenMessageCount])
   );
+
+  // Subscribe to socket events for real-time unread count updates
+  useEffect(() => {
+    if (!isOnline) return;
+    
+    const onMessageNew = async (payload: any) => {
+      logger.debug('Received message:new event on home page, updating unread count', payload);
+      // Refresh count after a short delay to get accurate count
+      setTimeout(() => {
+        fetchUnseenMessageCount();
+      }, 500);
+    };
+    
+    const onMessageSeen = async (payload: any) => {
+      logger.debug('Received message seen event, updating unread count', payload);
+      // Refresh count after a short delay
+      setTimeout(() => {
+        fetchUnseenMessageCount();
+      }, 500);
+    };
+    
+    socketService.subscribe('message:new', onMessageNew);
+    socketService.subscribe('seen', onMessageSeen);
+    
+    return () => {
+      socketService.unsubscribe('message:new', onMessageNew);
+      socketService.unsubscribe('seen', onMessageSeen);
+    };
+  }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
     // Request guard: prevent refresh if already refreshing or paginating
