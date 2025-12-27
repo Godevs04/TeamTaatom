@@ -189,7 +189,22 @@ export default function LocaleScreen() {
 
   // Get user's current location for distance calculation
   const getUserCurrentLocation = useCallback(async () => {
+    // Skip location on web platform as it may not be fully supported
+    if (isWeb) {
+      logger.debug('Location services not available on web platform');
+      setLocationPermissionGranted(false);
+      return;
+    }
+
     try {
+      // Check if location services are available
+      const isLocationEnabled = await Location.hasServicesEnabledAsync();
+      if (!isLocationEnabled) {
+        logger.debug('Location services are disabled on device');
+        setLocationPermissionGranted(false);
+        return;
+      }
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         logger.debug('Location permission denied, distance sorting will be unavailable');
@@ -199,23 +214,77 @@ export default function LocaleScreen() {
       
       setLocationPermissionGranted(true);
       
-      const location = await Location.getCurrentPositionAsync({
+      // Get location with timeout protection
+      let timeoutId: NodeJS.Timeout | null = null;
+      const locationPromise = Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      
-      if (location && location.coords) {
-        const coords = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        };
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('Location request timeout after 10 seconds'));
+        }, 10000);
+      });
+
+      try {
+        const location = await Promise.race([locationPromise, timeoutPromise]);
         
-        if (isMountedRef.current) {
-          setUserLocation(coords);
-          logger.debug('✅ User location obtained for distance sorting:', coords);
+        // Clear timeout if location was obtained
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
         }
+
+        if (location && location.coords) {
+          const coords = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          };
+          
+          // Validate coordinates
+          if (
+            typeof coords.latitude === 'number' &&
+            typeof coords.longitude === 'number' &&
+            !isNaN(coords.latitude) &&
+            !isNaN(coords.longitude) &&
+            coords.latitude >= -90 &&
+            coords.latitude <= 90 &&
+            coords.longitude >= -180 &&
+            coords.longitude <= 180
+          ) {
+            if (isMountedRef.current) {
+              setUserLocation(coords);
+              logger.debug('✅ User location obtained for distance sorting:', coords);
+            }
+          } else {
+            logger.warn('Invalid coordinates received:', coords);
+            setLocationPermissionGranted(false);
+          }
+        }
+      } catch (raceError) {
+        // Clear timeout on error
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        throw raceError;
       }
     } catch (error) {
-      logger.error('Error getting user location:', error);
+      // Safely handle and log errors
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : typeof error === 'string' 
+        ? error 
+        : 'Unknown location error';
+      
+      const errorDetails = error instanceof Error
+        ? {
+            message: error.message,
+            name: error.name,
+            stack: error.stack?.substring(0, 200), // Limit stack trace length
+          }
+        : { error: String(error) };
+
+      logger.error('Error getting user location:', errorMessage, errorDetails);
       setLocationPermissionGranted(false);
     }
   }, []);

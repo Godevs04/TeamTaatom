@@ -236,7 +236,7 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload an image file');
     }
 
-    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder, spotTypes, travelInfo } = req.body;
 
     if (!name || !country || !countryCode) {
       logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode });
