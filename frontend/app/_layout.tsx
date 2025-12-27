@@ -287,13 +287,56 @@ function RootLayoutInner() {
     const checkOnboardingAndNavigate = async () => {
       // Get current route to avoid navigation during hot reload/refresh
       const currentPath = pathname || segments.join('/');
-      const isOnAuthScreen = currentPath.includes('(auth)') || currentPath.includes('signin') || currentPath.includes('signup') || currentPath.includes('verifyOtp') || currentPath.includes('forgot');
-      const isOnHomeScreen = currentPath.includes('(tabs)/home') || currentPath === '/(tabs)/home' || currentPath === '/home' || segments[0] === '(tabs)';
+      const normalizedPath = currentPath.toLowerCase();
+      const isOnAuthScreen = normalizedPath.includes('(auth)') || 
+                             normalizedPath.includes('signin') || 
+                             normalizedPath.includes('signup') || 
+                             normalizedPath.includes('verifyotp') || 
+                             normalizedPath.includes('forgot');
+      const isOnHomeScreen = normalizedPath.includes('(tabs)/home') || 
+                             normalizedPath === '/(tabs)/home' || 
+                             normalizedPath === '/home';
+      
+      // Check if we're on any valid authenticated route (not just home)
+      // Include all possible route formats and nested routes
+      const isOnValidRoute = segments[0] === '(tabs)' || 
+                              segments[0] === 'settings' ||
+                              segments[0] === 'post' ||
+                              segments[0] === 'profile' ||
+                              segments[0] === 'chat' ||
+                              segments[0] === 'search' ||
+                              segments[0] === 'notifications' ||
+                              segments[0] === 'activity' ||
+                              segments[0] === 'collections' ||
+                              segments[0] === 'hashtag' ||
+                              segments[0] === 'user-posts' ||
+                              segments[0] === 'map' ||
+                              segments[0] === 'tripscore' ||
+                              segments[0] === 'onboarding' ||
+                              segments[0] === 'policies' ||
+                              segments[0] === 'support' ||
+                              segments[0] === 'help' ||
+                              normalizedPath.startsWith('/post/') || 
+                              normalizedPath.startsWith('/profile/') || 
+                              normalizedPath.startsWith('/chat') ||
+                              normalizedPath.startsWith('/search') ||
+                              normalizedPath.startsWith('/notifications') ||
+                              normalizedPath.startsWith('/activity') ||
+                              normalizedPath.startsWith('/collections') ||
+                              normalizedPath.startsWith('/settings') ||
+                              normalizedPath.startsWith('/policies') ||
+                              normalizedPath.startsWith('/support') ||
+                              normalizedPath.startsWith('/help') ||
+                              normalizedPath.startsWith('/hashtag/') ||
+                              normalizedPath.startsWith('/user-posts/') ||
+                              normalizedPath.startsWith('/map') ||
+                              normalizedPath.startsWith('/tripscore') ||
+                              normalizedPath.startsWith('/onboarding');
       
       if (isAuthenticated) {
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
-        if (isOnHomeScreen && !isOnAuthScreen) {
-          logger.debug('[Navigation] Already on home screen, skipping navigation');
+        if (isOnValidRoute && !isOnAuthScreen) {
+          logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
           return;
         }
         
@@ -306,9 +349,9 @@ function RootLayoutInner() {
           return;
         }
         
-        // Only navigate if we're not already on home screen
-        if (!isOnHomeScreen) {
-          logger.debug('[Navigation] User authenticated, navigating to home');
+        // Only navigate to home if we're not already on a valid route
+        if (!isOnValidRoute) {
+          logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
           router.replace('/(tabs)/home');
         }
       } else if (isAuthenticated === false && !sessionExpired) {
@@ -510,26 +553,34 @@ function RootLayoutInner() {
           <Stack.Screen name="policies/terms" options={{ presentation: 'card' }} />
           <Stack.Screen name="policies/copyright" options={{ presentation: 'card' }} />
           
-          {!isAuthenticated ? (
-            <Stack.Screen name="(auth)" />
-          ) : (
-            <>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
-              <Stack.Screen name="post" options={{ presentation: 'card' }} />
-              <Stack.Screen name="profile" options={{ presentation: 'card' }} />
-              <Stack.Screen name="search" options={{ presentation: 'card' }} />
-              <Stack.Screen name="followers" options={{ presentation: 'card' }} />
-              <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
-              <Stack.Screen name="activity" options={{ presentation: 'card' }} />
-              <Stack.Screen name="chat" options={{ presentation: 'card' }} />
-              <Stack.Screen name="collections" options={{ presentation: 'card' }} />
-              <Stack.Screen name="settings" options={{ presentation: 'card' }} />
-              <Stack.Screen name="hashtag" options={{ presentation: 'card' }} />
-              <Stack.Screen name="user-posts" options={{ presentation: 'card' }} />
-              <Stack.Screen name="map" options={{ presentation: 'card' }} />
-            </>
-          )}
+          {/* Auth routes - always defined, access controlled by navigation guard */}
+          <Stack.Screen name="(auth)" />
+          
+          {/* Authenticated routes - always defined, access controlled by navigation guard */}
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
+          {/* Dynamic routes - use pattern matching */}
+          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
+          {/* Direct routes */}
+          <Stack.Screen name="search" options={{ presentation: 'card' }} />
+          <Stack.Screen name="followers" options={{ presentation: 'card' }} />
+          <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
+          {/* Nested routes with index files */}
+          <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
+          {/* Collections routes */}
+          <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collections/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collections/create" options={{ presentation: 'card' }} />
+          {/* Settings routes */}
+          <Stack.Screen name="settings" options={{ presentation: 'card' }} />
+          {/* Hashtag dynamic route */}
+          <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card' }} />
+          {/* User posts dynamic route */}
+          <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
+          {/* Map routes */}
+          <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
       </Suspense>
     </ResponsiveContainer>
