@@ -43,6 +43,111 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const logger = createLogger('HomeScreen');
 
+// Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+// Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
+const normalizeId = (id: any): string | null => {
+  if (!id) return null;
+  
+  // If it's already a string, validate and return it
+  if (typeof id === 'string') {
+    // Check if it's a valid ObjectId format (24 hex characters)
+    if (/^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    return id; // Return even if not valid format, let caller handle it
+  }
+  
+  // If it's an object with _id property, recurse
+  if (id._id) {
+    return normalizeId(id._id);
+  }
+  
+  // If it has a buffer property (serialized Buffer from backend)
+  // This handles: { buffer: { '0': 104, '1': 235, ... } }
+  if (id.buffer && typeof id.buffer === 'object') {
+    try {
+      const bufferObj = id.buffer;
+      const bytes: number[] = [];
+      
+      // Try to extract bytes from buffer object (can have numeric string keys)
+      for (let i = 0; i < 12; i++) {
+        const byte = bufferObj[i] ?? bufferObj[String(i)];
+        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+          bytes.push(byte);
+        }
+      }
+      
+      if (bytes.length === 12) {
+        // Convert bytes to hex string (24 characters)
+        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+          return hex;
+        }
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error converting buffer to hex', { error, id });
+      }
+    }
+  }
+  
+  // If the object itself looks like a buffer (has numeric keys directly)
+  // This handles: { '0': 104, '1': 235, ... } (direct buffer serialization)
+  if (typeof id === 'object' && !Array.isArray(id)) {
+    const keys = Object.keys(id);
+    // Check if it looks like a buffer (has numeric keys 0-11)
+    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+      try {
+        const bytes: number[] = [];
+        for (let i = 0; i < 12; i++) {
+          const byte = id[i] ?? id[String(i)];
+          if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+            bytes.push(byte);
+          }
+        }
+        if (bytes.length === 12) {
+          const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          logger.debug('Error converting direct buffer to hex', { error, id });
+        }
+      }
+    }
+  }
+  
+  // If it has toString method
+  if (id.toString && typeof id.toString === 'function') {
+    try {
+      const str = id.toString();
+      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error calling toString on ID:', error);
+      }
+    }
+  }
+  
+  // Last resort: try to convert to string
+  try {
+    const str = String(id);
+    if (/^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+  } catch (error) {
+    if (__DEV__) {
+      logger.debug('Error converting ID to string:', error);
+    }
+  }
+  
+  return null;
+};
+
 // Elegant font families for each platform
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
   if (isWeb) {
@@ -273,49 +378,99 @@ export default function HomeScreen() {
         }
       });
       
+      if (!response.ok) {
+        throw new Error(`Failed to fetch chats: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
       const chats = data.chats || [];
       
+      // Normalize myUserId for comparison
+      const normalizedMyUserId = normalizeId(myUserId);
+      if (!normalizedMyUserId) {
+        logger.warn('Could not normalize myUserId for unread count calculation', { myUserId });
+        isFetchingMessagesRef.current = false;
+        return;
+      }
+      
       // Calculate total unseen messages
       let totalUnseen = 0;
-      chats.forEach((chat: any) => {
-        if (chat.messages && Array.isArray(chat.messages)) {
-          const otherUser = chat.participants.find((p: any) => {
-            const pId = p._id ? p._id.toString() : (typeof p === 'string' ? p : p.toString());
-            return pId !== myUserId;
-          });
-          
-          if (otherUser) {
-            const otherUserId = otherUser._id ? otherUser._id.toString() : (typeof otherUser === 'string' ? otherUser : otherUser.toString());
-            
-            const unseen = chat.messages.filter((msg: any) => {
-              // Handle different message sender formats
-              let senderId = null;
-              if (msg.sender) {
-                if (typeof msg.sender === 'string') {
-                  senderId = msg.sender;
-                } else if (msg.sender._id) {
-                  senderId = msg.sender._id.toString();
-                } else if (msg.sender.toString) {
-                  senderId = msg.sender.toString();
+      try {
+        chats.forEach((chat: any, chatIndex: number) => {
+          try {
+            if (chat.messages && Array.isArray(chat.messages)) {
+              // Handle participants - can be array of user objects or array of IDs
+              // Also handle case where participants might be serialized as array-indexed objects
+              let participants = chat.participants;
+              
+              // If participants looks like an array-indexed object (e.g., { '0': {...}, '1': {...} })
+              if (participants && typeof participants === 'object' && !Array.isArray(participants)) {
+                const keys = Object.keys(participants);
+                if (keys.every(k => /^\d+$/.test(k))) {
+                  // Convert to array
+                  participants = keys.map(k => participants[k]);
                 }
               }
               
-              // Message is unseen if:
-              // 1. It's from the other user (not me)
-              // 2. It hasn't been seen
-              return senderId === otherUserId && !msg.seen;
-            }).length;
-            
-            totalUnseen += unseen;
+              if (!Array.isArray(participants) || participants.length === 0) {
+                return;
+              }
+              
+              // Find the other user (not me) - handle Buffer objects from backend
+              const otherUser = participants.find((p: any) => {
+                try {
+                  // Handle both populated participants (with _id) and direct IDs
+                  const pId = normalizeId(p?._id || p);
+                  return pId && pId !== normalizedMyUserId;
+                } catch (e) {
+                  // Skip this participant if normalization fails
+                  return false;
+                }
+              });
+              
+              if (otherUser) {
+                try {
+                  const otherUserId = normalizeId(otherUser._id || otherUser);
+                  
+                  if (otherUserId) {
+                    const unseen = chat.messages.filter((msg: any) => {
+                      try {
+                        // Normalize sender ID - handle Buffer objects from backend
+                        // Sender can be: string, ObjectId, or { _id: ObjectId }
+                        const senderId = normalizeId(msg.sender?._id || msg.sender);
+                        
+                        // Message is unseen if:
+                        // 1. It's from the other user (not me)
+                        // 2. It hasn't been seen
+                        return senderId === otherUserId && !msg.seen;
+                      } catch (e) {
+                        // Skip this message if normalization fails
+                        return false;
+                      }
+                    }).length;
+                    
+                    totalUnseen += unseen;
+                  }
+                } catch (e) {
+                  // Skip this chat if otherUserId normalization fails
+                }
+              }
+            }
+          } catch (e) {
+            // Skip this chat if processing fails
           }
-        }
-      });
+        });
+      } catch (e) {
+        // If entire loop fails, log but continue
+        logger.warn('Error processing chats for unread count', { error: e });
+      }
       
-      logger.debug('Unread message count calculated:', { totalUnseen, chatsCount: chats.length });
       setUnseenMessageCount(totalUnseen);
-    } catch (error) {
-      logger.error('fetchUnseenMessageCount', error);
+    } catch (error: any) {
+      // Only log if it's not a network error or expected error
+      if (error?.message && !error.message.includes('Failed to fetch') && !error.message.includes('Network')) {
+        logger.error('fetchUnseenMessageCount', error);
+      }
       // Silently fail - don't show error to user for message count
     } finally {
       isFetchingMessagesRef.current = false;
