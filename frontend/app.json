@@ -88,8 +88,7 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE"
-      ],
-      "googleServicesFile": "./google-services.json"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -145,7 +144,7 @@
       "WEB_SHARE_URL": "http://localhost:8081",
       "GOOGLE_MAPS_API_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png",
-      "EXPO_PROJECT_ID": "10a6919b-ba8b-4dfb-b379-d36909e67701",
+      "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
       "GOOGLE_CLIENT_ID": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_IOS": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_ANDROID": "236289534770-vvfj6c8611ci84aja7jsvd67rrj4uprv.apps.googleusercontent.com",
@@ -153,6 +152,7 @@
       "PRIVACY_POLICY_URL": "http://localhost:8081/policies/privacy",
       "TERMS_OF_SERVICE_URL": "http://localhost:8081/policies/terms",
       "SUPPORT_URL": "http://localhost:8081/support/contact"
-    }
+    },
+    "owner": "taatom-technologies"
   }
 }

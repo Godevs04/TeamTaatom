@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react'
+import React, { useState, useRef, useMemo, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { 
@@ -33,9 +33,16 @@ const Profile = () => {
   })
   
   const [avatar, setAvatar] = useState(null)
-  const [avatarPreview, setAvatarPreview] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState(user?.profile?.avatar || null)
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState('profile')
+
+  // Update avatar preview when user object changes
+  useEffect(() => {
+    if (user?.profile?.avatar && !avatar) {
+      setAvatarPreview(user.profile.avatar)
+    }
+  }, [user, avatar])
 
   // Password strength calculator
   const passwordStrength = useMemo(() => {
@@ -75,32 +82,39 @@ const Profile = () => {
   const handleSaveProfile = async () => {
     setIsSaving(true)
     try {
-      const dataToSave = { ...profileData }
+      // Always use FormData to support both avatar upload and profile data
+      const formData = new FormData()
       
-      // If avatar is selected, upload it
+      // Add profile data
+      formData.append('firstName', profileData.firstName || '')
+      formData.append('lastName', profileData.lastName || '')
+      formData.append('phone', profileData.phone || '')
+      formData.append('timezone', profileData.timezone || 'UTC')
+      
+      // Add avatar if selected
       if (avatar) {
-        const formData = new FormData()
         formData.append('avatar', avatar)
-        formData.append('firstName', profileData.firstName)
-        formData.append('lastName', profileData.lastName)
-        formData.append('phone', profileData.phone)
-        formData.append('timezone', profileData.timezone)
-        
-        const response = await api.patch('/api/v1/superadmin/profile', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
-        
-        if (response.data.success) {
-          toast.success('Profile updated successfully')
-          // Refresh the page to show updated data
+      }
+      
+      const response = await api.patch('/api/v1/superadmin/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      
+      if (response.data.success) {
+        toast.success('Profile updated successfully')
+        // Clear avatar state after successful upload
+        if (avatar) {
+          setAvatar(null)
+          setAvatarPreview(null)
+        }
+        // Update user context if available
+        if (updateProfile && response.data.user) {
+          await updateProfile(response.data.user)
+        }
+        // Refresh the page to show updated data
+        setTimeout(() => {
           window.location.reload()
-        }
-      } else {
-        // No avatar upload, just update profile data
-        const response = await api.patch('/api/v1/superadmin/profile', profileData)
-        if (response.data.success) {
-          toast.success('Profile updated successfully')
-        }
+        }, 500)
       }
     } catch (error) {
       const logger = (await import('../utils/logger')).default
