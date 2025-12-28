@@ -279,6 +279,47 @@ api.interceptors.response.use(
       }
     }
     
+    // Handle server errors (5xx) with retry logic for GET requests
+    if (error.response?.status >= 500 && error.response?.status < 600 && !originalRequest._retry) {
+      // Only retry GET requests (safe to retry)
+      const isGetRequest = originalRequest.method?.toUpperCase() === 'GET';
+      if (isGetRequest) {
+        originalRequest._retry = true;
+        originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+        
+        const maxRetries = 2; // Fewer retries for server errors
+        if (originalRequest._retryCount <= maxRetries) {
+          // Exponential backoff: 2s, 4s
+          const delay = Math.pow(2, originalRequest._retryCount) * 1000;
+          logger.debug(`Server error ${error.response.status}, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return api(originalRequest);
+        }
+      }
+    }
+    
+    // Handle network errors (no response) with retry logic
+    if (!error.response && error.request && !originalRequest._retry) {
+      // Network error - retry for all request types
+      originalRequest._retry = true;
+      originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+      
+      const maxRetries = 2; // Retry network errors
+      if (originalRequest._retryCount <= maxRetries) {
+        // Exponential backoff: 1s, 2s
+        const delay = Math.pow(2, originalRequest._retryCount - 1) * 1000;
+        logger.debug(`Network error, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return api(originalRequest);
+      } else {
+        // After max retries, provide user-friendly error
+        const parsedError = parseError(error);
+        return Promise.reject(new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.'));
+      }
+    }
+    
     // Handle 401 for auth endpoints (after refresh attempt failed)
     if (
       error.response?.status === 401 &&

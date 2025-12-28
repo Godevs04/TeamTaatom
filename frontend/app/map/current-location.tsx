@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -157,6 +157,7 @@ export default function CurrentLocationMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
+  const hasLoggedParamsRef = useRef<string>('');
 
   // Check if we have location parameters (from locale or post)
   const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
@@ -176,27 +177,38 @@ export default function CurrentLocationMap() {
   
   const isPostLocation = hasValidCoordinates; // Use valid coordinates check
 
-  // Debug: Log received parameters
-  logger.debug('Map parameters:', {
-    params,
-    postLatitude,
-    postLongitude,
-    postAddress,
-    locationName,
-    isPostLocation,
-    hasValidCoordinates,
-  });
-  
-  if (hasValidCoordinates) {
-    logger.debug('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
-  } else {
-    logger.warn('⚠️ Invalid coordinates in params, will use current location or geocoding');
-  }
+  useEffect(() => {
+    // Create a unique key for these params to avoid duplicate logging
+    const paramsKey = `${postLatitude || 'null'}-${postLongitude || 'null'}-${postAddress || 'null'}-${locationName || 'null'}`;
+    
+    // Only log once per unique param combination
+    if (__DEV__ && hasLoggedParamsRef.current !== paramsKey) {
+      hasLoggedParamsRef.current = paramsKey;
+      
+      // Only log when we have valid coordinates or when coordinates are expected but invalid
+      // Don't log when coordinates are simply missing (expected for current location flow)
+      const hasAnyLocationParam = postLatitude !== null || postLongitude !== null || postAddress || locationName;
+      
+      if (hasValidCoordinates) {
+        logger.info('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
+      } else if (hasAnyLocationParam) {
+        // Only log if we have some location params but they're invalid
+        // This indicates a potential issue (e.g., invalid coordinates passed)
+        logger.info('⚠️ Location params provided but invalid, will use current location or geocoding:', {
+          postLatitude,
+          postLongitude,
+          postAddress,
+          locationName,
+        });
+      }
+      // Don't log when no params are provided - this is expected behavior for current location flow
+    }
+  }, [params, postLatitude, postLongitude, postAddress, locationName, hasValidCoordinates, isPostLocation]);
 
   useEffect(() => {
     // CRITICAL: Use exact coordinates from params if valid (for locale flow)
     if (hasValidCoordinates) {
-      logger.debug('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
+      logger.info('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
       setLocation({
         coords: {
           latitude: postLatitude!,
@@ -249,8 +261,23 @@ export default function CurrentLocationMap() {
 
       setLocation(currentLocation);
       setLoading(false);
-    } catch (err) {
-      logger.error('Error getting location:', err);
+    } catch (err: any) {
+      // Safely extract error message without causing Babel _construct issues
+      let errorMessage = 'Failed to get current location';
+      try {
+        if (err && typeof err === 'object') {
+          // Handle CodedError and other Expo errors safely
+          errorMessage = err.message || err.toString() || 'Location error';
+        } else if (typeof err === 'string') {
+          errorMessage = err;
+        }
+      } catch (e) {
+        // If error extraction fails, use safe fallback
+        errorMessage = 'Location error';
+      }
+      
+      // Log as debug to avoid Babel serialization issues with CodedError
+      logger.info('Error getting location:', errorMessage);
       setError('Failed to get current location');
       setLoading(false);
     }

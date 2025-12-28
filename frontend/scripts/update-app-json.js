@@ -63,6 +63,46 @@ const getWebShareUrl = () => {
   return apiUrl.replace('http://', 'https://').replace(':3000', '');
 };
 
+// Get privacy policy URL - use env var or construct from web share URL
+const getPrivacyPolicyUrl = () => {
+  const envUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim();
+  if (envUrl && envUrl !== '') {
+    return envUrl;
+  }
+  // Fallback: construct from web share URL
+  const webShareUrl = getWebShareUrl();
+  if (webShareUrl && !webShareUrl.includes('localhost') && !webShareUrl.includes('192.168.')) {
+    return `${webShareUrl}/policies/privacy`;
+  }
+  return appJson.expo.extra?.PRIVACY_POLICY_URL || '';
+};
+
+// Get terms of service URL
+const getTermsOfServiceUrl = () => {
+  const envUrl = process.env.EXPO_PUBLIC_TERMS_OF_SERVICE_URL?.trim();
+  if (envUrl && envUrl !== '') {
+    return envUrl;
+  }
+  const webShareUrl = getWebShareUrl();
+  if (webShareUrl && !webShareUrl.includes('localhost') && !webShareUrl.includes('192.168.')) {
+    return `${webShareUrl}/policies/terms`;
+  }
+  return appJson.expo.extra?.TERMS_OF_SERVICE_URL || '';
+};
+
+// Get support URL
+const getSupportUrl = () => {
+  const envUrl = process.env.EXPO_PUBLIC_SUPPORT_URL?.trim();
+  if (envUrl && envUrl !== '') {
+    return envUrl;
+  }
+  const webShareUrl = getWebShareUrl();
+  if (webShareUrl && !webShareUrl.includes('localhost') && !webShareUrl.includes('192.168.')) {
+    return `${webShareUrl}/support/contact`;
+  }
+  return appJson.expo.extra?.SUPPORT_URL || '';
+};
+
 // Update extra config from environment variables
 appJson.expo.extra = {
   API_BASE_URL: getApiBaseUrl(),
@@ -79,6 +119,10 @@ appJson.expo.extra = {
   // The secret should only be used on the backend server
   // Google Redirect URI - check both EXPO_PUBLIC_ prefix and alternative names
   GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || process.env.EXPO_REDIRECT_URI || appJson.expo.extra?.GOOGLE_REDIRECT_URI || '',
+  // Privacy and legal URLs
+  PRIVACY_POLICY_URL: getPrivacyPolicyUrl(),
+  TERMS_OF_SERVICE_URL: getTermsOfServiceUrl(),
+  SUPPORT_URL: getSupportUrl(),
 };
 
 // Update Android Google Maps API key from environment variable
@@ -91,13 +135,49 @@ if (appJson.expo.android?.config?.googleMaps) {
   }
 }
 
-// Update Android Google Maps API key from environment variable
-if (appJson.expo.android?.config?.googleMaps) {
-  const mapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || appJson.expo.extra?.GOOGLE_MAPS_API_KEY || '';
-  if (mapsApiKey) {
-    appJson.expo.android.config.googleMaps.apiKey = mapsApiKey;
+// Update iOS privacy policy URL from environment variable or extra config
+if (appJson.expo.ios?.infoPlist) {
+  const privacyPolicyUrl = getPrivacyPolicyUrl();
+  if (privacyPolicyUrl) {
+    appJson.expo.ios.infoPlist.NSPrivacyPolicyURL = privacyPolicyUrl;
   } else if (isProduction) {
-    console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_API_KEY not set. Google Maps may not work in production.');
+    console.warn('⚠️  WARNING: Privacy policy URL not set. App Store submission may be rejected.');
+  }
+}
+
+// Handle google-services.json from EAS environment variable
+const googleServicesJson = process.env.GOOGLE_SERVICES_JSON;
+if (googleServicesJson) {
+  try {
+    // Validate JSON
+    const parsed = JSON.parse(googleServicesJson);
+    const googleServicesPath = path.join(__dirname, '../google-services.json');
+    fs.writeFileSync(googleServicesPath, JSON.stringify(parsed, null, 2));
+    console.log('✅ Created google-services.json from EAS environment variable');
+    
+    // Set googleServicesFile in app.json if not already set
+    if (appJson.expo.android && !appJson.expo.android.googleServicesFile) {
+      appJson.expo.android.googleServicesFile = './google-services.json';
+    }
+  } catch (error) {
+    console.warn('⚠️  Warning: Failed to create google-services.json from GOOGLE_SERVICES_JSON:', error.message);
+    console.warn('   Make sure GOOGLE_SERVICES_JSON is valid JSON');
+  }
+} else {
+  // If no env var, check if file exists locally
+  const googleServicesPath = path.join(__dirname, '../google-services.json');
+  if (fs.existsSync(googleServicesPath)) {
+    // File exists locally, ensure it's referenced
+    if (appJson.expo.android && !appJson.expo.android.googleServicesFile) {
+      appJson.expo.android.googleServicesFile = './google-services.json';
+    }
+  } else {
+    // No file and no env var - remove reference to avoid build errors
+    if (appJson.expo.android && appJson.expo.android.googleServicesFile) {
+      delete appJson.expo.android.googleServicesFile;
+      console.warn('⚠️  Warning: google-services.json not found and GOOGLE_SERVICES_JSON not set.');
+      console.warn('   Firebase features may not work. Set GOOGLE_SERVICES_JSON in EAS secrets for builds.');
+    }
   }
 }
 

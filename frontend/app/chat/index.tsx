@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,111 @@ import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
+
+// Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+// Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
+const normalizeId = (id: any): string | null => {
+  if (!id) return null;
+  
+  // If it's already a string, validate and return it
+  if (typeof id === 'string') {
+    // Check if it's a valid ObjectId format (24 hex characters)
+    if (/^[0-9a-fA-F]{24}$/.test(id)) {
+      return id;
+    }
+    return id; // Return even if not valid format, let caller handle it
+  }
+  
+  // If it's an object with _id property, recurse
+  if (id._id) {
+    return normalizeId(id._id);
+  }
+  
+  // If it has a buffer property (serialized Buffer from backend)
+  // This handles: { buffer: { '0': 104, '1': 235, ... } }
+  if (id.buffer && typeof id.buffer === 'object') {
+    try {
+      const bufferObj = id.buffer;
+      const bytes: number[] = [];
+      
+      // Try to extract bytes from buffer object (can have numeric string keys)
+      for (let i = 0; i < 12; i++) {
+        const byte = bufferObj[i] ?? bufferObj[String(i)];
+        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+          bytes.push(byte);
+        }
+      }
+      
+      if (bytes.length === 12) {
+        // Convert bytes to hex string (24 characters)
+        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+          return hex;
+        }
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error converting buffer to hex', { error, id });
+      }
+    }
+  }
+  
+  // If the object itself looks like a buffer (has numeric keys directly)
+  // This handles: { '0': 104, '1': 235, ... } (direct buffer serialization)
+  if (typeof id === 'object' && !Array.isArray(id)) {
+    const keys = Object.keys(id);
+    // Check if it looks like a buffer (has numeric keys 0-11)
+    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+      try {
+        const bytes: number[] = [];
+        for (let i = 0; i < 12; i++) {
+          const byte = id[i] ?? id[String(i)];
+          if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+            bytes.push(byte);
+          }
+        }
+        if (bytes.length === 12) {
+          const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          logger.debug('Error converting direct buffer to hex', { error, id });
+        }
+      }
+    }
+  }
+  
+  // If it has toString method
+  if (id.toString && typeof id.toString === 'function') {
+    try {
+      const str = id.toString();
+      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch (error) {
+      if (__DEV__) {
+        logger.debug('Error calling toString on ID:', error);
+      }
+    }
+  }
+  
+  // Last resort: try to convert to string
+  try {
+    const str = String(id);
+    if (/^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+  } catch (error) {
+    if (__DEV__) {
+      logger.debug('Error converting ID to string:', error);
+    }
+  }
+  
+  return null;
+};
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -55,6 +160,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   router: any,
   onClearChat?: () => void
 }) {
+  // Render logging removed - too verbose, use React DevTools for component tracking
+  
   const { theme } = useTheme();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -69,6 +176,23 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const [isBlocked, setIsBlocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const flatListRef = React.useRef<FlatList>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  
+  // Get current user ID on mount
+  useEffect(() => {
+    const getCurrentUserId = async () => {
+      try {
+        const userData = await AsyncStorage.getItem('userData');
+        if (userData) {
+          const user = JSON.parse(userData);
+          setCurrentUserId(user._id);
+        }
+      } catch (e) {
+        logger.error('Error getting current user ID:', e);
+      }
+    };
+    getCurrentUserId();
+  }, []);
 
   // Get user name from user ID
   const getUserName = (userId: string): string => {
@@ -80,9 +204,6 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     // Return the actual other user's name
     return otherUser?.fullName || 'Unknown User';
   };
-
-  // Sort messages ascending by timestamp (oldest first)
-  const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   // Always set Taatom Official as online
   useEffect(() => {
@@ -126,33 +247,224 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     };
   }, []);
 
+  // CRITICAL: Use ref to store onSendMessage to avoid stale closures
+  const onSendMessageRef = useRef(onSendMessage);
   useEffect(() => {
+    onSendMessageRef.current = onSendMessage;
+  }, [onSendMessage]);
+
+  // CRITICAL: Local state to track incoming messages for instant UI updates
+  // This works alongside the parent's activeMessages state to ensure real-time updates
+  const [localMessages, setLocalMessages] = useState<any[]>([]);
+  
+  // Clear local messages when chat changes
+  useEffect(() => {
+    setLocalMessages([]);
+  }, [chatId]);
+  
+  // Track when messages prop changes (reduced logging)
+  useEffect(() => {
+    if (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_DEBUG === 'true') {
+      logger.debug('[ChatWindow] Messages prop changed', {
+        messagesCount: messages?.length || 0
+      });
+    }
+  }, [messages]);
+  
+  // Merge local messages with prop messages (deduplicated)
+  // CRITICAL: Use useMemo with length-based dependencies to prevent infinite loops
+  // Using length + first message ID as a stable key instead of array reference
+  const messagesLength = Array.isArray(messages) ? messages.length : 0;
+  const messagesFirstId = messages.length > 0 ? normalizeId(messages[0]?._id) : '';
+  const localMessagesLength = Array.isArray(localMessages) ? localMessages.length : 0;
+  const localMessagesFirstId = localMessages.length > 0 ? normalizeId(localMessages[0]?._id) : '';
+  
+  const allMessages = React.useMemo(() => {
+    // No logging here - useMemo recalculating is normal behavior
+    // Only log errors if something goes wrong
+    
+    // Create stable arrays to prevent unnecessary recalculations
+    const messagesArray = Array.isArray(messages) ? messages : [];
+    const localMessagesArray = Array.isArray(localMessages) ? localMessages : [];
+    const merged = [...messagesArray, ...localMessagesArray];
+    
+    // Deduplicate by _id
+    const seen = new Set<string>();
+    const deduplicated = merged.filter(msg => {
+      if (!msg || !msg._id) return false;
+      const id = normalizeId(msg._id);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    
+    // Sort by timestamp (oldest first)
+    const sorted = deduplicated.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeA - timeB;
+    });
+    
+    return sorted;
+  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId]); // Use stable primitives
+  
+  // Sort messages ascending by timestamp (oldest first)
+  // Use allMessages which is already sorted
+  const sortedMessages = allMessages;
+
+  useEffect(() => {
+    // CRITICAL: Ensure socket is connected and subscribed properly
+    // Based on documented solution in USER_TO_USER_CHAT_SYSTEM.md
+    let isMounted = true;
+    
     // Subscribe to socket for new messages, typing, seen, presence
     const onMessageNew = (payload: any) => {
-      logger.debug('Received message:new event:', payload);
-      if (payload.message && payload.chatId === chatId) {
-        logger.debug('Adding message to active chat via socket:', payload.message);
+      if (!isMounted) return;
+      
+      if (__DEV__) {
+        logger.debug('[ChatWindow] Received message:new event', { 
+          chatId: payload?.chatId,
+          messageId: payload?.message?._id,
+          hasMessage: !!payload?.message 
+        });
+      }
+      
+      if (!payload || !payload.message) {
+        logger.debug('[ChatWindow] Invalid payload - missing message');
+        return;
+      }
+      
+      // CRITICAL: Normalize chatId for comparison (handle ObjectId, string, Buffer)
+      const payloadChatId = normalizeId(payload.chatId);
+      const currentChatId = normalizeId(chatId);
+      
+      if (payloadChatId && currentChatId && payloadChatId === currentChatId) {
+        logger.debug('[ChatWindow] ✅ Message matches current chat, adding to UI');
+        
+        // CRITICAL: Check if message already exists in props to prevent infinite loops
+        const messageId = normalizeId(payload.message?._id);
+        
+        // If message doesn't have _id, log and skip (shouldn't happen after backend fix)
+        if (!messageId) {
+          logger.error('[ChatWindow] Message received without _id, skipping', payload.message);
+          return;
+        }
+        
+        const existsInProps = messages.some((m: any) => {
+          const msgId = normalizeId(m._id);
+          return msgId && messageId && msgId === messageId;
+        });
+        
+        // CRITICAL: Update local state immediately for instant UI feedback
+        // Only if message doesn't exist in props (prevents duplicate updates)
+        if (!existsInProps) {
+          setLocalMessages(prev => {
+            const existsInLocal = prev.find(m => {
+              const msgId = normalizeId(m._id);
+              return msgId && messageId && msgId === messageId;
+            });
+            if (existsInLocal) {
+              logger.debug('[ChatWindow] Message already in local state, skipping duplicate');
+              return prev;
+            }
+            logger.debug('[ChatWindow] Adding new message to local state:', payload.message._id);
+            return [...prev, payload.message];
+          });
+          
+          // Only call parent callback if message doesn't exist in props
+          // This prevents infinite loops where parent updates cause prop changes
+          // which trigger this handler again
+          try {
+            onSendMessageRef.current(payload.message);
+          } catch (error) {
+            logger.error('[ChatWindow] Error calling parent callback', error);
+          }
+        } else {
+          logger.debug('[ChatWindow] Message already exists in props, skipping to prevent loop');
+        }
+        
         // Clear fallback timeout if it exists
         if ((window as any).messageFallbackTimeout) {
           clearTimeout((window as any).messageFallbackTimeout);
           (window as any).messageFallbackTimeout = null;
         }
-        // Append to active chat if open
-        // handleNewMessage will handle replacing optimistic messages
-        onSendMessage(payload.message);
+        
         // Scroll to bottom when new message arrives
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
       } else {
-        logger.debug('Message not for current chat or missing data:', { payload, chatId });
-        // Optionally: update chat list preview/unread here
-        // (You may want to trigger a chat list refresh or update state)
+        logger.debug('[ChatWindow] ❌ Message not for current chat:', { 
+          payloadChatId, 
+          currentChatId,
+          messageText: payload.message?.text?.substring(0, 30)
+        });
       }
     };
     const onMessageSent = (payload: any) => {
-      // Optionally: update message status in UI (e.g., from 'pending' to 'sent')
-      // You may want to update the message in your state by _id
+      if (!isMounted) return;
+      
+      logger.debug('[ChatWindow] Received message:sent event:', payload);
+      
+      if (!payload || !payload.message) {
+        logger.debug('[ChatWindow] Invalid message:sent payload - missing message');
+        return;
+      }
+      
+      // CRITICAL: Normalize chatId for comparison
+      const payloadChatId = normalizeId(payload.chatId);
+      const currentChatId = normalizeId(chatId);
+      
+      // This is confirmation that our message was sent successfully
+      // Replace optimistic message with real message from server
+      if (payloadChatId && currentChatId && payloadChatId === currentChatId) {
+        logger.debug('[ChatWindow] ✅ Message sent confirmation matches current chat, updating UI');
+        
+        // CRITICAL: Update local state to replace optimistic message
+        setLocalMessages(prev => {
+          // Remove optimistic messages with same text/sender, add real message
+          const filtered = prev.filter(m => {
+            const msgId = normalizeId(m._id);
+            const payloadId = normalizeId(payload.message._id);
+            // Keep if it's not the optimistic version of this message
+            if (m.isOptimistic && m.text === payload.message.text && 
+                String(m.sender) === String(payload.message.sender)) {
+              return false; // Remove optimistic version
+            }
+            // Remove if it's a duplicate of the real message
+            if (msgId && payloadId && msgId === payloadId) {
+              return false; // Will be replaced by real message
+            }
+            return true;
+          });
+          
+          // Check if real message already exists
+          const exists = filtered.some(m => {
+            const msgId = normalizeId(m._id);
+            const payloadId = normalizeId(payload.message._id);
+            return msgId && payloadId && msgId === payloadId;
+          });
+          
+          if (!exists) {
+            return [...filtered, payload.message];
+          }
+          return filtered;
+        });
+        
+        // Clear any existing fallback timeout
+        if ((window as any).messageFallbackTimeout) {
+          clearTimeout((window as any).messageFallbackTimeout);
+          (window as any).messageFallbackTimeout = null;
+        }
+        
+        // Also call parent callback
+        onSendMessageRef.current(payload.message);
+      } else {
+        logger.debug('[ChatWindow] ❌ Message sent confirmation not for current chat:', { 
+          payloadChatId, 
+          currentChatId 
+        });
+      }
     };
     const onTyping = (payload: any) => {
       if (payload.from === otherUser._id) {
@@ -163,6 +475,14 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     const onSeen = (payload: any) => {
       if (payload.from === otherUser._id) {
         setLastSeenId(payload.messageId);
+        // Update seen status in local messages
+        setLocalMessages(prev =>
+          prev.map(m =>
+            normalizeId(m._id) === normalizeId(payload.messageId) 
+              ? { ...m, seen: true } 
+              : m
+          )
+        );
       }
     };
     const onOnline = (payload: any) => {
@@ -171,13 +491,39 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     const onOffline = (payload: any) => {
       if (payload.userId === otherUser._id && !isTaatomOfficial) setIsOnline(false);
     };
+    
+    // CRITICAL: Subscribe to socket events immediately
+    // socketService.subscribe will handle connection if needed
+    // Based on documented solution: subscribe first, then ensure connection
+    // This ensures listeners are registered before any events arrive
     socketService.subscribe('message:new', onMessageNew);
     socketService.subscribe('message:sent', onMessageSent);
     socketService.subscribe('typing', onTyping);
     socketService.subscribe('seen', onSeen);
     socketService.subscribe('user:online', onOnline);
     socketService.subscribe('user:offline', onOffline);
+    
+    logger.debug('[ChatWindow] Socket events subscribed');
+    
+    // CRITICAL: Ensure socket is connected
+    // This ensures we're ready to receive events
+    const ensureConnection = async () => {
+      try {
+        const connectedSocket = await socketService.connect();
+        if (connectedSocket && connectedSocket.connected) {
+          logger.debug('[ChatWindow] Socket connected and ready');
+        } else {
+          logger.debug('[ChatWindow] Socket connection in progress...');
+        }
+      } catch (e) {
+        logger.error('[ChatWindow] Error ensuring socket connection:', e);
+      }
+    };
+    
+    ensureConnection();
+    
     return () => {
+      isMounted = false;
       socketService.unsubscribe('message:new', onMessageNew);
       socketService.unsubscribe('message:sent', onMessageSent);
       socketService.unsubscribe('typing', onTyping);
@@ -190,8 +536,52 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         clearTimeout((window as any).messageFallbackTimeout);
         (window as any).messageFallbackTimeout = null;
       }
+      
+      // Clear local messages on unmount or chat change
+      setLocalMessages([]);
     };
-  }, [otherUser, chatId]); // Add chatId to dependency array
+  }, [otherUser?._id, chatId, onSendMessage]); // Include onSendMessage to ensure ref is updated
+  
+  // CRITICAL: Auto-scroll to bottom when messages change
+  // Use a ref to track previous length to prevent infinite loops
+  const prevMessageCountRef = useRef(0);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    const currentCount = allMessages.length;
+    
+    // Only scroll if new messages were added (count increased)
+    if (currentCount > prevMessageCountRef.current && flatListRef.current) {
+      if (__DEV__ && process.env.NODE_ENV === 'development') {
+        logger.debug('[ChatWindow] Auto-scrolling to end', { currentCount, prevCount: prevMessageCountRef.current });
+      }
+      prevMessageCountRef.current = currentCount;
+      
+      // Clear any existing timeout to prevent multiple scrolls
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      
+      // Small delay to ensure FlatList has rendered
+      scrollTimeoutRef.current = setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+        scrollTimeoutRef.current = null;
+      }, 100);
+    } else if (currentCount !== prevMessageCountRef.current) {
+      // Update ref even if we don't scroll
+      prevMessageCountRef.current = currentCount;
+    }
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
+  }, [allMessages.length]); // Trigger on message count change only
 
   // Emit typing event
   const handleInput = (text: string) => {
@@ -199,26 +589,128 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     socketService.emit('typing', { to: otherUser._id });
   };
 
-  // Emit seen event when chat is opened or scrolled to bottom
+  // CRITICAL: Mark messages as seen ONLY when user actually views/interacts with them
+  // Use a ref to track if we've already marked messages as seen for this chat session
+  const hasMarkedAsSeenRef = useRef(false);
+  const chatIdRef = useRef(chatId);
+  const markSeenTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    if (sortedMessages.length > 0) {
-      const lastMsg = sortedMessages[sortedMessages.length - 1];
-      logger.debug('lastMsg:', lastMsg);
-      if (lastMsg && lastMsg.sender !== otherUser._id) {
-        logger.debug('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: lastMsg._id, chatId });
-        socketService.emit('seen', { to: otherUser._id, messageId: lastMsg._id, chatId });
+    // Reset when chatId changes
+    if (chatIdRef.current !== chatId) {
+      hasMarkedAsSeenRef.current = false;
+      chatIdRef.current = chatId;
+      if (markSeenTimeoutRef.current) {
+        clearTimeout(markSeenTimeoutRef.current);
+        markSeenTimeoutRef.current = null;
       }
     }
+  }, [chatId]);
+
+  // Mark messages as seen only after user has had time to view them (3 seconds after chat window is visible)
+  // This ensures unread count persists until user actually views the chat
+  useEffect(() => {
+    // Only mark as seen once per chat session, and only after a delay to ensure user has viewed messages
+    if (sortedMessages.length > 0 && !hasMarkedAsSeenRef.current && chatId) {
+      const unseen = sortedMessages.filter(m => {
+        const senderId = normalizeId(m.sender?._id || m.sender);
+        const otherUserId = normalizeId(otherUser._id);
+        return senderId && otherUserId && senderId === otherUserId && !m.seen;
+      });
+      
+      if (unseen.length > 0) {
+        // Clear any existing timeout
+        if (markSeenTimeoutRef.current) {
+          clearTimeout(markSeenTimeoutRef.current);
+        }
+        
+        // Wait 3 seconds after chat window is visible before marking as seen
+        // This gives user time to actually view the messages
+        markSeenTimeoutRef.current = setTimeout(() => {
+          if (!hasMarkedAsSeenRef.current) {
+            logger.debug('[UNREAD DEBUG] Marking messages as seen after 3s delay', {
+              chatId,
+              unseenCount: unseen.length
+            });
+            
+            // Mark as seen via socket (for real-time)
+            unseen.forEach(msg => {
+              socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+            });
+            
+            // Mark as seen in backend
+            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+              logger.debug('Failed to mark messages as seen in backend:', e);
+            });
+            
+            // Update local state
+            setLocalMessages(prev => prev.map(m => {
+              const msgId = normalizeId(m._id);
+              const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
+              if (isUnseen) {
+                return { ...m, seen: true };
+              }
+              return m;
+            }));
+            
+            hasMarkedAsSeenRef.current = true;
+          }
+        }, 3000); // 3 second delay - gives user time to view messages
+      }
+    }
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (markSeenTimeoutRef.current) {
+        clearTimeout(markSeenTimeoutRef.current);
+        markSeenTimeoutRef.current = null;
+      }
+    };
   }, [sortedMessages, otherUser, chatId]);
 
-  // --- 1. When opening a chat, emit 'seen' for all unseen messages from the other user ---
-  useEffect(() => {
-    if (sortedMessages.length > 0) {
-      const unseen = sortedMessages.filter(m => m.sender === otherUser._id && !m.seen);
+  // Also mark as seen immediately when user sends a message (they're actively viewing the chat)
+  const markMessagesAsSeenIfNeeded = useCallback(() => {
+    if (hasMarkedAsSeenRef.current) return;
+    
+    const unseen = sortedMessages.filter(m => {
+      const senderId = normalizeId(m.sender?._id || m.sender);
+      const otherUserId = normalizeId(otherUser._id);
+      return senderId && otherUserId && senderId === otherUserId && !m.seen;
+    });
+    
+    if (unseen.length > 0) {
+      logger.debug('[UNREAD DEBUG] Marking messages as seen (user sent message)', {
+        chatId,
+        unseenCount: unseen.length
+      });
+      
+      // Mark as seen via socket
       unseen.forEach(msg => {
-        logger.debug('[SOCKET] emitting seen event:', { to: otherUser._id, messageId: msg._id, chatId });
         socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
       });
+      
+      // Mark as seen in backend
+      api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+        logger.debug('Failed to mark messages as seen in backend:', e);
+      });
+      
+      // Update local state
+      setLocalMessages(prev => prev.map(m => {
+        const msgId = normalizeId(m._id);
+        const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
+        if (isUnseen) {
+          return { ...m, seen: true };
+        }
+        return m;
+      }));
+      
+      hasMarkedAsSeenRef.current = true;
+      
+      // Clear the timeout since we've already marked as seen
+      if (markSeenTimeoutRef.current) {
+        clearTimeout(markSeenTimeoutRef.current);
+        markSeenTimeoutRef.current = null;
+      }
     }
   }, [sortedMessages, otherUser, chatId]);
 
@@ -227,6 +719,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     if (!input.trim()) return;
     const messageText = input;
     logger.debug('Sending message:', messageText);
+    
+    // Mark messages as seen when user sends a message (they're actively viewing the chat)
+    markMessagesAsSeenIfNeeded();
     
     // Get current user ID for optimistic message
     let currentUserId = '';
@@ -725,7 +1220,14 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
             data={sortedMessages}
             keyExtractor={(_, idx) => idx.toString()}
             renderItem={({ item, index }) => {
-              const isOwn = item.sender !== otherUser._id;
+              // CRITICAL: Normalize sender IDs for proper comparison
+              const senderId = normalizeId(item.sender?._id || item.sender);
+              const otherUserId = normalizeId(otherUser?._id);
+              const myUserId = normalizeId(currentUserId);
+              
+              // Message is "own" if sender matches current user, not other user
+              const isOwn = (senderId && myUserId && senderId === myUserId) || 
+                           (senderId && otherUserId && senderId !== otherUserId && !myUserId);
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
               
               return (
@@ -908,10 +1410,21 @@ export default function ChatModal() {
 
   // Move handleNewMessage here with deduplication
   const handleNewMessage = (msg: any) => {
-    if (!msg || !msg._id) return; // Guard against invalid messages
+    if (!msg || !msg._id) {
+      if (__DEV__) {
+        logger.debug('[ChatWindow] handleNewMessage: Invalid message, returning');
+      }
+      return; // Guard against invalid messages
+    }
+    
     setActiveMessages((prev: any[]) => {
       // Deduplicate by _id to prevent duplicate messages
-      const exists = prev.some(m => m._id === msg._id);
+      const exists = prev.some(m => {
+        const prevId = normalizeId(m._id);
+        const newId = normalizeId(msg._id);
+        return prevId && newId && prevId === newId;
+      });
+      
       if (exists) {
         logger.debug('Duplicate message detected, skipping:', msg._id);
         return prev;
@@ -924,7 +1437,7 @@ export default function ChatModal() {
           // Remove optimistic messages that match this real message's text and sender
           // Match by text content and sender to ensure we're replacing the right message
           if (m.isOptimistic && m.text === msg.text && String(m.sender) === String(msg.sender)) {
-            logger.debug('Removing optimistic message, replacing with real message:', { optimisticId: m._id, realId: msg._id, text: msg.text });
+            logger.debug('Removing optimistic message, replacing with real message:', { optimisticId: m._id, realId: msg._id });
             return false;
           }
           return true;
@@ -936,7 +1449,7 @@ export default function ChatModal() {
       
       // For optimistic messages, just add them
       const newMessages = [...prev, msg];
-      logger.debug('Added message:', { messageId: msg._id, isOptimistic: msg.isOptimistic, text: msg.text?.substring(0, 20), totalMessages: newMessages.length });
+      logger.debug('Added message:', { messageId: msg._id, isOptimistic: msg.isOptimistic, totalMessages: newMessages.length });
       return newMessages;
     });
   };
@@ -1160,12 +1673,10 @@ export default function ChatModal() {
         timeoutPromise
       ]);
       
-      // Mark all messages as seen in the backend (optional, don't block on this)
-      try {
-        await api.post(`/chat/${user._id}/mark-all-seen`);
-      } catch (e) {
-        logger.debug('Failed to mark messages as seen:', e);
-      }
+      // CRITICAL: Don't mark messages as seen when opening chat
+      // Only mark as seen when ChatWindow component is actually visible and user views messages
+      // This preserves unread count until user actually opens and views the chat
+      logger.debug('[UNREAD DEBUG] Skipping mark-all-seen on chat open - will mark when chat window is visible');
       
       // Ensure chat data is properly structured
       const chat = (chatRes as any).data.chat;
@@ -1181,20 +1692,20 @@ export default function ChatModal() {
         ];
       }
       
-      // Mark all messages from other user as seen locally
-      const updatedMessages = ((messagesRes as any).data.messages || []).map((msg: any) =>
-        msg.sender === user._id ? { ...msg, seen: true } : msg
-      );
+      // CRITICAL: Keep original seen status - don't mark as seen when opening chat
+      const updatedMessages = (messagesRes as any).data.messages || [];
       
       setActiveChat(chat);
       setActiveMessages(updatedMessages);
       setSelectedUser(user);
+      
+      // CRITICAL: Don't mark messages as seen in conversations list when opening chat
+      // Only mark as seen when ChatWindow is actually visible
+      // This preserves unread count until user actually views the chat
       setConversations(prev => prev.map(prevChat => {
         if (prevChat._id !== chat._id) return prevChat;
-        const updatedMsgs = (prevChat.messages || []).map((msg: any) =>
-          msg.sender === user._id ? { ...msg, seen: true } : msg
-        );
-        return { ...prevChat, messages: updatedMsgs };
+        // Keep original seen status
+        return prevChat;
       }));
     } catch (e: any) {
       logger.error('Error opening chat with user:', e);
@@ -1338,6 +1849,100 @@ export default function ChatModal() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
+
+  // Handle mark all as read
+  const handleMarkAllAsRead = useCallback(async () => {
+    // Count total unread messages
+    const totalUnread = conversations.reduce((count, chat) => {
+      const currentUserId = normalizeId(chat.me);
+      const unreadCount = chat.messages?.filter((m: any) => {
+        if (!m || !m.sender) return false;
+        if (m.seen === true) return false;
+        const senderId = normalizeId(m.sender?._id || m.sender);
+        if (!senderId || !currentUserId || senderId === currentUserId) return false;
+        const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
+        return isUnseen;
+      }).length || 0;
+      return count + unreadCount;
+    }, 0);
+
+    if (totalUnread === 0) {
+      Alert.alert(
+        'All Read',
+        'All messages are already marked as read.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Show confirmation alert
+    Alert.alert(
+      'Mark All as Read',
+      `Are you sure you want to mark all ${totalUnread} unread message${totalUnread > 1 ? 's' : ''} as read?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Mark All as Read',
+          onPress: async () => {
+            try {
+              // Mark all messages as seen in all conversations
+              const updatePromises = conversations.map(async (chat) => {
+                const other = chat.participants.find((u: any) => {
+                  const uId = normalizeId(u?._id || u);
+                  const meId = normalizeId(chat.me);
+                  return uId && meId && uId !== meId;
+                });
+                
+                if (other) {
+                  const otherId = normalizeId(other?._id || other);
+                  if (otherId) {
+                    try {
+                      await api.post(`/chat/${otherId}/mark-all-seen`);
+                    } catch (error) {
+                      logger.debug(`Failed to mark messages as seen for chat ${chat._id}:`, error);
+                    }
+                  }
+                }
+              });
+
+              await Promise.allSettled(updatePromises);
+
+              // Update local state - mark all messages as seen
+              setConversations(prev => prev.map(chat => {
+                const currentUserId = normalizeId(chat.me);
+                const updatedMessages = (chat.messages || []).map((m: any) => {
+                  const senderId = normalizeId(m.sender?._id || m.sender);
+                  // Mark as seen if it's from someone else and not already seen
+                  if (senderId && currentUserId && senderId !== currentUserId && (m.seen === false || m.seen === undefined || m.seen === null)) {
+                    return { ...m, seen: true };
+                  }
+                  return m;
+                });
+                return { ...chat, messages: updatedMessages };
+              }));
+
+              // Show success alert
+              Alert.alert(
+                'Success',
+                `All ${totalUnread} message${totalUnread > 1 ? 's' : ''} marked as read.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              logger.error('Error marking all messages as read:', error);
+              Alert.alert(
+                'Error',
+                'Failed to mark all messages as read. Please try again.',
+                [{ text: 'OK' }]
+              );
+            }
+          }
+        }
+      ]
+    );
+  }, [conversations]);
 
   // Show ChatWindow if chat and messages are loaded
   if ((params.userId || selectedUser) && (activeChat && !chatLoading)) {
@@ -1828,17 +2433,26 @@ export default function ChatModal() {
       height: 24,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
       shadowColor: theme.colors.primary,
       shadowOffset: { width: 0, height: 1 },
       shadowOpacity: 0.3,
       shadowRadius: 2,
       elevation: 2,
     },
+    unreadBadgeDoubleDigit: {
+      minWidth: 44,
+      paddingHorizontal: 10,
+      width: 'auto',
+    },
     unreadText: {
       color: '#fff',
       fontSize: 12,
       fontWeight: '700',
+      textAlign: 'center',
+      includeFontPadding: false,
+      textAlignVertical: 'center',
     },
     emptyContainer: {
       flex: 1,
@@ -2018,12 +2632,27 @@ export default function ChatModal() {
         
         <View style={styles.headerActions}>
           <TouchableOpacity 
+            onPress={() => {
+              logger.debug('[Mark All Read] Button pressed');
+              handleMarkAllAsRead();
+            }} 
+            style={[styles.headerButton, { marginLeft: 0 }]}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="checkmark-done" size={22} color={theme.colors.primary || '#007AFF'} />
+          </TouchableOpacity>
+          <TouchableOpacity 
             onPress={() => setShowNewMessage(true)} 
             style={styles.headerButton}
+            activeOpacity={0.7}
           >
             <Ionicons name="create-outline" size={22} color={theme.colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+          <TouchableOpacity 
+            onPress={() => router.back()} 
+            style={styles.headerButton}
+            activeOpacity={0.7}
+          >
             <Ionicons name="close" size={24} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
@@ -2066,27 +2695,60 @@ export default function ChatModal() {
                 messages: item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })) 
               });
             }
-            let other = item.participants.find((u: any) => u._id !== item.me);
+            let other = item.participants.find((u: any) => {
+              const uId = normalizeId(u?._id || u);
+              const meId = normalizeId(item.me);
+              return uId && meId && uId !== meId;
+            });
             // If participants is array of ObjectIds, fallback
             if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
-              other = item.participants.find((id: string) => id !== item.me);
+              other = item.participants.find((id: string) => {
+                const idNormalized = normalizeId(id);
+                const meId = normalizeId(item.me);
+                return idNormalized && meId && idNormalized !== meId;
+              });
             }
-            // Calculate unread count - handle different sender formats
-            const otherUserId = other?._id ? other._id.toString() : (typeof other === 'string' ? other : other?.toString() || '');
+            // Calculate unread count - handle Buffer objects from backend
+            const otherUserId = normalizeId(other?._id || other);
+            const currentUserId = normalizeId(item.me);
+            
+            // Calculate unread count: messages from other user (not from current user) that are not seen
+            // This includes admin messages from Taatom Official (000000000000000000000001) to regular users
+            // SIMPLIFIED: Count any message that is NOT from current user and NOT seen
             const unreadCount = item.messages?.filter((m: any) => {
-              if (!m || !m.sender || m.seen) return false;
+              // Skip invalid messages
+              if (!m || !m.sender) return false;
               
-              // Handle different sender formats
-              let senderId = null;
-              if (typeof m.sender === 'string') {
-                senderId = m.sender;
-              } else if (m.sender._id) {
-                senderId = m.sender._id.toString();
-              } else if (m.sender.toString) {
-                senderId = m.sender.toString();
+              // Skip if already seen (explicitly true)
+              if (m.seen === true) return false;
+              
+              // Normalize sender ID - handle Buffer objects from backend
+              const senderId = normalizeId(m.sender?._id || m.sender);
+              
+              // Skip if sender is current user (messages from current user are never unread)
+              if (!senderId || !currentUserId) return false;
+              if (senderId === currentUserId) return false;
+              
+              // Message is unread if:
+              // 1. It's NOT from the current user (already checked above)
+              // 2. It's not seen (m.seen is false, undefined, or null - default to unread)
+              const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
+              
+              // Debug logging for admin messages (Taatom Official ID: 000000000000000000000001)
+              if (__DEV__ && senderId === '000000000000000000000001') {
+                logger.debug('[UNREAD DEBUG] Admin message check', {
+                  chatId: item._id,
+                  senderId,
+                  otherUserId,
+                  currentUserId,
+                  isUnseen,
+                  seen: m.seen,
+                  messageId: m._id,
+                  participants: item.participants?.map((p: any) => normalizeId(p?._id || p))
+                });
               }
               
-              return senderId === otherUserId && !m.seen;
+              return isUnseen;
             }).length || 0;
             
             return (
@@ -2113,8 +2775,17 @@ export default function ChatModal() {
                 </View>
                 
                 {unreadCount > 0 && (
-                  <View style={styles.unreadBadge}>
-                    <Text style={styles.unreadText}>{unreadCount}</Text>
+                  <View style={[
+                    styles.unreadBadge,
+                    unreadCount > 9 && styles.unreadBadgeDoubleDigit,
+                    unreadCount > 9 && { minWidth: Math.max(44, String(unreadCount).length * 12 + 16) }
+                  ]}>
+                    <Text 
+                      style={styles.unreadText}
+                      numberOfLines={1}
+                    >
+                      {unreadCount > 99 ? '99+' : String(unreadCount)}
+                    </Text>
                   </View>
                 )}
               </TouchableOpacity>

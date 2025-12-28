@@ -1431,8 +1431,49 @@ const getUserPosts = async (req, res) => {
 
     const { posts, totalPosts } = result;
     
-    // Generate signed URLs for profile pictures
+    // Generate signed URLs for posts and profile pictures
     const postsWithProfilePics = await Promise.all(posts.map(async (post) => {
+      // Generate image URLs from storage keys (same logic as getPosts)
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || null; // Primary image
+          post.images = imageUrls; // All images
+        } catch (error) {
+          logger.warn('Failed to generate image URLs for post:', { 
+            postId: post._id, 
+            error: error.message 
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else if (post.storageKey) {
+        // Fallback for single storage key
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          post.imageUrl = imageUrl;
+          post.images = imageUrl ? [imageUrl] : [];
+        } catch (error) {
+          logger.warn('Failed to generate image URL for post:', { 
+            postId: post._id, 
+            error: error.message 
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else {
+        // Legacy: try to use existing imageUrl if no storage key
+        // This is for backward compatibility with old posts
+        if (post.imageUrl && post.imageUrl.trim() !== '') {
+          // Use existing imageUrl (from Cloudinary or legacy storage)
+          post.images = [post.imageUrl];
+          // Keep imageUrl as is
+        } else {
+          post.imageUrl = null;
+          post.images = [];
+        }
+      }
+
       // Generate signed URL for post author's profile picture
       if (post.user && post.user.profilePicStorageKey) {
         try {
@@ -2274,7 +2315,19 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'songData',
           pipeline: [
-            { $project: { title: 1, artist: 1, duration: 1, s3Url: 1, thumbnailUrl: 1, _id: 1 } }
+            { 
+              $project: { 
+                title: 1, 
+                artist: 1, 
+                duration: 1, 
+                s3Url: 1, 
+                thumbnailUrl: 1, 
+                storageKey: 1,
+                cloudinaryKey: 1,
+                s3Key: 1,
+                _id: 1 
+              } 
+            }
           ]
         }
       },
@@ -2384,6 +2437,45 @@ const getShorts = async (req, res) => {
         }
       }
       
+      // Generate signed URL for song if present (same logic as getPosts)
+      if (short.song?.songId) {
+        logger.info('getShorts - Processing song for short:', {
+          shortId: short._id,
+          songId: short.song.songId._id || short.song.songId,
+          hasStorageKey: !!(short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key)
+        });
+        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            short.song.songId.s3Url = songUrl;
+            short.song.songId.cloudinaryUrl = songUrl; // Backward compatibility
+            logger.info('getShorts - Generated song URL:', {
+              shortId: short._id,
+              songUrl: songUrl.substring(0, 50) + '...'
+            });
+          } catch (error) {
+            logger.warn('Failed to generate song URL for short:', { 
+              shortId: short._id, 
+              songId: short.song.songId._id, 
+              error: error.message 
+            });
+            short.song.songId.s3Url = null;
+            short.song.songId.cloudinaryUrl = null;
+          }
+        } else {
+          logger.warn('Short song missing storage key:', { 
+            shortId: short._id, 
+            songId: short.song.songId._id,
+            songData: short.song.songId
+          });
+          short.song.songId.s3Url = null;
+          short.song.songId.cloudinaryUrl = null;
+        }
+      } else {
+        logger.debug('getShorts - No song data for short:', { shortId: short._id });
+      }
+      
       // Defensive: ensure mediaUrl exists (required for shorts)
       const mediaUrl = short.videoUrl || short.imageUrl || '';
       if (!mediaUrl) {
@@ -2470,7 +2562,19 @@ const createShort = async (req, res) => {
       return sendError(res, 'FILE_4002', 'Invalid video file. Please try uploading again.');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songVolume, spotType, travelInfo, audioSource, copyrightAccepted, copyrightAcceptedAt } = req.body;
+    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo, audioSource, copyrightAccepted, copyrightAcceptedAt } = req.body;
+    logger.info('createShort - Received data:', {
+      hasSongId: !!songId,
+      songId: songId,
+      audioSource: audioSource,
+      songStartTime: songStartTime,
+      songEndTime: songEndTime,
+      songVolume: songVolume,
+      // Log raw req.body to see what's actually being sent
+      rawBodyKeys: Object.keys(req.body),
+      rawSongId: req.body.songId,
+      rawAudioSource: req.body.audioSource
+    });
     
     // Copyright validation for shorts
     // If audioSource is 'user_original', copyrightAccepted MUST be true and copyrightAcceptedAt MUST be present
@@ -2567,7 +2671,23 @@ const createShort = async (req, res) => {
       thumbnailUrl = videoUploadResult.url;
     }
     
-    const short = new Post({
+    // CRITICAL: Normalize audioSource early for consistent comparison
+    const normalizedAudioSource = audioSource ? String(audioSource).trim() : null;
+    const shouldSaveSong = songId && normalizedAudioSource === 'taatom_library';
+    
+    logger.info('createShort - Song data decision (before Post creation):', {
+      hasSongId: !!songId,
+      songId: songId,
+      audioSource: audioSource,
+      normalizedAudioSource: normalizedAudioSource,
+      shouldSaveSong: shouldSaveSong,
+      songStartTime: songStartTime,
+      songEndTime: songEndTime,
+      songVolume: songVolume
+    });
+    
+    // Build base post object
+    const postData = {
       user: req.user._id,
       caption,
       imageUrl: thumbnailUrl || '', // Backward compatibility - thumbnail stored here too
@@ -2584,17 +2704,6 @@ const createShort = async (req, res) => {
           longitude: parseFloat(longitude) || 0
         }
       },
-      // CRITICAL: Dual-audio mixing support (same as posts)
-      // When songId is provided, backend should mix:
-      // - Original video audio at 0.6 volume (60%)
-      // - Background music at songVolume (typically 1.0 = 100%)
-      // This preserves both audio tracks instead of replacing video audio
-      song: songId ? {
-        songId: songId,
-        startTime: parseFloat(songStartTime) || 0,
-        endTime: songEndTime ? parseFloat(songEndTime) : null,
-        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
-      } : undefined,
       // TripScore metadata from user dropdowns
       spotType: spotType || null,
       travelInfo: travelInfo || null,
@@ -2603,9 +2712,50 @@ const createShort = async (req, res) => {
       copyrightAccepted: finalCopyrightAccepted,
       copyrightAcceptedAt: finalCopyrightAcceptedAt ? new Date(finalCopyrightAcceptedAt) : null,
       status: 'active'
-    });
+    };
+    
+    // CRITICAL: Only include song field if we actually want to save it
+    // Using conditional spread prevents Mongoose from applying default values
+    if (shouldSaveSong) {
+      postData.song = {
+        songId: songId,
+        startTime: parseFloat(songStartTime) || 0,
+        endTime: songEndTime ? parseFloat(songEndTime) : null,
+        volume: parseFloat(songVolume) || 1.0 // Music at full volume, video will be at 0.6
+      };
+      logger.info('createShort - SAVING song data:', postData.song);
+    } else {
+      logger.info('createShort - NOT saving song data:', {
+        reason: !songId ? 'No songId provided' : `audioSource is '${normalizedAudioSource}', expected 'taatom_library'`
+      });
+      // Do NOT include song field at all - this prevents Mongoose defaults
+    }
+    
+    const short = new Post(postData);
 
     await short.save();
+    
+    // Log saved short data for debugging - use logger.info for visibility
+    logger.info('createShort - Short saved successfully:', {
+      shortId: short._id,
+      hasSong: !!short.song,
+      songId: short.song?.songId,
+      audioSource: short.audioSource,
+      songStartTime: short.song?.startTime,
+      songVolume: short.song?.volume,
+      songEndTime: short.song?.endTime
+    });
+    
+    // Also log the full song object for debugging
+    if (short.song) {
+      logger.info('createShort - Full song object:', JSON.stringify(short.song, null, 2));
+    } else {
+      logger.warn('createShort - WARNING: Short saved WITHOUT song data!', {
+        shortId: short._id,
+        receivedSongId: songId,
+        receivedAudioSource: audioSource
+      });
+    }
 
     // Create TripVisit for TripScore v2 (non-blocking)
     try {

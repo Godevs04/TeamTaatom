@@ -56,10 +56,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setSound(null);
         setIsPlaying(false);
       }
-      // Unregister from audio manager
-      if (post._id) {
-        audioManager.unregisterAudio(post._id);
-      }
+      // Audio manager handles cleanup automatically via stopAll()
       isInitializedRef.current = false;
     };
   }, [post._id]);
@@ -133,9 +130,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       soundRef.current = newSound;
       setSound(newSound);
       
-      // Register with global audio manager (only if we're going to play)
+      // Use audioManager.playSound to ensure previous audio stops (only if we're going to play)
       if (shouldPlayNow && post._id) {
-        await audioManager.registerAudio(newSound, post._id);
+        await audioManager.playSound(newSound, post._id.toString());
       }
       
       // Set up playback status listener
@@ -215,9 +212,45 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           // Load and play if not already loaded
           loadAndPlaySong();
         } else {
-          // If already loaded, play it immediately
-          soundRef.current.playAsync().catch(err => logger.error('Error playing:', err));
-          setIsPlaying(true);
+          // If already loaded, check if it's already playing
+          if (post._id && audioManager.getCurrentPostId() !== post._id.toString()) {
+            // Different post is playing, use audioManager to switch
+            audioManager.playSound(soundRef.current, post._id.toString())
+              .then(() => {
+                setIsPlaying(true);
+              })
+              .catch((err) => {
+                logger.error('Error playing sound:', err);
+              });
+          } else if (post._id && audioManager.getCurrentPostId() === post._id.toString()) {
+            // Same post - check if sound is actually playing, if not, resume it
+            soundRef.current.getStatusAsync()
+              .then((status) => {
+                if (status.isLoaded && !status.isPlaying) {
+                  // Sound is loaded but paused, resume it
+                  soundRef.current?.playAsync()
+                    .then(() => {
+                      setIsPlaying(true);
+                    })
+                    .catch((err) => {
+                      logger.error('Error resuming sound:', err);
+                    });
+                } else {
+                  // Already playing, just update state
+                  setIsPlaying(true);
+                }
+              })
+              .catch(() => {
+                // If status check fails, try to play anyway
+                soundRef.current?.playAsync()
+                  .then(() => {
+                    setIsPlaying(true);
+                  })
+                  .catch((err) => {
+                    logger.error('Error playing sound after status check:', err);
+                  });
+              });
+          }
         }
       } else {
         // Video is paused - pause song immediately
@@ -226,24 +259,20 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
             logger.error('Error pausing:', err);
           });
           setIsPlaying(false);
-          // Unregister from audio manager when paused
-          if (post._id) {
-            audioManager.unregisterAudio(post._id);
-          }
         }
       }
     }
 
-    // Pause when component becomes invisible (only for auto-play mode)
+    // Stop and unload when component becomes invisible (only for auto-play mode)
     if (!isVisible && !showPlayPause && soundRef.current) {
-      soundRef.current.pauseAsync().catch(err => logger.error('Error pausing:', err));
+      // Stop + unload instantly to prevent audio bleeding
+      soundRef.current.stopAsync().catch(() => {});
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+      setSound(null);
       setIsPlaying(false);
-      // Unregister from audio manager when invisible
-      if (post._id) {
-        audioManager.unregisterAudio(post._id);
-      }
     }
-  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong]);
+  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong, post._id]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
@@ -266,13 +295,12 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           setIsPlaying(false);
         } else {
           logger.debug('Starting playback...');
-          // Register with audio manager before playing (will pause other audio)
+          // Use audioManager.playSound to ensure previous audio stops
           if (post._id) {
-            await audioManager.registerAudio(soundRef.current, post._id);
+            await audioManager.playSound(soundRef.current, post._id.toString());
           }
-          // Ensure volume is set correctly before playing
+          // Ensure volume is set correctly
           await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
-          await soundRef.current.playAsync();
           setIsPlaying(true);
           logger.debug('Playback started');
         }

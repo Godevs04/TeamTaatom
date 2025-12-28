@@ -201,7 +201,26 @@ export default function ProfileScreen() {
       if (!isMountedRef.current) return;
       
       if (userPosts.status === 'fulfilled') {
-        setPosts(userPosts.value.posts);
+        const fetchedPosts = userPosts.value.posts || [];
+        if (__DEV__) {
+          console.log('📸 [Profile] Fetched posts:', fetchedPosts.length);
+          if (fetchedPosts.length > 0) {
+            console.log('📸 [Profile] First post:', {
+              _id: fetchedPosts[0]._id,
+              imageUrl: fetchedPosts[0].imageUrl,
+              image_url: (fetchedPosts[0] as any).image_url,
+              mediaUrl: (fetchedPosts[0] as any).mediaUrl,
+              images: (fetchedPosts[0] as any).images,
+              allKeys: Object.keys(fetchedPosts[0] || {})
+            });
+          }
+        }
+        setPosts(fetchedPosts);
+      } else if (userPosts.status === 'rejected') {
+        if (__DEV__) {
+          console.error('❌ [Profile] Failed to fetch posts:', userPosts.reason);
+        }
+        logger.error('Failed to fetch user posts:', userPosts.reason);
       }
       
       if (shortsResp.status === 'fulfilled') {
@@ -291,6 +310,18 @@ export default function ProfileScreen() {
       };
     }, [user?._id, loadUserData])
   );
+
+  // Log posts when they change for debugging (development only)
+  useEffect(() => {
+    if (__DEV__) {
+      if (posts.length > 0) {
+        console.log('📊 [Profile] Posts state updated:', posts.length, 'posts');
+        console.log('📊 [Profile] First post imageUrl:', posts[0]?.imageUrl || 'NONE');
+      } else {
+        console.log('📊 [Profile] No posts in state');
+      }
+    }
+  }, [posts]);
   
   // Analytics De-duplication: Prevent duplicate profile view events
   useEffect(() => {
@@ -1048,16 +1079,53 @@ export default function ProfileScreen() {
             {activeTab === 'posts' && (
               posts.length > 0 ? (
                 <View style={styles.postsGrid}>
-                  {posts.map((post) => (
-                    <Pressable 
-                      key={post._id} 
-                      style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
-                      onLongPress={() => handleDeletePost(post._id, false)}
-                      onPress={() => router.push(`/post/${post._id}`)}
-                    >
-                      <Image source={{ uri: post.imageUrl }} style={styles.thumbnailImage} />
-                    </Pressable>
-                  ))}
+                  {posts.map((post) => {
+                    // Try multiple possible image URL fields
+                    const imageUrl = post.imageUrl 
+                      || (post as any).image_url 
+                      || (post as any).mediaUrl 
+                      || (post as any).images?.[0]
+                      || (post as any).thumbnailUrl;
+                    
+                    const validImageUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0 
+                      ? String(imageUrl).trim() 
+                      : null;
+                    
+                    return (
+                      <Pressable 
+                        key={post._id} 
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                        onLongPress={() => handleDeletePost(post._id, false)}
+                        onPress={() => router.push(`/post/${post._id}`)}
+                      >
+                        {validImageUrl ? (
+                          <Image 
+                            source={{ uri: validImageUrl }} 
+                            style={styles.thumbnailImage}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              if (__DEV__) {
+                                console.warn('⚠️ [Profile] Image failed:', {
+                                  postId: post._id,
+                                  url: validImageUrl.substring(0, 80),
+                                  error: error?.nativeEvent?.error?.message || 'Unknown'
+                                });
+                              }
+                              logger.warn('Image failed to load:', {
+                                postId: post._id,
+                                imageUrl: validImageUrl.substring(0, 100),
+                                error: error?.nativeEvent?.error?.message || 'Unknown error'
+                              });
+                            }}
+                          />
+                        ) : (
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
@@ -1100,7 +1168,7 @@ export default function ProfileScreen() {
                         key={s._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
-                        onPress={() => router.push(`/post/${s._id}`)}
+                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}`)}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
