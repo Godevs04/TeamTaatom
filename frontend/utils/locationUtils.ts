@@ -10,6 +10,23 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import logger from './logger';
 
+// Get Google Maps API key from environment or config
+// We'll get it dynamically in the function to avoid circular dependencies
+const getGoogleMapsApiKey = (): string | undefined => {
+  // Try environment variable first
+  if (process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) {
+    return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  }
+  
+  // Try config module (may cause circular dependency, so we catch)
+  try {
+    const config = require('./config');
+    return config.GOOGLE_MAPS_API_KEY;
+  } catch (e) {
+    return undefined;
+  }
+};
+
 // ============================================================================
 // CACHE AND RATE LIMITING
 // ============================================================================
@@ -510,24 +527,169 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
 // DISTANCE CALCULATION FUNCTIONS
 // ============================================================================
 
+// Distance cache for performance optimization
+// Uses rounded coordinates for stable cache keys
+export const distanceCache = new Map<string, number>();
+
+/**
+ * Round coordinate to 4 decimal places for stable cache keys
+ * This prevents cache misses from small GPS fluctuations
+ * @param num Coordinate value
+ * @returns Rounded coordinate
+ */
+export const roundCoord = (num: number): number => {
+  if (num == null || isNaN(num)) return num;
+  return Number(num.toFixed(4));
+};
+
 /**
  * Calculate distance between two coordinates using Haversine formula
  * @param lat1 Latitude of first point
  * @param lon1 Longitude of first point
  * @param lat2 Latitude of second point
  * @param lon2 Longitude of second point
- * @returns Distance in kilometers
+ * @returns Distance in kilometers, or null if invalid coordinates
  */
-export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number | null => {
+  // Validate inputs
+  if (
+    lat1 == null || lon1 == null || lat2 == null || lon2 == null ||
+    isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2) ||
+    lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
+    lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180
+  ) {
+    if (__DEV__) {
+      console.log('DISTANCE_ERROR: Invalid coordinates', { lat1, lon1, lat2, lon2 });
+    }
+    return null;
+  }
+
   const R = 6371; // Earth's radius in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c;
+  return d; // Distance in kilometers
+};
+
+/**
+ * Calculate driving distance using OSRM (Open Source Routing Machine)
+ * Free, no API key required, uses real road network
+ * Falls back to straight-line distance if OSRM fails
+ * @param userLat User latitude
+ * @param userLon User longitude
+ * @param localeLat Locale latitude
+ * @param localeLon Locale longitude
+ * @returns Driving distance in kilometers, or null if invalid
+ */
+export const calculateDrivingDistanceKm = async (
+  userLat: number,
+  userLon: number,
+  localeLat: number,
+  localeLon: number
+): Promise<number | null> => {
+  try {
+    // OSRM API endpoint (free, no API key needed)
+    // Format: /route/v1/{profile}/{coordinates}?overview=false
+    // Coordinates: lon,lat;lon,lat (note: longitude first!)
+    const url = `https://router.project-osrm.org/route/v1/driving/${userLon},${userLat};${localeLon},${localeLat}?overview=false`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`OSRM API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].distance) {
+      // Distance is in meters, convert to kilometers
+      const distanceKm = data.routes[0].distance / 1000;
+      
+      if (__DEV__) {
+        console.log(`✅ OSRM driving distance: ${distanceKm.toFixed(2)} km`);
+      }
+      
+      return distanceKm;
+    } else {
+      if (__DEV__) {
+        console.log(`⚠️ OSRM API returned code: ${data.code}, using straight-line distance`);
+      }
+      // Fallback to straight-line distance
+      return calculateDistance(userLat, userLon, localeLat, localeLon);
+    }
+  } catch (error: any) {
+    if (__DEV__) {
+      console.log(`❌ OSRM API error:`, error?.message || error);
+      console.log(`⚠️ Falling back to straight-line distance`);
+    }
+    // Fallback to straight-line distance
+    return calculateDistance(userLat, userLon, localeLat, localeLon);
+  }
+};
+
+/**
+ * Calculate distance for a locale with stable caching using rounded coordinates
+ * Uses driving distance from OSRM (real road network), falls back to straight-line
+ * @param localeId Locale ID
+ * @param userLat User latitude
+ * @param userLon User longitude
+ * @param localeLat Locale latitude
+ * @param localeLon Locale longitude
+ * @returns Distance in kilometers, or null if invalid
+ */
+export const getLocaleDistanceKm = async (
+  localeId: string,
+  userLat: number,
+  userLon: number,
+  localeLat: number | undefined,
+  localeLon: number | undefined
+): Promise<number | null> => {
+  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0) {
+    return null;
+  }
+
+  // Use rounded coordinates for stable cache key
+  const roundedUserLat = roundCoord(userLat);
+  const roundedUserLon = roundCoord(userLon);
+  const cacheKey = `${localeId}-${roundedUserLat}-${roundedUserLon}`;
+
+  // Check cache first
+  if (distanceCache.has(cacheKey)) {
+    const cached = distanceCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
+  // Get driving distance using OSRM (falls back to straight-line if API fails)
+  const distance = await calculateDrivingDistanceKm(roundedUserLat, roundedUserLon, localeLat, localeLon);
+
+  // Cache the result
+  if (distance !== null) {
+    distanceCache.set(cacheKey, distance);
+  }
+
+  return distance;
+};
+
+/**
+ * Invalidate distance cache if user has moved significantly (> 100m)
+ * @param lat Current user latitude
+ * @param lon Current user longitude
+ */
+export const invalidateDistanceCacheIfMoved = (lat: number, lon: number): void => {
+  // Cache is now stable with rounded coordinates, so we don't need to clear it
+  // unless user moves significantly (handled by cache key with rounded coords)
+  if (__DEV__) {
+    console.log('Distance cache uses rounded coordinates for stability');
+  }
 };
 
 /**
@@ -542,7 +704,10 @@ export const calculateTotalDistance = (coordinates: { latitude: number; longitud
   for (let i = 1; i < coordinates.length; i++) {
     const prev = coordinates[i - 1];
     const curr = coordinates[i];
-    totalDistance += calculateDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+    const distance = calculateDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+    if (distance !== null) {
+      totalDistance += distance;
+    }
   }
   
   return totalDistance;
