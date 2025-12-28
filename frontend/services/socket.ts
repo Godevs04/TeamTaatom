@@ -181,7 +181,7 @@ const connectSocket = async () => {
   socket = io(fullUrl, {
     path: WS_PATH,
     transports: ['websocket', 'polling'], // Add polling as fallback for web
-    autoConnect: false,
+    autoConnect: true, // CRITICAL: Enable auto-connect for stable connection
     auth: { token },
     query: { auth: token },
     reconnection: true,
@@ -194,6 +194,12 @@ const connectSocket = async () => {
       ? { Authorization: `Bearer ${token}` } 
       : { Authorization: `Bearer ${token}` },
   });
+  
+  // CRITICAL: Ensure transports are set correctly for stable connection
+  if (socket && socket.io) {
+    socket.io.opts.transports = ['websocket', 'polling'];
+    socket.io.opts.autoConnect = true;
+  }
   
   // Store the URL we're connecting to
   lastConnectedUrl = fullUrl;
@@ -211,6 +217,10 @@ const connectSocket = async () => {
     // CRITICAL: Join user room immediately after connection
     // Backend emits messages to 'user:${userId}' rooms, so we must join it
     try {
+      if (!socket) {
+        logger.warn('[Socket] Socket is null, cannot join user room');
+        return;
+      }
       const userData = await AsyncStorage.getItem('userData');
       if (userData) {
         const user = JSON.parse(userData);
@@ -315,7 +325,7 @@ const connectSocket = async () => {
   
   // Forward all events to listeners
   socket.onAny((event, ...args) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' && __DEV__) {
       logger.debug(`[Socket] Event received: ${event}`, { 
         hasListeners: !!listeners[event],
         listenerCount: listeners[event]?.size || 0,
@@ -332,7 +342,7 @@ const connectSocket = async () => {
         }
       });
     } else {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV === 'development' && __DEV__) {
         logger.debug(`[Socket] No listeners registered for event: ${event}`);
       }
     }
