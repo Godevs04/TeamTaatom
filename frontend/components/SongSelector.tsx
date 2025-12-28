@@ -226,11 +226,26 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const stopAudio = async () => {
     if (soundRef.current) {
       try {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
+        // Check if sound is still valid before attempting to stop/unload
+        const status = await soundRef.current.getStatusAsync();
+        if (status.isLoaded) {
+          // Only stop if sound is currently playing
+          if (status.isPlaying) {
+            await soundRef.current.stopAsync();
+          }
+          // Unload the sound to release resources
+          if (typeof soundRef.current.unloadAsync === 'function') {
+            await soundRef.current.unloadAsync();
+          }
+        }
         soundRef.current = null;
       } catch (error) {
-        logger.error('Error stopping audio:', error);
+        // Silently handle errors - sound may already be unloaded or in invalid state
+        if (__DEV__) {
+          logger.debug('Error stopping audio (expected if already unloaded):', error);
+        }
+        // Clear the ref even if there was an error
+        soundRef.current = null;
       }
     }
     setIsPlaying(false);

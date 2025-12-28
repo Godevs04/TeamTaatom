@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../../../../services/api';
-import { calculateDistance, geocodeAddress } from '../../../../../utils/locationUtils';
+import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale } from '../../../../../services/locale';
@@ -190,7 +190,10 @@ export default function LocationDetailScreen() {
       }
       
       // Distance Calculation Guards: Check cache first (per session)
-      const cacheKey = `${targetLat},${targetLng}`;
+      // Use rounded coordinates for stable cache key (same as locale list page)
+      const roundedTargetLat = roundCoord(targetLat);
+      const roundedTargetLng = roundCoord(targetLng);
+      const cacheKey = `${roundedTargetLat},${roundedTargetLng}`;
       if (distanceCacheRef.current.has(cacheKey)) {
         const cachedDistance = distanceCacheRef.current.get(cacheKey);
         if (cachedDistance !== undefined && isMountedRef.current) {
@@ -256,15 +259,20 @@ export default function LocationDetailScreen() {
           return;
         }
         
-        const calculatedDistance = calculateDistance(
-          currentLat,
-          currentLng,
-          targetLat,
-          targetLng
+        // Use OSRM for driving distance (same as locale list page)
+        // Round coordinates for stable cache key (already rounded above for cache key)
+        const roundedCurrentLat = roundCoord(currentLat);
+        const roundedCurrentLng = roundCoord(currentLng);
+        
+        const calculatedDistance = await calculateDrivingDistanceKm(
+          roundedCurrentLat,
+          roundedCurrentLng,
+          roundedTargetLat,
+          roundedTargetLng
         );
         
         // Distance Calculation Guards: Validate calculated distance
-        if (isNaN(calculatedDistance) || calculatedDistance < 0) {
+        if (!calculatedDistance || isNaN(calculatedDistance) || calculatedDistance < 0) {
           logger.warn('Invalid calculated distance:', calculatedDistance);
           if (isMountedRef.current) {
             setDistance(null);
@@ -275,7 +283,7 @@ export default function LocationDetailScreen() {
         // Cache the calculated distance
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
         
-        logger.debug('Distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
+        logger.debug('Driving distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {
           setDistance(calculatedDistance);
         }
@@ -875,7 +883,11 @@ export default function LocationDetailScreen() {
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 </View>
                 <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
-                  {distance ? `${Math.round(distance)} km` : 'Calculating...'}
+                  {distance !== null && distance !== undefined
+                    ? distance < 1
+                      ? `${Math.round(distance * 1000)} m`
+                      : `${distance.toFixed(1)} km`
+                    : 'Calculating...'}
                 </Text>
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>from your location</Text>
               </View>

@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 5.0.0"
+    "version": ">= 5.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -41,17 +42,6 @@
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
-      },
-      "hooks": {
-        "postPublish": [
-          {
-            "file": "scripts/upload-sourcemaps.sh",
-            "config": {
-              "sentryOrg": "@teamgodevs",
-              "sentryProject": "taatom"
-            }
-          }
-        ]
       }
     }
   },
