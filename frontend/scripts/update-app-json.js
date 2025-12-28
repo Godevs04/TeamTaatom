@@ -145,6 +145,42 @@ if (appJson.expo.ios?.infoPlist) {
   }
 }
 
+// Handle google-services.json from EAS environment variable
+const googleServicesJson = process.env.GOOGLE_SERVICES_JSON;
+if (googleServicesJson) {
+  try {
+    // Validate JSON
+    const parsed = JSON.parse(googleServicesJson);
+    const googleServicesPath = path.join(__dirname, '../google-services.json');
+    fs.writeFileSync(googleServicesPath, JSON.stringify(parsed, null, 2));
+    console.log('✅ Created google-services.json from EAS environment variable');
+    
+    // Set googleServicesFile in app.json if not already set
+    if (appJson.expo.android && !appJson.expo.android.googleServicesFile) {
+      appJson.expo.android.googleServicesFile = './google-services.json';
+    }
+  } catch (error) {
+    console.warn('⚠️  Warning: Failed to create google-services.json from GOOGLE_SERVICES_JSON:', error.message);
+    console.warn('   Make sure GOOGLE_SERVICES_JSON is valid JSON');
+  }
+} else {
+  // If no env var, check if file exists locally
+  const googleServicesPath = path.join(__dirname, '../google-services.json');
+  if (fs.existsSync(googleServicesPath)) {
+    // File exists locally, ensure it's referenced
+    if (appJson.expo.android && !appJson.expo.android.googleServicesFile) {
+      appJson.expo.android.googleServicesFile = './google-services.json';
+    }
+  } else {
+    // No file and no env var - remove reference to avoid build errors
+    if (appJson.expo.android && appJson.expo.android.googleServicesFile) {
+      delete appJson.expo.android.googleServicesFile;
+      console.warn('⚠️  Warning: google-services.json not found and GOOGLE_SERVICES_JSON not set.');
+      console.warn('   Firebase features may not work. Set GOOGLE_SERVICES_JSON in EAS secrets for builds.');
+    }
+  }
+}
+
 // Write updated app.json
 fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2), 'utf8');
 console.log('✅ app.json updated with environment variables');

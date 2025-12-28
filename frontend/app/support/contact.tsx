@@ -77,10 +77,10 @@ export default function ContactSupport() {
         // Web: Use navigator.clipboard API
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(supportEmail);
-          Alert.alert('Email Copied', `Support email (${supportEmail}) has been copied to your clipboard.`);
+          Alert.alert('Email Copied', `Contact email (${supportEmail}) has been copied to your clipboard.`);
         } else {
           // Fallback for older browsers
-          Alert.alert('Support Email', `Please send an email to: ${supportEmail}`);
+          Alert.alert('Contact Email', `Please send an email to: ${supportEmail}`);
         }
       } else {
         // Mobile: Try to use expo-clipboard if available, otherwise show alert

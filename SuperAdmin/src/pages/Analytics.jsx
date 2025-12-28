@@ -205,84 +205,104 @@ const Analytics = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Users className="w-6 h-6 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Daily Active Users</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {summary?.dau || 0}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Monthly: {summary?.mau || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* KPI Cards - Memoized to prevent blinking */}
+      {useMemo(() => {
+        const dau = Number(summary?.dau) || 0
+        const mau = Number(summary?.mau) || 0
+        const postViews = Number(summary?.postViews) || 0
+        const totalEvents = Number(summary?.totalEvents) || 0
+        const engagementRate = Number(summary?.engagementRate) || 0
+        const totalPosts = Number(summary?.totalPosts) || 0
+        const crashCount = Number(summary?.crashCount) || 0
         
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Eye className="w-6 h-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Post Views</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {summary?.postViews?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Total Events: {summary?.totalEvents?.toLocaleString() || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-purple-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {summary?.engagementRate?.toFixed(1) || 0}%
-                </p>
-                <p className="text-xs text-gray-500">
-                  Total Posts: {summary?.totalPosts?.toLocaleString() || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Crashes</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {summary?.crashCount || 0}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Unresolved errors
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
+            <Card>
+              <CardContent className="p-4 sm:p-5 md:p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Users className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Daily Active Users</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {dau}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Monthly: {mau}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4 sm:p-5 md:p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Eye className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Post Views</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {postViews.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Total Events: {totalEvents.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4 sm:p-5 md:p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <TrendingUp className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Engagement Rate</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {engagementRate.toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Total Posts: {totalPosts.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4 sm:p-5 md:p-6">
+                <div className="flex items-center">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">Crashes</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {crashCount}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Unresolved errors
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      }, [
+        summary?.dau,
+        summary?.mau,
+        summary?.postViews,
+        summary?.totalEvents,
+        summary?.engagementRate,
+        summary?.totalPosts,
+        summary?.crashCount
+      ])}
 
       {/* Engagement Metrics */}
       {engagementMetrics && (
@@ -294,7 +314,7 @@ const Analytics = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <div className="p-4 bg-blue-50 rounded-lg">
                 <p className="text-sm font-medium text-gray-600 mb-1">Total Users</p>
                 <p className="text-2xl font-bold text-gray-900">{engagementMetrics.metrics?.totalUsers?.toLocaleString() || 0}</p>
@@ -331,7 +351,7 @@ const Analytics = () => {
 
       {/* Filters */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-5 md:p-6">
           <div className="flex flex-col lg:flex-row lg:flex-wrap gap-4 items-start lg:items-center">
             <div className="flex items-center space-x-2">
               <Filter className="w-4 h-4 text-gray-500" />
@@ -365,7 +385,7 @@ const Analytics = () => {
 
       {/* Chart Controls */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-5 md:p-6">
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setSelectedChart('timeseries')}
@@ -464,7 +484,7 @@ const Analytics = () => {
           </Card>
 
           {/* Additional Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 md:gap-6">
             {/* Top Features */}
             {topFeatures.length > 0 && (
               <Card>

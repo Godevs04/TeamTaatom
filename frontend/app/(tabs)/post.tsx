@@ -1155,8 +1155,23 @@ export default function PostScreen() {
         return true; // Success
       }
       return false; // No location returned
-    } catch (error) {
-      logger.warn("Error getting location (non-critical)", error);
+    } catch (error: any) {
+      // Safely extract error message without causing Babel _construct issues
+      let errorMessage = 'Location error';
+      try {
+        if (error && typeof error === 'object') {
+          // Handle CodedError and other Expo errors safely
+          errorMessage = error.message || error.toString() || 'Location error';
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+      } catch (e) {
+        // If error extraction fails, use safe fallback
+        errorMessage = 'Location error';
+      }
+      
+      // Log as debug to avoid Babel serialization issues with CodedError
+      logger.debug("Error getting location (non-critical):", errorMessage);
       return false; // Failed
     }
   };

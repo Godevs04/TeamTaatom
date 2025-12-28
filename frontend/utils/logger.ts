@@ -7,6 +7,34 @@
 const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : process.env.NODE_ENV === 'development';
 const LOG_LEVEL = (process.env.EXPO_PUBLIC_LOG_LEVEL || (isDev ? 'debug' : 'info')) as 'debug' | 'info' | 'warn' | 'error';
 
+// Intercept console.warn to filter out empty warnings (prevents spam from React Native or libraries)
+if (typeof console !== 'undefined' && console.warn) {
+  const originalWarn = console.warn;
+  console.warn = (...args: any[]) => {
+    // Filter out empty warnings
+    const hasValidMessage = args.some(arg => {
+      if (typeof arg === 'string') {
+        return arg.trim().length > 0;
+      }
+      if (arg && typeof arg === 'object') {
+        // Check if it's our logger entry with a message
+        if (arg.message && typeof arg.message === 'string' && arg.message.trim().length > 0) {
+          return true;
+        }
+        // Check if object has any meaningful content
+        return Object.keys(arg).length > 0;
+      }
+      return arg !== undefined && arg !== null && arg !== '';
+    });
+    
+    // Only call original warn if there's a valid message
+    if (hasValidMessage) {
+      originalWarn.apply(console, args);
+    }
+    // Silently ignore empty warnings
+  };
+}
+
 // Log levels in order of severity
 const LOG_LEVELS = {
   debug: 0,
@@ -64,10 +92,15 @@ const sanitizeData = (data: any): any => {
  * Create structured log entry
  */
 const createLogEntry = (level: string, message: string, data: any = {}) => {
+  // Ensure message is never empty
+  const safeMessage = message && typeof message === 'string' && message.trim()
+    ? message
+    : `${level.toUpperCase()}: No message provided`;
+  
   return {
     timestamp: new Date().toISOString(),
     level: level.toUpperCase(),
-    message,
+    message: safeMessage,
     ...sanitizeData(data),
   };
 };
@@ -120,7 +153,7 @@ export const logger: Logger = {
     if (shouldLog('debug')) {
       const entry = createLogEntry('debug', message, data);
       if (isDev) {
-        console.log('[DEBUG]', entry);
+        logger.debug('[DEBUG]', entry);
       }
     }
   },
@@ -132,7 +165,7 @@ export const logger: Logger = {
     if (shouldLog('info')) {
       const entry = createLogEntry('info', message, data);
       if (isDev) {
-        console.info('[INFO]', entry);
+        logger.debug('[INFO]', entry);
       }
     }
   },
@@ -142,12 +175,22 @@ export const logger: Logger = {
    */
   warn: (message: string, data: any = {}) => {
     if (shouldLog('warn')) {
-      const entry = createLogEntry('warn', message, data);
+      // Ensure message is not empty or undefined
+      const safeMessage = message && typeof message === 'string' && message.trim() 
+        ? message 
+        : 'Warning (no message provided)';
+      
+      const entry = createLogEntry('warn', safeMessage, data);
       if (isDev) {
-        console.warn('[WARN]', entry);
+        // Only log if entry has a valid message (prevent empty warnings)
+        if (entry.message && entry.message.trim() && entry.message !== 'WARN: No message provided') {
+          console.warn('[WARN]', entry);
+        }
       } else {
         // Warnings should be tracked in production
-        trackError('warning', { message, ...data }, []);
+        if (safeMessage && safeMessage.trim() && safeMessage !== 'Warning (no message provided)') {
+          trackError('warning', { message: safeMessage, ...data }, []);
+        }
       }
     }
   },
@@ -175,7 +218,7 @@ export const logger: Logger = {
       });
 
       if (isDev) {
-        console.error(`[${context}]`, entry);
+        logger.error(`[${context}]`, entry);
       } else {
         // In production, only track - no console output
         trackError(context, error, args);
@@ -193,7 +236,7 @@ export const logger: Logger = {
       });
 
       if (isDev) {
-        console.error('[Error]', entry);
+        logger.error('[Error]', entry);
       } else {
         // In production, only track - no console output
         trackError('unknown', error, errorOrArgs !== undefined ? [errorOrArgs, ...args] : args);
@@ -239,10 +282,16 @@ export const createLogger = (context: string) => ({
   },
   warn: (messageOrData: string | any, data?: any) => {
     if (typeof messageOrData === 'string') {
-      logger.warn(`[${context}] ${messageOrData}`, data);
+      // Ensure message is not empty
+      const message = messageOrData.trim() || 'Warning';
+      logger.warn(`[${context}] ${message}`, data);
     } else {
       // Legacy: logger.warn(data)
-      logger.warn(`[${context}]`, messageOrData);
+      // If messageOrData is provided, include it in the data
+      const safeData = messageOrData !== undefined && messageOrData !== null 
+        ? messageOrData 
+        : {};
+      logger.warn(`[${context}] Warning`, safeData);
     }
   },
   error: (contextOrError: string | any, errorOrArgs?: any, ...args: any[]) => {
