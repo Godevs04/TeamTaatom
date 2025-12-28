@@ -36,6 +36,7 @@ import { createLogger } from '../../utils/logger';
 import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { theme } from '../../constants/theme';
+import { audioManager } from '../../utils/audioManager';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -436,82 +437,47 @@ export default function ShortsScreen() {
     return url;
   }, [videoQuality]);
   
+  // Track previous visible index to detect actual scroll changes
+  const previousVisibleIndexRef = useRef<number>(-1);
+  
   // Enhanced: Ensure video playback syncs with currentVisibleIndex changes
   // This effect guarantees previous video pauses and new video plays when scrolling
   // Runs after onViewableItemsChanged updates currentVisibleIndex
   useEffect(() => {
-    if (shorts.length === 0 || currentVisibleIndex < 0) return;
+    // Only run if the visible index actually changed (not just shorts array content)
+    if (previousVisibleIndexRef.current === currentVisibleIndex) {
+      return;
+    }
     
-    const currentShort = shorts[currentVisibleIndex];
-    if (!currentShort) return;
-    
-    const currentVideoId = currentShort._id;
-    
-    // Step 1: Pause ALL other videos first (not just previous)
-    // This ensures no video plays except the current one
-    Object.keys(videoRefs.current).forEach((videoId) => {
-      if (videoId !== currentVideoId) {
-        const video = videoRefs.current[videoId];
-        if (video) {
-          video.pauseAsync()
-            .then(() => {
-              setVideoStates(prev => ({ ...prev, [videoId]: false }));
-            })
-            .catch(() => {
-              // Silently handle errors, still update state
-              setVideoStates(prev => ({ ...prev, [videoId]: false }));
-            });
-        } else {
-          // Video ref not available, just update state
-          setVideoStates(prev => ({ ...prev, [videoId]: false }));
-        }
+    if (!shorts[currentVisibleIndex]) return;
+
+    // Update previous index
+    previousVisibleIndexRef.current = currentVisibleIndex;
+
+    // 🔥 Critical: Stop all previous Taatom library audio instantly on scroll
+    audioManager.stopAll().catch(() => {});
+
+    const currentShortId = shorts[currentVisibleIndex]._id.toString();
+    const currentVideo = videoRefs.current[currentShortId];
+
+    // Pause all other videos
+    Object.keys(videoRefs.current).forEach(id => {
+      if (id !== currentShortId) {
+        videoRefs.current[id]?.pauseAsync().catch(() => {});
+        setVideoStates(prev => ({ ...prev, [id]: false }));
       }
     });
-    
-    // Step 2: Play current video after a brief delay to ensure previous pause completes
-    const playCurrentVideo = () => {
-      const currentVideo = videoRefs.current[currentVideoId];
-      if (currentVideo) {
-        activeVideoIdRef.current = currentVideoId;
-        currentVideo.getStatusAsync()
-          .then((status) => {
-            if (status.isLoaded) {
-              if (!status.isPlaying) {
-                // Video is loaded but not playing - start it
-                currentVideo.playAsync()
-                  .then(() => {
-                    setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-                    logger.debug(`Playing video at index ${currentVisibleIndex}: ${currentVideoId}`);
-                  })
-                  .catch((error) => {
-                    logger.warn(`Error playing video ${currentVideoId}:`, error);
-                  });
-              } else {
-                // Already playing, just update state
-                setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-              }
-            } else {
-              // Video not loaded yet, will play via shouldPlay prop when it loads
-              setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-            }
-          })
-          .catch(() => {
-            // Video not ready, will play via shouldPlay prop
-            setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-          });
-      } else {
-        // Video ref not available yet, mark as active for when it mounts
-        activeVideoIdRef.current = currentVideoId;
-        setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-      }
-    };
-    
-    // Small delay to ensure previous video pause completes
-    const playTimeout = setTimeout(playCurrentVideo, 100);
-    
-    return () => {
-      clearTimeout(playTimeout);
-    };
+
+    // Play current video
+    if (currentVideo) {
+      activeVideoIdRef.current = currentShortId;
+      currentVideo.playAsync().catch(() => {});
+      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+    } else {
+      // Video ref not available yet, mark as active for when it mounts
+      activeVideoIdRef.current = currentShortId;
+      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+    }
   }, [currentVisibleIndex, shorts]);
 
   // Preload next video for smoother playback and track video views
@@ -644,21 +610,40 @@ export default function ShortsScreen() {
       const isCurrentlyPlaying = videoStates[videoId];
       const newPlayState = !isCurrentlyPlaying;
       
+      // Find the current short to check for music
+      const currentShort = shorts.find(s => s._id === videoId);
+      const hasMusic = !!(currentShort?.song?.songId?.s3Url);
+      
       // If starting playback, pause all other videos first
       if (newPlayState) {
         pauseAllVideosExcept(videoId);
         activeVideoIdRef.current = videoId;
+        // Update video state immediately for music sync
+        setVideoStates(prev => ({ ...prev, [videoId]: true }));
+        
+        // Set video audio based on music presence
+        if (hasMusic) {
+          // If music exists, mute video
+          video.setIsMutedAsync(true).catch(() => {});
+          video.setVolumeAsync(0.0).catch(() => {});
+        } else {
+          // If no music, unmute video
+          video.setIsMutedAsync(false).catch(() => {});
+          video.setVolumeAsync(1.0).catch(() => {});
+        }
       } else {
         if (activeVideoIdRef.current === videoId) {
           activeVideoIdRef.current = null;
         }
+        // Update video state immediately for music sync
+        setVideoStates(prev => ({ ...prev, [videoId]: false }));
       }
       
       video.setStatusAsync({
         shouldPlay: newPlayState,
-      });
+      }).catch(() => {});
     }
-  }, [videoStates, pauseAllVideosExcept]);
+  }, [videoStates, pauseAllVideosExcept, shorts]);
 
   const showPauseButtonTemporarily = (videoId: string) => {
     setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
