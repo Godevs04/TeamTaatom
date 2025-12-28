@@ -111,13 +111,32 @@ function setupSocket(server) {
         chat.messages.push(message);
         await chat.save();
         
+        // CRITICAL: Get the saved message with _id from the database
+        const savedChat = await Chat.findById(chat._id);
+        const savedMessage = savedChat.messages[savedChat.messages.length - 1];
+        
+        // Ensure message has _id
+        if (!savedMessage || !savedMessage._id) {
+          logger.warn('Message _id not found after save in socket handler');
+          return;
+        }
+        
+        // Prepare message with all required fields
+        const messageToEmit = {
+          _id: savedMessage._id.toString(),
+          sender: savedMessage.sender.toString(),
+          text: savedMessage.text,
+          timestamp: savedMessage.timestamp,
+          seen: savedMessage.seen || false
+        };
+        
         // Emit to recipient (all devices)
-        emitToUser(to, 'message:new', { chatId: chat._id, message });
+        emitToUser(to, 'message:new', { chatId: chat._id.toString(), message: messageToEmit });
         // Emit ack to sender (all devices)
-        emitToUser(socket.userId, 'message:sent', { chatId: chat._id, message });
+        emitToUser(socket.userId, 'message:sent', { chatId: chat._id.toString(), message: messageToEmit });
         // Emit chat list update to both
-        emitToUser(to, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
-        emitToUser(socket.userId, 'chat:update', { chatId: chat._id, lastMessage: message.text, timestamp: message.timestamp });
+        emitToUser(to, 'chat:update', { chatId: chat._id.toString(), lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+        emitToUser(socket.userId, 'chat:update', { chatId: chat._id.toString(), lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
         
         // For admin_support conversations, also emit to admin room
         if (chat.type === 'admin_support') {
