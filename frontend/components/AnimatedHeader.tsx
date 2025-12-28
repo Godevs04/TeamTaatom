@@ -170,9 +170,16 @@ export default function AnimatedHeader({
               <View style={styles.chatIconContainer}>
                 <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.text} />
                 {unseenMessageCount > 0 && (
-                  <View style={styles.badge}>
+                  <View style={[
+                    styles.badge,
+                    unseenMessageCount > 9 && styles.badgeDoubleDigit,
+                    unseenMessageCount > 9 && { 
+                      minWidth: Math.max(36, String(unseenMessageCount).length * 10 + 12),
+                      right: -12
+                    }
+                  ]}>
                     <Text style={styles.badgeText}>
-                      {unseenMessageCount > 99 ? '99+' : unseenMessageCount}
+                      {unseenMessageCount > 99 ? '99+' : String(unseenMessageCount)}
                     </Text>
                   </View>
                 )}
@@ -242,8 +249,8 @@ const getStyles = (theme: any) => StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    top: -6,
+    right: -10,
     backgroundColor: '#0A84FF',
     borderRadius: 10,
     minWidth: 20,
@@ -253,11 +260,19 @@ const getStyles = (theme: any) => StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: theme.colors.surface || theme.colors.background,
+    zIndex: 10,
+  },
+  badgeDoubleDigit: {
+    minWidth: 36,
+    paddingHorizontal: 8,
+    right: -12,
   },
   badgeText: {
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
 });

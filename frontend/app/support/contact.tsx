@@ -50,7 +50,7 @@ export default function ContactSupport() {
   };
 
   const handleSendEmail = async () => {
-    const supportEmail = 'support@taatom.com';
+    const supportEmail = 'contact@taatom.com';
     const encodedSubject = encodeURIComponent(subject || 'Taatom Support Request');
     const encodedBody = encodeURIComponent(message || '');
     const mailtoUrl = `mailto:${supportEmail}?subject=${encodedSubject}&body=${encodedBody}`;
@@ -71,16 +71,16 @@ export default function ContactSupport() {
   };
 
   const handleCopyEmail = async () => {
-    const supportEmail = 'support@taatom.com';
+    const supportEmail = 'contact@taatom.com';
     try {
       if (Platform.OS === 'web') {
         // Web: Use navigator.clipboard API
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(supportEmail);
-          Alert.alert('Email Copied', `Support email (${supportEmail}) has been copied to your clipboard.`);
+          Alert.alert('Email Copied', `Contact email (${supportEmail}) has been copied to your clipboard.`);
         } else {
           // Fallback for older browsers
-          Alert.alert('Support Email', `Please send an email to: ${supportEmail}`);
+          Alert.alert('Contact Email', `Please send an email to: ${supportEmail}`);
         }
       } else {
         // Mobile: Try to use expo-clipboard if available, otherwise show alert

@@ -18,4 +18,8 @@ de/rules/byterover-rules.md
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
-!.vscode/launch.json                
+!.vscode/launch.json
+
+# Exclude superAdmin from git to fix EAS build casing issues
+# superAdmin/
+# superAdmin/**                

@@ -167,3 +167,27 @@ export const getApiUrl = (endpoint: string): string => {
   return `${baseUrl}${path}`;
 };
 
+// Privacy Policy URL - for App Store submission and web links
+export const PRIVACY_POLICY_URL =
+  process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL ||
+  Constants.expoConfig?.extra?.PRIVACY_POLICY_URL ||
+  (WEB_SHARE_URL && !WEB_SHARE_URL.includes('localhost') && !WEB_SHARE_URL.includes('192.168.')
+    ? `${WEB_SHARE_URL}/policies/privacy`
+    : '');
+
+// Terms of Service URL
+export const TERMS_OF_SERVICE_URL =
+  process.env.EXPO_PUBLIC_TERMS_OF_SERVICE_URL ||
+  Constants.expoConfig?.extra?.TERMS_OF_SERVICE_URL ||
+  (WEB_SHARE_URL && !WEB_SHARE_URL.includes('localhost') && !WEB_SHARE_URL.includes('192.168.')
+    ? `${WEB_SHARE_URL}/policies/terms`
+    : '');
+
+// Support URL
+export const SUPPORT_URL =
+  process.env.EXPO_PUBLIC_SUPPORT_URL ||
+  Constants.expoConfig?.extra?.SUPPORT_URL ||
+  (WEB_SHARE_URL && !WEB_SHARE_URL.includes('localhost') && !WEB_SHARE_URL.includes('192.168.')
+    ? `${WEB_SHARE_URL}/support/contact`
+    : '');
+

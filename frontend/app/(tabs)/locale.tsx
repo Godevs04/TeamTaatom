@@ -23,7 +23,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { geocodeAddress, calculateDistance } from '../../utils/locationUtils';
+import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
@@ -33,6 +33,8 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { savedEvents } from '../../utils/savedEvents';
 import { theme } from '../../constants/theme';
+import axios from 'axios';
+import { GOOGLE_MAPS_API_KEY } from '../../utils/config';
 
 const logger = createLogger('LocaleScreen');
 
@@ -52,6 +54,292 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
     return 'System';
   }
   return 'Roboto';
+};
+
+// Google Places API function to fetch exact tourist spot coordinates
+// This uses Places API to find the most popular tourist attraction in the city
+// This ensures we use exact tourist spot coordinates, not city center coordinates
+// Uses caching to avoid repeated API calls for the same place
+const fetchRealCoords = async (
+  place: string, 
+  countryCode?: string,
+  cache?: Map<string, { lat: number; lon: number }>,
+  description?: string
+): Promise<{ lat: number; lon: number } | null> => {
+  try {
+    if (!GOOGLE_MAPS_API_KEY) {
+      if (__DEV__) {
+        console.log('GEOCODE_FETCH_ERROR: Google Maps API key not configured');
+      }
+      return null;
+    }
+
+    // Build cache key
+    const cacheKey = `${place}-${countryCode || ''}-${description || ''}`.toLowerCase().trim();
+    
+    // Check cache first
+    if (cache && cache.has(cacheKey)) {
+      const cached = cache.get(cacheKey);
+      if (cached) {
+        if (__DEV__) {
+          console.log(`✅ Using cached coordinates for ${place}:`, cached);
+        }
+        return cached;
+      }
+    }
+    
+    // Strategy 1: Try Google Places API to find tourist attractions
+    // This finds the most popular tourist spot in the city, not the city center
+    // Try multiple search strategies for better results
+    const searchStrategies = [
+      // Strategy 1a: Use description if available
+      description && description.length > 0 
+        ? `${description.split(' ').slice(0, 5).join(' ')}, ${place}`
+        : null,
+      // Strategy 1b: Known landmark mappings for popular places
+      place.toLowerCase() === 'mysure' || place.toLowerCase() === 'mysuru' 
+        ? 'Mysore Palace, Mysuru'
+        : place.toLowerCase() === 'ooty' || place.toLowerCase() === 'udagamandalam'
+        ? 'Ooty Botanical Gardens, Ooty'
+        : place.toLowerCase() === 'munnar'
+        ? 'Munnar Tea Gardens, Munnar'
+        : place.toLowerCase() === 'tajmahal' || place.toLowerCase() === 'taj mahal'
+        ? 'Taj Mahal, Agra'
+        : null,
+      // Strategy 1c: Tourist attraction + place name
+      `tourist attraction ${place}`,
+      // Strategy 1d: Popular places in [place]
+      `popular places ${place}`,
+      // Strategy 1e: Just the place name (Places API will find most popular attraction)
+      place,
+    ].filter(Boolean) as string[];
+
+    for (const searchQuery of searchStrategies) {
+      try {
+        const queryWithCountry = countryCode ? `${searchQuery}, ${countryCode}` : searchQuery;
+        
+        if (__DEV__) {
+          console.log(`🔍 Trying Places API search for ${place}:`, queryWithCountry);
+        }
+
+        // Use Places API Text Search to find tourist attractions
+        const placesRes = await axios.get('https://maps.googleapis.com/maps/api/place/textsearch/json', {
+          params: {
+            query: queryWithCountry,
+            key: GOOGLE_MAPS_API_KEY,
+            // Don't restrict to tourist_attraction type - let it find any relevant place
+          },
+          timeout: 5000,
+        });
+
+        if (__DEV__) {
+          console.log(`📡 Places API response for ${place}:`, {
+            status: placesRes.data.status,
+            resultsCount: placesRes.data.results?.length || 0,
+            errorMessage: placesRes.data.error_message,
+          });
+        }
+
+        if (placesRes.data.status === 'OK' && placesRes.data.results && placesRes.data.results.length > 0) {
+          // Get the first result (most relevant)
+          const placeResult = placesRes.data.results[0];
+          const loc = placeResult.geometry?.location;
+          
+          if (loc && loc.lat && loc.lng) {
+            const coords = { lat: loc.lat, lon: loc.lng };
+            if (__DEV__) {
+              console.log(`✅ Found place for ${place} via Places API:`, {
+                name: placeResult.name,
+                coords,
+                query: queryWithCountry,
+              });
+            }
+            // Cache the result
+            if (cache) {
+              cache.set(cacheKey, coords);
+            }
+            return coords;
+          }
+        } else if (placesRes.data.status === 'REQUEST_DENIED') {
+          if (__DEV__) {
+            console.log(`❌ Places API denied for ${place}. Error:`, placesRes.data.error_message);
+            console.log(`💡 Make sure Places API is enabled in Google Cloud Console for this API key`);
+          }
+          // Don't try other strategies if API is denied
+          break;
+        } else if (placesRes.data.status === 'ZERO_RESULTS') {
+          if (__DEV__) {
+            console.log(`⚠️ No results for ${place} with query: ${queryWithCountry}`);
+          }
+          // Try next strategy
+          continue;
+        } else {
+          if (__DEV__) {
+            console.log(`⚠️ Places API returned status: ${placesRes.data.status} for ${place}`);
+          }
+          // Try next strategy
+          continue;
+        }
+      } catch (placesError: any) {
+        if (__DEV__) {
+          console.log(`❌ Places API error for ${place} (query: ${searchQuery}):`, {
+            message: placesError?.message,
+            response: placesError?.response?.data,
+          });
+        }
+        // Try next strategy
+        continue;
+      }
+    }
+
+    // Strategy 2: Fallback to Geocoding API with specific landmark addresses
+    // Use landmark addresses for better accuracy than city center
+    // All coordinates are fetched dynamically from geocoding API - no hardcoded values
+    const landmarkAddresses: { [key: string]: string } = {
+      'mysure': 'Mysore Palace, Sayyaji Rao Rd, Agrahara, Chamrajpura, Mysuru, Karnataka 570001, India',
+      'mysuru': 'Mysore Palace, Sayyaji Rao Rd, Agrahara, Chamrajpura, Mysuru, Karnataka 570001, India',
+      'ooty': 'Government Botanical Gardens, Ooty, Tamil Nadu 643001, India',
+      'udagamandalam': 'Government Botanical Gardens, Ooty, Tamil Nadu 643001, India',
+      'munnar': 'Tea Museum, Munnar, Kerala 685612, India',
+      'tajmahal': 'Taj Mahal, Dharmapuri, Forest Colony, Tajganj, Agra, Uttar Pradesh 282001, India',
+      'taj mahal': 'Taj Mahal, Dharmapuri, Forest Colony, Tajganj, Agra, Uttar Pradesh 282001, India',
+      'lakshadweep': 'Kavaratti, Lakshadweep, India',
+    };
+
+    const geocodeStrategies = [
+      // Try landmark address first if available (most specific)
+      landmarkAddresses[place.toLowerCase()],
+      // Try with description if available
+      description && description.length > 0 
+        ? `${description.split(' ').slice(0, 3).join(' ')}, ${place}${countryCode ? `, ${countryCode}` : ''}`
+        : null,
+      // Fallback to place name with country
+      countryCode ? `${place}, ${countryCode}` : place,
+    ].filter(Boolean) as string[];
+
+    for (const address of geocodeStrategies) {
+      try {
+        if (__DEV__) {
+          console.log(`🔍 Trying geocoding for ${place}:`, address);
+        }
+
+        const geocodeRes = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
+          params: {
+            address: address,
+            key: GOOGLE_MAPS_API_KEY,
+          },
+          timeout: 5000,
+        });
+
+        if (__DEV__) {
+          console.log(`📡 Geocoding response for ${place}:`, {
+            status: geocodeRes.data.status,
+            resultsCount: geocodeRes.data.results?.length || 0,
+            formattedAddress: geocodeRes.data.results?.[0]?.formatted_address,
+          });
+        }
+
+        if (geocodeRes.data.status === 'OK' && geocodeRes.data.results && geocodeRes.data.results.length > 0) {
+          // Find the most precise result
+          // Priority: ROOFTOP > RANGE_INTERPOLATED > GEOMETRIC_CENTER > APPROXIMATE
+          const locationTypePriority: { [key: string]: number } = {
+            'ROOFTOP': 4,
+            'RANGE_INTERPOLATED': 3,
+            'GEOMETRIC_CENTER': 2,
+            'APPROXIMATE': 1,
+          };
+
+          // Sort results by precision (most precise first)
+          const sortedResults = geocodeRes.data.results
+            .map((result: any) => ({
+              result,
+              priority: locationTypePriority[result.geometry?.location_type || 'APPROXIMATE'] || 0,
+              isPartialMatch: result.partial_match === true,
+            }))
+            .sort((a: { priority: number; isPartialMatch: boolean }, b: { priority: number; isPartialMatch: boolean }) => {
+              // First sort by priority (higher is better)
+              if (b.priority !== a.priority) {
+                return b.priority - a.priority;
+              }
+              // Then prefer non-partial matches
+              if (a.isPartialMatch !== b.isPartialMatch) {
+                return a.isPartialMatch ? 1 : -1;
+              }
+              return 0;
+            });
+
+          // Get the best result
+          const bestResult = sortedResults[0]?.result;
+          if (bestResult) {
+            const loc = bestResult.geometry?.location;
+            if (loc && loc.lat && loc.lng) {
+              const locationType = bestResult.geometry?.location_type || 'UNKNOWN';
+              const isPartialMatch = bestResult.partial_match === true;
+              const precision = locationTypePriority[locationType] || 0;
+              
+              // Always use geocoded coordinates - no hardcoded values
+              // GEOMETRIC_CENTER for landmarks is the center of the building/area, which is fine for distance calculation
+              // ROOFTOP and RANGE_INTERPOLATED are high precision
+              // Even APPROXIMATE is better than hardcoded values as it's dynamically fetched
+              const coords = { lat: loc.lat, lon: loc.lng };
+              const formattedAddress = bestResult.formatted_address || address;
+              
+              if (__DEV__) {
+                const isLandmark = landmarkAddresses[place.toLowerCase()] === address;
+                const precisionLabel = precision >= 4 ? 'HIGH (ROOFTOP)' : 
+                                      precision >= 3 ? 'HIGH (RANGE_INTERPOLATED)' :
+                                      precision >= 2 ? 'MEDIUM (GEOMETRIC_CENTER)' : 'LOW (APPROXIMATE)';
+                console.log(`${isLandmark && precision >= 2 ? '✅' : '⚠️'} Using geocoded coordinates for ${place}:`, {
+                  address: formattedAddress,
+                  coords,
+                  locationType,
+                  isPartialMatch,
+                  precision: precisionLabel,
+                  isLandmark,
+                });
+              }
+              
+              // Cache the result
+              if (cache) {
+                cache.set(cacheKey, coords);
+              }
+              return coords;
+            }
+          }
+        } else if (geocodeRes.data.status === 'ZERO_RESULTS') {
+          if (__DEV__) {
+            console.log(`⚠️ No geocoding results for ${place} with address: ${address}`);
+          }
+          // Try next strategy
+          continue;
+        } else {
+          if (__DEV__) {
+            console.log(`⚠️ Geocoding returned status: ${geocodeRes.data.status} for ${place}`);
+          }
+          // Try next strategy
+          continue;
+        }
+      } catch (geocodeError: any) {
+        if (__DEV__) {
+          console.log(`❌ Geocoding error for ${place} (address: ${address}):`, {
+            message: geocodeError?.message,
+            response: geocodeError?.response?.data,
+          });
+        }
+        // Try next strategy
+        continue;
+      }
+    }
+
+    // No hardcoded fallback - return null if all geocoding strategies fail
+    // This ensures all coordinates are fetched dynamically from geocoding API
+    return null;
+  } catch (e: any) {
+    if (__DEV__) {
+      console.log('GEOCODE_FETCH_ERROR:', e?.message || e);
+    }
+    return null;
+  }
 };
 
 interface LocationData {
@@ -165,6 +453,9 @@ export default function LocaleScreen() {
   
   // Geocoding cache: Store geocoded coordinates for locales
   const geocodedCoordsCacheRef = useRef<Map<string, { latitude: number; longitude: number }>>(new Map());
+  
+  // Google Geocoding cache: Store real coordinates from Google Geocoding API
+  const googleGeocodeCacheRef = useRef<Map<string, { lat: number; lon: number }>>(new Map());
   const geocodingInProgressRef = useRef<Set<string>>(new Set());
   
   // User's current location for distance calculation
@@ -196,17 +487,39 @@ export default function LocaleScreen() {
       return;
     }
 
+    // Early return if component is unmounted
+    if (!isMountedRef.current) {
+      return;
+    }
+
     try {
       // Check if location services are available
-      const isLocationEnabled = await Location.hasServicesEnabledAsync();
+      let isLocationEnabled = false;
+      try {
+        isLocationEnabled = await Location.hasServicesEnabledAsync();
+      } catch (serviceError) {
+        logger.debug('Error checking location services:', serviceError);
+        // Continue anyway - some Android devices might not support this check
+      }
+
       if (!isLocationEnabled) {
         logger.debug('Location services are disabled on device');
         setLocationPermissionGranted(false);
         return;
       }
 
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
+      // Request permissions with better error handling for Android
+      let permissionStatus = 'undetermined';
+      try {
+        const permissionResult = await Location.requestForegroundPermissionsAsync();
+        permissionStatus = permissionResult.status;
+      } catch (permissionError) {
+        logger.debug('Error requesting location permission:', permissionError);
+        setLocationPermissionGranted(false);
+        return;
+      }
+
+      if (permissionStatus !== 'granted') {
         logger.debug('Location permission denied, distance sorting will be unavailable');
         setLocationPermissionGranted(false);
         return;
@@ -214,25 +527,42 @@ export default function LocaleScreen() {
       
       setLocationPermissionGranted(true);
       
-      // Get location with timeout protection
+      // Get location with timeout protection and Android-specific handling
       let timeoutId: NodeJS.Timeout | null = null;
-      const locationPromise = Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error('Location request timeout after 10 seconds'));
-        }, 10000);
-      });
+      let locationPromise: Promise<Location.LocationObject> | null = null;
 
       try {
+        // Use lower accuracy on Android for better compatibility
+        const accuracy = isAndroid 
+          ? Location.Accuracy.Low 
+          : Location.Accuracy.Balanced;
+
+        locationPromise = Location.getCurrentPositionAsync({
+          accuracy,
+          // Android-specific options
+          ...(isAndroid && {
+            maximumAge: 60000, // Accept cached location up to 1 minute old
+            timeout: 15000, // 15 second timeout for Android
+          }),
+        });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error('Location request timeout after 15 seconds'));
+          }, 15000); // Increased timeout for Android
+        });
+
         const location = await Promise.race([locationPromise, timeoutPromise]);
         
         // Clear timeout if location was obtained
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
+        }
+
+        // Check if component is still mounted
+        if (!isMountedRef.current) {
+          return;
         }
 
         if (location && location.coords) {
@@ -254,40 +584,88 @@ export default function LocaleScreen() {
           ) {
             if (isMountedRef.current) {
               setUserLocation(coords);
+              // Invalidate distance cache if user moved significantly
+              invalidateDistanceCacheIfMoved(coords.latitude, coords.longitude);
               logger.debug('✅ User location obtained for distance sorting:', coords);
             }
           } else {
             logger.warn('Invalid coordinates received:', coords);
             setLocationPermissionGranted(false);
           }
+        } else {
+          logger.warn('Location object missing coordinates');
+          setLocationPermissionGranted(false);
         }
-      } catch (raceError) {
+      } catch (locationError: any) {
         // Clear timeout on error
         if (timeoutId) {
           clearTimeout(timeoutId);
+          timeoutId = null;
         }
-        throw raceError;
-      }
-    } catch (error) {
-      // Safely handle and log errors
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : typeof error === 'string' 
-        ? error 
-        : 'Unknown location error';
-      
-      const errorDetails = error instanceof Error
-        ? {
-            message: error.message,
-            name: error.name,
-            stack: error.stack?.substring(0, 200), // Limit stack trace length
-          }
-        : { error: String(error) };
 
-      logger.error('Error getting user location:', errorMessage, errorDetails);
+        // Check if component is still mounted before setting state
+        if (!isMountedRef.current) {
+          return;
+        }
+
+        // Safely extract error message without causing Babel _construct issues
+        let errorMessage = 'Unknown location error';
+        try {
+          if (locationError && typeof locationError === 'object') {
+            // Handle CodedError and other Expo errors safely
+            errorMessage = locationError.message || locationError.toString() || 'Location error';
+          } else if (typeof locationError === 'string') {
+            errorMessage = locationError;
+          }
+        } catch (e) {
+          // If error extraction fails, use safe fallback
+          errorMessage = 'Location request failed';
+        }
+
+        // Don't log timeout errors as errors - they're expected in some cases
+        if (errorMessage.includes('timeout') || errorMessage.includes('TIMEOUT')) {
+          logger.debug('Location request timed out (this is normal on some devices)');
+        } else if (errorMessage.includes('permission') || errorMessage.includes('denied') || errorMessage.includes('PERMISSION')) {
+          logger.debug('Location permission denied or unavailable');
+        } else {
+          // Only log non-critical errors as debug to avoid Babel issues
+          logger.debug('Location request failed:', errorMessage);
+        }
+        
+        setLocationPermissionGranted(false);
+      }
+    } catch (error: any) {
+      // Check if component is still mounted before setting state
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      // Safely handle and log errors without causing Babel _construct issues
+      let errorMessage = 'Unknown location error';
+      try {
+        if (error && typeof error === 'object') {
+          // Handle CodedError and other Expo errors safely - avoid accessing complex properties
+          errorMessage = error.message || error.toString() || 'Location error';
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+      } catch (e) {
+        // If error extraction fails, use safe fallback
+        errorMessage = 'Location error';
+      }
+
+      // Only log as debug to avoid Babel serialization issues with CodedError
+      // CodedError objects can cause _construct errors when logged
+      if (errorMessage.includes('permission') || errorMessage.includes('timeout') || errorMessage.includes('denied')) {
+        logger.debug('[LocaleScreen] Location unavailable:', errorMessage);
+      } else {
+        // Log as debug instead of error to avoid Babel issues
+        logger.debug('[LocaleScreen] Location request failed:', errorMessage);
+      }
+      
       setLocationPermissionGranted(false);
     }
-  }, []);
+  }, [isAndroid]);
   
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -395,43 +773,90 @@ export default function LocaleScreen() {
         // Pagination & Filter Race Safety: Deduplicate locales by unique ID
         const newLocales = response.locales;
         
-        // Geocode locales that don't have coordinates (in background)
+        // Fetch real coordinates from Google Geocoding API for accurate distance calculation
+        // This replaces city center coordinates with actual tourist spot coordinates
         if (userLocation && locationPermissionGranted) {
-          // Geocode locales without coordinates
-          const geocodePromises = newLocales.map(async (locale) => {
-            if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
-              return await geocodeLocale(locale);
-            }
-            return locale;
-          });
+          // Fetch real coordinates for all locales (with fallback to existing coordinates)
+          // Use caching to avoid repeated API calls
+          // Fetch real coordinates and calculate distances
+          const localesWithRealCoords = await Promise.all(
+            newLocales.map(async (locale) => {
+              // Try to fetch real coordinates from Google Places API (with caching)
+              // This finds exact tourist spot coordinates, not city center
+              const realCoords = await fetchRealCoords(
+                locale.name, 
+                locale.countryCode,
+                googleGeocodeCacheRef.current,
+                locale.description // Pass description to help find exact tourist spot
+              );
+              
+              let updatedLocale: Locale;
+              if (realCoords) {
+                // Use real coordinates from Google Places API
+                if (__DEV__) {
+                  console.log(`✅ Updated coordinates for ${locale.name}:`, {
+                    old: { lat: locale.latitude, lon: locale.longitude },
+                    new: realCoords
+                  });
+                }
+                updatedLocale = {
+                  ...locale,
+                  latitude: realCoords.lat,
+                  longitude: realCoords.lon,
+                };
+              } else {
+                // Fallback: Use existing coordinates or geocode if missing
+                if (__DEV__) {
+                  console.log(`⚠️ Could not fetch real coordinates for ${locale.name}, using existing or geocoding`);
+                }
+                if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
+                  updatedLocale = await geocodeLocale(locale);
+                } else {
+                  updatedLocale = locale;
+                }
+              }
+
+              // Calculate driving distance using rounded coordinates for stable cache
+              const userLat = roundCoord(userLocation.latitude);
+              const userLon = roundCoord(userLocation.longitude);
+              const distanceKm = await getLocaleDistanceKm(
+                updatedLocale._id.toString(),
+                userLat,
+                userLon,
+                updatedLocale.latitude,
+                updatedLocale.longitude
+              );
+
+              // Debug logging
+              if (__DEV__) {
+                console.log(`📍 Driving distance calculated for ${updatedLocale.name}:`, {
+                  userLocation: { lat: userLat, lon: userLon },
+                  localeCoords: { lat: updatedLocale.latitude, lon: updatedLocale.longitude },
+                  distanceKm: distanceKm !== null ? `${distanceKm.toFixed(2)} km` : 'null',
+                });
+              }
+
+              // Store distance in locale object
+              return {
+                ...updatedLocale,
+                distanceKm: distanceKm,
+              };
+            })
+          );
           
-          Promise.all(geocodePromises).then(geocodedLocales => {
-            if (!isMountedRef.current) return;
-            
-            if (forceRefresh || currentPageRef.current === 1) {
-              setAdminLocales(geocodedLocales);
-            } else {
-              setAdminLocales(prev => {
-                const localeMap = new Map<string, Locale>();
-                prev.forEach(locale => localeMap.set(locale._id, locale));
-                geocodedLocales.forEach(locale => localeMap.set(locale._id, locale));
-                return Array.from(localeMap.values());
-              });
-            }
-          }).catch(error => {
-            logger.error('Error geocoding locales:', error);
-            // Fallback to original locales if geocoding fails
-            if (forceRefresh || currentPageRef.current === 1) {
-              setAdminLocales(newLocales);
-            } else {
-              setAdminLocales(prev => {
-                const localeMap = new Map<string, Locale>();
-                prev.forEach(locale => localeMap.set(locale._id, locale));
-                newLocales.forEach(locale => localeMap.set(locale._id, locale));
-                return Array.from(localeMap.values());
-              });
-            }
-          });
+          if (!isMountedRef.current) return;
+          
+          // Always use the updated locales with distances
+          if (forceRefresh || currentPageRef.current === 1) {
+            setAdminLocales(localesWithRealCoords);
+          } else {
+            setAdminLocales(prev => {
+              const localeMap = new Map<string, Locale & { distanceKm?: number | null }>();
+              prev.forEach(locale => localeMap.set(locale._id, locale));
+              localesWithRealCoords.forEach(locale => localeMap.set(locale._id, locale));
+              return Array.from(localeMap.values());
+            });
+          }
         } else {
           // No user location, just set locales as is
           if (forceRefresh || currentPageRef.current === 1) {
@@ -519,7 +944,14 @@ export default function LocaleScreen() {
   }, []);
 
   // Calculate distance for a locale (with caching and geocoding support)
-  const getLocaleDistance = useCallback((locale: Locale): number | null => {
+  // Now uses distanceKm from locale object if available, otherwise calculates it
+  const getLocaleDistance = useCallback((locale: Locale & { distanceKm?: number | null }): number | null => {
+    // First check if distanceKm is already stored in locale object (from updated state)
+    if (locale.distanceKm !== undefined && locale.distanceKm !== null) {
+      return locale.distanceKm;
+    }
+
+    // Fallback: Calculate if not stored (for backwards compatibility)
     if (!userLocation) {
       return null;
     }
@@ -532,23 +964,15 @@ export default function LocaleScreen() {
       return null;
     }
     
-    // Check cache first
-    const cacheKey = `${locale._id}-${userLocation.latitude}-${userLocation.longitude}`;
-    if (distanceCacheRef.current.has(cacheKey)) {
-      return distanceCacheRef.current.get(cacheKey)!;
-    }
+    // Use rounded coordinates for stable cache
+    const userLat = roundCoord(userLocation.latitude);
+    const userLon = roundCoord(userLocation.longitude);
+    // Note: This is async but we can't make the callback async
+    // So we'll calculate synchronously using straight-line as fallback
+    // The main distance calculation happens in loadAdminLocales where we await
+    const distanceKm = calculateDistance(userLat, userLon, lat, lng);
     
-    // Calculate distance
-    const distance = calculateDistance(
-      userLocation.latitude,
-      userLocation.longitude,
-      lat,
-      lng
-    );
-    
-    // Cache the result
-    distanceCacheRef.current.set(cacheKey, distance);
-    return distance;
+    return distanceKm;
   }, [userLocation]);
   
   // PRODUCTION-GRADE: Shared sorting function - sorts by distance (nearest first)
@@ -623,9 +1047,31 @@ export default function LocaleScreen() {
       });
       const uniqueLocales = Array.from(localeMap.values());
       
+      // Calculate driving distances for saved locales if user location is available
+      let localesWithDistances = uniqueLocales;
+      if (userLocation && locationPermissionGranted) {
+        const userLat = roundCoord(userLocation.latitude);
+        const userLon = roundCoord(userLocation.longitude);
+        localesWithDistances = await Promise.all(
+          uniqueLocales.map(async (locale) => {
+            const distanceKm = await getLocaleDistanceKm(
+              locale._id.toString(),
+              userLat,
+              userLon,
+              locale.latitude,
+              locale.longitude
+            );
+            return {
+              ...locale,
+              distanceKm: distanceKm,
+            };
+          })
+        );
+      }
+      
       // PRODUCTION-GRADE: Sort saved locales by distance (nearest first)
       // This ensures consistent sorting across all locale lists
-      const sortedLocales = sortLocalesByDistance(uniqueLocales);
+      const sortedLocales = sortLocalesByDistance(localesWithDistances);
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
@@ -1514,13 +1960,19 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderAdminLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
-    // Calculate distance if user location is available
-    const distance = userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null;
-    const distanceText = distance !== null ? `${distance < 1 ? Math.round(distance * 1000) : distance.toFixed(1)}${distance < 1 ? 'm' : 'km'}` : null;
+    // Use distanceKm from locale object (always available if coordinates exist)
+    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ?? 
+              (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    // Fix distance display formatting - ensure correct units
+    const distanceText = d !== null && d !== undefined
+      ? d < 1
+        ? `${Math.round(d * 1000)} m`
+        : `${d.toFixed(1)} km`
+      : '–';
     
     // Debug: Log distance calculation
     if (__DEV__) {
-      logger.debug(`Locale ${locale.name}: distance=${distance}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
+      logger.debug(`Locale ${locale.name}: distance=${d}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
     }
     
     return (
@@ -1657,9 +2109,15 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
-    // Calculate distance if user location is available
-    const distance = userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null;
-    const distanceText = distance !== null ? `${distance < 1 ? Math.round(distance * 1000) : distance.toFixed(1)}${distance < 1 ? 'm' : 'km'}` : null;
+    // Use distanceKm from locale object (always available if coordinates exist)
+    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ?? 
+              (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    // Fix distance display formatting - ensure correct units
+    const distanceText = d !== null && d !== undefined
+      ? d < 1
+        ? `${Math.round(d * 1000)} m`
+        : `${d.toFixed(1)} km`
+      : '–';
     
     return (
       <TouchableOpacity 

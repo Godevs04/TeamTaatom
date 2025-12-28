@@ -19,7 +19,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -27,7 +27,7 @@ import { getShorts, toggleLike, addComment, getPostById, deleteShort } from '../
 import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
@@ -36,6 +36,7 @@ import { createLogger } from '../../utils/logger';
 import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { theme } from '../../constants/theme';
+import { audioManager } from '../../utils/audioManager';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -105,6 +106,7 @@ export default function ShortsScreen() {
   
   const { theme, mode } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
   const { handleScroll } = useScrollToHideNav();
 
@@ -259,6 +261,18 @@ export default function ShortsScreen() {
   // Uses centralized pauseCurrentVideo helper to prevent race conditions
   useFocusEffect(
     useCallback(() => {
+      // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
+      // This ensures audio plays through main speaker even if call service changed it
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false, // CRITICAL: Use main speaker for shorts
+      }).catch(err => {
+        logger.error('Error setting audio mode for shorts:', err);
+      });
+      
       // Screen focused - resume current video if it exists
       if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
         const currentVideoId = shorts[currentVisibleIndex]._id;
@@ -423,82 +437,47 @@ export default function ShortsScreen() {
     return url;
   }, [videoQuality]);
   
+  // Track previous visible index to detect actual scroll changes
+  const previousVisibleIndexRef = useRef<number>(-1);
+  
   // Enhanced: Ensure video playback syncs with currentVisibleIndex changes
   // This effect guarantees previous video pauses and new video plays when scrolling
   // Runs after onViewableItemsChanged updates currentVisibleIndex
   useEffect(() => {
-    if (shorts.length === 0 || currentVisibleIndex < 0) return;
+    // Only run if the visible index actually changed (not just shorts array content)
+    if (previousVisibleIndexRef.current === currentVisibleIndex) {
+      return;
+    }
     
-    const currentShort = shorts[currentVisibleIndex];
-    if (!currentShort) return;
-    
-    const currentVideoId = currentShort._id;
-    
-    // Step 1: Pause ALL other videos first (not just previous)
-    // This ensures no video plays except the current one
-    Object.keys(videoRefs.current).forEach((videoId) => {
-      if (videoId !== currentVideoId) {
-        const video = videoRefs.current[videoId];
-        if (video) {
-          video.pauseAsync()
-            .then(() => {
-              setVideoStates(prev => ({ ...prev, [videoId]: false }));
-            })
-            .catch(() => {
-              // Silently handle errors, still update state
-              setVideoStates(prev => ({ ...prev, [videoId]: false }));
-            });
-        } else {
-          // Video ref not available, just update state
-          setVideoStates(prev => ({ ...prev, [videoId]: false }));
-        }
+    if (!shorts[currentVisibleIndex]) return;
+
+    // Update previous index
+    previousVisibleIndexRef.current = currentVisibleIndex;
+
+    // 🔥 Critical: Stop all previous Taatom library audio instantly on scroll
+    audioManager.stopAll().catch(() => {});
+
+    const currentShortId = shorts[currentVisibleIndex]._id.toString();
+    const currentVideo = videoRefs.current[currentShortId];
+
+    // Pause all other videos
+    Object.keys(videoRefs.current).forEach(id => {
+      if (id !== currentShortId) {
+        videoRefs.current[id]?.pauseAsync().catch(() => {});
+        setVideoStates(prev => ({ ...prev, [id]: false }));
       }
     });
-    
-    // Step 2: Play current video after a brief delay to ensure previous pause completes
-    const playCurrentVideo = () => {
-      const currentVideo = videoRefs.current[currentVideoId];
-      if (currentVideo) {
-        activeVideoIdRef.current = currentVideoId;
-        currentVideo.getStatusAsync()
-          .then((status) => {
-            if (status.isLoaded) {
-              if (!status.isPlaying) {
-                // Video is loaded but not playing - start it
-                currentVideo.playAsync()
-                  .then(() => {
-                    setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-                    logger.debug(`Playing video at index ${currentVisibleIndex}: ${currentVideoId}`);
-                  })
-                  .catch((error) => {
-                    logger.warn(`Error playing video ${currentVideoId}:`, error);
-                  });
-              } else {
-                // Already playing, just update state
-                setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-              }
-            } else {
-              // Video not loaded yet, will play via shouldPlay prop when it loads
-              setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-            }
-          })
-          .catch(() => {
-            // Video not ready, will play via shouldPlay prop
-            setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-          });
-      } else {
-        // Video ref not available yet, mark as active for when it mounts
-        activeVideoIdRef.current = currentVideoId;
-        setVideoStates(prev => ({ ...prev, [currentVideoId]: true }));
-      }
-    };
-    
-    // Small delay to ensure previous video pause completes
-    const playTimeout = setTimeout(playCurrentVideo, 100);
-    
-    return () => {
-      clearTimeout(playTimeout);
-    };
+
+    // Play current video
+    if (currentVideo) {
+      activeVideoIdRef.current = currentShortId;
+      currentVideo.playAsync().catch(() => {});
+      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+    } else {
+      // Video ref not available yet, mark as active for when it mounts
+      activeVideoIdRef.current = currentShortId;
+      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+    }
   }, [currentVisibleIndex, shorts]);
 
   // Preload next video for smoother playback and track video views
@@ -580,6 +559,22 @@ export default function ShortsScreen() {
       const response = await getShorts(1, 20);
       setShorts(response.shorts);
       
+      // Scroll to specific short if shortId is provided in params
+      if (params.shortId && typeof params.shortId === 'string' && response.shorts.length > 0) {
+        const targetIndex = response.shorts.findIndex(s => s._id === params.shortId);
+        if (targetIndex !== -1 && flatListRef.current) {
+          // Use setTimeout to ensure FlatList is rendered before scrolling
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ 
+              index: targetIndex, 
+              animated: false 
+            });
+            setCurrentIndex(targetIndex);
+            setCurrentVisibleIndex(targetIndex);
+          }, 100);
+        }
+      }
+      
       // Initialize follow states
       const followStatesMap: { [key: string]: boolean } = {};
       response.shorts.forEach((short: PostType) => {
@@ -615,21 +610,40 @@ export default function ShortsScreen() {
       const isCurrentlyPlaying = videoStates[videoId];
       const newPlayState = !isCurrentlyPlaying;
       
+      // Find the current short to check for music
+      const currentShort = shorts.find(s => s._id === videoId);
+      const hasMusic = !!(currentShort?.song?.songId?.s3Url);
+      
       // If starting playback, pause all other videos first
       if (newPlayState) {
         pauseAllVideosExcept(videoId);
         activeVideoIdRef.current = videoId;
+        // Update video state immediately for music sync
+        setVideoStates(prev => ({ ...prev, [videoId]: true }));
+        
+        // Set video audio based on music presence
+        if (hasMusic) {
+          // If music exists, mute video
+          video.setIsMutedAsync(true).catch(() => {});
+          video.setVolumeAsync(0.0).catch(() => {});
+        } else {
+          // If no music, unmute video
+          video.setIsMutedAsync(false).catch(() => {});
+          video.setVolumeAsync(1.0).catch(() => {});
+        }
       } else {
         if (activeVideoIdRef.current === videoId) {
           activeVideoIdRef.current = null;
         }
+        // Update video state immediately for music sync
+        setVideoStates(prev => ({ ...prev, [videoId]: false }));
       }
       
       video.setStatusAsync({
         shouldPlay: newPlayState,
-      });
+      }).catch(() => {});
     }
-  }, [videoStates, pauseAllVideosExcept]);
+  }, [videoStates, pauseAllVideosExcept, shorts]);
 
   const showPauseButtonTemporarily = (videoId: string) => {
     setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
@@ -964,14 +978,20 @@ export default function ShortsScreen() {
     
     // Debug: Log song data
     if (item.song) {
-      logger.debug('Short has song data:', {
+      logger.info('Short has song data:', {
+        shortId: item._id,
         hasSong: !!item.song,
         hasSongId: !!item.song.songId,
-        songId: item.song.songId,
-        s3Url: item.song.songId?.s3Url,
+        songId: item.song.songId?._id || item.song.songId,
+        hasS3Url: !!item.song.songId?.s3Url,
+        s3Url: item.song.songId?.s3Url ? item.song.songId.s3Url.substring(0, 50) + '...' : 'NONE',
         title: item.song.songId?.title,
         artist: item.song.songId?.artist,
+        startTime: item.song.startTime,
+        volume: item.song.volume
       });
+    } else {
+      logger.debug('Short has NO song data:', { shortId: item._id });
     }
 
     return (
@@ -1009,14 +1029,41 @@ export default function ShortsScreen() {
                 // Force play when index matches currentVisibleIndex to ensure consistent playback
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
-                // Mute videos that are not in focus to save audio resources
-                // Only the current visible video should have audio
-                isMuted={index !== currentVisibleIndex}
-                // Use onLoadStart to ensure video starts playing when it loads
+                // CRITICAL: Mute video when music is playing
+                // If song exists with valid s3Url, video must be muted so only music plays
+                // Also mute videos that are not in focus to save audio resources
+                isMuted={(() => {
+                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  const shouldMute = index !== currentVisibleIndex || hasMusic;
+                  if (__DEV__ && index === currentVisibleIndex) {
+                    logger.info('Video mute check:', {
+                      shortId: item._id,
+                      hasMusic,
+                      isCurrentVisible: index === currentVisibleIndex,
+                      shouldMute
+                    });
+                  }
+                  return shouldMute;
+                })()}
+                volume={(() => {
+                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  return hasMusic ? 0.0 : 1.0;
+                })()}
+                // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
+                      // If music exists, ensure video is muted
+                      const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                      if (hasMusic) {
+                        video.setIsMutedAsync(true).catch(() => {
+                          // Silently handle mute errors
+                        });
+                        video.setVolumeAsync(0.0).catch(() => {
+                          // Silently handle volume errors
+                        });
+                      }
                       video.playAsync().catch(() => {
                         // Silently handle play errors
                       });
@@ -1027,6 +1074,17 @@ export default function ShortsScreen() {
                   if (status.isLoaded) {
                     const wasPlaying = videoStates[item._id];
                     const isNowPlaying = status.isPlaying;
+                    
+                    // CRITICAL: If music exists, ensure video stays muted
+                    const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                    if (hasMusic && index === currentVisibleIndex) {
+                      const video = videoRefs.current[item._id];
+                      if (video && !status.isMuted) {
+                        // Force mute if music is playing
+                        video.setIsMutedAsync(true).catch(() => {});
+                        video.setVolumeAsync(0.0).catch(() => {});
+                      }
+                    }
                     
                     // Ensure only one video plays at a time
                     // If this video started playing but it's not the active one, pause it
@@ -1241,15 +1299,33 @@ export default function ShortsScreen() {
               </TouchableOpacity>
               
               {/* Song Player - Elegant Design - Synced with Video */}
-              {item.song?.songId && item.song.songId.s3Url ? (
-                <View style={styles.songPlayerWrapper} pointerEvents="box-none">
-                  <SongPlayer 
-                    post={item} 
-                    isVisible={index === currentVisibleIndex} 
-                    autoPlay={isVideoPlaying} 
-                  />
-                </View>
-              ) : null}
+              {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
+              {(() => {
+                const hasSong = !!item.song?.songId;
+                const hasS3Url = !!item.song?.songId?.s3Url;
+                const shouldRender = hasSong && hasS3Url;
+                
+                if (__DEV__ && index === currentVisibleIndex) {
+                  logger.info('SongPlayer render check:', {
+                    shortId: item._id,
+                    hasSong,
+                    hasS3Url,
+                    shouldRender,
+                    songId: item.song?.songId?._id || item.song?.songId,
+                    s3Url: item.song?.songId?.s3Url ? 'EXISTS' : 'MISSING'
+                  });
+                }
+                
+                return shouldRender ? (
+                  <View style={styles.songPlayerWrapper} pointerEvents="box-none">
+                    <SongPlayer 
+                      post={item} 
+                      isVisible={index === currentVisibleIndex} 
+                      autoPlay={isVideoPlaying} 
+                    />
+                  </View>
+                ) : null;
+              })()}
             </View>
           </View>
       </View>
@@ -1398,6 +1474,13 @@ export default function ShortsScreen() {
         snapToInterval={SCREEN_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        onScrollToIndexFailed={(info) => {
+          // Handle scroll to index failure gracefully
+          const wait = new Promise(resolve => setTimeout(resolve, 500));
+          wait.then(() => {
+            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+          });
+        }}
         // Performance optimizations for video-heavy feed:
         // - removeClippedSubviews: Unmount off-screen items to free memory
         // - initialNumToRender: Only render 3 items initially for faster first paint

@@ -1,0 +1,22 @@
+# Exclude parent directory files that cause casing issues
+../superAdmin/
+../superAdmin/**
+../backend/
+../backend/**
+../Tool/
+../Tool/**
+
+# Exclude node_modules
+node_modules/
+**/node_modules/
+
+# Exclude build artifacts
+.expo/
+dist/
+build/
+*.log
+
+# Exclude environment files
+.env
+.env.local
+.env.*.local

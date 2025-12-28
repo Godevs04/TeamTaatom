@@ -762,42 +762,6 @@ export default function PostDetail() {
               <SongPlayer post={post} isVisible={true} autoPlay={true} />
             </View>
           )}
-          
-          {/* Floating Action Buttons */}
-          <View style={styles.floatingActions}>
-            <TouchableOpacity 
-              style={[styles.floatingButton, { backgroundColor: theme.colors.surface }]}
-              onPress={handleLike}
-              disabled={actionLoading === 'like'}
-            >
-              {actionLoading === 'like' ? (
-                <ActivityIndicator size="small" color={theme.colors.text} />
-              ) : (
-                <Ionicons 
-                  name={isLiked ? "heart" : "heart-outline"} 
-                  size={20} 
-                  color={isLiked ? "#ff3040" : theme.colors.text} 
-                />
-              )}
-            </TouchableOpacity>
-            {currentUser && post?.user && currentUser._id !== post.user._id && (
-              <TouchableOpacity 
-                style={[styles.floatingButton, { backgroundColor: theme.colors.surface }]}
-                onPress={handleBookmark}
-                disabled={actionLoading === 'bookmark'}
-              >
-                {actionLoading === 'bookmark' ? (
-                  <ActivityIndicator size="small" color={theme.colors.text} />
-                ) : (
-                  <Ionicons 
-                    name={isBookmarked ? "bookmark" : "bookmark-outline"} 
-                    size={20} 
-                    color={theme.colors.text} 
-                  />
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
         </View>
 
         {/* Enhanced Post Details */}

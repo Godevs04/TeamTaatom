@@ -194,21 +194,44 @@ export default function AboutSettingsScreen() {
   const handleCheckForUpdates = async () => {
     try {
       setLoading(true);
-      // In a real app, you would check with your update service
-      // For now, we'll check the app version
-      const currentVersion = Constants.expoConfig?.version || '1.0.0';
-      const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '100';
       
-      // Simulate checking for updates (replace with actual API call)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Use update service for automatic updates
+      const { updateService } = require('../../services/updateService');
       
-      showSuccess(
-        `You are using the latest version!\n\nVersion: ${currentVersion}\nBuild: ${buildNumber}`,
-        'Check for Updates'
-      );
-    } catch (error) {
+      if (!updateService.isEnabled()) {
+        // Updates not enabled (development mode or Expo Go)
+        const currentVersion = Constants.expoConfig?.version || '1.0.0';
+        const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '1';
+        showSuccess(
+          `You are using version ${currentVersion} (Build ${buildNumber}).\n\nUpdates are only available in production builds.`,
+          'Check for Updates'
+        );
+        return;
+      }
+
+      // Check for updates
+      const updateInfo = await updateService.checkForUpdates(true);
+      
+      if (updateInfo.isAvailable) {
+        // Update available - alert will be shown by update service
+        // But also show success message
+        const versionText = updateInfo.version ? `Version ${updateInfo.version}` : 'A new version';
+        showSuccess(
+          `${versionText} is available!\n\n${updateInfo.isCritical ? 'This is a required update.' : 'You can update now or later.'}`,
+          'Update Available'
+        );
+      } else {
+        // No update available
+        const currentVersion = updateService.getCurrentVersion();
+        const buildNumber = updateService.getCurrentBuildNumber();
+        showSuccess(
+          `You are using the latest version!\n\nVersion: ${currentVersion}\nBuild: ${buildNumber}`,
+          'Check for Updates'
+        );
+      }
+    } catch (error: any) {
       logger.error('Error checking for updates:', error);
-      showError('Failed to check for updates');
+      showError('Failed to check for updates. Please try again later.');
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,94 @@
+/**
+ * Production Environment Validator
+ * Validates that production builds have all required configuration
+ */
+
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import logger from './logger';
+import { getApiBaseUrl, WEB_SHARE_URL, PRIVACY_POLICY_URL } from './config';
+
+/**
+ * Validates production environment configuration
+ * Throws error in production if validation fails
+ */
+export const validateProductionEnvironment = (): void => {
+  const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
+  
+  if (!isProduction) {
+    // Skip validation in development
+    return;
+  }
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate API Base URL
+  try {
+    const apiUrl = getApiBaseUrl();
+    if (apiUrl.includes('localhost') || apiUrl.includes('192.168.') || apiUrl.includes('10.') || apiUrl.includes('172.')) {
+      errors.push(`❌ API_BASE_URL is set to localhost or local IP: ${apiUrl}`);
+      errors.push('   Production builds must use a production API URL (e.g., https://api.taatom.com)');
+    }
+    if (!apiUrl.startsWith('https://')) {
+      warnings.push(`⚠️  API_BASE_URL is not using HTTPS: ${apiUrl}`);
+      warnings.push('   Production should use HTTPS for security');
+    }
+  } catch (error: any) {
+    errors.push(`❌ Failed to get API_BASE_URL: ${error.message}`);
+  }
+
+  // Validate Web Share URL
+  if (WEB_SHARE_URL) {
+    if (WEB_SHARE_URL.includes('localhost') || WEB_SHARE_URL.includes('192.168.') || WEB_SHARE_URL.includes('10.') || WEB_SHARE_URL.includes('172.')) {
+      errors.push(`❌ WEB_SHARE_URL is set to localhost or local IP: ${WEB_SHARE_URL}`);
+    }
+    if (!WEB_SHARE_URL.startsWith('https://')) {
+      warnings.push(`⚠️  WEB_SHARE_URL is not using HTTPS: ${WEB_SHARE_URL}`);
+    }
+  } else {
+    warnings.push('⚠️  WEB_SHARE_URL is not set');
+  }
+
+  // Validate Privacy Policy URL (required for App Store)
+  if (!PRIVACY_POLICY_URL) {
+    warnings.push('⚠️  PRIVACY_POLICY_URL is not set');
+    warnings.push('   App Store submission requires a privacy policy URL');
+  } else if (!PRIVACY_POLICY_URL.startsWith('https://')) {
+    warnings.push(`⚠️  PRIVACY_POLICY_URL is not using HTTPS: ${PRIVACY_POLICY_URL}`);
+  }
+
+  // Validate Google Maps API Key
+  const mapsApiKey = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!mapsApiKey) {
+    warnings.push('⚠️  GOOGLE_MAPS_API_KEY is not set');
+    warnings.push('   Google Maps features will not work');
+  }
+
+  // Validate Sentry DSN
+  const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+  if (!sentryDsn) {
+    warnings.push('⚠️  EXPO_PUBLIC_SENTRY_DSN is not set');
+    warnings.push('   Error tracking will be disabled');
+  }
+
+  // Log warnings
+  if (warnings.length > 0) {
+    logger.warn('Production environment warnings:');
+    warnings.forEach(warning => logger.warn(warning));
+  }
+
+  // Throw errors in production
+  if (errors.length > 0) {
+    const errorMessage = `\n🚨 PRODUCTION CONFIGURATION ERRORS:\n${errors.join('\n')}\n\n` +
+      `Please fix these issues before deploying to production.\n` +
+      `Set the required environment variables in your .env file or EAS build secrets.\n`;
+    
+    logger.error(errorMessage);
+    throw new Error(errorMessage);
+  }
+
+  // Log success
+  logger.info('✅ Production environment validation passed');
+};
+

@@ -112,6 +112,8 @@ export default function PostScreen() {
   const [showSongSelector, setShowSongSelector] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
+  // Ref to track if a song was just selected to prevent race condition with onClose
+  const songJustSelectedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showSpotTypePicker, setShowSpotTypePicker] = useState(false);
@@ -476,9 +478,16 @@ export default function PostScreen() {
   );
 
   const pickImages = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== ImagePicker.PermissionStatus.GRANTED) {
-      Alert.alert('Permission needed', 'Please grant photo library permissions.');
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant photo library permissions.');
+        return;
+      }
+    } catch (permissionError: any) {
+      // Handle permission request errors gracefully
+      logger.debug('Permission request error:', permissionError);
+      Alert.alert('Error', 'Failed to request permissions. Please try again.');
       return;
     }
 
@@ -490,16 +499,30 @@ export default function PostScreen() {
       // Record the timestamp before opening the picker
       const selectionStartTime = Date.now();
       
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsMultipleSelection: true,
-        selectionLimit: 10,
-        quality: 0.8,
-        allowsEditing: false,
-        exif: true, // Preserve EXIF data including location
-      });
+      let result;
+      try {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsMultipleSelection: true,
+          selectionLimit: 10,
+          quality: 0.8,
+          allowsEditing: false,
+          exif: true, // Preserve EXIF data including location
+        });
+      } catch (pickerError: any) {
+        // Handle ImagePicker errors (including CodedError) gracefully
+        logger.debug('ImagePicker error:', pickerError);
+        // Check if user canceled
+        if (pickerError?.code === 'E_PICKER_CANCELLED' || pickerError?.message?.includes('cancel')) {
+          return; // User canceled, no need to show error
+        }
+        // For other errors, show user-friendly message
+        const errorMessage = pickerError?.message || pickerError?.code || 'Failed to open image picker';
+        Alert.alert('Error', errorMessage);
+        return;
+      }
 
-      if (!result.canceled && result.assets) {
+      if (result && !result.canceled && result.assets) {
         logger.debug('Selected assets data:', result.assets.map(asset => ({
           uri: asset.uri,
           fileName: asset.fileName,
@@ -617,9 +640,15 @@ export default function PostScreen() {
   };
 
   const pickVideo = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== ImagePicker.PermissionStatus.GRANTED) {
-      Alert.alert('Permission needed', 'Please grant photo library permissions.');
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant photo library permissions.');
+        return;
+      }
+    } catch (permissionError: any) {
+      logger.debug('Permission request error:', permissionError);
+      Alert.alert('Error', 'Failed to request permissions. Please try again.');
       return;
     }
     
@@ -635,14 +664,27 @@ export default function PostScreen() {
     // Record the timestamp before opening the picker
     const selectionStartTime = Date.now();
     
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      allowsEditing: true,
-      aspect: [9, 16], // Vertical aspect ratio for shorts
-      quality: 0.8,
-      exif: true, // Preserve EXIF data including location
-    });
-      if (!result.canceled && result.assets?.[0]) {
+    try {
+      let result;
+      try {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['videos'],
+          allowsEditing: true,
+          aspect: [9, 16], // Vertical aspect ratio for shorts
+          quality: 0.8,
+          exif: true, // Preserve EXIF data including location
+        });
+      } catch (pickerError: any) {
+        logger.debug('Video ImagePicker error:', pickerError);
+        if (pickerError?.code === 'E_PICKER_CANCELLED' || pickerError?.message?.includes('cancel')) {
+          return;
+        }
+        const errorMessage = pickerError?.message || pickerError?.code || 'Failed to open video picker';
+        Alert.alert('Error', errorMessage);
+        return;
+      }
+      
+      if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
         
         // Check video duration (max 60 minutes = 3600 seconds)
@@ -694,56 +736,60 @@ export default function PostScreen() {
             logger.warn('Thumbnail generation failed', e);
             setVideoThumbnail(null);
           }
+          
+          // Add a small delay to ensure MediaLibrary is updated with the selected video
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          logger.debug('Starting location extraction for newly selected video');
+          logger.debug('Selection started at:', new Date(selectionStartTime).toISOString());
+          
+          // Try to get location from video metadata
+          // Pass only the newly selected asset to ensure we get its location, not a previous one
+          const locationResult = await LocationExtractionService.extractFromPhotos(
+            result.assets, // Only the newly selected video asset
+            selectionStartTime
+          );
+          
+          if (locationResult) {
+            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+            if (locationResult.address) {
+              setAddress(locationResult.address);
+            }
+            // Store location metadata for TripScore v2
+            setLocationMetadata({
+              hasExifGps: locationResult.hasExifGps,
+              takenAt: locationResult.takenAt || null,
+              rawSource: locationResult.rawSource
+            });
+            setIsFromCameraFlow(false); // Gallery selection
+            logger.debug('Location extraction result for video: Found', {
+              hasExifGps: locationResult.hasExifGps,
+              rawSource: locationResult.rawSource,
+              takenAt: locationResult.takenAt
+            });
+          } else {
+            logger.debug('Location extraction result for video: Not found');
+            setLocationMetadata({
+              hasExifGps: false,
+              takenAt: null,
+              rawSource: 'none'
+            });
+            setIsFromCameraFlow(false);
+            
+            // Show warning - user can manually enter location
+            Alert.alert(
+              'Location Not Detected',
+              'Unable to fetch location from video. You can manually type the location, but Trip Score will not be calculated.',
+              [{ text: 'OK', style: 'default' }]
+            );
+          }
         } else {
           Alert.alert('Error', 'Invalid video file selected. Please try again.');
         }
-      
-      // Add a small delay to ensure MediaLibrary is updated with the selected video
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      logger.debug('Starting location extraction for newly selected video');
-      logger.debug('Selection started at:', new Date(selectionStartTime).toISOString());
-      
-      // Try to get location from video metadata
-      // Pass only the newly selected asset to ensure we get its location, not a previous one
-      const locationResult = await LocationExtractionService.extractFromPhotos(
-        result.assets, // Only the newly selected video asset
-        selectionStartTime
-      );
-      
-      if (locationResult) {
-        setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-        if (locationResult.address) {
-          setAddress(locationResult.address);
-        }
-        // Store location metadata for TripScore v2
-        setLocationMetadata({
-          hasExifGps: locationResult.hasExifGps,
-          takenAt: locationResult.takenAt || null,
-          rawSource: locationResult.rawSource
-        });
-        setIsFromCameraFlow(false); // Gallery selection
-        logger.debug('Location extraction result for video: Found', {
-          hasExifGps: locationResult.hasExifGps,
-          rawSource: locationResult.rawSource,
-          takenAt: locationResult.takenAt
-        });
-      } else {
-        logger.debug('Location extraction result for video: Not found');
-        setLocationMetadata({
-          hasExifGps: false,
-          takenAt: null,
-          rawSource: 'none'
-        });
-        setIsFromCameraFlow(false);
-        
-        // Show warning - user can manually enter location
-        Alert.alert(
-          'Location Not Detected',
-          'Unable to fetch location from video. You can manually type the location, but Trip Score will not be calculated.',
-          [{ text: 'OK', style: 'default' }]
-        );
       }
+    } catch (error) {
+      logger.error('Error picking video', error);
+      Alert.alert('Error', 'Failed to pick video. Please try again.');
     }
   };
 
@@ -775,7 +821,7 @@ export default function PostScreen() {
         exif: true, // Preserve EXIF data including location
       });
       
-      if (!result.canceled && result.assets?.[0]) {
+      if (result && !result.canceled && result.assets?.[0]) {
         clearUploadState();
         
         const newImage = {
@@ -889,9 +935,15 @@ export default function PostScreen() {
   };
 
   const takeVideo = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== ImagePicker.PermissionStatus.GRANTED) {
-      Alert.alert('Permission needed', 'Please grant camera permissions to take videos.');
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant camera permissions to take videos.');
+        return;
+      }
+    } catch (permissionError: any) {
+      logger.debug('Camera permission request error:', permissionError);
+      Alert.alert('Error', 'Failed to request camera permissions. Please try again.');
       return;
     }
     
@@ -902,147 +954,164 @@ export default function PostScreen() {
     // Record timestamp before capturing
     const captureStartTime = Date.now();
     
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['videos'],
-      allowsEditing: true,
-      aspect: [9, 16], // Vertical aspect ratio for shorts
-      quality: 0.8,
-      exif: true, // Preserve EXIF data including location
-    });
-    if (!result.canceled && result.assets?.[0]) {
-      const asset = result.assets[0];
-      
-      // Check video duration (max 60 minutes = 3600 seconds)
-      // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
-      if (asset.duration) {
-        const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
-        // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
-        // For example: 9 seconds = 9000ms, which is > 100, so we convert
-        const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
-        
-        // Log for debugging
-        logger.debug('Video duration check:', {
-          rawDuration: asset.duration,
-          durationInSeconds: durationInSeconds,
-          isMilliseconds: asset.duration > 100
+    try {
+      let result;
+      try {
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['videos'],
+          allowsEditing: true,
+          aspect: [9, 16], // Vertical aspect ratio for shorts
+          quality: 0.8,
+          exif: true, // Preserve EXIF data including location
         });
-        
-        if (durationInSeconds > MAX_VIDEO_DURATION) {
-          const minutes = Math.floor(durationInSeconds / 60);
-          const seconds = Math.floor(durationInSeconds % 60);
-          Alert.alert(
-            'Video Too Long',
-            `Video duration exceeds the maximum limit of 60 minutes. Your video is ${minutes}:${seconds.toString().padStart(2, '0')} (${minutes} minutes ${seconds} seconds). Please record a shorter video.`,
-            [{ text: 'OK' }]
-          );
+      } catch (pickerError: any) {
+        logger.debug('Camera video ImagePicker error:', pickerError);
+        if (pickerError?.code === 'E_PICKER_CANCELLED' || pickerError?.message?.includes('cancel')) {
           return;
         }
+        const errorMessage = pickerError?.message || pickerError?.code || 'Failed to open camera';
+        Alert.alert('Error', errorMessage);
+        return;
       }
       
-      // Ensure URI is not empty before setting
-      if (asset.uri && asset.uri.trim()) {
-        setSelectedVideo(asset.uri);
-        setSelectedImages([]);
-        setPostType('short');
-        try {
-          const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
-          if (uri && uri.trim()) {
-            setVideoThumbnail(uri);
-          } else {
+      if (result && !result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        
+        // Check video duration (max 60 minutes = 3600 seconds)
+        // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
+        if (asset.duration) {
+          const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+          // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
+          // For example: 9 seconds = 9000ms, which is > 100, so we convert
+          const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
+          
+          // Log for debugging
+          logger.debug('Video duration check:', {
+            rawDuration: asset.duration,
+            durationInSeconds: durationInSeconds,
+            isMilliseconds: asset.duration > 100
+          });
+          
+          if (durationInSeconds > MAX_VIDEO_DURATION) {
+            const minutes = Math.floor(durationInSeconds / 60);
+            const seconds = Math.floor(durationInSeconds % 60);
+            Alert.alert(
+              'Video Too Long',
+              `Video duration exceeds the maximum limit of 60 minutes. Your video is ${minutes}:${seconds.toString().padStart(2, '0')} (${minutes} minutes ${seconds} seconds). Please record a shorter video.`,
+              [{ text: 'OK' }]
+            );
+            return;
+          }
+        }
+        
+        // Ensure URI is not empty before setting
+        if (asset.uri && asset.uri.trim()) {
+          setSelectedVideo(asset.uri);
+          setSelectedImages([]);
+          setPostType('short');
+          try {
+            const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
+            if (uri && uri.trim()) {
+              setVideoThumbnail(uri);
+            } else {
+              setVideoThumbnail(null);
+            }
+          } catch (e) {
+            logger.warn('Thumbnail generation failed', e);
             setVideoThumbnail(null);
           }
-        } catch (e) {
-          logger.warn('Thumbnail generation failed', e);
-          setVideoThumbnail(null);
-        }
-      } else {
-        Alert.alert('Error', 'Invalid video file captured. Please try again.');
-      }
-      
-      // Add a small delay to ensure MediaLibrary is updated with the captured video
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Try to get location from video metadata
-      const locationResult = await LocationExtractionService.extractFromPhotos(
-        result.assets,
-        captureStartTime
-      );
-      
-      if (locationResult) {
-        setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-        if (locationResult.address) {
-          setAddress(locationResult.address);
-        }
-        // Store location metadata for TripScore v2
-        setLocationMetadata({
-          hasExifGps: locationResult.hasExifGps,
-          takenAt: locationResult.takenAt || null,
-          rawSource: locationResult.rawSource
-        });
-        setIsFromCameraFlow(true); // Camera capture
-        logger.debug('Location extraction result for camera video: Found', {
-          hasExifGps: locationResult.hasExifGps,
-          rawSource: locationResult.rawSource,
-          takenAt: locationResult.takenAt
-        });
-      } else {
-        // No location from EXIF - get current location as fallback for Taatom camera
-        logger.debug('No EXIF location found, getting current location for Taatom camera video');
-        try {
-          const currentLocation = await getCurrentLocation();
-          if (currentLocation && currentLocation.coords) {
-            const coords = {
-              lat: currentLocation.coords.latitude,
-              lng: currentLocation.coords.longitude
-            };
-            setLocation(coords);
-            
-            // Get address from current location
-            const address = await getAddressFromCoords(coords.lat, coords.lng);
-            if (address) {
-              setAddress(address);
-            }
-            
-            // Store metadata - current location is still valid for Taatom camera
-            setLocationMetadata({
-              hasExifGps: false, // Not from EXIF, but from current GPS
-              takenAt: new Date(),
-              rawSource: 'exif' // Treat as valid GPS source for camera
-            });
-            setIsFromCameraFlow(true);
-            
-            logger.debug('Current location captured for Taatom camera video:', coords);
-          } else {
-            // No current location available
-            setLocationMetadata({
-              hasExifGps: false,
-              takenAt: null,
-              rawSource: 'none'
-            });
-            setIsFromCameraFlow(true);
-            
-            Alert.alert(
-              'Location Not Available',
-              'Unable to get your current location. You can manually type the location.',
-              [{ text: 'OK', style: 'default' }]
-            );
-          }
-        } catch (locationError) {
-          logger.error('Error getting current location:', locationError);
-          setLocationMetadata({
-            hasExifGps: false,
-            takenAt: null,
-            rawSource: 'none'
-          });
-          setIsFromCameraFlow(true);
           
-          Alert.alert(
-            'Location Not Available',
-            'Unable to get your current location. You can manually type the location.',
-            [{ text: 'OK', style: 'default' }]
+          // Add a small delay to ensure MediaLibrary is updated with the captured video
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Try to get location from video metadata
+          const locationResult = await LocationExtractionService.extractFromPhotos(
+            result.assets,
+            captureStartTime
           );
+          
+          if (locationResult) {
+            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
+            if (locationResult.address) {
+              setAddress(locationResult.address);
+            }
+            // Store location metadata for TripScore v2
+            setLocationMetadata({
+              hasExifGps: locationResult.hasExifGps,
+              takenAt: locationResult.takenAt || null,
+              rawSource: locationResult.rawSource
+            });
+            setIsFromCameraFlow(true); // Camera capture
+            logger.debug('Location extraction result for camera video: Found', {
+              hasExifGps: locationResult.hasExifGps,
+              rawSource: locationResult.rawSource,
+              takenAt: locationResult.takenAt
+            });
+          } else {
+            // No location from EXIF - get current location as fallback for Taatom camera
+            logger.debug('No EXIF location found, getting current location for Taatom camera video');
+            try {
+              const currentLocation = await getCurrentLocation();
+              if (currentLocation && currentLocation.coords) {
+                const coords = {
+                  lat: currentLocation.coords.latitude,
+                  lng: currentLocation.coords.longitude
+                };
+                setLocation(coords);
+                
+                // Get address from current location
+                const address = await getAddressFromCoords(coords.lat, coords.lng);
+                if (address) {
+                  setAddress(address);
+                }
+                
+                // Store metadata - current location is still valid for Taatom camera
+                setLocationMetadata({
+                  hasExifGps: false, // Not from EXIF, but from current GPS
+                  takenAt: new Date(),
+                  rawSource: 'exif' // Treat as valid GPS source for camera
+                });
+                setIsFromCameraFlow(true);
+                
+                logger.debug('Current location captured for Taatom camera video:', coords);
+              } else {
+                // No current location available
+                setLocationMetadata({
+                  hasExifGps: false,
+                  takenAt: null,
+                  rawSource: 'none'
+                });
+                setIsFromCameraFlow(true);
+                
+                Alert.alert(
+                  'Location Not Available',
+                  'Unable to get your current location. You can manually type the location.',
+                  [{ text: 'OK', style: 'default' }]
+                );
+              }
+            } catch (locationError) {
+              logger.error('Error getting current location:', locationError);
+              setLocationMetadata({
+                hasExifGps: false,
+                takenAt: null,
+                rawSource: 'none'
+              });
+              setIsFromCameraFlow(true);
+              
+              Alert.alert(
+                'Location Not Available',
+                'Unable to get your current location. You can manually type the location.',
+                [{ text: 'OK', style: 'default' }]
+              );
+            }
+          }
+        } else {
+          Alert.alert('Error', 'Invalid video file captured. Please try again.');
         }
       }
+    } catch (error: any) {
+      logger.error('Error taking video', error);
+      Alert.alert('Error', 'Failed to take video. Please try again.');
     }
   };
 
@@ -1086,8 +1155,23 @@ export default function PostScreen() {
         return true; // Success
       }
       return false; // No location returned
-    } catch (error) {
-      logger.warn("Error getting location (non-critical)", error);
+    } catch (error: any) {
+      // Safely extract error message without causing Babel _construct issues
+      let errorMessage = 'Location error';
+      try {
+        if (error && typeof error === 'object') {
+          // Handle CodedError and other Expo errors safely
+          errorMessage = error.message || error.toString() || 'Location error';
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+      } catch (e) {
+        // If error extraction fails, use safe fallback
+        errorMessage = 'Location error';
+      }
+      
+      // Log as debug to avoid Babel serialization issues with CodedError
+      logger.debug("Error getting location (non-critical):", errorMessage);
       return false; // Failed
     }
   };
@@ -1461,8 +1545,28 @@ export default function PostScreen() {
       // Detect audio source for copyright compliance
       // audioSource = "taatom_library" if background music from Taatom is selected
       // audioSource = "user_original" if using original video audio (no Taatom music)
-      const audioSource: 'taatom_library' | 'user_original' = 
-        (audioChoice === 'background' && selectedSong) ? 'taatom_library' : 'user_original';
+      // CRITICAL: Check if user selected background music AND has a song selected
+      const hasBackgroundMusic = audioChoice === 'background' && selectedSong && selectedSong._id;
+      const audioSource: 'taatom_library' | 'user_original' = hasBackgroundMusic ? 'taatom_library' : 'user_original';
+      
+      // Log for debugging
+      if (__DEV__) {
+        console.log('🎵 [handleShort] Audio source determination:', {
+          audioChoice: audioChoice,
+          hasSelectedSong: !!selectedSong,
+          selectedSongId: selectedSong?._id,
+          selectedSongTitle: selectedSong?.title,
+          hasBackgroundMusic: hasBackgroundMusic,
+          audioSource: audioSource
+        });
+      }
+      logger.info('handleShort - Audio source determination:', {
+        audioChoice: audioChoice,
+        hasSelectedSong: !!selectedSong,
+        selectedSongId: selectedSong?._id,
+        hasBackgroundMusic: hasBackgroundMusic,
+        audioSource: audioSource
+      });
 
       // If user_original, show copyright confirmation modal
       if (audioSource === 'user_original') {
@@ -1520,7 +1624,7 @@ export default function PostScreen() {
         audioSource: audioSource,
       });
 
-      const response = await createShort({
+      const shortData = {
         video: {
           uri: selectedVideo,
           type: type,
@@ -1536,10 +1640,12 @@ export default function PostScreen() {
         // If background music is selected, send music data with volume 1.0
         // Backend should mix music with original video audio (video at 0.6, music at 1.0)
         // If original only, don't send song data (video audio plays at 1.0)
-        songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
-        songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
-        songEndTime: audioChoice === 'background' && selectedSong ? songEndTime : undefined,
-        songVolume: audioChoice === 'background' && selectedSong ? 1.0 : undefined, // Music at full volume, video will be at 0.6
+        // Use hasBackgroundMusic to ensure consistency with audioSource
+        // DEFENSIVE: Also check if selectedSong exists and has _id before using it
+        songId: (hasBackgroundMusic && selectedSong?._id) ? selectedSong._id : undefined,
+        songStartTime: (hasBackgroundMusic && selectedSong?._id) ? songStartTime : undefined,
+        songEndTime: (hasBackgroundMusic && selectedSong?._id) ? songEndTime : undefined,
+        songVolume: (hasBackgroundMusic && selectedSong?._id) ? 1.0 : undefined, // Music at full volume, video will be at 0.6
         tags: values.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
@@ -1553,7 +1659,59 @@ export default function PostScreen() {
         audioSource: audioSource,
         copyrightAccepted: true, // Auto-accepted for taatom_library
         copyrightAcceptedAt: new Date().toISOString(),
+      };
+      
+      // Log data being sent for debugging
+      if (__DEV__) {
+        console.log('📤 [handleShort] Sending short data:', {
+          hasSongId: !!shortData.songId,
+          songId: shortData.songId,
+          audioSource: shortData.audioSource,
+          audioChoice: audioChoice,
+          hasSelectedSong: !!selectedSong,
+          selectedSongId: selectedSong?._id,
+          selectedSongTitle: selectedSong?.title,
+          hasBackgroundMusic: hasBackgroundMusic,
+          songStartTime: shortData.songStartTime,
+          songEndTime: shortData.songEndTime,
+          songVolume: shortData.songVolume
+        });
+      }
+      logger.info('handleShort - Sending short data:', {
+        hasSongId: !!shortData.songId,
+        songId: shortData.songId,
+        audioSource: shortData.audioSource,
+        audioChoice: audioChoice,
+        hasSelectedSong: !!selectedSong,
+        selectedSongId: selectedSong?._id,
+        selectedSongTitle: selectedSong?.title,
+        hasBackgroundMusic: hasBackgroundMusic,
+        songStartTime: shortData.songStartTime,
+        songEndTime: shortData.songEndTime,
+        songVolume: shortData.songVolume
       });
+      
+      // CRITICAL VALIDATION: Warn if background music is expected but not being sent
+      if (audioChoice === 'background' && selectedSong && !shortData.songId) {
+        if (__DEV__) {
+          console.error('❌ [handleShort] ERROR: Background music selected but songId is missing!', {
+            audioChoice,
+            selectedSongId: selectedSong._id,
+            hasBackgroundMusic,
+            shortDataSongId: shortData.songId,
+            audioSource: shortData.audioSource
+          });
+        }
+        logger.error('handleShort - ERROR: Background music selected but songId is missing!', {
+          audioChoice,
+          selectedSongId: selectedSong._id,
+          hasBackgroundMusic,
+          shortDataSongId: shortData.songId,
+          audioSource: shortData.audioSource
+        });
+      }
+      
+      const response = await createShort(shortData);
 
       logger.debug('Short created successfully:', response);
       
@@ -3555,22 +3713,70 @@ export default function PostScreen() {
       <SongSelector
         visible={showSongSelector}
         onClose={() => {
-          setShowSongSelector(false);
-          // If user closes without selecting, reset audio choice
-          if (!selectedSong) {
-            setAudioChoice(null);
+          // CRITICAL FIX: Use ref to prevent race condition
+          // If a song was just selected, don't reset audioChoice
+          if (!songJustSelectedRef.current) {
+            // User closed modal without selecting - reset audio choice
+            if (!selectedSong) {
+              setAudioChoice(null);
+            }
+          } else {
+            // Song was just selected, reset the ref
+            songJustSelectedRef.current = false;
           }
+          setShowSongSelector(false);
         }}
         onSelect={(song, startTime, endTime) => {
-          setSelectedSong(song);
+          if (__DEV__) {
+            console.log('🎵 [SongSelector] onSelect called:', {
+              hasSong: !!song,
+              songId: song?._id,
+              songTitle: song?.title,
+              startTime: startTime,
+              endTime: endTime
+            });
+          }
+          
+          // CRITICAL: Update state in the correct order to avoid race conditions
+          // First, update selectedSong and audioChoice together
           if (song && startTime !== undefined && endTime !== undefined) {
+            // Mark that a song was just selected to prevent onClose from resetting
+            songJustSelectedRef.current = true;
+            
+            // When a song is selected, set audioChoice to 'background'
+            // This ensures audioSource will be 'taatom_library' when uploading
+            setSelectedSong(song);
+            setAudioChoice('background'); // CRITICAL: Set this BEFORE closing modal
             setSongStartTime(startTime);
             setSongEndTime(endTime);
+            if (__DEV__) {
+              console.log('✅ [SongSelector] Song selected, audioChoice set to background:', {
+                songId: song._id,
+                title: song.title,
+                audioChoice: 'background',
+                startTime: startTime,
+                endTime: endTime
+              });
+            }
+            logger.info('SongSelector - Song selected:', {
+              songId: song._id,
+              title: song.title,
+              audioChoice: 'background'
+            });
           } else if (!song) {
+            // When song is removed, reset everything
+            songJustSelectedRef.current = false;
+            setSelectedSong(null);
+            setAudioChoice(null);
             setSongStartTime(0);
             setSongEndTime(60);
-            setAudioChoice(null);
+            if (__DEV__) {
+              console.log('🔄 [SongSelector] Song removed, audioChoice reset to null');
+            }
+            logger.info('SongSelector - Song removed, audioChoice reset to null');
           }
+          
+          // Close modal AFTER state updates
           setShowSongSelector(false);
         }}
         selectedSong={selectedSong}
