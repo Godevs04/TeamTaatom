@@ -324,6 +324,19 @@ exports.sendMessage = async (req, res) => {
     
     await chat.save();
 
+    // CRITICAL: Get the saved message with _id from the database
+    // After save(), MongoDB assigns _id to subdocuments, but we need to get it from the saved document
+    const savedChat = await Chat.findById(chat._id);
+    let savedMessage = savedChat.messages[savedChat.messages.length - 1]; // Get the last message (the one we just added)
+    
+    // Ensure message has _id - if not, create one manually (fallback)
+    if (!savedMessage || !savedMessage._id) {
+      logger.warn('Message _id not found after save, this should not happen');
+      // Fallback: use the message we created and add a temporary ID
+      const mongoose = require('mongoose');
+      savedMessage = { ...message, _id: new mongoose.Types.ObjectId() };
+    }
+
     // Emit real-time socket events for immediate updates
     try {
       logger.debug('Attempting to emit socket events...');
@@ -339,13 +352,39 @@ exports.sendMessage = async (req, res) => {
         // CRITICAL: Convert chat._id to string for consistent comparison on frontend
         const chatIdStr = chat._id.toString();
         
+        // CRITICAL: Ensure message has all required fields including _id
+        const messageToEmit = {
+          _id: savedMessage._id.toString(),
+          sender: savedMessage.sender.toString(),
+          text: savedMessage.text,
+          timestamp: savedMessage.timestamp,
+          seen: savedMessage.seen || false
+        };
+        
         // Emit to recipient (all devices)
-        nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chatIdStr, message });
+        logger.debug('Emitting message:new', {
+          recipient: otherUserId.toString(),
+          chatId: chatIdStr,
+          messageId: messageToEmit._id
+        });
+        nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+        
         // Emit ack to sender (all devices)
-        nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message });
+        logger.debug('Emitting message:sent', {
+          sender: userId.toString(),
+          chatId: chatIdStr,
+          messageId: messageToEmit._id
+        });
+        nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+        
         // Emit chat list update to both users
-        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: message.text, timestamp: message.timestamp });
-        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: message.text, timestamp: message.timestamp });
+        logger.debug('Emitting chat:update', {
+          recipient: otherUserId.toString(),
+          sender: userId.toString(),
+          chatId: chatIdStr
+        });
+        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
         
         // For admin_support conversations, also emit to admin rooms
         if (chat.type === 'admin_support') {
@@ -357,20 +396,20 @@ exports.sendMessage = async (req, res) => {
           // Emit to admin support room for real-time updates in admin panel
           nsp.to('admin_support').emit('admin_support:message:new', { 
             chatId: chatIdStr, 
-            message,
+            message: messageToEmit,
             userId: userId.toString(),
             otherUserId: otherUserId.toString()
           });
           nsp.to('admin_support').emit('admin_support:chat:update', { 
             chatId: chatIdStr, 
-            lastMessage: message.text, 
-            timestamp: message.timestamp,
+            lastMessage: messageToEmit.text, 
+            timestamp: messageToEmit.timestamp,
             userId: userId.toString()
           });
           logger.debug('Emitted admin_support socket events for chat:', chatIdStr);
         }
         
-        logger.debug('Socket events emitted successfully for message:', message._id);
+        logger.debug('Socket events emitted successfully for message:', messageToEmit._id);
         logger.debug('Emitted to users:', { sender: userId, recipient: otherUserId });
         logger.debug('Chat ID:', chatIdStr);
       } else {
@@ -410,7 +449,7 @@ exports.sendMessage = async (req, res) => {
       logger.error('Failed to send push notification:', err);
     }
 
-    return sendSuccess(res, 200, 'Message sent successfully', { message });
+    return sendSuccess(res, 200, 'Message sent successfully', { message: savedMessage });
   } catch (error) {
     logger.error('Error in sendMessage:', error);
     return sendError(res, 'SRV_6001', 'Failed to send message');
