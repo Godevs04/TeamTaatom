@@ -303,7 +303,7 @@ export default function LocaleScreen() {
           logger.warn('Location object missing coordinates');
           setLocationPermissionGranted(false);
         }
-      } catch (locationError) {
+      } catch (locationError: any) {
         // Clear timeout on error
         if (timeoutId) {
           clearTimeout(timeoutId);
@@ -315,49 +315,59 @@ export default function LocaleScreen() {
           return;
         }
 
-        // Handle specific Android location errors
-        const errorMessage = locationError instanceof Error 
-          ? locationError.message 
-          : typeof locationError === 'string' 
-          ? locationError 
-          : 'Unknown location error';
+        // Safely extract error message without causing Babel _construct issues
+        let errorMessage = 'Unknown location error';
+        try {
+          if (locationError && typeof locationError === 'object') {
+            // Handle CodedError and other Expo errors safely
+            errorMessage = locationError.message || locationError.toString() || 'Location error';
+          } else if (typeof locationError === 'string') {
+            errorMessage = locationError;
+          }
+        } catch (e) {
+          // If error extraction fails, use safe fallback
+          errorMessage = 'Location request failed';
+        }
 
         // Don't log timeout errors as errors - they're expected in some cases
-        if (errorMessage.includes('timeout')) {
+        if (errorMessage.includes('timeout') || errorMessage.includes('TIMEOUT')) {
           logger.debug('Location request timed out (this is normal on some devices)');
+        } else if (errorMessage.includes('permission') || errorMessage.includes('denied') || errorMessage.includes('PERMISSION')) {
+          logger.debug('Location permission denied or unavailable');
         } else {
+          // Only log non-critical errors as debug to avoid Babel issues
           logger.debug('Location request failed:', errorMessage);
         }
         
         setLocationPermissionGranted(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       // Check if component is still mounted before setting state
       if (!isMountedRef.current) {
         return;
       }
 
-      // Safely handle and log errors
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : typeof error === 'string' 
-        ? error 
-        : 'Unknown location error';
-      
-      const errorDetails = error instanceof Error
-        ? {
-            message: error.message,
-            name: error.name,
-            code: (error as any).code, // Android might provide error codes
-            stack: error.stack?.substring(0, 200), // Limit stack trace length
-          }
-        : { error: String(error) };
+      // Safely handle and log errors without causing Babel _construct issues
+      let errorMessage = 'Unknown location error';
+      try {
+        if (error && typeof error === 'object') {
+          // Handle CodedError and other Expo errors safely - avoid accessing complex properties
+          errorMessage = error.message || error.toString() || 'Location error';
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        }
+      } catch (e) {
+        // If error extraction fails, use safe fallback
+        errorMessage = 'Location error';
+      }
 
-      // Only log as error if it's not a permission or timeout issue
-      if (!errorMessage.includes('permission') && !errorMessage.includes('timeout') && !errorMessage.includes('denied')) {
-        logger.error('[LocaleScreen] Error getting user location:', errorMessage, errorDetails);
-      } else {
+      // Only log as debug to avoid Babel serialization issues with CodedError
+      // CodedError objects can cause _construct errors when logged
+      if (errorMessage.includes('permission') || errorMessage.includes('timeout') || errorMessage.includes('denied')) {
         logger.debug('[LocaleScreen] Location unavailable:', errorMessage);
+      } else {
+        // Log as debug instead of error to avoid Babel issues
+        logger.debug('[LocaleScreen] Location request failed:', errorMessage);
       }
       
       setLocationPermissionGranted(false);
