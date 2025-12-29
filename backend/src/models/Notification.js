@@ -58,8 +58,8 @@ notificationSchema.statics.getUserNotifications = async function(userId, page = 
   const skip = (page - 1) * limit;
   
   const notifications = await this.find({ toUser: userId })
-    .populate('fromUser', 'fullName profilePic email')
-    .populate('post', 'imageUrl caption')
+    .populate('fromUser', 'fullName profilePic profilePicStorageKey email')
+    .populate('post', 'imageUrl caption storageKey storageKeys thumbnailUrl type')
     .populate('comment', 'text')
     .sort({ createdAt: -1 })
     .skip(skip)

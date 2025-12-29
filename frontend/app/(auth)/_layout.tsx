@@ -28,6 +28,7 @@ export default function AuthLayout() {
       <Stack.Screen name="signup" />
       <Stack.Screen name="verifyOtp" />
       <Stack.Screen name="forgot" />
+      <Stack.Screen name="reset-password" />
     </Stack>
   );
 }

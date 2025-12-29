@@ -96,6 +96,21 @@ function RootLayoutInner() {
   // Apply web optimizations
   useWebOptimizations();
 
+  // Load Poppins font for web (elegant font for auth pages)
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      // Check if Poppins font is already loaded
+      const existingLink = document.querySelector('link[href*="fonts.googleapis.com"]');
+      if (!existingLink) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap';
+        document.head.appendChild(link);
+        logger.debug('Poppins font loaded for web');
+      }
+    }
+  }, []);
+
   // Global Audio Mode Setup (MANDATORY for iOS streaming)
   useEffect(() => {
     Audio.setAudioModeAsync({
@@ -321,7 +336,8 @@ function RootLayoutInner() {
                              normalizedPath.includes('signin') || 
                              normalizedPath.includes('signup') || 
                              normalizedPath.includes('verifyotp') || 
-                             normalizedPath.includes('forgot');
+                             normalizedPath.includes('forgot') ||
+                             normalizedPath.includes('reset-password');
       const isOnHomeScreen = normalizedPath.includes('(tabs)/home') || 
                              normalizedPath === '/(tabs)/home' || 
                              normalizedPath === '/home';

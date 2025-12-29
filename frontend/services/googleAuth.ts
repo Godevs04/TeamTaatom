@@ -10,7 +10,7 @@ import logger from '../utils/logger';
 const isWeb = Platform.OS === 'web';
 
 // Use proxy for local testing, fallback to configured redirect URI
-const REDIRECT_URI = AuthSession.makeRedirectUri({ useProxy: true }) || GOOGLE_REDIRECT_URI;
+const REDIRECT_URI = AuthSession.makeRedirectUri({scheme: 'taatom'}) || GOOGLE_REDIRECT_URI;
 
 interface GoogleAuthResponse {
   message: string;
@@ -37,7 +37,6 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       extraParams: {
         access_type: 'offline',
       },
-      additionalParameters: {},
     });
 
     // Make the authentication request
