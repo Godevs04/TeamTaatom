@@ -117,7 +117,7 @@ const Locales = () => {
     country: '',
     countryCode: '',
     stateProvince: '',
-    stateCode: '',
+    city: '',
     description: '',
     displayOrder: '0',
     spotTypes: [],
@@ -129,7 +129,7 @@ const Locales = () => {
     country: '',
     countryCode: '',
     stateProvince: '',
-    stateCode: '',
+    city: '',
     description: '',
     displayOrder: '0',
     spotTypes: [],
@@ -286,7 +286,7 @@ const Locales = () => {
           country: locale.country,
           countryCode: locale.countryCode,
           stateProvince: locale.stateProvince,
-          stateCode: locale.stateCode,
+          city: locale.city,
           displayOrder: locale.displayOrder,
           createdAt: locale.createdAt,
           isActive: locale.isActive,
@@ -496,7 +496,7 @@ const Locales = () => {
             country: locale.country,
             countryCode: locale.countryCode,
             stateProvince: locale.stateProvince,
-            stateCode: locale.stateCode,
+            city: locale.city,
             displayOrder: locale.displayOrder,
             createdAt: locale.createdAt,
             isActive: locale.isActive,
@@ -626,7 +626,7 @@ const Locales = () => {
             country: locale.country,
             countryCode: locale.countryCode,
             stateProvince: locale.stateProvince,
-            stateCode: locale.stateCode,
+            city: locale.city,
             displayOrder: locale.displayOrder,
             createdAt: locale.createdAt,
             isActive: locale.isActive,
@@ -842,17 +842,23 @@ const Locales = () => {
       return
     }
 
+    // Validate city (required)
+    const city = sanitizeText(formData.city).trim()
+    if (!city || city.length === 0) {
+      toast.error('City is required and must be between 1 and 50 characters')
+      return
+    }
+    if (city.length > 50) {
+      toast.error('City must be less than 50 characters')
+      return
+    }
+    
     // Validate optional fields
     const stateProvince = formData.stateProvince ? sanitizeText(formData.stateProvince).trim() : ''
-    const stateCode = formData.stateCode ? sanitizeText(formData.stateCode).trim() : ''
     const description = formData.description ? sanitizeText(formData.description).trim() : ''
     
     if (stateProvince && stateProvince.length > 200) {
       toast.error('State/Province must be less than 200 characters')
-      return
-    }
-    if (stateCode && stateCode.length > 50) {
-      toast.error('State code must be less than 50 characters')
       return
     }
     if (description && description.length > 1000) {
@@ -874,11 +880,9 @@ const Locales = () => {
       uploadFormData.append('name', name.trim())
       uploadFormData.append('country', country.trim())
       uploadFormData.append('countryCode', countryCode)
+      uploadFormData.append('city', city)
       if (stateProvince) {
         uploadFormData.append('stateProvince', stateProvince)
-      }
-      if (stateCode) {
-        uploadFormData.append('stateCode', stateCode)
       }
       if (description) {
         uploadFormData.append('description', description)
@@ -902,7 +906,7 @@ const Locales = () => {
           country: '', 
           countryCode: '', 
           stateProvince: '', 
-          stateCode: '', 
+          city: '', 
           description: '', 
           displayOrder: '0',
           spotTypes: [],
@@ -1135,8 +1139,33 @@ const Locales = () => {
     // The optimistic updates already handle the UI, and cache is synced above
   }, [selectedLocales, locales])
 
-  const handlePreview = (locale) => {
-    setPreviewLocale(locale)
+  const handlePreview = async (locale) => {
+    // Fetch full locale data to ensure we have all fields (description, spotTypes, travelInfo, updatedAt, city)
+    try {
+      const fullLocale = await getLocaleById(locale._id)
+      setPreviewLocale({
+        ...locale,
+        ...fullLocale,
+        city: fullLocale.city || locale.city || '',
+        description: fullLocale.description || locale.description || null,
+        spotTypes: Array.isArray(fullLocale.spotTypes) && fullLocale.spotTypes.length > 0 
+          ? fullLocale.spotTypes 
+          : (Array.isArray(locale.spotTypes) && locale.spotTypes.length > 0 ? locale.spotTypes : []),
+        travelInfo: fullLocale.travelInfo || locale.travelInfo || 'Drivable',
+        updatedAt: fullLocale.updatedAt || locale.updatedAt || null
+      })
+    } catch (error) {
+      logger.error('Error fetching locale details for preview:', error)
+      // Fallback to locale data from list
+      setPreviewLocale({
+        ...locale,
+        city: locale.city || '',
+        description: locale.description || null,
+        spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes : [],
+        travelInfo: locale.travelInfo || 'Drivable',
+        updatedAt: locale.updatedAt || null
+      })
+    }
     setShowPreviewModal(true)
   }
 
@@ -1151,7 +1180,7 @@ const Locales = () => {
         country: fullLocale.country || locale.country || '',
         countryCode: fullLocale.countryCode || locale.countryCode || '',
         stateProvince: fullLocale.stateProvince || locale.stateProvince || '',
-        stateCode: fullLocale.stateCode || locale.stateCode || '',
+        city: fullLocale.city || locale.city || '',
         description: fullLocale.description || locale.description || '',
         displayOrder: (fullLocale.displayOrder !== undefined ? fullLocale.displayOrder : locale.displayOrder) ? (fullLocale.displayOrder !== undefined ? fullLocale.displayOrder : locale.displayOrder).toString() : '0',
         spotTypes: Array.isArray(fullLocale.spotTypes) && fullLocale.spotTypes.length > 0 
@@ -1167,7 +1196,7 @@ const Locales = () => {
         country: locale.country || '',
         countryCode: locale.countryCode || '',
         stateProvince: locale.stateProvince || '',
-        stateCode: locale.stateCode || '',
+        city: locale.city || '',
         description: locale.description || '',
         displayOrder: locale.displayOrder ? locale.displayOrder.toString() : '0',
         spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes : [],
@@ -1212,17 +1241,23 @@ const Locales = () => {
       return
     }
 
+    // Validate city (required)
+    const city = sanitizeText(editFormData.city).trim()
+    if (!city || city.length === 0) {
+      toast.error('City is required and must be between 1 and 50 characters')
+      return
+    }
+    if (city.length > 50) {
+      toast.error('City must be less than 50 characters')
+      return
+    }
+    
     // Validate optional fields
     const stateProvince = editFormData.stateProvince ? sanitizeText(editFormData.stateProvince).trim() : ''
-    const stateCode = editFormData.stateCode ? sanitizeText(editFormData.stateCode).trim() : ''
     const description = editFormData.description ? sanitizeText(editFormData.description).trim() : ''
     
     if (stateProvince && stateProvince.length > 200) {
       toast.error('State/Province must be less than 200 characters')
-      return
-    }
-    if (stateCode && stateCode.length > 50) {
-      toast.error('State code must be less than 50 characters')
       return
     }
     if (description && description.length > 1000) {
@@ -1251,11 +1286,7 @@ const Locales = () => {
         updateData.stateProvince = '' // Explicitly set empty string for optional fields
       }
       
-      if (stateCode) {
-        updateData.stateCode = stateCode
-      } else {
-        updateData.stateCode = '' // Explicitly set empty string for optional fields
-      }
+      updateData.city = city
       
       if (description) {
         updateData.description = description
@@ -1301,7 +1332,7 @@ const Locales = () => {
           country: '', 
           countryCode: '', 
           stateProvince: '', 
-          stateCode: '', 
+          city: '', 
           description: '', 
           displayOrder: '0',
           spotTypes: [],
@@ -2052,15 +2083,17 @@ const Locales = () => {
 
               <div className="space-y-2.5">
                 <label className="block text-sm font-semibold text-gray-800">
-                  State Code <span className="text-gray-500 text-xs font-normal">(Optional)</span>
+                  City <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={formData.stateCode}
-                  onChange={(e) => setFormData({ ...formData, stateCode: e.target.value })}
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                   className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
-                  placeholder="State code"
+                  placeholder="City"
                   maxLength={50}
+                  minLength={1}
+                  required
                 />
               </div>
             </div>
@@ -2225,7 +2258,7 @@ const Locales = () => {
           country: '', 
           countryCode: '', 
           stateProvince: '', 
-          stateCode: '', 
+          city: '', 
           description: '', 
           displayOrder: '0',
           spotTypes: [],
@@ -2238,7 +2271,7 @@ const Locales = () => {
             country: '', 
             countryCode: '', 
             stateProvince: '', 
-            stateCode: '', 
+            city: '', 
             description: '', 
             displayOrder: '0' 
           })
@@ -2335,15 +2368,17 @@ const Locales = () => {
 
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
-                  State Code <span className="text-gray-400 text-xs">Optional</span>
+                  City <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={editFormData.stateCode}
-                  onChange={(e) => setEditFormData({ ...editFormData, stateCode: sanitizeText(e.target.value) })}
+                  value={editFormData.city}
+                  onChange={(e) => setEditFormData({ ...editFormData, city: sanitizeText(e.target.value) })}
                   className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  placeholder="State code"
+                  placeholder="City"
                   maxLength={50}
+                  minLength={1}
+                  required
                 />
               </div>
             </div>
@@ -2446,7 +2481,7 @@ const Locales = () => {
                     country: '', 
                     countryCode: '', 
                     stateProvince: '', 
-                    stateCode: '', 
+                    city: '', 
                     description: '', 
                     displayOrder: '0',
                     spotTypes: [],
@@ -2459,7 +2494,7 @@ const Locales = () => {
                   country: '', 
                   countryCode: '', 
                   stateProvince: '', 
-                  stateCode: '', 
+                  city: '', 
                   description: '', 
                   displayOrder: '0',
                   spotTypes: [],
@@ -2604,6 +2639,7 @@ const Locales = () => {
         <ModalContent>
           {previewLocale && (
             <div className="space-y-6">
+              {/* Header Section with Image */}
               <div className="text-center p-8 bg-gradient-to-br from-green-50 to-teal-50 rounded-xl">
                 {previewLocale.imageUrl && (
                   <img 
@@ -2614,30 +2650,80 @@ const Locales = () => {
                 )}
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{previewLocale.name}</h3>
                 <p className="text-gray-600 mb-4">{previewLocale.country}</p>
-                <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
+                <div className="flex items-center justify-center gap-3 flex-wrap text-sm">
                   <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full font-semibold">
                     {previewLocale.countryCode}
                   </span>
                   {previewLocale.stateProvince && (
-                    <span>{previewLocale.stateProvince}</span>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full">
+                      {previewLocale.stateProvince}
+                    </span>
                   )}
-                  <span className="flex items-center gap-1">
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">
+                    {previewLocale.city || 'Not specified'}
+                  </span>
+                  <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full">
                     Order: {previewLocale.displayOrder || 0}
                   </span>
                 </div>
               </div>
-              {previewLocale.description && (
+
+              {/* Description - Always show */}
+              <div className="p-4 bg-gray-50 rounded-xl">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Description</p>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  {previewLocale.description || <span className="text-gray-400 italic">No description provided</span>}
+                </p>
+              </div>
+
+              {/* Additional Details Grid - Always show */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Spot Types */}
+                <div className="p-4 bg-blue-50 rounded-xl">
+                  <p className="text-sm font-semibold text-gray-700 mb-2">Spot Types</p>
+                  {previewLocale.spotTypes && Array.isArray(previewLocale.spotTypes) && previewLocale.spotTypes.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {previewLocale.spotTypes.map((type, index) => (
+                        <span key={index} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                          {type}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic">No spot types specified</p>
+                  )}
+                </div>
+
+                {/* Travel Info */}
+                <div className="p-4 bg-green-50 rounded-xl">
+                  <p className="text-sm font-semibold text-gray-700 mb-2">Travel Info</p>
+                  {previewLocale.travelInfo ? (
+                    <span className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                      {previewLocale.travelInfo === 'Drivable' && '🚗'}
+                      {previewLocale.travelInfo === 'Walkable' && '🚶'}
+                      {previewLocale.travelInfo === 'Flyable' && '✈️'}
+                      {previewLocale.travelInfo}
+                    </span>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic">Not specified</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Metadata Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                 <div className="p-4 bg-gray-50 rounded-xl">
-                  <p className="text-sm text-gray-700">{previewLocale.description}</p>
+                  <p className="text-gray-500 mb-1 font-medium">Created Date</p>
+                  <p className="font-semibold text-gray-900">{formatDate(previewLocale.createdAt)}</p>
                 </div>
-              )}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-500 mb-1">Created Date</p>
-                  <p className="font-medium text-gray-900">{formatDate(previewLocale.createdAt)}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500 mb-1">Status</p>
+                {previewLocale.updatedAt && (
+                  <div className="p-4 bg-gray-50 rounded-xl">
+                    <p className="text-gray-500 mb-1 font-medium">Updated Date</p>
+                    <p className="font-semibold text-gray-900">{formatDate(previewLocale.updatedAt)}</p>
+                  </div>
+                )}
+                <div className="p-4 bg-gray-50 rounded-xl">
+                  <p className="text-gray-500 mb-1 font-medium">Status</p>
                   <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
                     previewLocale.isActive
                       ? 'bg-green-100 text-green-700'
