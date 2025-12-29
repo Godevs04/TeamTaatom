@@ -95,7 +95,7 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
             <p>Enter this code in the Taatom app to verify your account and start sharing your amazing photos with the world!</p>
             
             <div class="footer">
-              <p>If you have any questions, contact us at support@taatom.com</p>
+              <p>If you have any questions, contact us at contact@taatom.com</p>
               <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
@@ -212,7 +212,7 @@ const sendWelcomeEmail = async (email, fullName) => {
             </p>
             
             <div class="footer">
-              <p>If you need help getting started, contact us at support@taatom.com</p>
+              <p>If you need help getting started, contact us at contact@taatom.com</p>
               <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
@@ -234,7 +234,7 @@ const sendWelcomeEmail = async (email, fullName) => {
 const sendForgotPasswordMail = async (email, token, fullName) => {
   try {
     const subject = '🔐 Taatom Password Reset Code';
-      html: `
+    const html = `
       <!DOCTYPE html>
       <html lang="en">
       <head>
@@ -242,34 +242,308 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Password Reset Code</title>
         <style>
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f4; color: #333; }
-          .container { background: #fff; border-radius: 10px; max-width: 500px; margin: 40px auto; padding: 32px; box-shadow: 0 0 20px rgba(0,0,0,0.08); }
-          .logo { font-size: 32px; font-weight: bold; color: #4A90E2; text-align: center; margin-bottom: 10px; }
-          .header { text-align: center; margin-bottom: 24px; }
-          .code-box { background: linear-gradient(135deg, #4A90E2, #50C878); color: #fff; padding: 24px; border-radius: 10px; text-align: center; margin: 32px 0; }
-          .reset-code { font-size: 36px; font-weight: bold; letter-spacing: 8px; margin: 10px 0; }
-          .footer { text-align: center; margin-top: 32px; color: #666; font-size: 14px; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #222; 
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px;
+            line-height: 1.6;
+          }
+          .email-wrapper {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+          }
+          .header-gradient {
+            background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+            padding: 40px 32px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+          }
+          .header-gradient::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 3s ease-in-out infinite;
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+          }
+          .logo-container {
+            position: relative;
+            z-index: 1;
+          }
+          .logo-img {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 16px;
+            display: block;
+            border-radius: 20px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px;
+          }
+          .logo-text {
+            font-size: 36px;
+            font-weight: 800;
+            color: #ffffff;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            letter-spacing: -0.5px;
+          }
+          .content {
+            padding: 48px 40px;
+            background: #ffffff;
+          }
+          .headline {
+            text-align: center;
+            font-size: 32px;
+            font-weight: 800;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+          .greeting {
+            text-align: center;
+            font-size: 20px;
+            font-weight: 600;
+            color: #4A90E2;
+            margin-bottom: 24px;
+          }
+          .message-box {
+            background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 100%);
+            border-left: 4px solid #4A90E2;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 32px 0;
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.08);
+          }
+          .message {
+            font-size: 16px;
+            color: #333;
+            line-height: 1.8;
+            margin-bottom: 16px;
+          }
+          .message strong {
+            color: #4A90E2;
+            font-weight: 600;
+          }
+          .otp-container {
+            text-align: center;
+            margin: 40px 0;
+          }
+          .otp-label {
+            font-size: 14px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 600;
+          }
+          .otp-box {
+            background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+            border-radius: 16px;
+            padding: 32px 24px;
+            margin: 24px auto;
+            max-width: 400px;
+            box-shadow: 0 12px 32px rgba(74, 144, 226, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+          }
+          .otp-box::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+            animation: shimmer 2s ease-in-out infinite;
+          }
+          @keyframes shimmer {
+            0%, 100% { opacity: 0.3; transform: translate(-50%, -50%) rotate(0deg); }
+            50% { opacity: 0.6; transform: translate(-50%, -50%) rotate(180deg); }
+          }
+          .otp-code {
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: 12px;
+            color: #ffffff;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            position: relative;
+            z-index: 1;
+            font-family: 'Courier New', monospace;
+            margin: 16px 0;
+          }
+          .otp-expiry {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            margin-top: 12px;
+            position: relative;
+            z-index: 1;
+          }
+          .security-notice {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 32px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+          }
+          .security-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+          }
+          .security-text {
+            font-size: 14px;
+            color: #856404;
+            line-height: 1.6;
+          }
+          .security-text strong {
+            color: #856404;
+            font-weight: 600;
+          }
+          .instructions-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 32px 0;
+          }
+          .instructions-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #4A90E2;
+            margin-bottom: 12px;
+          }
+          .instructions-list {
+            list-style: none;
+            padding: 0;
+          }
+          .instructions-list li {
+            padding: 8px 0;
+            padding-left: 24px;
+            position: relative;
+            color: #333;
+            font-size: 14px;
+            line-height: 1.6;
+          }
+          .instructions-list li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #50C878;
+            font-weight: bold;
+            font-size: 16px;
+          }
+          .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, #e0e0e0 50%, transparent 100%);
+            margin: 40px 0;
+          }
+          .footer {
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+            padding: 24px 40px;
+            background: #f8f9fa;
+          }
+          .footer-links {
+            margin-bottom: 12px;
+          }
+          .footer-link {
+            color: #4A90E2;
+            text-decoration: none;
+            font-weight: 500;
+            margin: 0 8px;
+          }
+          .footer-link:hover {
+            text-decoration: underline;
+          }
+          .footer-copyright {
+            color: #999;
+            font-size: 12px;
+            margin-top: 12px;
+          }
+          @media only screen and (max-width: 600px) {
+            .content { padding: 32px 24px; }
+            .header-gradient { padding: 32px 24px; }
+            .headline { font-size: 26px; }
+            .otp-code { font-size: 36px; letter-spacing: 8px; }
+            .footer { padding: 20px 24px; }
+          }
         </style>
       </head>
       <body>
-        <div class="container">
-          <div class="logo">📸 Taatom</div>
-          <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
-          <div class="header">
-            <h2>Password Reset Request</h2>
-            <p>Hi ${fullName},</p>
-            <p>We received a request to reset your Taatom account password.</p>
+        <div class="email-wrapper">
+          <div class="header-gradient">
+            <div class="logo-container">
+              <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" class="logo-img" />
+              <div class="logo-text">Taatom</div>
+            </div>
           </div>
-          <div class="code-box">
-            <h3>Your Password Reset Code</h3>
-            <div class="reset-code">${token}</div>
-            <p>This code will expire in 10 minutes.</p>
-          </div>
-          <p style="text-align:center;">Enter this code in the Taatom app to reset your password.</p>
-          <div class="footer">
-            <p>If you did not request this, you can safely ignore this email.</p>
-            <p>Need help? Contact us at support@taatom.com</p>
-            <p>&copy; 2026 Taatom. All rights reserved.</p>
+          
+          <div class="content">
+            <h1 class="headline">Password Reset Request</h1>
+            <p class="greeting">Hi ${fullName},</p>
+            
+            <div class="message-box">
+              <p class="message">
+                We received a request to reset your Taatom account password. Use the code below to complete the reset process.
+              </p>
+            </div>
+            
+            <div class="otp-container">
+              <div class="otp-label">Your Password Reset Code</div>
+              <div class="otp-box">
+                <div class="otp-code">${token}</div>
+                <div class="otp-expiry">⏱️ This code expires in 30 minutes</div>
+              </div>
+            </div>
+            
+            <div class="instructions-box">
+              <div class="instructions-title">📱 How to use this code:</div>
+              <ul class="instructions-list">
+                <li>Open the Taatom app on your device</li>
+                <li>Navigate to the Reset Password page</li>
+                <li>Enter your email address and this 6-digit code</li>
+                <li>Create your new secure password</li>
+              </ul>
+            </div>
+            
+            <div class="security-notice">
+              <div class="security-icon">⚠️</div>
+              <div class="security-text">
+                <strong>Security Notice:</strong> Never share this code with anyone. Taatom will never ask for your password reset code via phone, email, or any other method. If you did not request this password reset, please ignore this email and contact our support team immediately.
+              </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div class="footer">
+              <div class="footer-links">
+                Need help? <a href="mailto:contact@taatom.com" class="footer-link">contact@taatom.com</a>
+              </div>
+              <div class="footer-copyright">
+                &copy; 2026 Taatom. All rights reserved.<br>
+                This is an automated security notification. Please do not reply to this email.
+              </div>
+            </div>
           </div>
         </div>
       </body>
@@ -289,7 +563,7 @@ const sendForgotPasswordMail = async (email, token, fullName) => {
 const sendPasswordResetConfirmationEmail = async (email, fullName) => {
   try {
     const subject = '✅ Your Taatom Password Has Been Reset';
-      html: `
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -297,37 +571,311 @@ const sendPasswordResetConfirmationEmail = async (email, fullName) => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>Password Reset Confirmation</title>
           <style>
-            body { background: #f4f8fb; color: #222; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; }
-            .container { background: #fff; border-radius: 16px; max-width: 480px; margin: 48px auto; padding: 40px 32px 32px 32px; box-shadow: 0 8px 32px rgba(74,144,226,0.10), 0 1.5px 6px rgba(80,200,120,0.08); }
-            .logo { font-size: 32px; font-weight: bold; color: #4A90E2; text-align: center; margin-bottom: 8px; }
-            .success-icon { text-align: center; margin-bottom: 18px; }
-            .success-icon span { display: inline-block; background: linear-gradient(135deg, #4A90E2, #50C878); border-radius: 50%; width: 64px; height: 64px; line-height: 64px; font-size: 36px; color: #fff; }
-            .headline { text-align: center; font-size: 26px; font-weight: 700; color: #222; margin-bottom: 8px; }
-            .greeting { text-align: center; font-size: 18px; color: #4A90E2; margin-bottom: 18px; }
-            .message { text-align: center; font-size: 16px; color: #333; margin-bottom: 24px; }
-            .divider { border-top: 1px solid #e6eaf0; margin: 32px 0 16px 0; }
-            .footer { text-align: center; color: #888; font-size: 13px; margin-top: 8px; }
-            .support { color: #4A90E2; text-decoration: none; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: #222; 
+              font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', Arial, sans-serif; 
+              margin: 0; 
+              padding: 20px;
+              line-height: 1.6;
+            }
+            .email-wrapper {
+              max-width: 600px;
+              margin: 0 auto;
+              background: #ffffff;
+              border-radius: 24px;
+              overflow: hidden;
+              box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            }
+            .header-gradient {
+              background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+              padding: 40px 32px;
+              text-align: center;
+              position: relative;
+              overflow: hidden;
+            }
+            .header-gradient::before {
+              content: '';
+              position: absolute;
+              top: -50%;
+              left: -50%;
+              width: 200%;
+              height: 200%;
+              background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+              animation: pulse 3s ease-in-out infinite;
+            }
+            @keyframes pulse {
+              0%, 100% { opacity: 0.3; transform: scale(1); }
+              50% { opacity: 0.5; transform: scale(1.1); }
+            }
+            .logo-container {
+              position: relative;
+              z-index: 1;
+            }
+            .logo-img {
+              width: 100px;
+              height: 100px;
+              margin: 0 auto 16px;
+              display: block;
+              border-radius: 20px;
+              box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+              background: rgba(255, 255, 255, 0.2);
+              padding: 8px;
+            }
+            .logo-text {
+              font-size: 36px;
+              font-weight: 800;
+              color: #ffffff;
+              text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+              letter-spacing: -0.5px;
+            }
+            .content {
+              padding: 48px 40px;
+              background: #ffffff;
+            }
+            .success-badge {
+              text-align: center;
+              margin-bottom: 32px;
+            }
+            .success-icon-wrapper {
+              display: inline-block;
+              width: 80px;
+              height: 80px;
+              background: linear-gradient(135deg, #50C878 0%, #4A90E2 100%);
+              border-radius: 50%;
+              position: relative;
+              box-shadow: 0 8px 24px rgba(74, 144, 226, 0.3);
+              margin-bottom: 24px;
+            }
+            .success-icon-wrapper::after {
+              content: '';
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              width: 60px;
+              height: 60px;
+              background: rgba(255, 255, 255, 0.2);
+              border-radius: 50%;
+            }
+            .success-check {
+              position: relative;
+              z-index: 2;
+              font-size: 42px;
+              line-height: 80px;
+              color: #ffffff;
+              text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            }
+            .headline {
+              text-align: center;
+              font-size: 32px;
+              font-weight: 800;
+              color: #1a1a1a;
+              margin-bottom: 12px;
+              letter-spacing: -0.5px;
+              background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+              background-clip: text;
+            }
+            .greeting {
+              text-align: center;
+              font-size: 20px;
+              font-weight: 600;
+              color: #4A90E2;
+              margin-bottom: 24px;
+            }
+            .message-box {
+              background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 100%);
+              border-left: 4px solid #4A90E2;
+              border-radius: 12px;
+              padding: 24px;
+              margin: 32px 0;
+              box-shadow: 0 4px 12px rgba(74, 144, 226, 0.08);
+            }
+            .message {
+              font-size: 16px;
+              color: #333;
+              line-height: 1.8;
+              margin-bottom: 16px;
+            }
+            .message strong {
+              color: #4A90E2;
+              font-weight: 600;
+            }
+            .security-notice {
+              background: #fff3cd;
+              border: 2px solid #ffc107;
+              border-radius: 12px;
+              padding: 20px;
+              margin: 24px 0;
+              display: flex;
+              align-items: flex-start;
+              gap: 12px;
+            }
+            .security-icon {
+              font-size: 24px;
+              flex-shrink: 0;
+            }
+            .security-text {
+              font-size: 14px;
+              color: #856404;
+              line-height: 1.6;
+            }
+            .security-text strong {
+              color: #856404;
+              font-weight: 600;
+            }
+            .cta-section {
+              text-align: center;
+              margin: 40px 0;
+            }
+            .cta-button {
+              display: inline-block;
+              background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%);
+              color: #ffffff;
+              text-decoration: none;
+              padding: 16px 40px;
+              border-radius: 12px;
+              font-weight: 600;
+              font-size: 16px;
+              box-shadow: 0 8px 24px rgba(74, 144, 226, 0.3);
+              transition: transform 0.2s, box-shadow 0.2s;
+            }
+            .cta-button:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 12px 32px rgba(74, 144, 226, 0.4);
+            }
+            .divider {
+              height: 1px;
+              background: linear-gradient(90deg, transparent 0%, #e0e0e0 50%, transparent 100%);
+              margin: 40px 0;
+            }
+            .footer {
+              text-align: center;
+              color: #888;
+              font-size: 14px;
+              padding: 24px 40px;
+              background: #f8f9fa;
+            }
+            .footer-links {
+              margin-bottom: 12px;
+            }
+            .footer-link {
+              color: #4A90E2;
+              text-decoration: none;
+              font-weight: 500;
+              margin: 0 8px;
+            }
+            .footer-link:hover {
+              text-decoration: underline;
+            }
+            .footer-copyright {
+              color: #999;
+              font-size: 12px;
+              margin-top: 12px;
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 16px;
+              margin: 32px 0;
+            }
+            .info-item {
+              background: #f8f9fa;
+              border-radius: 12px;
+              padding: 20px;
+              text-align: center;
+            }
+            .info-icon {
+              font-size: 32px;
+              margin-bottom: 8px;
+            }
+            .info-label {
+              font-size: 12px;
+              color: #666;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 4px;
+            }
+            .info-value {
+              font-size: 16px;
+              font-weight: 600;
+              color: #4A90E2;
+            }
+            @media only screen and (max-width: 600px) {
+              .content { padding: 32px 24px; }
+              .header-gradient { padding: 32px 24px; }
+              .headline { font-size: 26px; }
+              .info-grid { grid-template-columns: 1fr; }
+              .footer { padding: 20px 24px; }
+            }
           </style>
         </head>
         <body>
-          <div class="container">
-            <div class="logo">📸 Taatom</div>
-            <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" style="width:80px;height:80px;margin-bottom:8px;display:block;margin-left:auto;margin-right:auto;object-fit:contain;" />
-            <div class="success-icon">
-              <span>✔️</span>
+          <div class="email-wrapper">
+            <div class="header-gradient">
+              <div class="logo-container">
+                <img src="${process.env.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png'}" alt="Taatom Logo" class="logo-img" />
+                <div class="logo-text">Taatom</div>
+              </div>
             </div>
-            <div class="headline">Password Reset Successful</div>
-            <div class="greeting">Hi ${fullName},</div>
-            <div class="message">
-              Your password for your Taatom account has been <b>securely reset</b>.<br>
-              You can now sign in with your new password.<br><br>
-              If you did <b>not</b> request this change, please <a href="mailto:support@taatom.com" class="support">contact our support team</a> immediately.
-            </div>
-            <div class="divider"></div>
-            <div class="footer">
-              &copy; 2026 Taatom. All rights reserved.<br>
-              Need help? <a href="mailto:support@taatom.com" class="support">support@taatom.com</a>
+            
+            <div class="content">
+              <div class="success-badge">
+                <div class="success-icon-wrapper">
+                  <div class="success-check">✓</div>
+                </div>
+              </div>
+              
+              <h1 class="headline">Password Reset Successful</h1>
+              <p class="greeting">Hi ${fullName},</p>
+              
+              <div class="message-box">
+                <p class="message">
+                  Great news! Your Taatom account password has been <strong>securely reset</strong>.
+                </p>
+                <p class="message">
+                  You can now sign in to your account using your new password and continue exploring amazing travel destinations.
+                </p>
+              </div>
+              
+              <div class="info-grid">
+                <div class="info-item">
+                  <div class="info-icon">🔒</div>
+                  <div class="info-label">Account Status</div>
+                  <div class="info-value">Secure</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-icon">✅</div>
+                  <div class="info-label">Action</div>
+                  <div class="info-value">Completed</div>
+                </div>
+              </div>
+              
+              <div class="security-notice">
+                <div class="security-icon">⚠️</div>
+                <div class="security-text">
+                  <strong>Security Notice:</strong> If you did <strong>not</strong> request this password reset, please contact our support team immediately to secure your account.
+                </div>
+              </div>
+              
+              <div class="cta-section">
+                <a href="#" class="cta-button" style="color: #ffffff; text-decoration: none;">Sign In to Your Account</a>
+              </div>
+              
+              <div class="divider"></div>
+              
+              <div class="footer">
+                <div class="footer-links">
+                  Need help? <a href="mailto:contact@taatom.com" class="footer-link">contact@taatom.com</a>
+                </div>
+                <div class="footer-copyright">
+                  &copy; 2026 Taatom. All rights reserved.<br>
+                  This is an automated security notification. Please do not reply to this email.
+                </div>
+              </div>
             </div>
           </div>
         </body>
@@ -371,7 +919,7 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
           </div>
           <p style="font-size: 15px;">
             If this was you, you can safely ignore this email.<br>
-            If you did <b>not</b> sign in, please <a href="mailto:support@taatom.com" style="color: #4A90E2;">contact support</a> immediately and consider changing your password.
+            If you did <b>not</b> sign in, please <a href="mailto:contact@taatom.com" style="color: #4A90E2;">contact support</a> immediately and consider changing your password.
           </p>
           <p style="color: #888; font-size: 13px; margin-top: 32px;">&copy; 2026 Taatom. All rights reserved.</p>
         </div>
@@ -480,7 +1028,7 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
             <p>Enter this code in the SuperAdmin dashboard to complete your login.</p>
             
             <div class="footer">
-              <p>If you have any questions, contact us at support@taatom.com</p>
+              <p>If you have any questions, contact us at contact@taatom.com</p>
               <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>

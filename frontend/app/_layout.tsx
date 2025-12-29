@@ -336,7 +336,8 @@ function RootLayoutInner() {
                              normalizedPath.includes('signin') || 
                              normalizedPath.includes('signup') || 
                              normalizedPath.includes('verifyotp') || 
-                             normalizedPath.includes('forgot');
+                             normalizedPath.includes('forgot') ||
+                             normalizedPath.includes('reset-password');
       const isOnHomeScreen = normalizedPath.includes('(tabs)/home') || 
                              normalizedPath === '/(tabs)/home' || 
                              normalizedPath === '/home';
