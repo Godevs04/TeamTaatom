@@ -16,6 +16,8 @@ import {
   ScrollView,
   Platform,
   KeyboardAvoidingView,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -410,6 +412,7 @@ export default function LocaleScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
+  const [calculatingDistances, setCalculatingDistances] = useState(false);
   const [activeTab, setActiveTab] = useState<'locale' | 'saved'>('locale');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -776,6 +779,12 @@ export default function LocaleScreen() {
         // Fetch real coordinates from Google Geocoding API for accurate distance calculation
         // This replaces city center coordinates with actual tourist spot coordinates
         if (userLocation && locationPermissionGranted) {
+          // Show elegant loading animation while calculating distances
+          if (__DEV__) {
+            console.log('🚀 Starting distance calculation - showing travel loading overlay');
+          }
+          setCalculatingDistances(true);
+          
           // Fetch real coordinates for all locales (with fallback to existing coordinates)
           // Use caching to avoid repeated API calls
           // Fetch real coordinates and calculate distances
@@ -844,7 +853,10 @@ export default function LocaleScreen() {
             })
           );
           
-          if (!isMountedRef.current) return;
+          if (!isMountedRef.current) {
+            setCalculatingDistances(false);
+            return;
+          }
           
           // Always use the updated locales with distances
           if (forceRefresh || currentPageRef.current === 1) {
@@ -857,6 +869,12 @@ export default function LocaleScreen() {
               return Array.from(localeMap.values());
             });
           }
+          
+          // Hide loading animation after distances are calculated
+          if (__DEV__) {
+            console.log('✅ Distance calculation complete - hiding travel loading overlay');
+          }
+          setCalculatingDistances(false);
         } else {
           // No user location, just set locales as is
           if (forceRefresh || currentPageRef.current === 1) {
@@ -879,16 +897,19 @@ export default function LocaleScreen() {
     } catch (error: any) {
       if (error.name === 'AbortError') {
         logger.debug('loadAdminLocales aborted');
+        setCalculatingDistances(false);
         return;
       }
       if (!isMountedRef.current) return;
       logger.error('Failed to load admin locales', error);
       setAdminLocales([]);
       setFilteredLocales([]);
+      setCalculatingDistances(false); // Hide loading overlay on error
     } finally {
       if (isMountedRef.current) {
         setLoadingLocales(false);
         setLoading(false);
+        setCalculatingDistances(false); // Ensure loading overlay is hidden
       }
       isSearchingRef.current = false;
     }
@@ -2217,7 +2238,297 @@ export default function LocaleScreen() {
     </View>
   );
 
-  if (loading) {
+  // Elegant travel-themed loading animation component
+  const TravelLoadingOverlay = () => {
+    const rotateAnim = useRef(new Animated.Value(0)).current;
+    const pulseAnim = useRef(new Animated.Value(0)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const floatAnim = useRef(new Animated.Value(0)).current;
+    const globeRotateAnim = useRef(new Animated.Value(0)).current;
+    const shimmerAnim = useRef(new Animated.Value(0)).current;
+    const dot1Anim = useRef(new Animated.Value(0)).current;
+    const dot2Anim = useRef(new Animated.Value(0)).current;
+    const dot3Anim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      if (calculatingDistances) {
+        // Start all animations immediately
+        Animated.parallel([
+          // Fade in
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          // Continuous airplane rotation
+          Animated.loop(
+            Animated.timing(rotateAnim, {
+              toValue: 1,
+              duration: 4000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            })
+          ),
+          // Smooth pulsing
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(pulseAnim, {
+                toValue: 1,
+                duration: 1500,
+                easing: Easing.inOut(Easing.ease),
+                useNativeDriver: true,
+              }),
+              Animated.timing(pulseAnim, {
+                toValue: 0,
+                duration: 1500,
+                easing: Easing.inOut(Easing.ease),
+                useNativeDriver: true,
+              }),
+            ])
+          ),
+          // Floating animation
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(floatAnim, {
+                toValue: 1,
+                duration: 2000,
+                easing: Easing.inOut(Easing.ease),
+                useNativeDriver: true,
+              }),
+              Animated.timing(floatAnim, {
+                toValue: 0,
+                duration: 2000,
+                easing: Easing.inOut(Easing.ease),
+                useNativeDriver: true,
+              }),
+            ])
+          ),
+          // Globe rotation
+          Animated.loop(
+            Animated.timing(globeRotateAnim, {
+              toValue: 1,
+              duration: 8000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            })
+          ),
+          // Shimmer effect
+          Animated.loop(
+            Animated.timing(shimmerAnim, {
+              toValue: 1,
+              duration: 2000,
+              easing: Easing.linear,
+              useNativeDriver: true,
+            })
+          ),
+          // Animated dots with staggered delays
+          Animated.loop(
+            Animated.sequence([
+              Animated.parallel([
+                Animated.timing(dot1Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.delay(200),
+                Animated.timing(dot2Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.delay(400),
+                Animated.timing(dot3Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+              ]),
+              Animated.parallel([
+                Animated.timing(dot1Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.delay(200),
+                Animated.timing(dot2Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.delay(400),
+                Animated.timing(dot3Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+              ]),
+            ])
+          ),
+        ]).start();
+      } else {
+        // Fade out smoothly
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [calculatingDistances, rotateAnim, pulseAnim, fadeAnim, floatAnim, globeRotateAnim, shimmerAnim, dot1Anim, dot2Anim, dot3Anim]);
+
+    const rotation = rotateAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+    const scale = pulseAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 1.15],
+    });
+
+    const translateY = floatAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, -15],
+    });
+
+    const globeRotation = globeRotateAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+    const shimmerTranslate = shimmerAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-100, 100],
+    });
+
+    const shimmerOpacity = shimmerAnim.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [0, 0.3, 0],
+    });
+
+    const dot1Scale = dot1Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 1.3],
+    });
+
+    const dot1Opacity = dot1Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.4, 1],
+    });
+
+    const dot2Scale = dot2Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 1.3],
+    });
+
+    const dot2Opacity = dot2Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.4, 1],
+    });
+
+    const dot3Scale = dot3Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 1.3],
+    });
+
+    const dot3Opacity = dot3Anim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.4, 1],
+    });
+    
+    // Only render when calculating distances
+    if (!calculatingDistances) return null;
+
+    return (
+      <Animated.View
+        style={[
+          styles.travelLoadingOverlay,
+          {
+            opacity: fadeAnim,
+            backgroundColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)',
+          },
+        ]}
+        pointerEvents="box-none"
+      >
+        <LinearGradient
+          colors={mode === 'dark' 
+            ? ['rgba(30, 30, 30, 0.95)', 'rgba(20, 20, 30, 0.95)']
+            : ['rgba(255, 255, 255, 0.98)', 'rgba(245, 250, 255, 0.98)']}
+          style={styles.travelLoadingGradient}
+        >
+          <View style={styles.travelLoadingContent}>
+            {/* Main Icon Container with Multiple Animations */}
+            <Animated.View
+              style={[
+                styles.travelIconContainer,
+                {
+                  transform: [
+                    { rotate: rotation },
+                    { scale },
+                    { translateY },
+                  ],
+                },
+              ]}
+            >
+              {/* Background Globe - Behind everything */}
+              <Animated.View
+                style={[
+                  styles.travelGlobeBackground,
+                  {
+                    transform: [{ rotate: globeRotation }],
+                    opacity: 0.12,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                <Ionicons name="earth" size={100} color={theme.colors.primary} />
+              </Animated.View>
+
+              {/* Icon Wrapper with Shimmer */}
+              <View style={styles.travelIconWrapper}>
+                {/* Shimmer Effect */}
+                <Animated.View
+                  style={[
+                    styles.travelShimmer,
+                    {
+                      transform: [{ translateX: shimmerTranslate }],
+                      opacity: shimmerOpacity,
+                    },
+                  ]}
+                  pointerEvents="none"
+                />
+                
+                {/* Airplane Icon */}
+                <Ionicons name="airplane" size={56} color={theme.colors.primary} style={styles.travelAirplaneIcon} />
+              </View>
+            </Animated.View>
+
+            {/* Animated Dots */}
+            <View style={styles.travelDotsContainer}>
+              <Animated.View
+                style={[
+                  styles.travelDot,
+                  {
+                    transform: [{ scale: dot1Scale }],
+                    opacity: dot1Opacity,
+                    backgroundColor: theme.colors.primary,
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.travelDot,
+                  {
+                    transform: [{ scale: dot2Scale }],
+                    opacity: dot2Opacity,
+                    backgroundColor: theme.colors.primary,
+                  },
+                ]}
+              />
+              <Animated.View
+                style={[
+                  styles.travelDot,
+                  {
+                    transform: [{ scale: dot3Scale }],
+                    opacity: dot3Opacity,
+                    backgroundColor: theme.colors.primary,
+                  },
+                ]}
+              />
+            </View>
+
+            {/* Text Content */}
+            <View style={styles.travelTextContainer}>
+              <Text style={[styles.travelLoadingText, { color: theme.colors.text }]}>
+                Capturing the best locales for you
+              </Text>
+              <Text style={[styles.travelLoadingSubtext, { color: theme.colors.textSecondary }]}>
+                Calculating distances...
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </Animated.View>
+    );
+  };
+
+  if (loading && !calculatingDistances) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
@@ -2242,6 +2553,7 @@ export default function LocaleScreen() {
         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
+        <TravelLoadingOverlay />
       {/* Elegant Top Navigation */}
       <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
         <View style={styles.tabContainer}>
@@ -2650,6 +2962,122 @@ const createStyles = () => {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  travelLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 9999, // For Android
+  },
+  travelLoadingGradient: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  travelLoadingContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    borderRadius: 32,
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 12,
+    minWidth: 300,
+    maxWidth: 340,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  travelIconContainer: {
+    marginBottom: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+    position: 'relative',
+    width: 140,
+    height: 140,
+  },
+  travelGlobeBackground: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -50,
+    marginLeft: -50,
+    zIndex: 0,
+    width: 100,
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  travelIconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(74, 144, 226, 0.2)',
+    zIndex: 2,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  travelShimmer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 80,
+    height: 80,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 40,
+    zIndex: 1,
+  },
+  travelAirplaneIcon: {
+    zIndex: 3,
+    position: 'relative',
+  },
+  travelDotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    gap: 12,
+    zIndex: 2,
+  },
+  travelDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginHorizontal: 4,
+  },
+  travelTextContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  travelLoadingText: {
+    fontSize: 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  travelLoadingSubtext: {
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    textAlign: 'center',
+    opacity: 0.75,
+    letterSpacing: 0.2,
   },
   emptyContainer: {
     flex: 1,

@@ -388,6 +388,16 @@ export default function NotificationsScreen() {
                   styles.avatar,
                   { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
                 ]}
+                onError={(error) => {
+                  if (__DEV__) {
+                    logger.warn('Profile image failed to load:', {
+                      userId: item.fromUser?._id,
+                      url: item.fromUser?.profilePic?.substring(0, 80),
+                      error: error?.nativeEvent?.error?.message || 'Unknown'
+                    });
+                  }
+                }}
+                defaultSource={require('../assets/avatars/male_avatar.png')}
               />
             ) : (
               <View style={[
@@ -445,6 +455,16 @@ export default function NotificationsScreen() {
               <Image
                 source={{ uri: item.post.imageUrl }}
                 style={styles.postThumbnail}
+                resizeMode="cover"
+                onError={(error) => {
+                  if (__DEV__) {
+                    logger.warn('Post thumbnail failed to load:', {
+                      postId: item.post?._id,
+                      url: item.post?.imageUrl?.substring(0, 80),
+                      error: error?.nativeEvent?.error?.message || 'Unknown'
+                    });
+                  }
+                }}
               />
             </View>
           )}

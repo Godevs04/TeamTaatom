@@ -33,14 +33,17 @@ const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 
-// Elegant font families for each platform
+// Professional and elegant font families for each platform
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
   if (isWeb) {
-    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    // Use Poppins for elegant, modern look on web
+    return '"Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   }
   if (isIOS) {
+    // Use SF Pro Display for headings, SF Pro Text for body (System handles this)
     return 'System';
   }
+  // Android: Use Roboto (default) or custom elegant font
   return 'Roboto';
 };
 
@@ -276,17 +279,23 @@ const styles = StyleSheet.create({
   logoContainer: {
     width: isTablet ? 120 : 100,
     height: isTablet ? 120 : 100,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     borderRadius: theme.borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
-    ...theme.shadows.medium,
+    // Subtle backdrop blur effect for better logo visibility
+    ...(isWeb && {
+      backdropFilter: 'blur(10px)',
+      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    } as any),
   },
   logo: {
     width: isTablet ? 96 : 80,
     height: isTablet ? 96 : 80,
     resizeMode: 'contain' as const,
+    // Ensure logo blends with background
+    tintColor: undefined, // Remove any tint to show original colors
   },
   title: {
     fontSize: isTablet ? 56 : isWeb ? 52 : 48,
@@ -297,7 +306,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: isIOS ? -0.5 : 0,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       fontWeight: '700',
     }),
   },
@@ -309,7 +318,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.2,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       fontWeight: '400',
     }),
   },
@@ -340,7 +349,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       cursor: 'pointer',
     } as any),
   },
@@ -371,7 +380,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.3,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   footer: {
@@ -386,7 +395,7 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.body.fontSize,
     fontFamily: getFontFamily('400'),
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   linkText: {
@@ -395,7 +404,7 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       cursor: 'pointer',
     } as any),
   },
@@ -416,7 +425,7 @@ const styles = StyleSheet.create({
     marginHorizontal: theme.spacing.md,
     fontWeight: '500',
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   googleButton: {
@@ -445,7 +454,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
 });

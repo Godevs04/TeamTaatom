@@ -234,8 +234,8 @@ export default function PostDetail() {
   useFocusEffect(
     useCallback(() => {
       // Pause any audio playing from home feed when entering detail page
-      audioManager.pauseAll().catch(err => {
-        logger.error('Error pausing audio on focus:', err);
+      audioManager.stopAll().catch(err => {
+        logger.error('Error stopping audio on focus:', err);
       });
 
       // Refresh post data to sync with any changes from home page
