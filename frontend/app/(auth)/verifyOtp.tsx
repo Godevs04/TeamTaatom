@@ -29,14 +29,17 @@ const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 
-// Elegant font families for each platform
+// Professional and elegant font families for each platform
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
   if (isWeb) {
-    return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    // Use Poppins for elegant, modern look on web
+    return '"Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   }
   if (isIOS) {
+    // Use SF Pro Display for headings, SF Pro Text for body (System handles this)
     return 'System';
   }
+  // Android: Use Roboto (default) or custom elegant font
   return 'Roboto';
 };
 
@@ -314,7 +317,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.3,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   keyboardAvoid: {
@@ -358,7 +361,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: isIOS ? -0.3 : 0,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   subtitle: {
@@ -369,7 +372,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
     letterSpacing: 0.2,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   email: {
@@ -380,7 +383,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: theme.spacing.xs,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   spamReminder: {
@@ -399,7 +402,7 @@ const styles = StyleSheet.create({
     color: '#856404',
     textAlign: 'center',
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   form: {
@@ -418,7 +421,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.lg,
     letterSpacing: 0.1,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   otpInputContainer: {
@@ -441,7 +444,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceSecondary || theme.colors.surface,
     ...theme.shadows.small,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       outlineStyle: 'none',
     } as any),
   },
@@ -460,7 +463,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: theme.spacing.sm,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   verifyButton: {
@@ -491,7 +494,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.3,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   resendContainer: {
@@ -504,7 +507,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginBottom: theme.spacing.xs,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
   resendButton: {
@@ -517,7 +520,7 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: '600',
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       cursor: 'pointer',
     } as any),
   },
@@ -539,7 +542,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
     lineHeight: 18,
     ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
     }),
   },
 });

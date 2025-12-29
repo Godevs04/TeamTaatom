@@ -388,17 +388,8 @@ const googleSignIn = async (req, res) => {
 
 // @desc    Forgot password
 // @route   POST /auth/forgot-password
-// @access  Private
+// @access  Public
 const forgotPassword = async (req, res) => {
-  const isMobile = /iphone|android|ipad/i.test(req.headers['user-agent'] || "");
-
-  // Use environment variable for web reset URL, fallback to app scheme for mobile
-  const webResetUrl = process.env.WEB_RESET_PASSWORD_URL || process.env.FRONTEND_URL || '';
-  const prefix = isMobile 
-    ? 'myapp://reset?token=' 
-    : (webResetUrl ? `${webResetUrl}/reset?token=` : 'myapp://reset?token=');
-  logger.debug('Prefix for reset link:', prefix);
-
   try {
     logger.debug('Forgot password request received');
     
@@ -419,36 +410,28 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    // Generate reset token
+    // Generate OTP code for password reset (6-character alphanumeric)
     const resetToken = generateResetToken();
     const resetTokenExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
     
-    const saveToken = await User.findOneAndUpdate(
-      { email },               // find by email
-      { $set: { code: resetToken,
-      resetTokenExpiry: resetTokenExpiry } }, // update only name
-      { new: true }            // return updated document
-    )
+    // Save OTP code to both code and resetToken fields for compatibility
+    await User.findOneAndUpdate(
+      { email },
+      { 
+        $set: { 
+          code: resetToken,
+          resetToken: resetToken,
+          resetTokenExpiry: resetTokenExpiry 
+        }
+      },
+      { new: true }
+    );
     
-    const existingForgot = new User({ 
-      code: resetToken,
-      resetTokenExpiry: resetTokenExpiry 
-    });
-// NewPassword@123
-
-    const updatedUser = await User.findOneAndUpdate(
-      { email },               // find by email
-      { $set: { resetToken: resetToken,
-      resetTokenExpiry: resetTokenExpiry } }, // update only name
-      { new: true }            // return updated document
-    )
-    
-    // Send reset email (implement sendResetEmail function)
+    // Send OTP code via email (not a link)
     await sendForgotPasswordMail(email, resetToken, user.fullName);
-    // await sendResetEmail(email, resetToken, user.fullName);
 
     res.status(200).json({
-      message: 'Password reset link sent to your email',
+      message: 'Password reset OTP code has been sent to your email',
       email: email
     });
 
@@ -495,8 +478,11 @@ const resetPassword = async (req, res) => {
       });
     }
     
-    // Check if token and expiry exist
-    if (!user.resetToken || !user.resetTokenExpiry) {
+    // Check if token and expiry exist (check both resetToken and code fields)
+    const tokenField = user.resetToken || user.code;
+    const expiryField = user.resetTokenExpiry;
+    
+    if (!tokenField || !expiryField) {
       return res.status(400).json({
         error: 'No reset token',
         message: 'No password reset request found for this user'
@@ -504,8 +490,12 @@ const resetPassword = async (req, res) => {
     }
 
     // Validate token and expiry
-    if (user.resetToken !== token || user.resetTokenExpiry < new Date()) {
-      logger.warn('Token mismatch or expired for password reset');
+    if (tokenField !== token || expiryField < new Date()) {
+      logger.warn('Token mismatch or expired for password reset', { 
+        providedToken: token, 
+        storedToken: tokenField,
+        expiry: expiryField 
+      });
       return res.status(400).json({
         error: 'Invalid or expired token',
         message: 'The reset token is invalid or has expired'
@@ -516,6 +506,7 @@ const resetPassword = async (req, res) => {
     user.email = email;
     user.password = newPassword;
     user.resetToken = undefined;
+    user.code = undefined; // Also clear code field if it was used
     user.resetTokenExpiry = undefined;
     await user.save();
 

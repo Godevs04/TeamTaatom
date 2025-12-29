@@ -110,7 +110,7 @@ export const WEB_SHARE_URL =
 export const LOGO_IMAGE =
   process.env.EXPO_PUBLIC_LOGO_IMAGE ||
   Constants.expoConfig?.extra?.LOGO_IMAGE ||
-  'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png';
+  'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png';
 
 // Google Configuration
 export const GOOGLE_CLIENT_ID =
