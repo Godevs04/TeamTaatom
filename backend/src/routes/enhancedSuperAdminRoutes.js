@@ -809,87 +809,147 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     const TripVisit = require('../models/TripVisit')
     const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig')
     
-    const usersWithMetrics = await Promise.all(users.map(async (user) => {
-      try {
-        const userPosts = await Post.countDocuments({ user: user._id })
-        
-        // Calculate total likes correctly by summing the size of likes arrays
-        const userLikesResult = await Post.aggregate([
-          { $match: { user: user._id } },
-          { $group: { _id: null, totalLikes: { $sum: { $size: '$likes' } } } }
-        ])
-        
-        // Get followers count
-        const followersCount = await User.findById(user._id).select('followers')
-        
-        // Calculate TripScore (unique trusted places)
-        const trustedVisits = await TripVisit.find({
-          user: user._id,
-          trustLevel: { $in: TRUSTED_TRUST_LEVELS },
-          isActive: true
-        }).lean()
-        
-        // Get unique places (deduplicated by rounded coordinates)
-        const uniquePlaces = new Set()
-        trustedVisits.forEach(visit => {
-          if (visit.latitude && visit.longitude) {
-            const key = `${Math.round(visit.latitude * 100) / 100}_${Math.round(visit.longitude * 100) / 100}`
-            uniquePlaces.add(key)
-          }
-        })
-        const tripScore = uniquePlaces.size
-        
-        // Get report counts (reports against this user's content)
-        const reportCount = await Report.countDocuments({
-          reportedUser: user._id,
-          status: { $in: ['pending', 'under_review'] }
-        })
-        
-        // Get high-priority reports (critical priority or multiple reports)
-        const highPriorityReports = await Report.countDocuments({
-          reportedUser: user._id,
-          priority: 'critical',
-          status: { $in: ['pending', 'under_review'] }
-        })
-        
-        // Determine risk level
-        let riskLevel = 'low'
-        if (tripScore === 0 && reportCount > 0) {
-          riskLevel = 'medium'
-        } else if (reportCount >= 5 || highPriorityReports > 0) {
-          riskLevel = 'high'
-        } else if (tripScore === 0 && userPosts > 10) {
-          riskLevel = 'medium' // User has posts but no TripScore (suspicious)
+    // Extract user IDs for batch queries
+    const userIds = users.map(user => user._id)
+    
+    // OPTIMIZATION: Batch fetch all metrics in parallel using aggregation pipelines
+    // This eliminates N+1 queries by fetching all data in bulk
+    
+    // 1. Batch fetch post counts and total likes for all users
+    const postMetrics = await Post.aggregate([
+      { $match: { user: { $in: userIds } } },
+      { $group: {
+        _id: '$user',
+        totalPosts: { $sum: 1 },
+        totalLikes: { $sum: { $size: { $ifNull: ['$likes', []] } } }
+      } }
+    ])
+    
+    // Create maps for O(1) lookup
+    const postMetricsMap = new Map()
+    postMetrics.forEach(metric => {
+      postMetricsMap.set(metric._id.toString(), {
+        totalPosts: metric.totalPosts,
+        totalLikes: metric.totalLikes
+      })
+    })
+    
+    // 2. Batch fetch followers count (users already loaded, just extract followers array length)
+    const usersWithFollowers = await User.find({ _id: { $in: userIds } })
+      .select('_id followers')
+      .lean()
+    const followersMap = new Map()
+    usersWithFollowers.forEach(user => {
+      followersMap.set(user._id.toString(), user.followers?.length || 0)
+    })
+    
+    // 3. Batch fetch TripVisit data for all users and calculate unique places
+    const trustedVisits = await TripVisit.find({
+      user: { $in: userIds },
+      trustLevel: { $in: TRUSTED_TRUST_LEVELS },
+      isActive: true
+    })
+      .select('user latitude longitude')
+      .lean()
+    
+    // Group visits by user and calculate unique places
+    const tripScoreMap = new Map()
+    const userVisitsMap = new Map()
+    trustedVisits.forEach(visit => {
+      const userId = visit.user.toString()
+      if (!userVisitsMap.has(userId)) {
+        userVisitsMap.set(userId, [])
+      }
+      userVisitsMap.get(userId).push(visit)
+    })
+    
+    // Calculate unique places per user
+    userVisitsMap.forEach((visits, userId) => {
+      const uniquePlaces = new Set()
+      visits.forEach(visit => {
+        if (visit.latitude && visit.longitude) {
+          const key = `${Math.round(visit.latitude * 100) / 100}_${Math.round(visit.longitude * 100) / 100}`
+          uniquePlaces.add(key)
         }
-        
-        return {
-          ...user.toObject(),
-          metrics: {
-            totalPosts: userPosts,
-            totalLikes: userLikesResult[0]?.totalLikes || 0,
-            totalFollowers: followersCount?.followers?.length || 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
-            tripScore,
-            reportCount,
-            riskLevel
+      })
+      tripScoreMap.set(userId, uniquePlaces.size)
+    })
+    
+    // 4. Batch fetch report counts for all users
+    const [reportCounts, highPriorityReports] = await Promise.all([
+      Report.aggregate([
+        {
+          $match: {
+            reportedUser: { $in: userIds },
+            status: { $in: ['pending', 'under_review'] }
+          }
+        },
+        {
+          $group: {
+            _id: '$reportedUser',
+            count: { $sum: 1 }
           }
         }
-      } catch (error) {
-        logger.error('Error processing user metrics for user:', user._id, error)
-        return {
-          ...user.toObject(),
-          metrics: {
-            totalPosts: 0,
-            totalLikes: 0,
-            totalFollowers: 0,
-            lastActive: user.lastLogin || user.updatedAt || user.createdAt,
-            tripScore: 0,
-            reportCount: 0,
-            riskLevel: 'low'
+      ]),
+      Report.aggregate([
+        {
+          $match: {
+            reportedUser: { $in: userIds },
+            priority: 'critical',
+            status: { $in: ['pending', 'under_review'] }
           }
+        },
+        {
+          $group: {
+            _id: '$reportedUser',
+            count: { $sum: 1 }
+          }
+        }
+      ])
+    ])
+    
+    const reportCountMap = new Map()
+    reportCounts.forEach(item => {
+      reportCountMap.set(item._id.toString(), item.count)
+    })
+    
+    const highPriorityReportMap = new Map()
+    highPriorityReports.forEach(item => {
+      highPriorityReportMap.set(item._id.toString(), item.count)
+    })
+    
+    // 5. Combine all metrics for each user
+    const usersWithMetrics = users.map(user => {
+      const userId = user._id.toString()
+      const postData = postMetricsMap.get(userId) || { totalPosts: 0, totalLikes: 0 }
+      const followersCount = followersMap.get(userId) || 0
+      const tripScore = tripScoreMap.get(userId) || 0
+      const reportCount = reportCountMap.get(userId) || 0
+      const highPriorityReportsCount = highPriorityReportMap.get(userId) || 0
+      
+      // Determine risk level
+      let riskLevel = 'low'
+      if (tripScore === 0 && reportCount > 0) {
+        riskLevel = 'medium'
+      } else if (reportCount >= 5 || highPriorityReportsCount > 0) {
+        riskLevel = 'high'
+      } else if (tripScore === 0 && postData.totalPosts > 10) {
+        riskLevel = 'medium' // User has posts but no TripScore (suspicious)
+      }
+      
+      return {
+        ...user.toObject(),
+        metrics: {
+          totalPosts: postData.totalPosts,
+          totalLikes: postData.totalLikes,
+          totalFollowers: followersCount,
+          lastActive: user.lastLogin || user.updatedAt || user.createdAt,
+          tripScore,
+          reportCount,
+          riskLevel
         }
       }
-    }))
+    })
     
     return sendSuccess(res, 200, 'Users fetched successfully', {
       users: usersWithMetrics,
@@ -3303,7 +3363,8 @@ router.post('/moderators', checkPermission('canManageModerators'), async (req, r
         canManageReports: false,
         canManageModerators: false,
         canViewLogs: false,
-        canManageSettings: false
+        canManageSettings: false,
+        canViewAnalytics: false
       }
     })
     

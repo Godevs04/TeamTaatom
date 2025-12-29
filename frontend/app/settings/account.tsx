@@ -390,7 +390,10 @@ export default function AccountSettingsScreen() {
 
           <TouchableOpacity 
             style={styles.settingItem}
-            onPress={() => router.push('/(auth)/forgot')}
+            onPress={() => router.push({ 
+              pathname: '/(auth)/forgot', 
+              params: { fromSettings: 'true' } 
+            })}
           >
             <View style={styles.settingContent}>
               <Ionicons name="key-outline" size={20} color={theme.colors.primary} />

@@ -67,7 +67,8 @@ const Moderators = () => {
       canManageReports: true,
       canManageModerators: false,
       canViewLogs: false,
-      canManageSettings: false
+      canManageSettings: false,
+      canViewAnalytics: false
     }
   })
 
@@ -671,10 +672,11 @@ const Moderators = () => {
         permissions: {
           canManageUsers: false,
           canManageContent: true,
-          canViewAnalytics: false,
+          canManageReports: true,
           canManageModerators: false,
           canViewLogs: false,
-          canManageSettings: false
+          canManageSettings: false,
+          canViewAnalytics: false
         }
       })
       await fetchModerators()
@@ -719,6 +721,7 @@ const Moderators = () => {
     { id: 'canManageModerators', label: 'Manage Moderators', icon: Settings2 },
     { id: 'canViewLogs', label: 'View Logs', icon: Activity },
     { id: 'canManageSettings', label: 'Manage Settings', icon: Settings2 },
+    { id: 'canViewAnalytics', label: 'View Analytics', icon: TrendingUp },
   ]
 
   // Pagination - defined before useCallback that depends on it
@@ -805,36 +808,35 @@ const Moderators = () => {
             )}
           </div>
         </TableCell>
-        <TableCell>
-          <button
-            onClick={() => onToggleActive(moderator, moderator.isActive)}
-            disabled={isUpdating}
-            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-              isUpdating
-                ? 'opacity-50 cursor-not-allowed'
-                : moderator.isActive
-                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-            title={isUpdating ? 'Updating...' : moderator.isActive ? 'Click to deactivate' : 'Click to activate'}
-          >
-            {isUpdating ? (
-              <>
-                <RefreshCw className="w-2 h-2 mr-2 animate-spin" />
-                Updating...
-              </>
-            ) : moderator.isActive ? (
-              <>
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                Active
-              </>
-            ) : (
-              <>
-                <div className="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
-                Inactive
-              </>
-            )}
-          </button>
+        <TableCell className="text-center">
+          <div className="flex items-center justify-center w-full">
+            <button
+              onClick={() => onToggleActive(moderator, moderator.isActive)}
+              disabled={isUpdating}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                isUpdating
+                  ? 'opacity-60 cursor-not-allowed'
+                  : 'cursor-pointer'
+              } ${
+                moderator.isActive
+                  ? 'bg-green-500 hover:bg-green-600'
+                  : 'bg-gray-300 hover:bg-gray-400'
+              }`}
+              title={isUpdating ? 'Updating...' : moderator.isActive ? 'Click to deactivate' : 'Click to activate'}
+              role="switch"
+              aria-checked={moderator.isActive}
+              aria-label={moderator.isActive ? 'Active' : 'Inactive'}
+            >
+              {isUpdating && (
+                <RefreshCw className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 text-white animate-spin z-10" />
+              )}
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${
+                  moderator.isActive ? 'translate-x-6' : 'translate-x-1'
+                } ${isUpdating ? 'opacity-50' : ''}`}
+              />
+            </button>
+          </div>
         </TableCell>
         <TableCell>
           <span className="text-sm text-gray-600">
@@ -1060,6 +1062,7 @@ const Moderators = () => {
                     <option value="canManageModerators">Manage Moderators</option>
                     <option value="canViewLogs">View Logs</option>
                     <option value="canManageSettings">Manage Settings</option>
+                    <option value="canViewAnalytics">View Analytics</option>
                   </select>
                 </div>
                 <div>
@@ -1224,7 +1227,7 @@ const Moderators = () => {
                   <TableHead>Moderator</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Permissions</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
                   <TableHead>Last Active</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
