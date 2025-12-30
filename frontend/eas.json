@@ -31,7 +31,7 @@
     },
     "production": {
       "distribution": "store",
-      "prebuildCommand": "node ./scripts/setup-google-play-key.js",
+      "prebuildCommand": "./scripts/setup-google-play-key.sh",
       "ios": {
         "simulator": false,
         "buildConfiguration": "Release"
