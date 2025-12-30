@@ -25,7 +25,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
+import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, placesCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
@@ -79,13 +79,26 @@ const fetchRealCoords = async (
     // Build cache key
     const cacheKey = `${place}-${countryCode || ''}-${description || ''}`.toLowerCase().trim();
     
-    // Check cache first
+    // Check global placesCache first (persists across navigation)
+    if (placesCache.has(cacheKey)) {
+      const cached = placesCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < 24 * 60 * 60 * 1000)) {
+        if (__DEV__) {
+          console.log(`✅ Using global cached coordinates for ${place}:`, { lat: cached.lat, lon: cached.lon });
+        }
+        return { lat: cached.lat, lon: cached.lon };
+      }
+    }
+    
+    // Check component-level cache as fallback
     if (cache && cache.has(cacheKey)) {
       const cached = cache.get(cacheKey);
       if (cached) {
         if (__DEV__) {
-          console.log(`✅ Using cached coordinates for ${place}:`, cached);
+          console.log(`✅ Using component cached coordinates for ${place}:`, cached);
         }
+        // Also store in global cache
+        placesCache.set(cacheKey, { lat: cached.lat, lon: cached.lon, timestamp: Date.now() });
         return cached;
       }
     }
@@ -156,7 +169,8 @@ const fetchRealCoords = async (
                 query: queryWithCountry,
               });
             }
-            // Cache the result
+            // Cache the result in both global and component caches
+            placesCache.set(cacheKey, { lat: coords.lat, lon: coords.lon, timestamp: Date.now() });
             if (cache) {
               cache.set(cacheKey, coords);
             }
@@ -165,9 +179,10 @@ const fetchRealCoords = async (
         } else if (placesRes.data.status === 'REQUEST_DENIED') {
           if (__DEV__) {
             console.log(`❌ Places API denied for ${place}. Error:`, placesRes.data.error_message);
-            console.log(`💡 Make sure Places API is enabled in Google Cloud Console for this API key`);
+            console.log(`💡 Make sure Places API, Distance Matrix API, and Geocoding API are enabled in Google Cloud Console for this API key`);
+            console.log(`💡 Falling back to Geocoding API...`);
           }
-          // Don't try other strategies if API is denied
+          // Don't try other Places API strategies if API is denied, but continue to Geocoding API fallback
           break;
         } else if (placesRes.data.status === 'ZERO_RESULTS') {
           if (__DEV__) {
@@ -301,7 +316,8 @@ const fetchRealCoords = async (
                 });
               }
               
-              // Cache the result
+              // Cache the result in both global and component caches
+              placesCache.set(cacheKey, { lat: coords.lat, lon: coords.lon, timestamp: Date.now() });
               if (cache) {
                 cache.set(cacheKey, coords);
               }
@@ -450,6 +466,9 @@ export default function LocaleScreen() {
   const isSearchingRef = useRef(false);
   const isPaginatingRef = useRef(false);
   const currentPageRef = useRef(1);
+  
+  // Load guard: Prevent multiple loads per session
+  const loadedOnceRef = useRef(false);
   
   // Distance Calculation Guards: Cache calculated distances per session
   const distanceCacheRef = useRef<Map<string, number>>(new Map());
@@ -675,7 +694,8 @@ export default function LocaleScreen() {
     isMountedRef.current = true;
     loadCountries();
     loadSavedLocales();
-    loadAdminLocales();
+    // Always force initial load to ensure data is loaded
+    loadAdminLocales(true);
     getUserCurrentLocation(); // Get user location for distance sorting
     
     return () => {
@@ -700,6 +720,26 @@ export default function LocaleScreen() {
     if (isSearchingRef.current || isPaginatingRef.current) {
       logger.debug('loadAdminLocales already in progress, skipping');
       return;
+    }
+    
+    // Load guard: If already loaded once and not forcing refresh, skip
+    // BUT: Allow reload if we have locales but no distances (user location became available)
+    const hasLocales = adminLocales.length > 0;
+    const hasDistances = adminLocales.some(locale => {
+      const localeWithDistance = locale as Locale & { distanceKm?: number | null };
+      return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
+    });
+    const needsDistanceCalculation = hasLocales && !hasDistances && userLocation && locationPermissionGranted;
+    
+    if (loadedOnceRef.current && !forceRefresh && hasLocales && !needsDistanceCalculation) {
+      logger.debug('Locales already loaded once with distances, skipping unless force refresh');
+      return;
+    }
+    
+    // If we need to calculate distances for existing locales, reset the guard
+    if (needsDistanceCalculation) {
+      logger.debug('Locales loaded but distances missing, recalculating distances');
+      loadedOnceRef.current = false;
     }
     
     // Generate fetch key from params (include stateCode for proper cache invalidation)
@@ -787,8 +827,9 @@ export default function LocaleScreen() {
           
           // Fetch real coordinates for all locales (with fallback to existing coordinates)
           // Use caching to avoid repeated API calls
-          // Fetch real coordinates and calculate distances
-          const localesWithRealCoords = await Promise.all(
+          // Fetch real coordinates and calculate distances in parallel using Promise.allSettled
+          // This prevents one failure from blocking all others and allows parallel execution
+          const localeResults = await Promise.allSettled(
             newLocales.map(async (locale) => {
               // Try to fetch real coordinates from Google Places API (with caching)
               // This finds exact tourist spot coordinates, not city center
@@ -853,6 +894,20 @@ export default function LocaleScreen() {
             })
           );
           
+          // Process results - handle both fulfilled and rejected promises
+          const localesWithRealCoords = localeResults.map((result, index) => {
+            if (result.status === 'fulfilled') {
+              return result.value;
+            } else {
+              // If a locale failed, use the original locale data
+              logger.error(`Failed to process locale ${newLocales[index]?.name}:`, result.reason);
+              return {
+                ...newLocales[index],
+                distanceKm: null,
+              };
+            }
+          });
+          
           if (!isMountedRef.current) {
             setCalculatingDistances(false);
             return;
@@ -861,6 +916,7 @@ export default function LocaleScreen() {
           // Always use the updated locales with distances
           if (forceRefresh || currentPageRef.current === 1) {
             setAdminLocales(localesWithRealCoords);
+            loadedOnceRef.current = true; // Mark as loaded
           } else {
             setAdminLocales(prev => {
               const localeMap = new Map<string, Locale & { distanceKm?: number | null }>();
@@ -913,7 +969,7 @@ export default function LocaleScreen() {
       }
       isSearchingRef.current = false;
     }
-  }, [searchQuery, filters.countryCode, filters.stateCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Added userLocation dependencies for geocoding
+  }, [searchQuery, filters.countryCode, filters.stateCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Safe dependencies - excludes adminLocales to prevent recreation loops
   
   // Geocode locale if coordinates are missing
   const geocodeLocale = useCallback(async (locale: Locale): Promise<Locale> => {
@@ -1233,14 +1289,31 @@ export default function LocaleScreen() {
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
+  // Also recalculates distances if they're missing
   useEffect(() => {
     if (activeTab === 'locale' && adminLocales.length > 0) {
+      // Check if we have locales but no distances, and user location is now available
+      const hasDistances = adminLocales.some(locale => {
+        const localeWithDistance = locale as Locale & { distanceKm?: number | null };
+        return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
+      });
+      
+      // If user location just became available and we don't have distances, reload to calculate them
+      if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current) {
+        logger.debug('User location available but distances missing, reloading locales to calculate distances');
+        loadedOnceRef.current = false; // Reset guard to allow reload
+        loadAdminLocales(true).catch(err => {
+          logger.error('Error reloading locales for distance calculation:', err);
+        });
+        return;
+      }
+      
       // Re-apply filters to trigger distance-based sorting when location becomes available
       // This will re-sort using the updated userLocation (or fallback to createdAt if not available)
       const filtered = applyFilters(adminLocales, false);
       setFilteredLocales(filtered);
     }
-  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters, activeTab]);
+  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters, activeTab, loadAdminLocales]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -1268,13 +1341,24 @@ export default function LocaleScreen() {
       // Only refresh saved locales (lightweight)
       loadSavedLocales();
       
-      // Only refresh admin locales if we have NO data (initial load)
-      // DO NOT refresh if we already have data - causes loops
-      if (adminLocales.length === 0 && !isSearchingRef.current) {
-        // Initial load only
+      // Always load admin locales on focus if:
+      // 1. We have no data (initial load), OR
+      // 2. We have data but no distances calculated (user location became available)
+      const hasLocales = adminLocales.length > 0;
+      const hasDistances = adminLocales.some(locale => {
+        const localeWithDistance = locale as Locale & { distanceKm?: number | null };
+        return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
+      });
+      const shouldLoad = !hasLocales || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
+      
+      if (shouldLoad && !isSearchingRef.current) {
+        // Reset loadedOnce flag to allow reload if distances are missing
+        if (hasLocales && !hasDistances) {
+          loadedOnceRef.current = false;
+        }
         loadAdminLocales(true);
       }
-    }, [loadSavedLocales, loadAdminLocales]) // Removed adminLocales.length to prevent loops
+    }, [loadSavedLocales, loadAdminLocales, adminLocales, userLocation, locationPermissionGranted]) // Include dependencies to check distance status
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -2612,7 +2696,22 @@ export default function LocaleScreen() {
             placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={(text) => {
+              // Update search query immediately for UI responsiveness
+              setSearchQuery(text);
+              
+              // Clear existing debounce timer
+              if (searchDebounceTimerRef.current) {
+                clearTimeout(searchDebounceTimerRef.current);
+              }
+              
+              // Debounce the actual search/filter operation
+              searchDebounceTimerRef.current = setTimeout(() => {
+                // Trigger filter update after debounce delay
+                // The filteredLocales will update automatically via useEffect
+                logger.debug(`Debounced search query: "${text}"`);
+              }, SEARCH_DEBOUNCE_MS);
+            }}
           />
           <TouchableOpacity 
             style={styles.filterButton}
