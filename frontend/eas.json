@@ -4,12 +4,6 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "production": {
-      "distribution": "store",
-      "prebuildCommand": "./scripts/setup-google-play-key.sh",
-      "ios": {
-        "simulator": false,
-        "buildConfiguration": "Release"
     "development": {
       "developmentClient": true,
       "distribution": "internal",
@@ -37,11 +31,10 @@
     },
     "production": {
       "distribution": "store",
-      "prebuildCommand": "npx expo export:embed --eager && node scripts/setup-google-play-key.js",
+      "prebuildCommand": "node ./scripts/setup-google-play-key.js",
       "ios": {
         "simulator": false,
-        "buildConfiguration": "Release",
-        "track": "internal"
+        "buildConfiguration": "Release"
       },
       "android": {
         "buildType": "app-bundle"
@@ -61,12 +54,6 @@
       },
       "android": {
         "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY}"
-        "appleTeamId": "TXFJ8ZSWUN",
-        "track": "internal"
-      },
-      "android": {
-        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY}",
-        "track": "internal"
       }
     }
   }
