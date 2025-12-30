@@ -302,6 +302,15 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
 // Sign out user
 export const signOut = async (): Promise<void> => {
   try {
+    // Disconnect socket first
+    try {
+      const { socketService } = await import('./socket');
+      await socketService.disconnect();
+    } catch (error) {
+      // Continue even if socket disconnect fails
+      logger.warn('Socket disconnect failed during signout:', error);
+    }
+    
     // For web, call logout endpoint to clear httpOnly cookie
     if (isWeb) {
       try {
@@ -315,8 +324,21 @@ export const signOut = async (): Promise<void> => {
     // Clear local storage (mobile) or as fallback (web)
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
+    
+    // Clear any other auth-related data
+    await AsyncStorage.removeItem('onboarding_completed');
+    
+    logger.debug('Sign out completed successfully');
   } catch (error) {
-    logger.error('signOut', error);
+    logger.error('signOut error:', error);
+    // Still try to clear storage even if other operations fail
+    try {
+      await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('userData');
+      await AsyncStorage.removeItem('onboarding_completed');
+    } catch (clearError) {
+      logger.error('Failed to clear storage during signout:', clearError);
+    }
   }
 };
 

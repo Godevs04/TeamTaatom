@@ -101,9 +101,104 @@ const debugCookies = (req) => {
   logger.debug('User-Agent:', req.headers['user-agent']);
 };
 
+/**
+ * Extract real client IP address from request
+ * Handles proxies, load balancers, and CDNs
+ * @param {Object} req - Express request object
+ * @returns {string} - Client IP address
+ */
+const getClientIP = (req) => {
+  // Check various headers in order of priority
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    // x-forwarded-for can contain multiple IPs, take the first one (original client)
+    const ips = forwardedFor.split(',').map(ip => ip.trim());
+    return ips[0] || req.ip || req.connection?.remoteAddress || 'Unknown';
+  }
+  
+  const realIP = req.headers['x-real-ip'];
+  if (realIP) {
+    return realIP;
+  }
+  
+  const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
+  if (cfConnectingIP) {
+    return cfConnectingIP;
+  }
+  
+  // Fallback to Express's req.ip or connection remoteAddress
+  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown';
+};
+
+/**
+ * Get location from IP address using ipapi.co
+ * Returns formatted location string or 'Unknown Location' on error
+ * @param {string} ipAddress - IP address to geolocate
+ * @returns {Promise<string>} - Location string
+ */
+const getLocationFromIP = async (ipAddress) => {
+  // Skip geolocation for local/private IPs
+  if (!ipAddress || 
+      ipAddress === 'Unknown' || 
+      ipAddress === '127.0.0.1' || 
+      ipAddress === '::1' || 
+      ipAddress.startsWith('192.168.') || 
+      ipAddress.startsWith('10.') || 
+      ipAddress.startsWith('172.16.') ||
+      ipAddress.startsWith('172.17.') ||
+      ipAddress.startsWith('172.18.') ||
+      ipAddress.startsWith('172.19.') ||
+      ipAddress.startsWith('172.20.') ||
+      ipAddress.startsWith('172.21.') ||
+      ipAddress.startsWith('172.22.') ||
+      ipAddress.startsWith('172.23.') ||
+      ipAddress.startsWith('172.24.') ||
+      ipAddress.startsWith('172.25.') ||
+      ipAddress.startsWith('172.26.') ||
+      ipAddress.startsWith('172.27.') ||
+      ipAddress.startsWith('172.28.') ||
+      ipAddress.startsWith('172.29.') ||
+      ipAddress.startsWith('172.30.') ||
+      ipAddress.startsWith('172.31.')) {
+    return 'Local Network';
+  }
+  
+  try {
+    const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
+    const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`);
+    
+    if (geoRes.ok) {
+      const geo = await geoRes.json();
+      
+      // Handle API errors
+      if (geo.error) {
+        logger.warn(`IP geolocation error for ${ipAddress}:`, geo.reason);
+        return 'Unknown Location';
+      }
+      
+      // Build location string
+      const parts = [];
+      if (geo.city) parts.push(geo.city);
+      if (geo.region) parts.push(geo.region);
+      if (geo.country_name) parts.push(geo.country_name);
+      
+      const location = parts.length > 0 ? parts.join(', ') : 'Unknown Location';
+      return location;
+    } else {
+      logger.warn(`IP geolocation API returned status ${geoRes.status} for ${ipAddress}`);
+      return 'Unknown Location';
+    }
+  } catch (error) {
+    logger.warn(`Failed to get location for IP ${ipAddress}:`, error.message);
+    return 'Unknown Location';
+  }
+};
+
 module.exports = {
   setAuthToken,
   clearAuthToken,
-  getAuthToken
+  getAuthToken,
+  getClientIP,
+  getLocationFromIP
 };
 
