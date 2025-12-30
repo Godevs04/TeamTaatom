@@ -75,7 +75,7 @@ export default function HelpCenter() {
   ];
 
   const handleOpenWebsite = () => {
-    Linking.openURL('https://taatom.com/help').catch(() => {
+    Linking.openURL('https://taatom.com/contact').catch(() => {
       Alert.alert('Error', 'Failed to open help website');
     });
   };

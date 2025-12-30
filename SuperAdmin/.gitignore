@@ -27,12 +27,24 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables
+# Environment variables - ignore all .env variations
 .env
+.env.*
 .env.local
+.env.production
+.env.development
+.env.test
+.env.staging
+.env.prod
+.env.dev
 .env.development.local
 .env.test.local
 .env.production.local
+*.env
+*.env.*
+!.env.example
+!.env.template
+!.env.sample
 
 # OS generated files
 Thumbs.db
