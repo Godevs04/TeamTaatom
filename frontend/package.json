@@ -69,12 +69,12 @@
     "react-three-fiber": "^6.0.13",
     "socket.io-client": "^4.8.1",
     "three": "^0.179.1",
-    "yup": "^1.7.0"
+    "yup": "^1.7.0",
+    "babel-plugin-transform-remove-console": "^6.9.4"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.10",
-    "babel-plugin-transform-remove-console": "^6.9.4",
     "typescript": "~5.9.2"
   },
   "private": true
