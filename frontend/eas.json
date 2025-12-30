@@ -38,13 +38,13 @@
         "simulator": false
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "prebuildCommand": "node scripts/setup-google-play-key.js"
       },
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
-      },
-      "prebuildCommand": "node scripts/setup-google-play-key.js"
+      }
     }
   },
   "submit": {
