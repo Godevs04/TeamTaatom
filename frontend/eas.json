@@ -48,9 +48,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "${APPLE_ID}",
+        "appleId": "6757185352",
         "ascAppId": "${APPLE_ASC_APP_ID}",
-        "appleTeamId": "${APPLE_TEAM_ID}"
+        "appleTeamId": "TXFJ8ZSWUN"
       },
       "android": {
         "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_PATH}",
