@@ -33,9 +33,11 @@
     "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-file-system": "~19.0.21",
+    "expo-font": "~14.0.10",
     "expo-image-manipulator": "~14.0.8",
     "expo-image-picker": "~17.0.10",
     "expo-linear-gradient": "~15.0.8",
+    "expo-linking": "~8.0.11",
     "expo-location": "~19.0.8",
     "expo-media-library": "~18.2.1",
     "expo-notifications": "~0.32.15",
@@ -72,7 +74,6 @@
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.1.10",
-    "@types/react-native": "^0.72.8",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "typescript": "~5.9.2"
   },
