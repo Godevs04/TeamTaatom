@@ -31,10 +31,38 @@ const getGoogleMapsApiKey = (): string | undefined => {
 // CACHE AND RATE LIMITING
 // ============================================================================
 
+// Global in-memory caches (outside component scope for persistence across navigation)
+// Places cache: stores Google Places API results
+export const placesCache = new Map<string, { lat: number; lon: number; timestamp: number }>();
+const PLACES_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+// Distance cache: stores calculated driving distances (exported for use in components)
+export const distanceCache = new Map<string, number>();
+
 // Simple in-memory cache for geocoding results
 const geocodeCache = new Map<string, { result: string | null; timestamp: number }>();
 const GEOCODE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const GEOCODE_MIN_INTERVAL = 10000; // 10 seconds between requests
+
+// Cleanup old cache entries periodically
+const cleanupCaches = () => {
+  const now = Date.now();
+  
+  // Cleanup places cache
+  for (const [key, value] of placesCache.entries()) {
+    if (now - value.timestamp > PLACES_CACHE_DURATION) {
+      placesCache.delete(key);
+    }
+  }
+  
+  // Note: distanceCache doesn't have timestamps, but we can clear it if needed
+  // For now, we keep it persistent as distances don't change frequently
+};
+
+// Run cleanup every hour
+if (typeof setInterval !== 'undefined' && Platform.OS !== 'web') {
+  setInterval(cleanupCaches, 60 * 60 * 1000);
+}
 
 // Dynamic location name corrections cache (learns from successful geocoding)
 // PRODUCTION-GRADE: Self-learning cache that improves over time
@@ -527,9 +555,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
 // DISTANCE CALCULATION FUNCTIONS
 // ============================================================================
 
-// Distance cache for performance optimization
-// Uses rounded coordinates for stable cache keys
-export const distanceCache = new Map<string, number>();
+// Distance cache is declared at the top of the file in the CACHE section
 
 /**
  * Round coordinate to 4 decimal places for stable cache keys
@@ -595,39 +621,112 @@ export const calculateDrivingDistanceKm = async (
   localeLon: number
 ): Promise<number | null> => {
   try {
+    // Check straight-line distance first - if > 2000 km, use approximate value
+    const straightLineDistance = calculateDistance(userLat, userLon, localeLat, localeLon);
+    if (straightLineDistance !== null && straightLineDistance > 2000) {
+      // For very large distances, use approximate straight-line distance
+      // OSRM may timeout or be slow for such distances
+      logger.debug(`Using approximate distance for large distance: ${straightLineDistance.toFixed(2)} km`);
+      return straightLineDistance;
+    }
+    
+    // Check cache first (using rounded coordinates for stable keys)
+    const roundedUserLat = roundCoord(userLat);
+    const roundedUserLon = roundCoord(userLon);
+    const roundedLocaleLat = roundCoord(localeLat);
+    const roundedLocaleLon = roundCoord(localeLon);
+    const cacheKey = `osrm-${roundedUserLat},${roundedUserLon}-${roundedLocaleLat},${roundedLocaleLon}`;
+    
+    if (distanceCache.has(cacheKey)) {
+      const cached = distanceCache.get(cacheKey);
+      if (cached !== undefined) {
+        logger.debug(`Using cached OSRM distance: ${cached.toFixed(2)} km`);
+        return cached;
+      }
+    }
+    
     // OSRM API endpoint (free, no API key needed)
     // Format: /route/v1/{profile}/{coordinates}?overview=false
     // Coordinates: lon,lat;lon,lat (note: longitude first!)
-    const url = `https://router.project-osrm.org/route/v1/driving/${userLon},${userLat};${localeLon},${localeLat}?overview=false`;
+    const url = `https://router.project-osrm.org/route/v1/driving/${roundedUserLon},${roundedUserLat};${roundedLocaleLon},${roundedLocaleLat}?overview=false`;
     
-    const response = await fetch(url);
+    // Add timeout and retry logic for rate limiting
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
-    if (!response.ok) {
-      throw new Error(`OSRM API returned ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].distance) {
-      // Distance is in meters, convert to kilometers
-      const distanceKm = data.routes[0].distance / 1000;
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'TaatomApp/1.0',
+        },
+      });
       
-      if (__DEV__) {
-        console.log(`✅ OSRM driving distance: ${distanceKm.toFixed(2)} km`);
+      clearTimeout(timeoutId);
+      
+      // Handle 429 rate limit errors
+      if (response.status === 429) {
+        logger.warn('OSRM rate limit hit (429), using straight-line distance');
+        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
+        if (fallback !== null) {
+          // Cache the fallback to avoid repeated API calls
+          distanceCache.set(cacheKey, fallback);
+        }
+        return fallback;
       }
       
-      return distanceKm;
-    } else {
-      if (__DEV__) {
-        console.log(`⚠️ OSRM API returned code: ${data.code}, using straight-line distance`);
+      if (!response.ok) {
+        throw new Error(`OSRM API returned ${response.status}`);
       }
+      
+      const data = await response.json();
+      
+      if (data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].distance) {
+        // Distance is in meters, convert to kilometers
+        const distanceKm = data.routes[0].distance / 1000;
+        
+        // Cache the result
+        distanceCache.set(cacheKey, distanceKm);
+        
+        if (__DEV__) {
+          logger.debug(`✅ OSRM driving distance: ${distanceKm.toFixed(2)} km`);
+        }
+        
+        return distanceKm;
+      } else {
+        if (__DEV__) {
+          logger.debug(`⚠️ OSRM API returned code: ${data.code}, using straight-line distance`);
+        }
+        // Fallback to straight-line distance
+        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
+        if (fallback !== null) {
+          distanceCache.set(cacheKey, fallback);
+        }
+        return fallback;
+      }
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      // Handle abort (timeout) or network errors
+      if (fetchError.name === 'AbortError') {
+        logger.warn('OSRM request timeout, using straight-line distance');
+      } else if (fetchError.message?.includes('429')) {
+        logger.warn('OSRM rate limit error, using straight-line distance');
+      } else {
+        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, using straight-line distance`);
+      }
+      
       // Fallback to straight-line distance
-      return calculateDistance(userLat, userLon, localeLat, localeLon);
+      const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
+      if (fallback !== null) {
+        distanceCache.set(cacheKey, fallback);
+      }
+      return fallback;
     }
   } catch (error: any) {
     if (__DEV__) {
-      console.log(`❌ OSRM API error:`, error?.message || error);
-      console.log(`⚠️ Falling back to straight-line distance`);
+      logger.error(`❌ OSRM API error:`, error?.message || error);
+      logger.debug(`⚠️ Falling back to straight-line distance`);
     }
     // Fallback to straight-line distance
     return calculateDistance(userLat, userLon, localeLat, localeLon);
