@@ -43,18 +43,19 @@
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
-      }
+      },
+      "prebuildCommand": "node scripts/setup-google-play-key.js"
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "6757185352",
-        "ascAppId": "${APPLE_ASC_APP_ID}",
+        "appleId": "admin@taatom.com",
+        "ascAppId": "6757185352",
         "appleTeamId": "TXFJ8ZSWUN"
       },
       "android": {
-        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_PATH}",
+        "serviceAccountKeyPath": "./keys/google-play-key.json",
         "track": "internal"
       }
     }
