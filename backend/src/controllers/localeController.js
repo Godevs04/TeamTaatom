@@ -128,7 +128,7 @@ const getLocales = async (req, res) => {
     }
 
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
@@ -183,7 +183,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
 
     if (!locale) {
@@ -236,11 +236,11 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload an image file');
     }
 
-    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
 
-    if (!name || !country || !countryCode) {
-      logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode });
-      return sendError(res, 'VAL_2001', 'Name, country, and country code are required');
+    if (!name || !country || !countryCode || !city) {
+      logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode, city: !!city });
+      return sendError(res, 'VAL_2001', 'Name, country, country code, and city are required');
     }
 
     // Validate image file
@@ -293,6 +293,12 @@ const uploadLocale = async (req, res) => {
       ? travelInfo.trim() 
       : 'Drivable';
 
+    // Validate city
+    const cityTrimmed = city.trim();
+    if (!cityTrimmed || cityTrimmed.length === 0 || cityTrimmed.length > 50) {
+      return sendError(res, 'VAL_2001', 'City is required and must be between 1 and 50 characters');
+    }
+
     // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
       name: name.trim(),
@@ -300,6 +306,7 @@ const uploadLocale = async (req, res) => {
       countryCode: countryCode.trim().toUpperCase(),
       stateProvince: stateProvince ? stateProvince.trim() : '',
       stateCode: stateCode ? stateCode.trim() : '',
+      city: cityTrimmed,
       description: description ? description.trim() : '',
       storageKey: storageKey, // Store ONLY storage key
       cloudinaryKey: storageKey, // Backward compatibility
@@ -316,7 +323,7 @@ const uploadLocale = async (req, res) => {
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
     
     // Generate signed URL dynamically
@@ -456,7 +463,7 @@ const toggleLocaleStatus = async (req, res) => {
 const updateLocale = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, country, countryCode, stateProvince, stateCode, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
 
     const locale = await Locale.findById(id);
     if (!locale) {
@@ -514,6 +521,13 @@ const updateLocale = async (req, res) => {
 
     if (stateCode !== undefined) {
       locale.stateCode = stateCode ? stateCode.trim() : '';
+    }
+
+    if (city !== undefined) {
+      if (typeof city !== 'string' || city.trim().length === 0 || city.length > 50) {
+        return sendError(res, 'VAL_2001', 'City is required and must be between 1 and 50 characters');
+      }
+      locale.city = city.trim();
     }
 
     if (description !== undefined) {
@@ -597,6 +611,7 @@ const updateLocale = async (req, res) => {
         countryCode: locale.countryCode,
         stateProvince: locale.stateProvince,
         stateCode: locale.stateCode,
+        city: locale.city,
         description: locale.description,
         displayOrder: locale.displayOrder,
         isActive: locale.isActive,

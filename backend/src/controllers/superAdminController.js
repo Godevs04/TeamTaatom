@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken')
 const { sendSuperAdmin2FAEmail, sendSuperAdminLoginAlertEmail } = require('../utils/sendOtp')
 const logger = require('../utils/logger')
 const { sendError, sendSuccess } = require('../utils/errorCodes')
+const { getClientIP, getLocationFromIP } = require('../utils/authHelpers')
 
 // Middleware to verify SuperAdmin token
 const verifySuperAdminToken = async (req, res, next) => {
@@ -66,7 +67,7 @@ const checkPermission = (permissionName) => {
 const loginSuperAdmin = async (req, res) => {
   try {
     const { email, password } = req.body
-    const ipAddress = req.ip || req.connection.remoteAddress
+    const ipAddress = getClientIP(req)
     const userAgent = req.get('User-Agent')
     
     // Validate input
@@ -382,7 +383,7 @@ const logFailedAttempt = async (email, ipAddress, userAgent, details) => {
 const verify2FA = async (req, res) => {
   try {
     const { token, code } = req.body
-    const ipAddress = req.ip || req.connection.remoteAddress
+    const ipAddress = getClientIP(req)
     const userAgent = req.get('User-Agent')
     
     // Validate input
@@ -425,9 +426,33 @@ const verify2FA = async (req, res) => {
     
     // Send login alert email
     try {
-      // Extract device and location info from user agent
-      const device = userAgent ? userAgent.split(' ')[0] : 'Unknown Device'
-      const location = 'Unknown Location' // Could be enhanced with IP geolocation
+      // Extract device info from user agent (show full user agent for better identification)
+      let device = 'Unknown Device';
+      if (userAgent) {
+        // Try to extract browser/OS info from user agent
+        const ua = userAgent.toLowerCase();
+        let browser = 'Unknown Browser';
+        let os = 'Unknown OS';
+        
+        // Detect browser
+        if (ua.includes('chrome') && !ua.includes('edg')) browser = 'Chrome';
+        else if (ua.includes('firefox')) browser = 'Firefox';
+        else if (ua.includes('safari') && !ua.includes('chrome')) browser = 'Safari';
+        else if (ua.includes('edg')) browser = 'Edge';
+        else if (ua.includes('opera')) browser = 'Opera';
+        
+        // Detect OS
+        if (ua.includes('windows')) os = 'Windows';
+        else if (ua.includes('mac')) os = 'macOS';
+        else if (ua.includes('linux')) os = 'Linux';
+        else if (ua.includes('android')) os = 'Android';
+        else if (ua.includes('iphone') || ua.includes('ipad')) os = 'iOS';
+        
+        device = `${browser} on ${os}`;
+      }
+      
+      // Get real location from IP address
+      const location = await getLocationFromIP(ipAddress)
       
       await sendSuperAdminLoginAlertEmail(
         superAdmin.email,
@@ -468,7 +493,7 @@ const verify2FA = async (req, res) => {
 const resend2FA = async (req, res) => {
   try {
     const { token } = req.body
-    const ipAddress = req.ip || req.connection.remoteAddress
+    const ipAddress = getClientIP(req)
     const userAgent = req.get('User-Agent')
     
     // Validate input

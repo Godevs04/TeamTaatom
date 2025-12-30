@@ -304,14 +304,25 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      // Check onboarding status immediately after signin
+      // Check onboarding status - only show for fresh signups, not existing users
       const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
-      if (!onboardingCompleted) {
-        // New user - navigate to onboarding immediately
-        logger.debug('[SignIn] New user detected, navigating to onboarding');
+      
+      // Check if user was just created (within last 15 minutes) - indicates fresh signup
+      const userCreatedAt = response.user?.createdAt ? new Date(response.user.createdAt) : null;
+      const userAge = userCreatedAt ? Date.now() - userCreatedAt.getTime() : null;
+      const isFreshSignup = userAge !== null && userAge < 15 * 60 * 1000; // 15 minutes
+      
+      if (!onboardingCompleted && isFreshSignup) {
+        // Fresh signup (user created within last 15 minutes) - navigate to onboarding
+        logger.debug(`[SignIn] Fresh signup detected (user age: ${Math.round(userAge / 1000)}s), navigating to onboarding`);
         router.replace('/onboarding/welcome');
       } else {
-        // Existing user - navigate to home
+        // Existing user or onboarding already completed - navigate to home
+        // If flag is missing for existing user, set it to prevent future checks
+        if (!onboardingCompleted) {
+          await AsyncStorage.setItem('onboarding_completed', 'true');
+          logger.debug(`[SignIn] Existing user detected (user age: ${userAge ? Math.round(userAge / 1000) : 'unknown'}s), setting onboarding flag and navigating to home`);
+        }
         router.replace('/(tabs)/home');
       }
     } catch (error: any) {
