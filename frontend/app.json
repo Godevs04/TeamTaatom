@@ -151,7 +151,11 @@
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact"
+      "SUPPORT_URL": "https://taatom.com/contact",
+      "router": {},
+      "eas": {
+        "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
+      }
     },
     "owner": "taatom-technologies"
   }

@@ -22,3 +22,6 @@ de/rules/byterover-rules.md
 !.env.example
 !.env.template
 !.env.sample
+
+# Google Play service account keys (generated at build time)
+keys/
