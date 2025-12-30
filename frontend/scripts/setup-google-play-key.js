@@ -7,10 +7,31 @@
  * from the EAS secret and writes it to keys/google-play-key.json
  * 
  * This is called during EAS build via prebuildCommand
+ * 
+ * Note: EAS may pass platform arguments (--platform ios/android), which we handle gracefully.
+ * This script only needs to run for Android builds, but it's safe to run for iOS too.
  */
 
 const fs = require('fs');
 const path = require('path');
+
+// Check platform from environment variables only (EAS sets these)
+// We ignore all command-line arguments since EAS may wrap the command with "npx expo"
+// which can cause argument parsing issues
+const platform = process.env.EAS_BUILD_PLATFORM || 
+                 process.env.EXPO_PLATFORM ||
+                 process.env.PLATFORM ||
+                 null;
+
+// Only proceed if this is an Android build, or if platform is not specified (backward compatibility)
+// For iOS builds, we can skip this script entirely since Google Play key is not needed
+if (platform === 'ios') {
+  console.log('ℹ️ Skipping Google Play key setup for iOS build');
+  process.exit(0);
+}
+
+// Since this script is only called for Android builds (via prebuildCommand in android section),
+// we can safely proceed even if platform is not detected
 
 // Get the base64 encoded Google Play service account key from EAS secret
 const googlePlayServiceAccountKeyBase64 = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY;
