@@ -3,9 +3,26 @@ const path = require("path");
 
 const keyFile = path.join(__dirname, "..", "google-play-key.json");
 
+// Check if this is an iOS build (iOS doesn't need Google Play key)
+// EAS sets EAS_BUILD_PLATFORM or we can check other env vars
+const platform = process.env.EAS_BUILD_PLATFORM || process.env.EXPO_PLATFORM || process.env.PLATFORM;
+
+if (platform === "ios") {
+  console.log("ℹ️ Skipping Google Play key setup for iOS build");
+  process.exit(0);
+}
+
+// For Android builds, the key is required
+// If platform is not detected and key is missing, assume it's a local test and exit gracefully
 if (!process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY) {
-  console.log("❌ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found");
-  process.exit(1);
+  if (!platform || platform === "android") {
+    console.log("❌ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found");
+    process.exit(1);
+  } else {
+    // For iOS or unknown platform, exit gracefully (key not needed)
+    console.log("ℹ️ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found, but not required for this build");
+    process.exit(0);
+  }
 }
 
 // Decode base64 to get the JSON content
