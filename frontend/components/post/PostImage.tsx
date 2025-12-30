@@ -52,11 +52,11 @@ export default function PostImage({
 
   return (
       <View style={styles.imageContainer}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-only">
       <TouchableOpacity 
         onPress={onPress} 
         activeOpacity={0.9} 
         style={StyleSheet.absoluteFill}
-        pointerEvents="box-only"
       >
         {imageLoading && (
           <View style={styles.imageLoader} pointerEvents="none">
@@ -167,6 +167,7 @@ export default function PostImage({
           <SongPlayer post={post} isVisible={true} autoPlay={false} showPlayPause={true} />
         </View>
       )}
+      </View>
       </View>
   );
 }

@@ -204,14 +204,14 @@ export default function UserProfileScreen() {
   // Use expoConfig for SDK 49+, fallback to manifest for older
   // PRODUCTION-GRADE: No hardcoded fallback - must come from environment variable
   const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || 
-                               Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY || 
+                               (Constants.manifest as any)?.extra?.GOOGLE_MAPS_API_KEY || 
                                process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 
                                '';
   
   // Debug logging
   logger.debug('Profile - API Key check:', {
     expoConfig: Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY,
-    manifest: Constants.manifest?.extra?.GOOGLE_MAPS_API_KEY,
+    manifest: (Constants.manifest as any)?.extra?.GOOGLE_MAPS_API_KEY,
     final: GOOGLE_MAPS_API_KEY
   });
   const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
