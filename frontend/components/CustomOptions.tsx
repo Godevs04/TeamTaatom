@@ -106,7 +106,7 @@ export default function CustomOptions({
       case 'cancel':
         return theme.colors.textSecondary;
       default:
-        return theme.colors.buttonText;
+        return theme.colors.text;
     }
   };
 
@@ -149,7 +149,7 @@ export default function CustomOptions({
                   styles.optionItem,
                   {
                     backgroundColor: option.disabled 
-                      ? theme.colors.disabled 
+                      ? theme.colors.surfaceSecondary 
                       : 'transparent',
                     borderBottomColor: theme.colors.border,
                     borderBottomWidth: index < options.length - 1 ? 1 : 0,
