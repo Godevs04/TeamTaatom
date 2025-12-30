@@ -4,6 +4,12 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "production": {
+      "distribution": "store",
+      "prebuildCommand": "node ./scripts/setup-google-play-key.js",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
     "development": {
       "developmentClient": true,
       "distribution": "internal",
@@ -51,6 +57,10 @@
       "ios": {
         "appleId": "admin@taatom.com",
         "ascAppId": "6757185352",
+        "appleTeamId": "TXFJ8ZSWUN"
+      },
+      "android": {
+        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY}"
         "appleTeamId": "TXFJ8ZSWUN",
         "track": "internal"
       },
