@@ -58,7 +58,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
     // Mark notification as read first
     await markNotificationAsRead(notification._id);
     
-    logger.debug('Processing notification:', notification.type, notification);
+    logger.debug(`Processing notification: ${notification.type}`, notification);
     
     // Determine navigation based on notification type
     switch (notification.type) {
