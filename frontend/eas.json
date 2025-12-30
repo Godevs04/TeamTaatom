@@ -4,38 +4,12 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "development": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "ios": {
-        "simulator": true,
-        "buildConfiguration": "Debug"
-      },
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "development"
-      }
-    },
-    "preview": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_ENV": "staging",
-        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "staging"
-      }
-    },
     "production": {
       "distribution": "store",
-      "prebuildCommand": "npx expo export:embed --eager && node scripts/setup-google-play-key.js",
+      "prebuildCommand": "node ./scripts/setup-google-play-key.js",
       "ios": {
         "simulator": false,
-        "buildConfiguration": "Release",
-        "track": "internal"
+        "buildConfiguration": "Release"
       },
       "android": {
         "buildType": "app-bundle"
@@ -51,12 +25,10 @@
       "ios": {
         "appleId": "admin@taatom.com",
         "ascAppId": "6757185352",
-        "appleTeamId": "TXFJ8ZSWUN",
-        "track": "internal"
+        "appleTeamId": "TXFJ8ZSWUN"
       },
       "android": {
-        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY}",
-        "track": "internal"
+        "serviceAccountKeyPath": "${GOOGLE_PLAY_SERVICE_ACCOUNT_KEY}"
       }
     }
   }
