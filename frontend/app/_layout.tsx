@@ -400,12 +400,12 @@ function RootLayoutInner() {
         }
         
         // Check if onboarding is completed
+        // For existing users, if flag is missing, set it automatically (they signed up before onboarding)
         const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
         if (!onboardingCompleted) {
-          // Redirect to onboarding if not completed - immediate navigation
-          logger.debug('[Navigation] Onboarding not completed, redirecting to onboarding');
-          router.replace('/onboarding/welcome');
-          return;
+          // Set flag for existing users to prevent showing onboarding
+          await AsyncStorage.setItem('onboarding_completed', 'true');
+          logger.debug('[Navigation] Onboarding flag missing for existing user, setting flag and continuing');
         }
         
         // Only navigate to home if we're not already on a valid route

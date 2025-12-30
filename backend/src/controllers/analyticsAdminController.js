@@ -395,7 +395,7 @@ const getUserRetention = async (req, res) => {
     const cacheKey = `analytics:retention:${start.toISOString()}:${end.toISOString()}`;
     
     const retention = await cacheWrapper(cacheKey, async () => {
-      // Get all users who had their first event in the period
+      // Get all users who had their first event in the period with cohort grouping
       const firstEvents = await AnalyticsEvent.aggregate([
         {
           $match: {
@@ -408,49 +408,104 @@ const getUserRetention = async (req, res) => {
             _id: '$userId',
             firstEventDate: { $min: '$timestamp' }
           }
+        },
+        {
+          $project: {
+            userId: '$_id',
+            firstEventDate: 1,
+            cohortKey: { $dateToString: { format: '%Y-%m-%d', date: '$firstEventDate' } }
+          }
         }
       ]);
       
-      const cohortData = {};
+      if (firstEvents.length === 0) {
+        return [];
+      }
+      
+      // Group users by cohort
+      const cohortMap = new Map();
+      const userIdsByCohort = new Map();
       
       for (const user of firstEvents) {
-        const cohortDate = new Date(user.firstEventDate);
-        const cohortKey = cohortDate.toISOString().split('T')[0];
+        const cohortKey = user.cohortKey;
         
-        if (!cohortData[cohortKey]) {
-          cohortData[cohortKey] = {
+        if (!cohortMap.has(cohortKey)) {
+          cohortMap.set(cohortKey, {
             cohortDate: cohortKey,
             totalUsers: 0,
             day1: 0,
             day7: 0,
             day14: 0,
             day30: 0
-          };
+          });
+          userIdsByCohort.set(cohortKey, []);
         }
         
-        cohortData[cohortKey].totalUsers++;
-        
-        // Check if user was active on day 1, 7, 14, 30
-        const userId = user._id;
-        const day1 = new Date(cohortDate.getTime() + 1 * 24 * 60 * 60 * 1000);
-        const day7 = new Date(cohortDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const day14 = new Date(cohortDate.getTime() + 14 * 24 * 60 * 60 * 1000);
-        const day30 = new Date(cohortDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-        
-        const [activeDay1, activeDay7, activeDay14, activeDay30] = await Promise.all([
-          AnalyticsEvent.countDocuments({ userId, timestamp: { $gte: day1, $lt: new Date(day1.getTime() + 24 * 60 * 60 * 1000) } }),
-          AnalyticsEvent.countDocuments({ userId, timestamp: { $gte: day7, $lt: new Date(day7.getTime() + 24 * 60 * 60 * 1000) } }),
-          AnalyticsEvent.countDocuments({ userId, timestamp: { $gte: day14, $lt: new Date(day14.getTime() + 24 * 60 * 60 * 1000) } }),
-          AnalyticsEvent.countDocuments({ userId, timestamp: { $gte: day30, $lt: new Date(day30.getTime() + 24 * 60 * 60 * 1000) } })
-        ]);
-        
-        if (activeDay1 > 0) cohortData[cohortKey].day1++;
-        if (activeDay7 > 0) cohortData[cohortKey].day7++;
-        if (activeDay14 > 0) cohortData[cohortKey].day14++;
-        if (activeDay30 > 0) cohortData[cohortKey].day30++;
+        cohortMap.get(cohortKey).totalUsers++;
+        userIdsByCohort.get(cohortKey).push({
+          userId: user.userId,
+          firstEventDate: user.firstEventDate
+        });
       }
       
-      return Object.values(cohortData).map(cohort => ({
+      // Batch check retention for all cohorts using aggregation
+      const cohortKeys = Array.from(cohortMap.keys());
+      
+      // Process each cohort in parallel batches
+      const retentionChecks = await Promise.all(
+        cohortKeys.map(async (cohortKey) => {
+          const cohortUsers = userIdsByCohort.get(cohortKey);
+          const userIds = cohortUsers.map(u => u.userId);
+          const cohortDate = new Date(cohortKey);
+          
+          // Calculate retention day boundaries
+          const day1Start = new Date(cohortDate.getTime() + 1 * 24 * 60 * 60 * 1000);
+          const day1End = new Date(day1Start.getTime() + 24 * 60 * 60 * 1000);
+          const day7Start = new Date(cohortDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const day7End = new Date(day7Start.getTime() + 24 * 60 * 60 * 1000);
+          const day14Start = new Date(cohortDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+          const day14End = new Date(day14Start.getTime() + 24 * 60 * 60 * 1000);
+          const day30Start = new Date(cohortDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const day30End = new Date(day30Start.getTime() + 24 * 60 * 60 * 1000);
+          
+          // Batch check all users for each retention day in parallel using distinct queries
+          // This is much more efficient than countDocuments per user
+          const [activeDay1Users, activeDay7Users, activeDay14Users, activeDay30Users] = await Promise.all([
+            // Day 1 retention - get distinct user IDs active on day 1
+            AnalyticsEvent.distinct('userId', {
+              userId: { $in: userIds },
+              timestamp: { $gte: day1Start, $lt: day1End }
+            }),
+            // Day 7 retention
+            AnalyticsEvent.distinct('userId', {
+              userId: { $in: userIds },
+              timestamp: { $gte: day7Start, $lt: day7End }
+            }),
+            // Day 14 retention
+            AnalyticsEvent.distinct('userId', {
+              userId: { $in: userIds },
+              timestamp: { $gte: day14Start, $lt: day14End }
+            }),
+            // Day 30 retention
+            AnalyticsEvent.distinct('userId', {
+              userId: { $in: userIds },
+              timestamp: { $gte: day30Start, $lt: day30End }
+            })
+          ]);
+          
+          // Count distinct active users for each retention day
+          // Using Set to handle any potential duplicates and ensure accurate counts
+          const cohortData = cohortMap.get(cohortKey);
+          cohortData.day1 = new Set(activeDay1Users.map(id => id?.toString())).size;
+          cohortData.day7 = new Set(activeDay7Users.map(id => id?.toString())).size;
+          cohortData.day14 = new Set(activeDay14Users.map(id => id?.toString())).size;
+          cohortData.day30 = new Set(activeDay30Users.map(id => id?.toString())).size;
+          
+          return cohortData;
+        })
+      );
+      
+      return retentionChecks.map(cohort => ({
         ...cohort,
         day1Retention: ((cohort.day1 / cohort.totalUsers) * 100).toFixed(2),
         day7Retention: ((cohort.day7 / cohort.totalUsers) * 100).toFixed(2),

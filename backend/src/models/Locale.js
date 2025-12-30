@@ -27,6 +27,12 @@ const localeSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  city: {
+    type: String,
+    required: [true, 'City is required'],
+    trim: true,
+    maxlength: [50, 'City must be less than 50 characters']
+  },
   description: {
     type: String,
     trim: true,
