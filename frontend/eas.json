@@ -21,6 +21,10 @@
     },
     "preview": {
       "distribution": "internal",
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
       "android": {
         "buildType": "apk"
       },
@@ -31,7 +35,6 @@
     },
     "production": {
       "distribution": "store",
-      "prebuildCommand": "./scripts/setup-google-play-key.sh",
       "ios": {
         "simulator": false,
         "buildConfiguration": "Release"
@@ -39,6 +42,7 @@
       "android": {
         "buildType": "app-bundle"
       },
+      "prebuildCommand": "node ./scripts/setup-google-play-key.js",
       "env": {
         "EXPO_PUBLIC_ENV": "production",
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
