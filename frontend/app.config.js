@@ -8,8 +8,11 @@ const googlePlayServiceAccountKeyBase64 = process.env.GOOGLE_PLAY_SERVICE_ACCOUN
 // Path to write the decoded key file
 const keyFile = path.join(__dirname, 'keys', 'google-play-key.json');
 
-// Decode and write the service account key at build time
-if (googlePlayServiceAccountKeyBase64) {
+// Decode and write the service account key at build time (Android only)
+// Skip for iOS builds to avoid unnecessary file operations
+const platform = process.env.EAS_BUILD_PLATFORM || process.env.EXPO_PLATFORM || process.env.PLATFORM;
+
+if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   try {
     // Decode base64 to get the JSON content
     const decodedKey = Buffer.from(googlePlayServiceAccountKeyBase64, 'base64').toString('utf-8');
@@ -34,9 +37,11 @@ if (googlePlayServiceAccountKeyBase64) {
       throw new Error(`Failed to decode Google Play service account key: ${error.message}`);
     }
   }
-} else {
-  // Only warn in production builds
-  if (process.env.EXPO_PUBLIC_ENV === 'production' || process.env.EAS_BUILD_PROFILE === 'production') {
+} else if (platform === 'ios') {
+  // Silently skip for iOS - Google Play key is not needed
+} else if (!googlePlayServiceAccountKeyBase64) {
+  // Only warn in production Android builds
+  if ((process.env.EXPO_PUBLIC_ENV === 'production' || process.env.EAS_BUILD_PROFILE === 'production') && platform === 'android') {
     console.warn('⚠️ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found in environment variables');
   }
 }

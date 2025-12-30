@@ -8,10 +8,17 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
   try {
     // PRODUCTION-GRADE: Use config utility instead of hardcoded URL
     const healthCheckUrl = getApiUrl('/api/health');
+    
+    // Use AbortController for timeout (fetch doesn't support timeout directly)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const response = await fetch(healthCheckUrl, {
       method: 'GET',
-      timeout: 5000,
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       logger.debug('API connectivity test: SUCCESS');
