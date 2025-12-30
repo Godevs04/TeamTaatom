@@ -99,7 +99,7 @@ export default function ContactSupport() {
   };
 
   const handleOpenWebsite = () => {
-    Linking.openURL('https://taatom.com/support').catch(() => {
+    Linking.openURL('https://taatom.com/contact').catch(() => {
       Alert.alert('Error', 'Failed to open support website');
     });
   };
