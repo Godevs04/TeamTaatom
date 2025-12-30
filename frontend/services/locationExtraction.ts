@@ -355,12 +355,12 @@ export class LocationExtractionService {
                 // This handles cases where user selects an older photo
                 if (timeDiff < timeWindow) {
                   assetsToCheck.push(mediaAsset);
-                  logger.debug('Matched asset by filename and time:', selectedFileName, 'time diff:', timeDiff);
+                  logger.debug(`Matched asset by filename and time: ${selectedFileName}, time diff: ${timeDiff}`);
                   break;
                 } else {
                   // If filename matches but time is off, still use it if it's the only match
                   // This handles edge cases where modification time might be wrong
-                  logger.debug('Filename matches but time diff is large:', timeDiff, 'still considering');
+                  logger.debug(`Filename matches but time diff is large: ${timeDiff}, still considering`);
                   if (assetsToCheck.length === 0) {
                     assetsToCheck.push(mediaAsset);
                     logger.debug('Using asset despite large time diff (only match found)');
