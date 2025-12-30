@@ -612,10 +612,28 @@ export default function ProfileScreen() {
       'Are you sure you want to sign out?',
       async () => {
         try {
+          // Sign out and clear all auth data (includes socket disconnect and storage clearing)
           await signOut();
+          
+          // Force navigation to signin - use replace to prevent back navigation
           router.replace('/(auth)/signin');
-        } catch (error) {
-          showError('Failed to sign out');
+          
+          // Small delay to ensure navigation completes, then force reload on web
+          setTimeout(() => {
+            // Force a page reload on web to clear any cached state
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.location.href = '/(auth)/signin';
+            }
+          }, 100);
+        } catch (error: any) {
+          logger.error('Sign out error:', error);
+          // Even if signOut fails, try to navigate to signin
+          try {
+            router.replace('/(auth)/signin');
+          } catch (navError) {
+            logger.error('Navigation error after signout:', navError);
+          }
+          showError(error?.message || 'Failed to sign out. Please try again.');
         }
       },
       'Sign Out',
