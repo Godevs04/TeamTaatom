@@ -6,7 +6,7 @@
   "build": {
     "production": {
       "distribution": "store",
-      "prebuildCommand": "bash scripts/setup-google-play-key.sh",
+      "prebuildCommand": "./scripts/setup-google-play-key.sh",
       "ios": {
         "simulator": false,
         "buildConfiguration": "Release"

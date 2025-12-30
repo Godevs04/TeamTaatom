@@ -13,9 +13,16 @@ if (platform === "ios") {
 }
 
 // For Android builds, the key is required
+// If platform is not detected and key is missing, assume it's a local test and exit gracefully
 if (!process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY) {
-  console.log("❌ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found");
-  process.exit(1);
+  if (!platform || platform === "android") {
+    console.log("❌ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found");
+    process.exit(1);
+  } else {
+    // For iOS or unknown platform, exit gracefully (key not needed)
+    console.log("ℹ️ GOOGLE_PLAY_SERVICE_ACCOUNT_KEY not found, but not required for this build");
+    process.exit(0);
+  }
 }
 
 // Decode base64 to get the JSON content
