@@ -6,7 +6,19 @@
 !.vscode/launch.json
 .expo
 de/rules/byterover-rules.md
+
+# Environment files - ignore all .env variations
 .env
-
-
+.env.*
 .env.local
+.env.production
+.env.development
+.env.test
+.env.staging
+.env.prod
+.env.dev
+*.env
+*.env.*
+!.env.example
+!.env.template
+!.env.sample
