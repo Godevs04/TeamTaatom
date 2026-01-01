@@ -657,7 +657,18 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (jsonError) {
+        // If response is not JSON, use status text or default error
+        logger.error('[createShort] Failed to parse error response as JSON', {
+          status: response.status,
+          statusText: response.statusText,
+          jsonError: jsonError,
+        });
+        throw new Error(`Upload failed with status ${response.status}. Please try again.`);
+      }
       const parsedError = parseError({ response: { data: errorData } });
       throw new Error(parsedError.userMessage);
     }
@@ -666,7 +677,21 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     logger.debug('Response received:', responseData);
     return responseData;
   } catch (error: any) {
-    logger.error('createShort', error);
+    // Log comprehensive error details for debugging
+    logger.error('[createShort] Error creating short', {
+      error: error,
+      errorMessage: error?.message,
+      errorStack: error?.stack,
+      errorName: error?.name,
+      responseStatus: error?.response?.status,
+      responseData: error?.response?.data,
+      hasVideo: !!data?.video,
+      videoUri: data?.video?.uri,
+      videoType: data?.video?.type,
+      audioSource: data?.audioSource,
+      copyrightAccepted: data?.copyrightAccepted,
+    });
+    
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }

@@ -317,12 +317,39 @@ export default function HomeScreen() {
         error?.code === 'ERR_NETWORK' ||
         error?.message === 'Network Error';
       
+      // Load cached posts on network error (only for first page, not pagination)
+      if (isNetworkError && pageNum === 1 && !shouldAppend) {
+        try {
+          const cachedData = await AsyncStorage.getItem('cachedPosts');
+          if (cachedData) {
+            const parsed = JSON.parse(cachedData);
+            if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
+              // Check if cache is not too old (24 hours)
+              const cacheAge = Date.now() - (parsed.timestamp || 0);
+              if (cacheAge < 24 * 60 * 60 * 1000) {
+                logger.debug('Loading cached posts due to network error');
+                setPosts(parsed.data);
+                setHasMore(false); // Can't paginate with cached data
+                setPage(1);
+                // Don't show error if we have cached data
+                return;
+              }
+            }
+          }
+        } catch (cacheError) {
+          logger.warn('Failed to load cached posts', cacheError);
+        }
+      }
+      
       // Use setTimeout to prevent error from triggering re-renders that cause loops
       // Only show error if it's been more than 5 seconds since last error shown
       if (timeSinceLastError > 5000 || errorCountRef.current === 1) {
         setTimeout(() => {
           if (isNetworkError) {
-            showError('Connection issue. Please check your internet and try again.');
+            // Only show error if we don't have cached data
+            if (pageNum === 1 && !shouldAppend) {
+              showError('Connection issue. Showing cached content if available.');
+            }
           } else if (error?.response?.status === 429) {
             showError('Too many requests. Please wait a moment and try again.');
           } else if (pageNum === 1 && !shouldAppend) {
@@ -523,18 +550,43 @@ export default function HomeScreen() {
         const user = await getUserFromStorage();
         setCurrentUser(user);
         
-        // Fetch unseen message count
-        await fetchUnseenMessageCount();
+        // Try to load cached posts first for instant display
+        try {
+          const cachedData = await AsyncStorage.getItem('cachedPosts');
+          if (cachedData) {
+            const parsed = JSON.parse(cachedData);
+            if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
+              // Check if cache is not too old (24 hours)
+              const cacheAge = Date.now() - (parsed.timestamp || 0);
+              if (cacheAge < 24 * 60 * 60 * 1000) {
+                logger.debug('Loading cached posts for instant display');
+                setPosts(parsed.data);
+                setHasMore(false);
+                setPage(1);
+                setLoading(false); // Show cached data immediately
+              }
+            }
+          }
+        } catch (cacheError) {
+          logger.debug('No cached posts available or cache error', cacheError);
+        }
         
-        // Try to load posts without blocking on connectivity test
-        logger.debug('Loading posts...');
+        // Fetch unseen message count (non-blocking)
+        fetchUnseenMessageCount().catch(err => {
+          logger.debug('Failed to fetch message count (non-critical)', err);
+        });
+        
+        // Try to load fresh posts (will update cache if successful)
+        logger.debug('Loading fresh posts...');
         await fetchPosts(1, false);
       } catch (error) {
         logger.error('Error loading initial data', error);
-        // Use setTimeout to prevent error from causing re-renders
-        setTimeout(() => {
-          showError('Failed to load content. Please pull down to refresh.');
-        }, 100);
+        // If we don't have cached data, show error
+        if (posts.length === 0) {
+          setTimeout(() => {
+            showError('Failed to load content. Please pull down to refresh.');
+          }, 100);
+        }
         hasInitializedRef.current = false; // Allow retry
       } finally {
         setLoading(false);

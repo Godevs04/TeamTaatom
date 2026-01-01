@@ -835,23 +835,48 @@ const getFollowersList = async (req, res) => {
     
     // Populate the paginated followers users
     const followers = await User.find({ _id: { $in: paginatedFollowersIds } })
-      .select('fullName profilePic email followers following totalLikes isVerified');
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified');
     
     const currentUserId = req.user ? req.user._id.toString() : null;
-    const followersWithStatus = followers.map(f => {
+    
+    // Generate signed URLs for profile pictures
+    const followersWithStatus = await Promise.all(followers.map(async (f) => {
+      let profilePicUrl = null;
+      
+      // Special handling for Taatom Official user
+      const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
+      if (isTaatomOfficial) {
+        profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
+      } else if (f.profilePicStorageKey) {
+        // Generate signed URL for profile picture
+        try {
+          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for follower:', { 
+            userId: f._id, 
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          profilePicUrl = f.profilePic || null;
+        }
+      } else if (f.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        profilePicUrl = f.profilePic;
+      }
+      
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
         fullName: f.fullName,
         email: f.email,
-        profilePic: f.profilePic,
+        profilePic: profilePicUrl,
         totalLikes: f.totalLikes,
         isVerified: f.isVerified,
         followers: f.followers,
         following: f.following,
         isFollowing,
       };
-    });
+    }));
     
     return sendSuccess(res, 200, 'Followers fetched successfully', {
       users: followersWithStatus,
@@ -892,23 +917,48 @@ const getFollowingList = async (req, res) => {
     
     // Populate the paginated following users
     const following = await User.find({ _id: { $in: paginatedFollowingIds } })
-      .select('fullName profilePic email followers following totalLikes isVerified');
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified');
     
     const currentUserId = req.user ? req.user._id.toString() : null;
-    const followingWithStatus = following.map(f => {
+    
+    // Generate signed URLs for profile pictures
+    const followingWithStatus = await Promise.all(following.map(async (f) => {
+      let profilePicUrl = null;
+      
+      // Special handling for Taatom Official user
+      const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
+      if (isTaatomOfficial) {
+        profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
+      } else if (f.profilePicStorageKey) {
+        // Generate signed URL for profile picture
+        try {
+          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for following user:', { 
+            userId: f._id, 
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          profilePicUrl = f.profilePic || null;
+        }
+      } else if (f.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        profilePicUrl = f.profilePic;
+      }
+      
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
         fullName: f.fullName,
         email: f.email,
-        profilePic: f.profilePic,
+        profilePic: profilePicUrl,
         totalLikes: f.totalLikes,
         isVerified: f.isVerified,
         followers: f.followers,
         following: f.following,
         isFollowing,
       };
-    });
+    }));
     
     return sendSuccess(res, 200, 'Following fetched successfully', {
       users: followingWithStatus,
