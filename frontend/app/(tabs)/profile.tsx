@@ -216,11 +216,42 @@ export default function ProfileScreen() {
           }
         }
         setPosts(fetchedPosts);
+        // Cache posts for offline support
+        try {
+          await AsyncStorage.setItem(`cachedUserPosts_${userData._id}`, JSON.stringify({
+            data: fetchedPosts,
+            timestamp: Date.now()
+          }));
+        } catch (cacheError) {
+          logger.debug('Failed to cache user posts', cacheError);
+        }
       } else if (userPosts.status === 'rejected') {
         if (__DEV__) {
           console.error('❌ [Profile] Failed to fetch posts:', userPosts.reason);
         }
         logger.error('Failed to fetch user posts:', userPosts.reason);
+        
+        // Try to load cached posts on network error
+        const isNetworkError = userPosts.reason?.message?.includes('Network') || 
+                              userPosts.reason?.code === 'ERR_NETWORK' ||
+                              !userPosts.reason?.response;
+        if (isNetworkError) {
+          try {
+            const cachedData = await AsyncStorage.getItem(`cachedUserPosts_${userData._id}`);
+            if (cachedData) {
+              const parsed = JSON.parse(cachedData);
+              if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
+                const cacheAge = Date.now() - (parsed.timestamp || 0);
+                if (cacheAge < 24 * 60 * 60 * 1000) {
+                  logger.debug('Loading cached user posts due to network error');
+                  setPosts(parsed.data);
+                }
+              }
+            }
+          } catch (cacheError) {
+            logger.debug('Failed to load cached user posts', cacheError);
+          }
+        }
       }
       
       if (shortsResp.status === 'fulfilled') {
@@ -943,14 +974,22 @@ export default function ProfileScreen() {
             icon="trophy" 
             value={profileData?.followersCount || 0} 
             label="Followers"
-            onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'followers' } })}
+            onPress={() => {
+              if (profileData?._id) {
+                router.push(`/followers?userId=${profileData._id}&type=followers`);
+              }
+            }}
             iconName="trophy"
           />
           <StatCard 
             icon="people" 
             value={profileData?.followingCount || 0} 
             label="Following"
-            onPress={() => router.push({ pathname: '/followers', params: { userId: profileData._id, type: 'following' } })}
+            onPress={() => {
+              if (profileData?._id) {
+                router.push(`/followers?userId=${profileData._id}&type=following`);
+              }
+            }}
             iconName="people"
           />
         </View>

@@ -281,7 +281,15 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
       return null;
     }
     if (user === 'network-error') {
-      // Network error, keep user signed in (return special value)
+      // Network error - try to get stored user as fallback
+      // This ensures app can still work with cached data when offline
+      const fallbackUser = await getUserFromStorage();
+      if (fallbackUser) {
+        // Return stored user so app can continue working
+        logger.debug('[initializeAuth] Network error, using stored user as fallback');
+        return fallbackUser;
+      }
+      // No stored user available - return network error
       return 'network-error';
     }
     return user;

@@ -816,6 +816,26 @@ export default function LocaleScreen() {
         // Pagination & Filter Race Safety: Deduplicate locales by unique ID
         const newLocales = response.locales;
         
+        // Guard: Skip distance calculation if no locales (prevents infinite loop on empty search results)
+        // Only clear locales if this is a search query (not initial load)
+        if (newLocales.length === 0) {
+          if (isMountedRef.current) {
+            // Only clear if there's an active search query, otherwise keep existing locales
+            if (searchQuery.trim()) {
+              // Search returned empty - clear results
+              setAdminLocales([]);
+              setFilteredLocales([]);
+            }
+            // If no search query, keep existing locales (don't clear on network issues)
+            setCalculatingDistances(false);
+            setLoadingLocales(false);
+            setLoading(false);
+            loadedOnceRef.current = true; // Mark as loaded to prevent reload loops
+          }
+          isSearchingRef.current = false;
+          return;
+        }
+        
         // Fetch real coordinates from Google Geocoding API for accurate distance calculation
         // This replaces city center coordinates with actual tourist spot coordinates
         if (userLocation && locationPermissionGranted) {
@@ -910,6 +930,9 @@ export default function LocaleScreen() {
           
           if (!isMountedRef.current) {
             setCalculatingDistances(false);
+            setLoadingLocales(false);
+            setLoading(false);
+            isSearchingRef.current = false;
             return;
           }
           
@@ -931,6 +954,11 @@ export default function LocaleScreen() {
             console.log('✅ Distance calculation complete - hiding travel loading overlay');
           }
           setCalculatingDistances(false);
+          // Ensure all loading states are reset after distance calculation
+          if (isMountedRef.current) {
+            setLoadingLocales(false);
+            setLoading(false);
+          }
         } else {
           // No user location, just set locales as is
           if (forceRefresh || currentPageRef.current === 1) {
@@ -943,24 +971,56 @@ export default function LocaleScreen() {
               return Array.from(localeMap.values());
             });
           }
+          // Reset loading states when no user location (no distance calculation needed)
+          if (isMountedRef.current) {
+            setLoadingLocales(false);
+            setLoading(false);
+            loadedOnceRef.current = true; // Mark as loaded
+          }
         }
       } else {
+        // Response has no locales property or is empty
+        // Only clear if there's an active search query, otherwise keep existing locales
         if (isMountedRef.current) {
-          setAdminLocales([]);
-          setFilteredLocales([]);
+          if (searchQuery.trim()) {
+            // Search returned empty - clear results
+            setAdminLocales([]);
+            setFilteredLocales([]);
+          }
+          // If no search query, keep existing locales (don't clear on network issues)
+          setCalculatingDistances(false);
+          setLoadingLocales(false);
+          setLoading(false);
+          loadedOnceRef.current = true; // Mark as loaded to prevent reload loops on empty results
         }
+        isSearchingRef.current = false;
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || error.name === 'CanceledError') {
         logger.debug('loadAdminLocales aborted');
-        setCalculatingDistances(false);
+        if (isMountedRef.current) {
+          setCalculatingDistances(false);
+          setLoadingLocales(false);
+          setLoading(false);
+        }
+        isSearchingRef.current = false;
         return;
       }
       if (!isMountedRef.current) return;
       logger.error('Failed to load admin locales', error);
-      setAdminLocales([]);
-      setFilteredLocales([]);
-      setCalculatingDistances(false); // Hide loading overlay on error
+      if (isMountedRef.current) {
+        // On network error, only clear if there's an active search query
+        // Otherwise, keep existing locales for offline support
+        if (searchQuery.trim()) {
+          // Search failed - clear search results
+          setAdminLocales([]);
+          setFilteredLocales([]);
+        }
+        // If no search query, keep existing locales (don't clear on network errors)
+        setCalculatingDistances(false); // Hide loading overlay on error
+        setLoadingLocales(false);
+        setLoading(false);
+      }
     } finally {
       if (isMountedRef.current) {
         setLoadingLocales(false);
@@ -1271,7 +1331,7 @@ export default function LocaleScreen() {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted]);
+  }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -1299,7 +1359,8 @@ export default function LocaleScreen() {
       });
       
       // If user location just became available and we don't have distances, reload to calculate them
-      if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current) {
+      // Guard: Only reload if not currently calculating and not searching
+      if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current && !calculatingDistances) {
         logger.debug('User location available but distances missing, reloading locales to calculate distances');
         loadedOnceRef.current = false; // Reset guard to allow reload
         loadAdminLocales(true).catch(err => {
@@ -1313,7 +1374,7 @@ export default function LocaleScreen() {
       const filtered = applyFilters(adminLocales, false);
       setFilteredLocales(filtered);
     }
-  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters, activeTab, loadAdminLocales]);
+  }, [userLocation, locationPermissionGranted, adminLocales, applyFilters, activeTab, loadAdminLocales, calculatingDistances]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -1351,7 +1412,8 @@ export default function LocaleScreen() {
       });
       const shouldLoad = !hasLocales || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
       
-      if (shouldLoad && !isSearchingRef.current) {
+      // Guard: Prevent reload loop when search returns empty results or calculation is in progress
+      if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
         // Reset loadedOnce flag to allow reload if distances are missing
         if (hasLocales && !hasDistances) {
           loadedOnceRef.current = false;
