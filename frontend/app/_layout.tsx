@@ -267,10 +267,21 @@ function RootLayoutInner() {
         
         if (user === 'network-error') {
           // Network error - keep user signed in with stored data
+          // Try to get user from storage to ensure we have user data
+          const storedUser = await getUserFromStorage();
+          if (storedUser) {
+            // Set user for analytics even on network error
+            await analyticsService.setUser(storedUser._id);
+            crashReportingService.setUser(storedUser._id, {
+              username: storedUser.username,
+              email: storedUser.email,
+            });
+            logger.debug('[RootLayoutInner] Using stored user data due to network error:', storedUser._id);
+          }
           setIsAuthenticated(true);
           setIsOffline(true);
           setSessionExpired(false);
-          logger.warn('Network error during auth initialization. User kept signed in.');
+          logger.warn('Network error during auth initialization. User kept signed in with stored data.');
         } else if (lastAuthError === 'Session expired. Please sign in again.') {
           // Session expired - user needs to sign in again
           setIsAuthenticated(false);
@@ -365,6 +376,7 @@ function RootLayoutInner() {
                               segments[0] === 'chat' ||
                               segments[0] === 'search' ||
                               segments[0] === 'notifications' ||
+                              segments[0] === 'followers' ||
                               segments[0] === 'activity' ||
                               segments[0] === 'collections' ||
                               segments[0] === 'hashtag' ||
@@ -380,6 +392,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/chat') ||
                               normalizedPath.startsWith('/search') ||
                               normalizedPath.startsWith('/notifications') ||
+                              normalizedPath.startsWith('/followers') ||
                               normalizedPath.startsWith('/activity') ||
                               normalizedPath.startsWith('/collections') ||
                               normalizedPath.startsWith('/settings') ||

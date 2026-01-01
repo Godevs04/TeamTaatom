@@ -3,7 +3,7 @@ const { sendEmail } = require('./brevoService');
 
 const sendOTPEmail = async (email, resetLink, fullName) => {
   try {
-    const subject = 'Reset Password Taatom Account - OTP Code';
+    const subject = '🔐 Verify Your Taatom Account - OTP Code';
     const html = `
         <!DOCTYPE html>
         <html lang="en">
@@ -116,7 +116,7 @@ const sendOTPEmail = async (email, resetLink, fullName) => {
 const sendWelcomeEmail = async (email, fullName) => {
   try {
     const subject = '🎉 Welcome to Taatom - Your Account is Verified!';
-      html: `
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>

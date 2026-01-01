@@ -391,12 +391,15 @@ export const geocodeAddress = async (
         return coordinates;
       }
     } catch (finalError) {
-      logger.error('💥 Final geocoding attempt failed:', finalError);
+      logger.warn('💥 Final geocoding attempt failed:', finalError);
     }
     
-    logger.error('❌ All geocoding attempts failed for:', address);
+    // This is an expected failure condition (handled gracefully by returning null)
+    // Log as warning instead of error since it's not a breaking error
+    logger.warn('⚠️ All geocoding attempts failed for:', { address, countryCode });
     return null;
   } catch (error) {
+    // This is an unexpected error in the geocoding process itself
     logger.error('💥 Geocoding ERROR:', error);
     return null;
   }
