@@ -1176,6 +1176,21 @@ export default function PostScreen() {
     }
   };
 
+  // Wrapper to ensure Formik onSubmit never throws unhandled promise rejections
+  // This ensures the promise always resolves, even if handlePost throws an error
+  const handlePostWrapper = async (values: PostFormValues, formikBag: any) => {
+    try {
+      await handlePost(values);
+    } catch (error: any) {
+      // Error is already handled in handlePost's try/catch, but this ensures
+      // no unhandled promise rejection escapes to Formik
+      // If error reaches here, it means it wasn't caught by handlePost's try/catch
+      logger.error('[PostScreen] Unhandled error in handlePost wrapper (should not happen):', error);
+      // Ensure promise resolves (doesn't reject) to prevent unhandled rejection
+    }
+    // Promise always resolves, never rejects
+  };
+
   const handlePost = async (values: PostFormValues) => {
     // Duplicate submission prevention
     if (isSubmittingRef.current) {
@@ -1471,6 +1486,21 @@ export default function PostScreen() {
       setIsLoading(false);
       isSubmittingRef.current = false;
     }
+  };
+
+  // Wrapper to ensure Formik onSubmit never throws unhandled promise rejections
+  // This ensures the promise always resolves, even if handleShort throws an error
+  const handleShortWrapper = async (values: ShortFormValues, formikBag: any) => {
+    try {
+      await handleShort(values);
+    } catch (error: any) {
+      // Error is already handled in handleShort's try/catch, but this ensures
+      // no unhandled promise rejection escapes to Formik
+      // If error reaches here, it means it wasn't caught by handleShort's try/catch
+      logger.error('[PostScreen] Unhandled error in handleShort wrapper (should not happen):', error);
+      // Ensure promise resolves (doesn't reject) to prevent unhandled rejection
+    }
+    // Promise always resolves, never rejects
   };
 
   const handleShort = async (values: ShortFormValues) => {
@@ -1818,7 +1848,10 @@ export default function PostScreen() {
 
   // Handle copyright confirmation - proceed with upload
   const handleCopyrightAgree = async () => {
-    if (!pendingShortData) return;
+    if (!pendingShortData) {
+      logger.error('[PostScreen] handleCopyrightAgree called but pendingShortData is null');
+      return;
+    }
     
     setShowCopyrightModal(false);
     setCopyrightAccepted(true);
@@ -1827,6 +1860,27 @@ export default function PostScreen() {
     try {
       setIsLoading(true);
       setIsUploading(true);
+      
+      // Validate pendingShortData before attempting upload
+      if (!pendingShortData.video || !pendingShortData.video.uri) {
+        const error = new Error('Video file is missing. Please select a video and try again.');
+        logger.error('[PostScreen] Short creation failed after copyright confirmation - missing video', {
+          pendingShortData: pendingShortData ? {
+            hasVideo: !!pendingShortData.video,
+            hasVideoUri: !!pendingShortData.video?.uri,
+            videoUri: pendingShortData.video?.uri,
+            caption: pendingShortData.caption,
+          } : null,
+        });
+        throw error;
+      }
+      
+      logger.debug('[PostScreen] Proceeding with short creation after copyright confirmation', {
+        videoUri: pendingShortData.video.uri,
+        hasImage: !!pendingShortData.image,
+        caption: pendingShortData.caption,
+        audioSource: 'user_original',
+      });
       
       const response = await createShort({
         ...pendingShortData,
@@ -1901,11 +1955,42 @@ export default function PostScreen() {
         ]);
       }
     } catch (error: any) {
-      logger.error('Short creation failed after copyright confirmation', error);
-      setUploadError(error?.message || 'Upload failed. Please try again.');
+      // Log full error details before sanitization for debugging
+      logger.error('[PostScreen] Short creation failed after copyright confirmation', {
+        error: error,
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+        errorName: error?.name,
+        pendingShortData: pendingShortData ? {
+          hasVideo: !!pendingShortData.video,
+          videoUri: pendingShortData.video?.uri,
+          videoType: pendingShortData.video?.type,
+          videoName: pendingShortData.video?.name,
+          hasImage: !!pendingShortData.image,
+          caption: pendingShortData.caption,
+          audioSource: pendingShortData.audioSource,
+        } : null,
+      });
+      
+      // Extract user-friendly error message
+      let errorMessage = 'Upload failed. Please try again.';
+      if (error?.message) {
+        // Check if it's already a user-friendly message
+        if (!error.message.includes('Error:') && !error.message.includes('TypeError') && !error.message.includes('ReferenceError')) {
+          errorMessage = error.message;
+        } else {
+          // Try to extract meaningful part from technical errors
+          const match = error.message.match(/([^:]+)(?::\s*(.+))?$/);
+          if (match && match[2]) {
+            errorMessage = match[2].trim();
+          }
+        }
+      }
+      
+      setUploadError(errorMessage);
       Alert.alert(
         'Upload failed',
-        error?.message || 'Please try again later.',
+        errorMessage,
         [
           {
             text: 'OK',
@@ -1919,6 +2004,7 @@ export default function PostScreen() {
       );
     } finally {
       setIsLoading(false);
+      setIsUploading(false);
       isSubmittingRef.current = false;
     }
   };
@@ -2488,7 +2574,7 @@ export default function PostScreen() {
               <Formik
                 initialValues={{ comment: "", placeName: "", tags: "" }}
                 validationSchema={postSchema}
-                onSubmit={handlePost}
+                onSubmit={handlePostWrapper}
               >
                 {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
                   const [commentCursorPosition, setCommentCursorPosition] = useState<number | undefined>();
@@ -2874,7 +2960,7 @@ export default function PostScreen() {
               <Formik
                 initialValues={{ caption: "", tags: "", placeName: "" }}
                 validationSchema={shortSchema}
-                onSubmit={handleShort}
+                onSubmit={handleShortWrapper}
               >
                 {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
                   const [captionCursorPosition, setCaptionCursorPosition] = useState<number | undefined>();
