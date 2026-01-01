@@ -162,7 +162,20 @@ const getLocales = async (req, res) => {
 
     const total = await Locale.countDocuments(query);
 
-    return sendSuccess(res, 200, 'Locales fetched successfully', {
+    // Include statistics for SuperAdmin when includeInactive is true
+    let statistics = null;
+    if (includeInactive === 'true') {
+      const totalLocales = await Locale.countDocuments({});
+      const activeLocales = await Locale.countDocuments({ isActive: true });
+      const inactiveLocales = await Locale.countDocuments({ isActive: false });
+      statistics = {
+        total: totalLocales,
+        active: activeLocales,
+        inactive: inactiveLocales
+      };
+    }
+
+    const responseData = {
       locales: mappedLocales,
       pagination: {
         currentPage: parsedPage,
@@ -170,7 +183,14 @@ const getLocales = async (req, res) => {
         total,
         limit: parsedLimit
       }
-    });
+    };
+
+    // Add statistics if available (for SuperAdmin)
+    if (statistics) {
+      responseData.statistics = statistics;
+    }
+
+    return sendSuccess(res, 200, 'Locales fetched successfully', responseData);
   } catch (error) {
     logger.error('Get locales error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching locales');

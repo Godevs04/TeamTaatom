@@ -466,9 +466,9 @@ const Songs = () => {
   const handleFileChange = (e) => {
     const file = e.target.files[0]
     if (file) {
-      // Validate file size (20MB)
-      if (file.size > 20 * 1024 * 1024) {
-        toast.error('File size must be less than 20MB')
+      // Validate file size (100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        toast.error('File size must be less than 100MB')
         return
       }
       setFormData({ ...formData, file })
@@ -1296,7 +1296,7 @@ const Songs = () => {
                 )}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Supported formats: MP3, WAV, M4A (Max 20MB)
+                Supported formats: MP3, WAV, M4A (Max 100MB)
               </p>
             </div>
 
