@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.taatom.app",
+      "sha256_cert_fingerprints": [
+        "A7:57:1B:97:61:20:4A:0D:5A:95:25:84:41:40:D1:CB:0A:3C:8B:33:85:3E:91:54:61:EA:0B:C3:F2:7C:EB:91"
+      ]
+    }
+  }
+]

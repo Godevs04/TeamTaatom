@@ -34,7 +34,7 @@ export default function FollowersFollowingList() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const userId = params.userId as string;
-  const type = params.type as 'followers' | 'following';
+  const type = (params.type as 'followers' | 'following') || 'followers';
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState<string | null>(null);
@@ -43,7 +43,18 @@ export default function FollowersFollowingList() {
   const [loadingMore, setLoadingMore] = useState(false);
   const limit = 20;
 
+  // Validate params and redirect if missing
   useEffect(() => {
+    if (!userId) {
+      logger.warn('Followers page: userId missing, redirecting to profile');
+      router.replace('/(tabs)/profile');
+      return;
+    }
+  }, [userId, router]);
+
+  useEffect(() => {
+    if (!userId) return;
+    
     setUsers([]);
     setPage(1);
     setHasNextPage(true);
@@ -53,6 +64,12 @@ export default function FollowersFollowingList() {
   }, [userId, type]);
 
   const fetchList = async (pageToFetch = 1, replace = false) => {
+    if (!userId) {
+      logger.warn('fetchList: userId is missing');
+      setLoading(false);
+      return;
+    }
+    
     if (!hasNextPage && !replace) return;
     if (pageToFetch > 1) setLoadingMore(true);
     try {
