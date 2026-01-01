@@ -299,8 +299,18 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           if (post._id) {
             await audioManager.playSound(soundRef.current, post._id.toString());
           }
-          // Ensure volume is set correctly
-          await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
+          // Ensure volume is set correctly - check status first to avoid errors
+          try {
+            const currentStatus = await soundRef.current.getStatusAsync();
+            if (currentStatus.isLoaded) {
+              await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
+            } else {
+              logger.warn('Sound not loaded when setting volume, skipping volume update');
+            }
+          } catch (volumeError) {
+            logger.warn('Error setting volume (non-critical):', volumeError);
+            // Non-critical error, continue with playback
+          }
           setIsPlaying(true);
           logger.debug('Playback started');
         }
@@ -324,6 +334,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     if (!soundRef.current) return;
 
     try {
+      // Check if sound is loaded before attempting to set volume
+      const status = await soundRef.current.getStatusAsync();
+      if (!status.isLoaded) {
+        logger.warn('Cannot toggle mute: sound is not loaded');
+        return;
+      }
+
       const newMutedState = !isMuted;
       await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume);
       setIsMuted(newMutedState);

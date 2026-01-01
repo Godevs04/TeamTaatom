@@ -356,16 +356,22 @@ const Songs = () => {
       }
       
       if (result && result.songs) {
+        // Normalize songs to ensure isActive defaults to true when undefined/null
+        const normalizedSongs = result.songs.map(song => ({
+          ...song,
+          isActive: song.isActive ?? true
+        }))
+        
         // Cache the result
         cachedSongsRef.current = {
-          songs: result.songs,
+          songs: normalizedSongs,
           totalPages: result.pagination?.totalPages || 1,
           totalSongs: result.pagination?.total || 0
         }
         cacheKeyRef.current = cacheKey
         
         if (isMountedRef.current) {
-          setSongs(result.songs)
+          setSongs(normalizedSongs)
           setTotalPages(result.pagination?.totalPages || 1)
           setTotalSongs(result.pagination?.total || 0)
         }
@@ -407,7 +413,8 @@ const Songs = () => {
 
   // Calculate statistics
   const statistics = useMemo(() => {
-    const activeSongs = songs.filter(s => s.isActive).length
+    // Count active songs (default to true when undefined/null)
+    const activeSongs = songs.filter(s => s.isActive !== false).length
     const totalUsage = songs.reduce((sum, s) => sum + (s.usageCount || 0), 0)
     const avgDuration = songs.length > 0 
       ? Math.round(songs.reduce((sum, s) => sum + (s.duration || 0), 0) / songs.length)

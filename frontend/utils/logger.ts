@@ -47,8 +47,9 @@ const currentLogLevel = LOG_LEVELS[LOG_LEVEL] || LOG_LEVELS.info;
 
 /**
  * Sanitize data to remove sensitive information
+ * Uses a visited set to prevent infinite recursion on circular references
  */
-const sanitizeData = (data: any): any => {
+const sanitizeData = (data: any, visited: WeakSet<object> = new WeakSet()): any => {
   if (data === null || data === undefined) {
     return data;
   }
@@ -65,23 +66,32 @@ const sanitizeData = (data: any): any => {
     };
   }
 
-  if (Array.isArray(data)) {
-    return data.map(item => sanitizeData(item));
+  // Check for circular references - if we've seen this object before, return a placeholder
+  if (visited.has(data)) {
+    return '[Circular Reference]';
   }
 
-  const sanitized = { ...data };
+  // Add current object to visited set BEFORE recursing
+  visited.add(data);
+
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item, visited));
+  }
+
+  const sanitized: any = {};
   const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization', 'cookie', 'authToken'];
   
-  sensitiveFields.forEach(field => {
-    if (sanitized[field]) {
-      sanitized[field] = '[REDACTED]';
-    }
-  });
-
-  // Recursively sanitize nested objects
-  Object.keys(sanitized).forEach(key => {
-    if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
-      sanitized[key] = sanitizeData(sanitized[key]);
+  // Copy and sanitize fields
+  Object.keys(data).forEach(key => {
+    // Redact sensitive fields
+    if (sensitiveFields.includes(key)) {
+      sanitized[key] = '[REDACTED]';
+    } else if (typeof data[key] === 'object' && data[key] !== null) {
+      // Recursively sanitize nested objects (visited set prevents circular refs)
+      sanitized[key] = sanitizeData(data[key], visited);
+    } else {
+      // Copy primitive values as-is
+      sanitized[key] = data[key];
     }
   });
 
@@ -122,11 +132,58 @@ const trackError = (context: string, error: any, args?: any[]) => {
       // Use lazy require to prevent circular dependency issues
       if (typeof require !== 'undefined') {
         const Sentry = require('@sentry/react-native');
-        if (Sentry && typeof Sentry.captureException === 'function') {
-          Sentry.captureException(error, {
-            tags: { context },
-            extra: { args: sanitizeData(args) },
-          });
+        if (!Sentry) return;
+
+        // Determine if this is a warning context (for warnings, we use captureMessage)
+        const isWarning = context === 'warning';
+
+        if (error instanceof Error) {
+          // For actual Error instances, use captureException
+          if (typeof Sentry.captureException === 'function') {
+            Sentry.captureException(error, {
+              tags: { context },
+              extra: { args: sanitizeData(args) },
+              level: isWarning ? 'warning' : 'error',
+            });
+          }
+        } else if (error && typeof error === 'object') {
+          // For plain objects (like from logger.warn), convert to Error or use captureMessage
+          const errorMessage = error.message || JSON.stringify(sanitizeData(error));
+          
+          if (isWarning && typeof Sentry.captureMessage === 'function') {
+            // Use captureMessage for warnings with plain objects
+            Sentry.captureMessage(errorMessage, {
+              level: 'warning',
+              tags: { context },
+              extra: { 
+                originalData: sanitizeData(error),
+                args: sanitizeData(args) 
+              },
+            });
+          } else {
+            // For errors with plain objects, convert to Error instance
+            const errorObj = new Error(errorMessage);
+            if (typeof Sentry.captureException === 'function') {
+              Sentry.captureException(errorObj, {
+                tags: { context },
+                extra: { 
+                  originalData: sanitizeData(error),
+                  args: sanitizeData(args) 
+                },
+              });
+            }
+          }
+        } else if (error) {
+          // For primitive values or other types, convert to string
+          const errorMessage = String(error);
+          const errorObj = new Error(errorMessage);
+          if (typeof Sentry.captureException === 'function') {
+            Sentry.captureException(errorObj, {
+              tags: { context },
+              extra: { args: sanitizeData(args) },
+              level: isWarning ? 'warning' : 'error',
+            });
+          }
         }
       }
     } catch (sentryError) {
