@@ -82,6 +82,7 @@ const Locales = () => {
   const currentPageRef = useRef(1) // Ref to track current page for fetch operations
   const [totalPages, setTotalPages] = useState(1)
   const [totalLocales, setTotalLocales] = useState(0)
+  const [backendStatistics, setBackendStatistics] = useState(null) // Statistics from backend (total, active, inactive)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -271,12 +272,14 @@ const Locales = () => {
         // Handle both response structures: direct data or nested in data property
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Response parsed:', { 
           hasLocales: !!locales, 
           localesCount: locales?.length || 0,
           resultKeys: Object.keys(result),
-          pagination: pagination ? { totalPages: pagination.totalPages, total: pagination.total } : null
+          pagination: pagination ? { totalPages: pagination.totalPages, total: pagination.total } : null,
+          statistics: statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -300,7 +303,10 @@ const Locales = () => {
         console.debug('[Locales] Setting locales:', minimalLocales.length)
         setLocales(minimalLocales)
         setTotalPages(pagination?.totalPages || 1)
-        setTotalLocales(pagination?.total || 0) 
+        setTotalLocales(pagination?.total || 0)
+        if (statistics) {
+          setBackendStatistics(statistics)
+        }
         cachedLocalesRef.current = minimalLocales
         
         // Analytics: track only once per fetchKey on successful 200 response
@@ -321,6 +327,7 @@ const Locales = () => {
           setLocales([])
           setTotalPages(1)
           setTotalLocales(0)
+          setBackendStatistics(null)
         }
       }
     } catch (error) {
@@ -343,6 +350,7 @@ const Locales = () => {
         setLocales([])
         setTotalPages(1)
         setTotalLocales(0)
+        setBackendStatistics(null)
       }
     } finally {
       // Reset isFetchingRef ONLY in finally block
@@ -483,10 +491,12 @@ const Locales = () => {
         const result = response.data
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Initial fetch response:', { 
           hasLocales: !!locales, 
-          localesCount: locales?.length || 0 
+          localesCount: locales?.length || 0,
+          statistics: statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -510,6 +520,9 @@ const Locales = () => {
           setLocales(minimalLocales)
           setTotalPages(pagination?.totalPages || 1)
           setTotalLocales(pagination?.total || 0)
+          if (statistics) {
+            setBackendStatistics(statistics)
+          }
           cachedLocalesRef.current = minimalLocales
         }
       }).catch((error) => {
@@ -611,12 +624,14 @@ const Locales = () => {
         // Handle both response structures: direct data or nested in data property
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Response received:', { 
           hasLocales: !!locales, 
           localesCount: locales?.length || 0,
           resultKeys: Object.keys(result),
-          pagination 
+          pagination,
+          statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -642,6 +657,9 @@ const Locales = () => {
           setLocales(minimalLocales)
           setTotalPages(pagination?.totalPages || 1)
           setTotalLocales(pagination?.total || 0)
+          if (statistics) {
+            setBackendStatistics(statistics)
+          }
           cachedLocalesRef.current = minimalLocales
           
           // Analytics: track only once per fetchKey on successful 200 response
@@ -655,6 +673,7 @@ const Locales = () => {
             setLocales([])
             setTotalPages(1)
             setTotalLocales(0)
+            setBackendStatistics(null)
           }
         }
       }).catch((error) => {
@@ -677,6 +696,7 @@ const Locales = () => {
           setLocales([])
           setTotalPages(1)
           setTotalLocales(0)
+          setBackendStatistics(null)
         }
       }).finally(() => {
         // Reset isFetchingRef ONLY in finally block
@@ -742,8 +762,14 @@ const Locales = () => {
     return hints
   }, [locales])
 
-  // Calculate statistics
+  // Calculate statistics - use backend statistics if available, otherwise calculate from current page
   const statistics = useMemo(() => {
+    // If backend provided statistics (accurate counts), use them
+    if (backendStatistics) {
+      return backendStatistics
+    }
+    
+    // Fallback: calculate from current page's locales (less accurate with pagination)
     const activeLocales = locales.filter(l => l.isActive).length
     
     return {
@@ -751,7 +777,7 @@ const Locales = () => {
       active: activeLocales,
       inactive: totalLocales - activeLocales
     }
-  }, [locales, totalLocales])
+  }, [backendStatistics, locales, totalLocales])
 
   // Sort locales
   const sortedLocales = useMemo(() => {
