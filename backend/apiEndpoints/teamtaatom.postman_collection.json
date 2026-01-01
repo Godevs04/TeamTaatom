@@ -1,0 +1,278 @@
+{
+  "info": {
+    "name": "TeamTaatom API",
+    "_postman_id": "teamtaatom-collection-001",
+    "description": "API endpoints for TeamTaatom backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/signup", "host": ["{{base_url}}"], "path": ["auth", "signup"] }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/verify-otp", "host": ["{{base_url}}"], "path": ["auth", "verify-otp"] }
+          }
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/resend-otp", "host": ["{{base_url}}"], "path": ["auth", "resend-otp"] }
+          }
+        },
+        {
+          "name": "Signin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/signin", "host": ["{{base_url}}"], "path": ["auth", "signin"] }
+          }
+        },
+        {
+          "name": "Google Signin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"GOOGLE_ID_TOKEN\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/google", "host": ["{{base_url}}"], "path": ["auth", "google"] }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/auth/me", "host": ["{{base_url}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/forgot-password", "host": ["{{base_url}}"], "path": ["auth", "forgot-password"] }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"otp\": \"123456\",\n  \"newPassword\": \"newpassword123\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/auth/reset-password", "host": ["{{base_url}}"], "path": ["auth", "reset-password"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Posts",
+      "item": [
+        {
+          "name": "Get All Posts",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/posts", "host": ["{{base_url}}"], "path": ["posts"] }
+          }
+        },
+        {
+          "name": "Create Post",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "caption", "value": "My first post", "type": "text" },
+                { "key": "latitude", "value": "12.34", "type": "text" },
+                { "key": "longitude", "value": "56.78", "type": "text" },
+                { "key": "image", "type": "file", "src": "" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/posts", "host": ["{{base_url}}"], "path": ["posts"] }
+          }
+        },
+        {
+          "name": "Get User Posts",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/posts/user/{{userId}}", "host": ["{{base_url}}"], "path": ["posts", "user", "{{userId}}"] }
+          }
+        },
+        {
+          "name": "Like/Unlike Post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/posts/{{postId}}/like", "host": ["{{base_url}}"], "path": ["posts", "{{postId}}", "like"] }
+          }
+        },
+        {
+          "name": "Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Nice post!\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/posts/{{postId}}/comments", "host": ["{{base_url}}"], "path": ["posts", "{{postId}}", "comments"] }
+          }
+        },
+        {
+          "name": "Delete Comment",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/posts/{{postId}}/comments/{{commentId}}", "host": ["{{base_url}}"], "path": ["posts", "{{postId}}", "comments", "{{commentId}}"] }
+          }
+        },
+        {
+          "name": "Delete Post",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/posts/{{postId}}", "host": ["{{base_url}}"], "path": ["posts", "{{postId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "List All Chats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/chat", "host": ["{{base_url}}"], "path": ["chat"] }
+          }
+        },
+        {
+          "name": "Get Chat with User",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/chat/{{otherUserId}}", "host": ["{{base_url}}"], "path": ["chat", "{{otherUserId}}"] }
+          }
+        },
+        {
+          "name": "Get Messages in Chat",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/chat/{{otherUserId}}/messages", "host": ["{{base_url}}"], "path": ["chat", "{{otherUserId}}", "messages"] }
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Hello there!\"\n}"
+            },
+            "url": { "raw": "{{base_url}}/chat/{{otherUserId}}/messages", "host": ["{{base_url}}"], "path": ["chat", "{{otherUserId}}", "messages"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "Search Users",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/profile/search?query=John", "host": ["{{base_url}}"], "path": ["profile", "search"], "query": [{ "key": "query", "value": "John" }] }
+          }
+        },
+        {
+          "name": "Get Profile by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/profile/{{userId}}", "host": ["{{base_url}}"], "path": ["profile", "{{userId}}"] }
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "fullName", "value": "New Name", "type": "text" },
+                { "key": "profilePic", "type": "file", "src": "" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/profile/{{userId}}", "host": ["{{base_url}}"], "path": ["profile", "{{userId}}"] }
+          }
+        },
+        {
+          "name": "Follow/Unfollow User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/profile/{{userId}}/follow", "host": ["{{base_url}}"], "path": ["profile", "{{userId}}", "follow"] }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000" },
+    { "key": "token", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "postId", "value": "" },
+    { "key": "commentId", "value": "" },
+    { "key": "otherUserId", "value": "" }
+  ]
+}

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperAdmin API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        pre {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 SuperAdmin API Test</h1>
+        <p>This page tests the SuperAdmin API endpoints to ensure they're working correctly.</p>
+        
+        <div id="status"></div>
+        
+        <button onclick="testUsers()">Test Users API</button>
+        <button onclick="testPosts()">Test Posts API</button>
+        <button onclick="testReports()">Test Reports API</button>
+        <button onclick="testAll()">Test All APIs</button>
+        <button onclick="setToken()">Set Token</button>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4ZjM5YjEyMWQ3NjJhODRmMjZhMDE0MSIsImVtYWlsIjoia2thdmlua3VtYXIyNEBnbWFpbC5jb20iLCJpYXQiOjE3NjExNjA1MDEsImV4cCI6MTc2MTI0NjkwMX0.SbDnvlt1e2i-WdboSK5N1HyC-vrFDw-rQeqCOS-MTEs';
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+        
+        function showResults(data, title) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+        }
+        
+        async function testAPI(endpoint, title) {
+            try {
+                showStatus(`Testing ${title}...`, 'info');
+                
+                const response = await fetch(`http://localhost:3000${endpoint}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                showStatus(`✅ ${title} - SUCCESS! Found ${data.users?.length || data.posts?.length || data.reports?.length || 0} items`, 'success');
+                showResults(data, title);
+                return data;
+            } catch (error) {
+                showStatus(`❌ ${title} - FAILED: ${error.message}`, 'error');
+                showResults({ error: error.message }, `${title} - Error`);
+                return null;
+            }
+        }
+        
+        function testUsers() {
+            testAPI('/api/superadmin/users', 'Users API');
+        }
+        
+        function testPosts() {
+            testAPI('/api/superadmin/travel-content', 'Posts API');
+        }
+        
+        function testReports() {
+            testAPI('/api/superadmin/reports', 'Reports API');
+        }
+        
+        async function testAll() {
+            showStatus('Testing all APIs...', 'info');
+            const users = await testAPI('/api/superadmin/users', 'Users API');
+            const posts = await testAPI('/api/superadmin/travel-content', 'Posts API');
+            const reports = await testAPI('/api/superadmin/reports', 'Reports API');
+            
+            if (users && posts && reports) {
+                showStatus('🎉 All APIs are working correctly!', 'success');
+            } else {
+                showStatus('❌ Some APIs failed. Check the results above.', 'error');
+            }
+        }
+        
+        function setToken() {
+            localStorage.setItem('founder_token', TOKEN);
+            showStatus('✅ Token set in localStorage. You can now refresh your SuperAdmin panel.', 'success');
+        }
+        
+        // Auto-test on page load
+        window.onload = function() {
+            showStatus('Page loaded. Click "Test All APIs" to check if everything is working.', 'info');
+        };
+    </script>
+</body>
+</html>
