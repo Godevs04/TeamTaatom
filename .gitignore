@@ -1,2 +1,41 @@
 node_modules
 node_modules
+
+# Environment files - ignore all .env variations
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+.env.test
+.env.staging
+.env.prod
+.env.dev
+*.env
+*.env.*
+!.env.example
+!.env.template
+!.env.sample
+
+.idea
+.clinerules/byterover-rules.md
+.kilocode/rules/byterover-rules.md
+.roo/rules/byterover-rules.md
+.windsurf/rules/byterover-rules.md
+.cursor/rules/byterover-rules.mdc
+.kiro/steering/byterover-rules.md
+.qoder/rules/byterover-rules.md
+.augment/rules/byterover-rules.md
+.expo
+de/rules/byterover-rules.md
+.idea   
+.DS_Store
+.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Exclude superAdmin from git to fix EAS build casing issues
+# superAdmin/
+# superAdmin/**                

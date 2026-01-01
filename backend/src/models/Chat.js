@@ -11,8 +11,42 @@ const MessageSchema = new Schema({
 const ChatSchema = new Schema({
   participants: [{ type: Types.ObjectId, ref: 'User', required: true }],
   messages: [MessageSchema],
+  // Admin support chat fields (optional, backward compatible)
+  type: {
+    type: String,
+    enum: ['user_chat', 'admin_support'],
+    default: 'user_chat',
+    index: true
+  },
+  relatedEntity: {
+    type: {
+      type: String,
+      enum: ['trip_verification', 'support'],
+      default: null
+    },
+    refId: {
+      type: Types.ObjectId,
+      default: null
+    }
+  },
+  // Optional conversation status (for future use)
+  status: {
+    type: String,
+    enum: ['open', 'waiting_user', 'resolved'],
+    default: 'open'
+  },
+  // Optional admin assignment (for future scaling)
+  assignedAdminId: {
+    type: Types.ObjectId,
+    ref: 'SuperAdmin',
+    default: null
+  }
 }, { timestamps: true });
 
-ChatSchema.index({ participants: 1 });
+// Database indexes for performance optimization
+ChatSchema.index({ participants: 1 }); // For finding chats by participants
+ChatSchema.index({ 'messages.timestamp': -1 }); // For sorting messages by timestamp
+ChatSchema.index({ updatedAt: -1 }); // For sorting chats by last update
+ChatSchema.index({ 'participants': 1, updatedAt: -1 }); // Compound index for user's chats
 
 module.exports = mongoose.model('Chat', ChatSchema);

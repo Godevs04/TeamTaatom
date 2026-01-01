@@ -7,11 +7,15 @@ import {
   FlatList,
   StyleSheet,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { CommentType } from '../types/post';
 import { getUserFromStorage } from '../services/auth';
+import HashtagMentionText from './HashtagMentionText';
+import { validateAndSanitizeComment } from '../utils/sanitize';
 
 interface CommentBoxProps {
   comments: CommentType[];
@@ -27,9 +31,13 @@ export default function CommentBox({
   const [commentText, setCommentText] = useState('');
 
   const handleSubmit = () => {
-    if (commentText.trim()) {
-      onAddComment(commentText.trim());
+    // Sanitize comment before submitting
+    const sanitized = validateAndSanitizeComment(commentText);
+    if (sanitized) {
+      onAddComment(sanitized);
       setCommentText('');
+    } else {
+      Alert.alert('Invalid Comment', 'Please enter a valid comment.');
     }
   };
 
@@ -41,12 +49,16 @@ export default function CommentBox({
           {new Date(item.createdAt).toLocaleDateString()}
         </Text>
       </View>
-      <Text style={styles.commentText}>{item.text}</Text>
+      <HashtagMentionText text={item.text} style={styles.commentText} />
     </View>
   );
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Comments</Text>
         <TouchableOpacity onPress={onClose}>
@@ -60,6 +72,7 @@ export default function CommentBox({
         keyExtractor={(item) => item._id}
         style={styles.commentsList}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       />
 
       <View style={styles.inputContainer}>
@@ -83,7 +96,7 @@ export default function CommentBox({
           />
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 

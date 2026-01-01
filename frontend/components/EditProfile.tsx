@@ -9,12 +9,17 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
+import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import logger from '../utils/logger';
 
 interface EditProfileProps {
   visible: boolean;
@@ -26,8 +31,21 @@ interface EditProfileProps {
 export default function EditProfile({ visible, user, onClose, onSuccess }: EditProfileProps) {
   const { theme } = useTheme();
   const [fullName, setFullName] = useState(user.fullName);
+  const [bio, setBio] = useState(user.bio || '');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const handleBioChange = (text: string) => {
+    // Split by newlines and limit to 3 lines
+    const lines = text.split('\n');
+    if (lines.length <= 3) {
+      setBio(text);
+    } else {
+      // If more than 3 lines, take only the first 3 and show error
+      setBio(lines.slice(0, 3).join('\n'));
+      Alert.alert('Bio Limit', 'Bio can only have 3 lines maximum');
+    }
+  };
 
   const pickImage = async () => {
     try {
@@ -39,7 +57,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -49,7 +67,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Image picker error:', error);
+      logger.error('Image picker error:', error);
       Alert.alert('Error', 'Failed to pick image');
     }
   };
@@ -73,7 +91,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
         setSelectedImage(result.assets[0].uri);
       }
     } catch (error) {
-      console.error('Camera error:', error);
+      logger.error('Camera error:', error);
       Alert.alert('Error', 'Failed to take photo');
     }
   };
@@ -96,10 +114,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       return;
     }
 
+    if (bio.length > 300) {
+      Alert.alert('Error', 'Bio cannot exceed 300 characters');
+      return;
+    }
+
     setLoading(true);
     try {
       const updateData: any = {
         fullName: fullName.trim(),
+        bio: bio.trim(),
       };
 
       if (selectedImage) {
@@ -115,7 +139,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       onClose();
       Alert.alert('Success', 'Profile updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      Alert.alert('Error', sanitizeErrorForDisplay(error, 'EditProfile.updateProfile'));
     } finally {
       setLoading(false);
     }
@@ -192,6 +216,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
+    bioInput: {
+      height: 80,
+      textAlignVertical: 'top',
+    },
+    characterCount: {
+      fontSize: 12,
+      color: theme.colors.textSecondary,
+      textAlign: 'right',
+      marginTop: 4,
+    },
     buttonContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -226,7 +260,11 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       animationType="fade"
       onRequestClose={onClose}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.overlay}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
         <View style={styles.container}>
           <View style={styles.header}>
             <Text style={styles.title}>Edit Profile</Text>
@@ -235,32 +273,54 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
             </TouchableOpacity>
           </View>
 
-          <View style={styles.avatarContainer}>
-            <Image
-              source={
-                selectedImage
-                  ? { uri: selectedImage }
-                  : user.profilePic
-                  ? { uri: user.profilePic }
-                  : require('../assets/avatars/male_avatar.png')
-              }
-              style={styles.avatar}
-            />
-            <TouchableOpacity style={styles.changePhotoButton} onPress={showImagePicker}>
-              <Text style={styles.changePhotoText}>Change Photo</Text>
-            </TouchableOpacity>
-          </View>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 20 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.avatarContainer}>
+              <Image
+                source={
+                  selectedImage
+                    ? { uri: selectedImage }
+                    : user.profilePic
+                    ? { uri: user.profilePic }
+                    : require('../assets/avatars/male_avatar.png')
+                }
+                style={styles.avatar}
+              />
+              <TouchableOpacity style={styles.changePhotoButton} onPress={showImagePicker}>
+                <Text style={styles.changePhotoText}>Change Photo</Text>
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name</Text>
-            <TextInput
-              style={styles.input}
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Enter your full name"
-              placeholderTextColor={theme.colors.textSecondary}
-            />
-          </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Full Name</Text>
+              <TextInput
+                style={styles.input}
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Enter your full name"
+                placeholderTextColor={theme.colors.textSecondary}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Bio</Text>
+              <TextInput
+                style={[styles.input, styles.bioInput]}
+                value={bio}
+                onChangeText={handleBioChange}
+                placeholder="Tell us about yourself (max 3 lines, 300 characters)"
+                placeholderTextColor={theme.colors.textSecondary}
+                multiline
+                numberOfLines={3}
+                maxLength={300}
+              />
+              <Text style={styles.characterCount}>{bio.length}/300</Text>
+            </View>
+          </ScrollView>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
@@ -283,7 +343,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

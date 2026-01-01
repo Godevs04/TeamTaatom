@@ -1,16 +1,16 @@
 import * as AuthSession from 'expo-auth-session';
 import * as Crypto from 'expo-crypto';
-import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import api from './api';
 import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from '../utils/config';
+import logger from '../utils/logger';
 
-const GOOGLE_CLIENT_ID = Constants.expoConfig?.extra?.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = Constants.expoConfig?.extra?.GOOGLE_CLIENT_SECRET;
-const PROD_REDIRECT_URI = Constants.expoConfig?.extra?.GOOGLE_REDIRECT_URI;
+const isWeb = Platform.OS === 'web';
 
-// Use proxy for local testing
-const REDIRECT_URI = AuthSession.makeRedirectUri({ useProxy: true }) || PROD_REDIRECT_URI;
+// Use proxy for local testing, fallback to configured redirect URI
+const REDIRECT_URI = AuthSession.makeRedirectUri({scheme: 'taatom'}) || GOOGLE_REDIRECT_URI;
 
 interface GoogleAuthResponse {
   message: string;
@@ -37,7 +37,6 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       extraParams: {
         access_type: 'offline',
       },
-      additionalParameters: {},
     });
 
     // Make the authentication request
@@ -52,14 +51,22 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
         throw new Error('State parameter mismatch');
       }
       // Exchange authorization code for tokens on our backend
-      const response = await api.post('/auth/google', {
+      const response = await api.post('/api/v1/auth/google', {
         code,
         redirectUri: REDIRECT_URI,
       });
       const { token, user } = response.data;
-      // Store the JWT token
-      await AsyncStorage.setItem('authToken', token);
-      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      // Store token
+      // Store token
+      // For web: Backend should set httpOnly cookie, but store in AsyncStorage for socket.io compatibility
+      // For mobile: Store in AsyncStorage
+      if (token) {
+        await AsyncStorage.setItem('authToken', token);
+      }
+      
+      if (user) {
+        await AsyncStorage.setItem('userData', JSON.stringify(user));
+      }
       return response.data;
     } else if (authResponse.type === 'cancel') {
       throw new Error('Google sign-in was cancelled by user');
@@ -67,7 +74,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       throw new Error('Google sign-in failed');
     }
   } catch (error: any) {
-    console.error('Google sign-in error:', error);
+    logger.error('Google sign-in error:', error);
     throw new Error(error.message || 'Google sign-in failed');
   }
 };
@@ -77,6 +84,6 @@ export const signOutGoogle = async (): Promise<void> => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('userData');
   } catch (error) {
-    console.error('Error signing out:', error);
+    logger.error('Error signing out:', error);
   }
 };

@@ -7,8 +7,14 @@ export interface PostType {
   };
   caption: string;
   imageUrl: string;
-  cloudinaryPublicId: string;
-  location: {
+  images?: string[]; // Multiple images for carousel
+  videoUrl?: string;
+  mediaUrl?: string; // Virtual field from backend
+  cloudinaryPublicId?: string;
+  cloudinaryPublicIds?: string[]; // Multiple public IDs
+  tags?: string[];
+  type?: 'photo' | 'short';
+  location?: {
     address: string;
     coordinates: {
       latitude: number;
@@ -23,7 +29,26 @@ export interface PostType {
   // Virtual fields from backend
   likesCount: number;
   commentsCount: number;
+  viewsCount?: number; // Post view count
   isLiked: boolean;
+  // Post settings
+  commentsDisabled?: boolean;
+  isArchived?: boolean;
+  isHidden?: boolean;
+  // Song selection
+  song?: {
+    songId?: {
+      _id: string;
+      title: string;
+      artist: string;
+      duration: number;
+      s3Url: string;
+      thumbnailUrl?: string;
+    };
+    startTime?: number;
+    endTime?: number;
+    volume?: number;
+  };
 }
 
 export interface CommentType {
