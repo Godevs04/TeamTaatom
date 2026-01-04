@@ -146,8 +146,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "https://taatombackend-prod-yf2tz.sevalla.app",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "API_BASE_URL": "http://192.168.1.15:3000",
+      "WEB_SHARE_URL": "http://192.168.1.15:3000",
       "GOOGLE_MAPS_API_KEY": "",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",

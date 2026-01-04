@@ -203,7 +203,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
 
     if (!locale) {
@@ -256,7 +256,7 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload an image file');
     }
 
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
 
     if (!name || !country || !countryCode || !city) {
       logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode, city: !!city });
@@ -319,6 +319,24 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'VAL_2001', 'City is required and must be between 1 and 50 characters');
     }
 
+    // Validate and process coordinates
+    let processedLatitude = null;
+    let processedLongitude = null;
+    
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng)) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          processedLatitude = lat;
+          processedLongitude = lng;
+        } else {
+          logger.warn('Invalid coordinates provided:', { latitude: lat, longitude: lng });
+        }
+      }
+    }
+
     // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
       name: name.trim(),
@@ -336,14 +354,16 @@ const uploadLocale = async (req, res) => {
       displayOrder: requestedOrder,
       isActive: true, // Explicitly set to active
       spotTypes: processedSpotTypes,
-      travelInfo: processedTravelInfo
+      travelInfo: processedTravelInfo,
+      latitude: processedLatitude,
+      longitude: processedLongitude
     });
 
     await locale.save();
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
     
     // Generate signed URL dynamically
@@ -483,7 +503,7 @@ const toggleLocaleStatus = async (req, res) => {
 const updateLocale = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
 
     const locale = await Locale.findById(id);
     if (!locale) {
@@ -594,6 +614,26 @@ const updateLocale = async (req, res) => {
       }
     }
 
+    // Handle latitude and longitude update
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng)) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          locale.latitude = lat;
+          locale.longitude = lng;
+        } else {
+          logger.warn('Invalid coordinates provided for update:', { latitude: lat, longitude: lng });
+          // Don't fail the update, just log the warning
+        }
+      } else if (latitude === null && longitude === null) {
+        // Allow explicitly setting to null to clear coordinates
+        locale.latitude = null;
+        locale.longitude = null;
+      }
+    }
+
     // Also update legacy fields for backward compatibility
     // Ensure all storage key fields are synchronized
     const primaryStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
@@ -637,6 +677,8 @@ const updateLocale = async (req, res) => {
         isActive: locale.isActive,
         spotTypes: locale.spotTypes || [],
         travelInfo: locale.travelInfo || 'Drivable',
+        latitude: locale.latitude,
+        longitude: locale.longitude,
         imageUrl: signedUrl,
         cloudinaryUrl: signedUrl
       }
