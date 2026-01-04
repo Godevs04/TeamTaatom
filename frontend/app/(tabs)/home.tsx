@@ -190,6 +190,8 @@ export default function HomeScreen() {
   
   // Track visible index for conditional image rendering
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
+  // Track currently visible post ID for music playback control
+  const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
     // Request guards: prevent overlapping refresh and pagination
@@ -801,9 +803,11 @@ export default function HomeScreen() {
       if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
         setVisibleIndex(newVisibleIndex);
         
-        // View tracking de-duplication: only track if different post or enough time passed
+        // Track visible post ID for music playback control
         if (visibleItem.item) {
           const postId = visibleItem.item._id;
+          setVisiblePostId(postId);
+          
           const now = Date.now();
           
           if (
@@ -819,6 +823,9 @@ export default function HomeScreen() {
           }
         }
       }
+    } else {
+      // No items visible - clear visible post ID to pause music
+      setVisiblePostId(null);
     }
   }, []);
 
@@ -832,16 +839,18 @@ export default function HomeScreen() {
   const renderItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     const distanceFromVisible = visibleIndex !== null ? Math.abs(index - visibleIndex) : 0;
     const shouldRenderImage = distanceFromVisible <= 2;
+    const isCurrentlyVisible = visiblePostId === item._id;
     
     return (
       <OptimizedPhotoCard 
         post={item} 
         onRefresh={handleRefresh}
         isVisible={shouldRenderImage}
+        isCurrentlyVisible={isCurrentlyVisible}
         key={item._id}
       />
     );
-  }, [visibleIndex, handleRefresh]);
+  }, [visibleIndex, visiblePostId, handleRefresh]);
 
   if (loading) {
     return (

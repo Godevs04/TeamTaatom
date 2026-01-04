@@ -139,18 +139,18 @@ export const sanitizeObject = (obj: any): any => {
 /**
  * Validate and sanitize caption before submission
  * @param caption - Caption text
- * @returns Sanitized caption or null if invalid
+ * @returns Sanitized caption or empty string if empty/invalid
  */
-export const validateAndSanitizeCaption = (caption: string): string | null => {
+export const validateAndSanitizeCaption = (caption: string): string => {
   if (!caption || typeof caption !== 'string') {
-    return null;
+    return '';
   }
 
   const sanitized = sanitizeTextContent(caption.trim());
   
-  // Validate length (backend also validates, but defense in depth)
+  // Allow empty captions - caption is now optional
   if (sanitized.length === 0) {
-    return null;
+    return '';
   }
   
   if (sanitized.length > 1000) {

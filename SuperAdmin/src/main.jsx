@@ -25,7 +25,39 @@ if (SENTRY_DSN) {
       Sentry.browserTracingIntegration(),
       Sentry.replayIntegration(),
     ],
+    // Before send hook - ensure errors are properly formatted
+    beforeSend(event, hint) {
+      // Filter out chunk loading errors (they're often transient and not actionable)
+      // These occur when the browser can't fetch a dynamically imported module
+      // Usually due to network issues, cache problems, or deployment updates
+      if (event.exception && event.exception.values) {
+        const firstException = event.exception.values[0];
+        if (firstException?.value?.includes('Failed to fetch dynamically imported module') ||
+            firstException?.value?.includes('Loading chunk') ||
+            firstException?.value?.includes('Loading CSS chunk')) {
+          // These are usually transient network/cache issues - don't report them
+          return null;
+        }
+      }
+      
+      // Ensure error is properly formatted
+      if (event.exception && event.exception.values) {
+        event.exception.values.forEach(exception => {
+          if (!exception.type || (exception.type === 'Error' && !exception.value)) {
+            exception.type = exception.type || 'Error';
+            exception.value = exception.value || 'Unknown error';
+          }
+        });
+      }
+      return event;
+    },
   })
+  
+  // Make Sentry available globally for logger
+  if (typeof window !== 'undefined') {
+    window.Sentry = Sentry;
+  }
+  
   console.log('✅ Sentry initialized successfully for SuperAdmin')
 } else {
   console.warn('⚠️  Sentry DSN not found. Sentry error tracking is disabled.')

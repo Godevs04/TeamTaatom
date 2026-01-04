@@ -885,55 +885,50 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Modern Hero Header - Now Inside ScrollView */}
-        <ExpoLinearGradient
-          colors={profileTheme.headerGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.heroHeader}
-        >
-          <View style={styles.heroHeaderContent}>
-            {/* Top Actions */}
-            <View style={styles.topActions}>
-              <View style={styles.topActionsLeft} />
-              <View style={styles.topActionsRight}>
-                <Pressable
-                  style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
-                  onPress={() => router.push('/notifications')}
-                >
-                  <Ionicons
-                    name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                    size={20}
-                    color={profileTheme.textPrimary}
-                  />
-                  {unreadCount > 0 && (
-                    <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                      <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </Text>
-                    </View>
-                  )}
-                </Pressable>
-                <KebabMenu
-                  items={[
-                    {
-                      label: 'Settings',
-                      icon: 'settings-outline',
-                      onPress: () => router.push('/settings'),
-                    },
-                    {
-                      label: 'Sign Out',
-                      icon: 'log-out-outline',
-                      onPress: handleSignOut,
-                      destructive: true,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
+        {/* Top Actions - Outside unified card */}
+        <View style={styles.topActionsContainer}>
+          <View style={styles.topActionsLeft} />
+          <View style={styles.topActionsRight}>
+            <Pressable
+              style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons
+                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                size={20}
+                color={profileTheme.textPrimary}
+              />
+              {unreadCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                  <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+            <KebabMenu
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
 
-            {/* Profile Card */}
-            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95', shadowColor: theme.colors.shadow }]}>
+        {/* Unified Profile Content Card - Everything in one container */}
+        {profileData && (
+          <View style={[styles.unifiedCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+            {/* Profile Header Section */}
+            <View style={styles.profileHeaderSection}>
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
@@ -960,178 +955,173 @@ export default function ProfileScreen() {
                 <Text style={[styles.badgeText, { color: profileTheme.accent }]}>Explorer</Text>
               </View>
             </View>
-          </View>
-        </ExpoLinearGradient>
-        {/* Stats Row - Premium Cards */}
-        <View style={styles.statsContainer}>
-          <StatCard 
-            icon="flame" 
-            value={profileData?.postsCount || 0} 
-            label="Posts"
-            iconName="flame"
-          />
-          <StatCard 
-            icon="trophy" 
-            value={profileData?.followersCount || 0} 
-            label="Followers"
-            onPress={() => {
-              if (profileData?._id) {
-                router.push(`/followers?userId=${profileData._id}&type=followers`);
-              }
-            }}
-            iconName="trophy"
-          />
-          <StatCard 
-            icon="people" 
-            value={profileData?.followingCount || 0} 
-            label="Following"
-            onPress={() => {
-              if (profileData?._id) {
-                router.push(`/followers?userId=${profileData._id}&type=following`);
-              }
-            }}
-            iconName="people"
-          />
-        </View>
 
-        {/* TripScore Section - Always show (even if score is 0) */}
-        {profileData && (
-          <Pressable 
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-            onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-          >
-            <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="trophy" size={22} color={profileTheme.accent} />
-              </View>
-              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
-            </View>
-            <View style={styles.tripScoreContent}>
-              <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
-                <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
-                  {profileData.tripScore?.totalScore ?? 0}
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+            {/* Stats Row - Posts, Followers, Following */}
+            <View style={styles.statsContainer}>
+              {/* Posts Stat */}
+              <View style={styles.statItem}>
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="flame" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.postsCount || 0}
                 </Text>
-                <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
-                  Total TripScore
-                </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>POSTS</Text>
               </View>
-              {(!profileData.tripScore || profileData.tripScore.totalScore === 0) && (
-                <Text style={[styles.tripScoreHint, { color: profileTheme.textSecondary, marginTop: 8, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 }]}>
-                  Start traveling and posting with locations to build your TripScore!
-                </Text>
-              )}
-            </View>
-          </Pressable>
-        )}
 
-        {/* My Location Card - Premium Design */}
-        <Pressable 
-          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => {
-            if (profileData?.locations && profileData.locations.length > 0) {
-              // Navigate to locations view if available
-            }
-          }}
-        >
-          <View style={styles.locationCardHeader}>
-            <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-              <Ionicons name="globe" size={24} color={profileTheme.accent} />
-            </View>
-            <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
-              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {profileData?.locations && profileData.locations.length > 0 
-                  ? `${profileData.locations.length} locations visited`
-                  : 'Add your home base'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-          </View>
-          <View style={styles.locationGlobeContainer}>
-            {profileData?.locations && profileData.locations.length > 0 ? (
-              <RotatingGlobe 
-                locations={profileData.locations} 
-                size={140} 
-              />
-            ) : (
-              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
-              </View>
-            )}
-          </View>
-        </Pressable>
-
-        {/* Collections Tile */}
-        <Pressable 
-          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => router.push('/collections')}
-        >
-          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-            <Ionicons name="albums" size={22} color={profileTheme.accent} />
-          </View>
-          <View style={styles.tileTextContainer}>
-            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Collections</Text>
-            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
-              Organise your trips and posts
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-        </Pressable>
-
-        {/* Activity Feed Tile */}
-        <Pressable 
-          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => router.push('/activity')}
-        >
-          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-            <Ionicons name="pulse" size={22} color={profileTheme.accent} />
-          </View>
-          <View style={styles.tileTextContainer}>
-            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Activity Feed</Text>
-            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
-              See what your friends are up to
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-        </Pressable>
-
-        {/* Posts/Shorts/Saved Tabs - Pill Style */}
-        <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}> 
-          <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
-            {(['posts','shorts','saved'] as const).map(tab => (
+              {/* Followers Stat */}
               <Pressable 
-                key={tab} 
-                style={[
-                  styles.pillTab, 
-                  activeTab===tab 
-                    ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
-                    : { backgroundColor: 'transparent' }
-                ]} 
+                style={styles.statItem}
                 onPress={() => {
-                  // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
-                  if (isFetchingRef.current && activeTab !== tab) {
-                    logger.debug('Tab switch blocked - fetch in progress');
-                    return;
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=followers`);
                   }
-                  setActiveTab(tab);
                 }}
               >
-                <Ionicons 
-                  name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                  size={18} 
-                  color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
-                />
-                <Text style={[
-                  styles.pillTabText, 
-                  { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
-                ]}>
-                  {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="people" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.followersCount || 0}
                 </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWERS</Text>
               </Pressable>
-            ))}
-          </View>
-          
-          <View style={styles.contentArea}>
+
+              {/* Following Stat */}
+              <Pressable 
+                style={styles.statItem}
+                onPress={() => {
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=following`);
+                  }
+                }}
+              >
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="people-outline" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.followingCount || 0}
+                </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWING</Text>
+              </Pressable>
+            </View>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* Edit Profile Button */}
+            <Pressable
+              style={styles.editProfileButton}
+              onPress={() => setShowEditProfile(true)}
+            >
+              <Ionicons name="create-outline" size={18} color={profileTheme.accent} />
+              <Text style={[styles.editProfileButtonText, { color: profileTheme.textPrimary }]}>
+                Edit Profile
+              </Text>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* TripScore Section */}
+            <Pressable 
+              style={styles.unifiedSection}
+              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+            >
+              <View style={styles.sectionHeader}>
+                <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="trophy" size={22} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
+                <Text style={[styles.tripScoreNumberInline, { color: profileTheme.accent }]}>
+                  {profileData.tripScore?.totalScore ?? 0}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+              </View>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* My Location Section */}
+            <Pressable 
+              style={styles.unifiedSection}
+              onPress={() => {
+                if (profileData?.locations && profileData.locations.length > 0) {
+                  // Navigate to locations view if available
+                }
+              }}
+            >
+              <View style={styles.locationCardHeader}>
+                <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="globe" size={24} color={profileTheme.accent} />
+                </View>
+                <View style={styles.locationTextContainer}>
+                  <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
+                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
+                    {profileData?.locations && profileData.locations.length > 0 
+                      ? `${profileData.locations.length} locations visited`
+                      : 'Add your home base'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+              </View>
+              <View style={styles.locationGlobeContainer}>
+                {profileData?.locations && profileData.locations.length > 0 ? (
+                  <RotatingGlobe 
+                    locations={profileData.locations} 
+                    size={140} 
+                  />
+                ) : (
+                  <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                    <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
+                  </View>
+                )}
+              </View>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* Posts/Shorts/Saved Tabs - Pill Style */}
+            <View style={styles.postsTabsSection}>
+              <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
+                {(['posts','shorts','saved'] as const).map(tab => (
+                  <Pressable 
+                    key={tab} 
+                    style={[
+                      styles.pillTab, 
+                      activeTab===tab 
+                        ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
+                        : { backgroundColor: 'transparent' }
+                    ]} 
+                    onPress={() => {
+                      // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
+                      if (isFetchingRef.current && activeTab !== tab) {
+                        logger.debug('Tab switch blocked - fetch in progress');
+                        return;
+                      }
+                      setActiveTab(tab);
+                    }}
+                  >
+                    <Ionicons 
+                      name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
+                      size={18} 
+                      color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                    />
+                    <Text style={[
+                      styles.pillTabText, 
+                      { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
+                    ]}>
+                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              
+              <View style={styles.contentArea}>
             {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
             {activeTab === 'posts' && (
               posts.length > 0 ? (
@@ -1161,18 +1151,25 @@ export default function ProfileScreen() {
                             style={styles.thumbnailImage}
                             resizeMode="cover"
                             onError={(error) => {
-                              if (__DEV__) {
+                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
+                              const errorMessage = error?.nativeEvent?.error?.message || '';
+                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                              
+                              if (__DEV__ && !is403) {
                                 console.warn('⚠️ [Profile] Image failed:', {
                                   postId: post._id,
                                   url: validImageUrl.substring(0, 80),
-                                  error: error?.nativeEvent?.error?.message || 'Unknown'
+                                  error: errorMessage || 'Unknown'
                                 });
                               }
-                              logger.warn('Image failed to load:', {
-                                postId: post._id,
-                                imageUrl: validImageUrl.substring(0, 100),
-                                error: error?.nativeEvent?.error?.message || 'Unknown error'
-                              });
+                              // Only log non-403 errors in production to reduce noise
+                              if (!is403) {
+                                logger.warn('Image failed to load', {
+                                  postId: post._id,
+                                  imageUrl: validImageUrl.substring(0, 100),
+                                  error: errorMessage || 'Unknown error'
+                                });
+                              }
                             }}
                           />
                         ) : (
@@ -1281,8 +1278,10 @@ export default function ProfileScreen() {
                 </View>
               )
             )}
+              </View>
+            </View>
           </View>
-        </View>
+        )}
         
         {/* Edit Profile Modal */}
         {user && (
@@ -1353,20 +1352,14 @@ const styles = StyleSheet.create({
     } as any),
   },
   
-  // Hero Header
-  heroHeader: {
-    paddingTop: isTablet ? 80 : 60,
-    paddingBottom: isTablet ? theme.spacing.xl : 32,
-    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-  },
-  heroHeaderContent: {
-    width: '100%',
-  },
-  topActions: {
+  // Top Actions Container
+  topActionsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: isTablet ? theme.spacing.xl : 24,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? 80 : 60,
+    marginBottom: 4,
   },
   topActionsLeft: {
     flex: 1,
@@ -1405,15 +1398,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   
-  // Profile Card
-  profileCard: {
-    borderRadius: isTablet ? theme.borderRadius.xl : 24,
-    padding: isTablet ? theme.spacing.xl : 24,
+  // Profile Header Section (inside unified card)
+  profileHeaderSection: {
     alignItems: 'center',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
   },
   avatarContainer: {
     marginBottom: isTablet ? theme.spacing.lg : 16,
@@ -1468,15 +1456,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   
-  // Stats Container - Uniform pill-like cards
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: isTablet ? theme.spacing.md : 12,
-    marginBottom: isTablet ? theme.spacing.sm : 8,
-    gap: isTablet ? theme.spacing.md : 12,
-  },
+  // Stats Container - Uniform pill-like cards (legacy, kept for compatibility)
   statCard: {
     flex: 1,
     width: '100%',
@@ -1522,7 +1502,68 @@ const styles = StyleSheet.create({
     } as any),
   },
   
-  // Section Cards
+  // Unified Profile Content Card
+  unifiedCard: {
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: 0,
+    marginBottom: isTablet ? theme.spacing.md : 12,
+    padding: isTablet ? theme.spacing.xl : 20,
+    borderRadius: theme.borderRadius.lg,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+  },
+  divider: {
+    height: 1,
+    marginVertical: isTablet ? theme.spacing.lg : 20,
+  },
+  unifiedSection: {
+    width: '100%',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: isTablet ? theme.spacing.md : 12,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsIconContainer: {
+    width: isTablet ? 44 : 36,
+    height: isTablet ? 44 : 36,
+    borderRadius: isTablet ? 22 : 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+  },
+  statsLabel: {
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 10,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 1,
+    textAlign: 'center',
+    marginTop: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  statsValue: {
+    fontSize: isTablet ? 24 : 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  
+  // Section Cards (legacy, kept for compatibility)
   sectionCard: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -1538,7 +1579,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 12,
   },
   sectionIconContainer: {
     width: 48,
@@ -1560,6 +1600,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
+  },
+  tripScoreNumberInline: {
+    fontSize: isTablet ? 24 : 20,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    marginLeft: 'auto',
+    marginRight: 8,
   },
   tripScoreContent: {
     alignItems: 'center',
@@ -1590,7 +1637,31 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   
-  // Location Card
+  // Edit Profile Button (inside unified card)
+  editProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 20,
+    borderRadius: theme.borderRadius.md,
+    gap: 8,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
+  },
+  editProfileButtonText: {
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  
+  // Location Card (legacy, kept for compatibility)
   locationCard: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -1679,6 +1750,9 @@ const styles = StyleSheet.create({
   },
   
   // Posts Container
+  postsTabsSection: {
+    width: '100%',
+  },
   postsContainer: {
     margin: 16,
     marginTop: 8,

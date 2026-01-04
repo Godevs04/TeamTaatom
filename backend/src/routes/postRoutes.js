@@ -77,9 +77,10 @@ const upload = multer({
 // Validation rules
 const createPostValidation = [
   body('caption')
+    .optional()
     .trim()
-    .isLength({ min: 1, max: 1000 })
-    .withMessage('Caption must be between 1 and 1000 characters'),
+    .isLength({ max: 1000 })
+    .withMessage('Caption must be less than 1000 characters'),
   body('latitude')
     .optional()
     .isFloat({ min: -90, max: 90 })
