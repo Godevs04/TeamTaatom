@@ -125,13 +125,24 @@ appJson.expo.extra = {
   SUPPORT_URL: getSupportUrl(),
 };
 
+// Update iOS Google Maps API key from environment variable
+const iosMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || appJson.expo.ios?.googleMapsApiKey || '';
+if (iosMapsApiKey) {
+  if (!appJson.expo.ios) {
+    appJson.expo.ios = {};
+  }
+  appJson.expo.ios.googleMapsApiKey = iosMapsApiKey;
+} else if (isProduction) {
+  console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY not set. Google Maps may not work on iOS in production.');
+}
+
 // Update Android Google Maps API key from environment variable
+const androidMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY || appJson.expo.android?.config?.googleMaps?.apiKey || '';
 if (appJson.expo.android?.config?.googleMaps) {
-  const mapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || appJson.expo.extra?.GOOGLE_MAPS_API_KEY || '';
-  if (mapsApiKey) {
-    appJson.expo.android.config.googleMaps.apiKey = mapsApiKey;
+  if (androidMapsApiKey) {
+    appJson.expo.android.config.googleMaps.apiKey = androidMapsApiKey;
   } else if (isProduction) {
-    console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_API_KEY not set. Google Maps may not work in production.');
+    console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY not set. Google Maps may not work on Android in production.');
   }
 }
 

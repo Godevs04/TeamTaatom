@@ -29,8 +29,9 @@ const postSchema = new mongoose.Schema({
   },
   caption: {
     type: String,
-    required: [true, 'Caption is required'],
-    maxlength: [1000, 'Caption cannot be more than 1000 characters']
+    required: false,
+    maxlength: [1000, 'Caption cannot be more than 1000 characters'],
+    default: ''
   },
   mentions: [{
     type: mongoose.Schema.Types.ObjectId,

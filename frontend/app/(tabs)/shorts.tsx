@@ -37,6 +37,8 @@ import { trackScreenView, trackEngagement, trackPostView } from '../../services/
 import SongPlayer from '../../components/SongPlayer';
 import { theme } from '../../constants/theme';
 import { audioManager } from '../../utils/audioManager';
+import PostLocation from '../../components/post/PostLocation';
+import { geocodeAddress } from '../../utils/locationUtils';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -739,11 +741,7 @@ export default function ShortsScreen() {
         [userId]: response.isFollowing
       }));
       
-      if (response.isFollowing) {
-        showSuccess('Following user!');
-      } else {
-        showInfo('Unfollowed user');
-      }
+      // No success alert - silent update for better UX
     } catch (error) {
       logger.error('Error toggling follow', error);
       showError('Failed to update follow status');
@@ -1140,7 +1138,7 @@ export default function ShortsScreen() {
             style={styles.topGradient}
           />
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.9)']}
+            colors={['transparent', 'transparent']}
             style={styles.bottomGradient}
           />
           
@@ -1249,7 +1247,7 @@ export default function ShortsScreen() {
           {/* Bottom Content with Elegant Design */}
           <View style={styles.bottomContent}>
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
+              colors={['transparent', 'transparent', 'transparent']}
               style={styles.bottomGradientOverlay}
             />
             
@@ -1272,13 +1270,68 @@ export default function ShortsScreen() {
                 </View>
                 <View style={styles.userDetails}>
                   <View style={styles.usernameRow}>
-                  <Text style={styles.username}>@{item.user.fullName}</Text>
+                  <Text style={styles.username}>{item.user.fullName}</Text>
                     {isFollowing && (
                       <View style={styles.followingBadge}>
                         <Text style={styles.followingText}>Following</Text>
                       </View>
                     )}
                   </View>
+                  
+                  {/* Song - Instagram style inline */}
+                  {item.song?.songId && (() => {
+                    const song = item.song.songId;
+                    const songTitle = song.title || 'Unknown Song';
+                    const songArtist = song.artist || 'Unknown Artist';
+                    return (
+                      <View style={styles.inlineSong}>
+                        <Ionicons name="musical-notes" size={12} color="rgba(255,255,255,0.85)" />
+                        <Text style={styles.inlineSongText} numberOfLines={1}>
+                          {songTitle} · {songArtist}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                  
+                  {/* Location - Instagram style inline */}
+                  {item.location?.address && (() => {
+                    const handleLocationPress = async () => {
+                      try {
+                        const address = item.location?.address;
+                        if (address) {
+                          const coordinates = await geocodeAddress(address);
+                          if (coordinates) {
+                            router.push({
+                              pathname: '/map/current-location',
+                              params: {
+                                latitude: coordinates.latitude.toString(),
+                                longitude: coordinates.longitude.toString(),
+                                address,
+                              }
+                            });
+                          } else {
+                            router.push('/map/current-location');
+                          }
+                        }
+                      } catch (error) {
+                        logger.warn('Failed to geocode location:', error);
+                        router.push('/map/current-location');
+                      }
+                    };
+                    
+                    return (
+                      <TouchableOpacity 
+                        style={styles.inlineLocation} 
+                        onPress={handleLocationPress}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.85)" />
+                        <Text style={styles.inlineLocationText} numberOfLines={1}>
+                          {item.location.address}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
                   
                   {item.caption && (
                     <Text style={styles.caption} numberOfLines={2}>
@@ -1298,7 +1351,7 @@ export default function ShortsScreen() {
                 </View>
               </TouchableOpacity>
               
-              {/* Song Player - Elegant Design - Synced with Video */}
+              {/* Song Player - Hidden but active for audio playback */}
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
               {(() => {
                 const hasSong = !!item.song?.songId;
@@ -1317,7 +1370,7 @@ export default function ShortsScreen() {
                 }
                 
                 return shouldRender ? (
-                  <View style={styles.songPlayerWrapper} pointerEvents="box-none">
+                  <View style={styles.hiddenSongPlayer} pointerEvents="none">
                     <SongPlayer 
                       post={item} 
                       isVisible={index === currentVisibleIndex} 
@@ -1890,6 +1943,50 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     alignSelf: 'flex-start',
     zIndex: 100,
+  },
+  hiddenSongPlayer: {
+    position: 'absolute',
+    opacity: 0,
+    width: 1,
+    height: 1,
+    overflow: 'hidden',
+    pointerEvents: 'none',
+  },
+  inlineSong: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  inlineSongText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: isTablet ? 13 : 12,
+    fontFamily: getFontFamily('400'),
+    marginLeft: 6,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  inlineLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  inlineLocationText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: isTablet ? 13 : 12,
+    fontFamily: getFontFamily('400'),
+    marginLeft: 6,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
   header: {
     position: 'absolute',

@@ -42,6 +42,30 @@ class AudioManager {
   }
 
   /**
+   * Toggle mute for current sound
+   */
+  async toggleMute(isMuted: boolean, volume: number = 0.5): Promise<void> {
+    if (!this.currentSound) {
+      logger.debug('toggleMute: No current sound, skipping');
+      return;
+    }
+    
+    try {
+      // Check if sound is loaded before attempting to set volume
+      const status = await this.currentSound.getStatusAsync();
+      if (!status.isLoaded) {
+        logger.debug('toggleMute: Sound not loaded, skipping');
+        return;
+      }
+      
+      await this.currentSound.setVolumeAsync(isMuted ? 0 : volume);
+    } catch (error) {
+      logger.error('Error toggling mute:', error);
+      // Don't re-throw, just log the error
+    }
+  }
+
+  /**
    * Add a listener for audio changes
    */
   addListener(callback: (postId: string | null) => void): () => void {
