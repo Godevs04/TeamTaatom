@@ -200,20 +200,42 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     }
   }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime]);
 
-  // Auto-play when component becomes visible and autoPlay is true (for shorts)
+  // Auto-play when component becomes visible and autoPlay is true (for shorts and home page)
   // For home page (showPlayPause=true), don't auto-play
   useEffect(() => {
-    // For shorts: sync with video playback (autoPlay prop changes with video state)
+    // For shorts and home page: sync with visibility and autoPlay prop
     const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
     if (isVisible && !showPlayPause && audioUrl) {
       if (autoPlay) {
-        // Video is playing - play song
+        // Should play - play song
+        const currentPostId = audioManager.getCurrentPostId();
+        
+        // Critical check: If soundRef exists but audioManager has no current sound,
+        // it means stopAll() was called and the sound was unloaded externally.
+        // We need to clear soundRef and reload.
+        if (soundRef.current && currentPostId === null) {
+          // Sound was stopped externally (e.g., via stopAll when muting)
+          // Clear the ref and reload
+          logger.debug('Sound was unloaded externally (likely after mute), clearing ref and reloading');
+          soundRef.current = null;
+          setSound(null);
+          loadAndPlaySong()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              logger.error('Error reloading and playing sound after external stop:', err);
+            });
+          return;
+        }
+        
         if (!soundRef.current) {
           // Load and play if not already loaded
           loadAndPlaySong();
         } else {
           // If already loaded, check if it's already playing
-          if (post._id && audioManager.getCurrentPostId() !== post._id.toString()) {
+          
+          if (post._id && currentPostId !== post._id.toString()) {
             // Different post is playing, use audioManager to switch
             audioManager.playSound(soundRef.current, post._id.toString())
               .then(() => {
@@ -221,8 +243,12 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
               })
               .catch((err) => {
                 logger.error('Error playing sound:', err);
+                // If playSound fails (e.g., sound was unloaded), reload
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong();
               });
-          } else if (post._id && audioManager.getCurrentPostId() === post._id.toString()) {
+          } else if (post._id && currentPostId === post._id.toString()) {
             // Same post - check if sound is actually playing, if not, resume it
             soundRef.current.getStatusAsync()
               .then((status) => {
@@ -241,19 +267,34 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
                 }
               })
               .catch(() => {
-                // If status check fails, try to play anyway
-                soundRef.current?.playAsync()
+                // If status check fails, the sound might be unloaded (e.g., after stopAll)
+                // Reload and play the song - this is critical for unmuting
+                logger.debug('Sound status check failed, reloading song (likely after unmute)');
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong()
                   .then(() => {
                     setIsPlaying(true);
                   })
                   .catch((err) => {
-                    logger.error('Error playing sound after status check:', err);
+                    logger.error('Error reloading and playing sound:', err);
                   });
+              });
+          } else {
+            // Post is not currently playing - need to load and play
+            // This can happen when unmuting a post that was stopped
+            logger.debug('Post not currently playing, loading and playing (likely after unmute)');
+            loadAndPlaySong()
+              .then(() => {
+                setIsPlaying(true);
+              })
+              .catch((err) => {
+                logger.error('Error loading and playing sound:', err);
               });
           }
         }
       } else {
-        // Video is paused - pause song immediately
+        // autoPlay is false - pause song immediately (muted or not visible)
         if (soundRef.current) {
           soundRef.current.pauseAsync().catch(err => {
             logger.error('Error pausing:', err);

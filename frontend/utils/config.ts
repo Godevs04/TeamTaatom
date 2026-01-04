@@ -137,7 +137,8 @@ export const GOOGLE_REDIRECT_URI =
   Constants.expoConfig?.extra?.GOOGLE_REDIRECT_URI ||
   '';
 
-// Google Maps API Key
+// Google Maps API Key (legacy - use getGoogleMapsApiKey() from utils/maps.ts for platform-specific keys)
+// Kept for backward compatibility
 export const GOOGLE_MAPS_API_KEY =
   process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
   Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY ||
