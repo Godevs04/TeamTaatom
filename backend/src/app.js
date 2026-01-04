@@ -25,6 +25,7 @@ const hashtagRoutes = require('./routes/hashtagRoutes');
 const collectionRoutes = require('./routes/collectionRoutes');
 const songRoutes = require('./routes/songRoutes');
 const localeRoutes = require('./routes/localeRoutes');
+const mapsRoutes = require('./routes/mapsRoutes');
 const policyRoutes = require('./routes/policyRoutes');
 
 // Import middleware
@@ -316,6 +317,7 @@ app.use('/hashtags', hashtagRoutes);
 app.use('/collections', collectionRoutes);
 app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
+app.use('/api/v1/maps', mapsRoutes);
 
 // Swagger API Documentation
 // Enable in development or when ENABLE_SWAGGER=true (for production)
