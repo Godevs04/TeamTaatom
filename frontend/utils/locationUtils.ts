@@ -10,20 +10,18 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import logger from './logger';
 
-// Get Google Maps API key from environment or config
-// We'll get it dynamically in the function to avoid circular dependencies
-const getGoogleMapsApiKey = (): string | undefined => {
-  // Try environment variable first
-  if (process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) {
-    return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  }
-  
-  // Try config module (may cause circular dependency, so we catch)
+// Import platform-specific Google Maps API key getter
+// Using require to avoid circular dependency issues
+const getGoogleMapsApiKeyFromMaps = (): string | null => {
   try {
-    const config = require('./config');
-    return config.GOOGLE_MAPS_API_KEY;
+    const mapsUtils = require('./maps');
+    return mapsUtils.getGoogleMapsApiKey();
   } catch (e) {
-    return undefined;
+    // Fallback to old method if maps.ts not available
+    if (process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) {
+      return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    }
+    return null;
   }
 };
 
@@ -147,7 +145,7 @@ const getPlaceSuggestions = async (
   countryCode?: string
 ): Promise<string[]> => {
   try {
-    const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyFromMaps();
     if (!GOOGLE_MAPS_API_KEY) {
       return [];
     }
@@ -241,9 +239,9 @@ export const geocodeAddress = async (
     const countryContext = countryCode ? `(country: ${countryCode})` : '';
     logger.debug(`🌍 Geocoding address via Google API: ${address} ${countryContext}`);
     
-    const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyFromMaps();
     if (!GOOGLE_MAPS_API_KEY) {
-      logger.error('❌ Google Maps API key not found in environment variables');
+      logger.error('❌ Google Maps API key not found');
       return null;
     }
     
@@ -412,9 +410,9 @@ export const getLocationDetails = async (latitude: number, longitude: number): P
   try {
     logger.debug('🔄 Reverse geocoding coordinates:', { latitude, longitude });
     
-    const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyFromMaps();
     if (!GOOGLE_MAPS_API_KEY) {
-      logger.error('❌ Google Maps API key not found in environment variables');
+      logger.error('❌ Google Maps API key not found');
       return null;
     }
     
@@ -489,7 +487,7 @@ export const getAddressFromCoords = async (latitude: number, longitude: number):
   pendingGeocodeRequest = (async (): Promise<string | null> => {
     try {
       // Try Google Geocoding API first (more reliable on iOS)
-      const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+      const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyFromMaps();
       if (GOOGLE_MAPS_API_KEY) {
         try {
           const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`;

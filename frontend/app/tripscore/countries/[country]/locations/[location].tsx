@@ -533,7 +533,10 @@ export default function LocationDetailScreen() {
               logger.warn('⚠️ Geocoding API returned invalid coordinates for:', locationName);
             }
           } catch (geocodeError) {
-            logger.error('❌ Geocoding API failed for:', { locationName, error: geocodeError });
+            const errorToLog = geocodeError instanceof Error 
+              ? geocodeError 
+              : new Error(String(geocodeError) || 'Geocoding API failed');
+            logger.error('❌ Geocoding API failed for:', errorToLog, { locationName });
           }
         }
         
@@ -606,7 +609,10 @@ export default function LocationDetailScreen() {
             logger.warn('⚠️ Geocoding returned null for:', locationName);
           }
         } catch (geocodeError) {
-          logger.error('❌ Geocoding failed for general location:', { locationName, error: geocodeError });
+          const errorToLog = geocodeError instanceof Error 
+            ? geocodeError 
+            : new Error(String(geocodeError) || 'Geocoding failed');
+          logger.error('❌ Geocoding failed for general location:', errorToLog, { locationName });
         }
         
         setData({
@@ -650,7 +656,10 @@ export default function LocationDetailScreen() {
                   logger.warn('⚠️ Geocoding returned invalid coordinates for:', foundLocation.name);
                 }
               } catch (geocodeError) {
-                logger.error('❌ Geocoding failed for TripScore location:', { locationName: foundLocation.name, error: geocodeError });
+                const errorToLog = geocodeError instanceof Error 
+                  ? geocodeError 
+                  : new Error(String(geocodeError) || 'Geocoding failed');
+                logger.error('❌ Geocoding failed for TripScore location:', errorToLog, { locationName: foundLocation.name });
               }
               
               setData({
@@ -694,7 +703,10 @@ export default function LocationDetailScreen() {
           logger.debug('✅ Using geocoded coordinates as error fallback:', fallbackCoords);
         }
       } catch (geocodeError) {
-        logger.error('❌ Geocoding also failed in error handler:', geocodeError);
+        const errorToLog = geocodeError instanceof Error 
+          ? geocodeError 
+          : new Error(String(geocodeError) || 'Geocoding failed');
+        logger.error('❌ Geocoding also failed in error handler:', errorToLog);
       }
       
       setData({
@@ -966,7 +978,10 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
                         }
                       } catch (geocodeError) {
-                        logger.error('❌ Geocoding API failed for:', { locationName: data.name, error: geocodeError });
+                        const errorToLog = geocodeError instanceof Error 
+                          ? geocodeError 
+                          : new Error(String(geocodeError) || 'Geocoding API failed');
+                        logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
                       }
                     }
                     

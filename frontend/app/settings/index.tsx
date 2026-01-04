@@ -97,6 +97,20 @@ const settingsSections: SettingsSection[] = [
     route: '/settings/data'
   },
   {
+    id: 'collections',
+    title: 'Collections',
+    icon: 'albums-outline',
+    description: 'Organise your trips and posts',
+    route: '/collections'
+  },
+  {
+    id: 'activity',
+    title: 'Activity Feed',
+    icon: 'pulse-outline',
+    description: 'See what your friends are up to',
+    route: '/activity'
+  },
+  {
     id: 'manage-posts',
     title: 'Manage Posts',
     icon: 'library-outline',

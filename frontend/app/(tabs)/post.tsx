@@ -1316,17 +1316,12 @@ export default function PostScreen() {
         source = 'manual_only';
       }
 
-      // Sanitize caption before sending
+      // Sanitize caption before sending (caption is now optional)
       const sanitizedCaption = validateAndSanitizeCaption(values.comment);
-      if (!sanitizedCaption) {
-        Alert.alert('Invalid Caption', 'Please enter a valid caption.');
-        setIsLoading(false);
-        return;
-      }
 
       const response = await createPostWithProgress({
         images: imagesData,
-        caption: sanitizedCaption,
+        caption: sanitizedCaption || '',
         address: values.placeName || address,
         latitude: location?.lat,
         longitude: location?.lng,
@@ -1864,7 +1859,8 @@ export default function PostScreen() {
       // Validate pendingShortData before attempting upload
       if (!pendingShortData.video || !pendingShortData.video.uri) {
         const error = new Error('Video file is missing. Please select a video and try again.');
-        logger.error('[PostScreen] Short creation failed after copyright confirmation - missing video', {
+        // Pass error as second parameter for proper Sentry tracking
+        logger.error('[PostScreen] Short creation failed after copyright confirmation - missing video', error, {
           pendingShortData: pendingShortData ? {
             hasVideo: !!pendingShortData.video,
             hasVideoUri: !!pendingShortData.video?.uri,
@@ -1955,9 +1951,14 @@ export default function PostScreen() {
         ]);
       }
     } catch (error: any) {
+      // Ensure error is an Error instance for proper Sentry tracking
+      const errorToLog = error instanceof Error 
+        ? error 
+        : new Error(error?.message || String(error) || 'Something went wrong. Please try again later.');
+      
       // Log full error details before sanitization for debugging
-      logger.error('[PostScreen] Short creation failed after copyright confirmation', {
-        error: error,
+      // Pass error as second parameter (not nested in data object) for proper Sentry tracking
+      logger.error('[PostScreen] Short creation failed after copyright confirmation', errorToLog, {
         errorMessage: error?.message,
         errorStack: error?.stack,
         errorName: error?.name,
@@ -2029,6 +2030,7 @@ export default function PostScreen() {
         <NavBar title="New Post" />
         <ScrollView 
           style={{ flex: 1, padding: theme.spacing.md }} 
+          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
@@ -2645,7 +2647,8 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Comment</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
                           <TextInput
@@ -3032,6 +3035,7 @@ export default function PostScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
                           <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
                           <TextInput
@@ -3402,7 +3406,6 @@ export default function PostScreen() {
       {/* Progress Alert */}
       <ProgressAlert
         visible={isUploading}
-        title={`Uploading Post (${uploadProgress.current}/${uploadProgress.total})`}
         message={uploadProgress.total > 1 
           ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
           : "Please wait while your media is being uploaded..."}
@@ -3422,39 +3425,66 @@ export default function PostScreen() {
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowSpotTypePicker(false)}
+        statusBarTranslucent={true}
       >
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
           activeOpacity={1}
           onPress={() => setShowSpotTypePicker(false)}
         >
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={(e) => e.stopPropagation()}
+            style={{ width: '100%', marginBottom: 0 }}
+          >
             <View style={{ 
               backgroundColor: theme.colors.surface, 
               borderTopLeftRadius: 20, 
               borderTopRightRadius: 20,
-              paddingTop: theme.spacing.lg,
-              paddingBottom: Math.max(theme.spacing.lg, Platform.OS === 'ios' ? 34 : theme.spacing.lg),
-              maxHeight: '60%',
-              ...theme.shadows.medium
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
+              paddingTop: theme.spacing.sm,
+              paddingBottom: 0,
+              marginBottom: 0,
+              maxHeight: '70%',
+              ...theme.shadows.large
             }}>
-              {/* Compact Header */}
+              {/* Drag Handle */}
+              <View style={{ 
+                alignSelf: 'center',
+                width: 36,
+                height: 3,
+                borderRadius: 2,
+                backgroundColor: theme.colors.border,
+                marginBottom: theme.spacing.md,
+                marginTop: theme.spacing.xs
+              }} />
+              
+              {/* Header */}
               <View style={{ 
                 flexDirection: 'row', 
                 alignItems: 'center', 
                 justifyContent: 'space-between', 
-                paddingHorizontal: theme.spacing.lg, 
-                marginBottom: theme.spacing.md,
-                paddingBottom: theme.spacing.sm,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: theme.colors.border
+                paddingHorizontal: theme.spacing.md, 
+                marginBottom: theme.spacing.md
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="leaf-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.sm }} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: theme.colors.primary + '15',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: theme.spacing.sm
+                  }}>
+                    <Ionicons name="leaf" size={16} color={theme.colors.primary} />
+                  </View>
                   <Text style={{ 
                     fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '600', 
-                    color: theme.colors.text
+                    fontWeight: '700', 
+                    color: theme.colors.text,
+                    letterSpacing: 0.2
                   }}>
                     Select Spot Type
                   </Text>
@@ -3462,23 +3492,24 @@ export default function PostScreen() {
                 <TouchableOpacity 
                   onPress={() => setShowSpotTypePicker(false)}
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
                     backgroundColor: theme.colors.surfaceSecondary,
                     justifyContent: 'center',
                     alignItems: 'center'
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={18} color={theme.colors.text} />
+                  <Ionicons name="close" size={16} color={theme.colors.text} />
                 </TouchableOpacity>
               </View>
               
-              {/* Compact Options List */}
+              {/* Options List */}
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 style={{ paddingHorizontal: theme.spacing.md }}
+                contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + theme.spacing.lg, theme.spacing.xl) }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
               >
@@ -3496,19 +3527,21 @@ export default function PostScreen() {
                     key={item.value}
                     style={{
                       paddingHorizontal: theme.spacing.md,
-                      paddingVertical: theme.spacing.sm + 4,
+                      paddingVertical: theme.spacing.sm,
                       marginBottom: theme.spacing.xs,
                       borderRadius: theme.borderRadius.md,
                       backgroundColor: spotType === item.value 
-                        ? theme.colors.primary + '10' 
-                        : 'transparent',
-                      borderWidth: spotType === item.value ? 1.5 : StyleSheet.hairlineWidth,
+                        ? theme.colors.primary + '15' 
+                        : theme.colors.surfaceSecondary,
+                      borderWidth: spotType === item.value ? 1.5 : 0,
                       borderColor: spotType === item.value 
                         ? theme.colors.primary 
-                        : theme.colors.border,
+                        : 'transparent',
                       flexDirection: 'row',
                       alignItems: 'center',
-                      justifyContent: 'space-between'
+                      justifyContent: 'space-between',
+                      minHeight: 44,
+                      ...(spotType === item.value && theme.shadows.small)
                     }}
                     onPress={() => {
                       setSpotType(item.value);
@@ -3517,22 +3550,43 @@ export default function PostScreen() {
                     activeOpacity={0.7}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Ionicons 
-                        name={item.icon as any} 
-                        size={18} 
-                        color={spotType === item.value ? theme.colors.primary : theme.colors.textSecondary} 
-                        style={{ marginRight: theme.spacing.sm }}
-                      />
+                      <View style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: spotType === item.value 
+                          ? theme.colors.primary + '20'
+                          : theme.colors.background,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: theme.spacing.sm
+                      }}>
+                        <Ionicons 
+                          name={item.icon as any} 
+                          size={18} 
+                          color={spotType === item.value ? theme.colors.primary : theme.colors.textSecondary}
+                        />
+                      </View>
                       <Text style={{ 
                         color: spotType === item.value ? theme.colors.primary : theme.colors.text, 
                         fontSize: theme.typography.body.fontSize,
-                        fontWeight: spotType === item.value ? '500' : '400'
+                        fontWeight: spotType === item.value ? '600' : '500',
+                        letterSpacing: 0.1
                       }}>
                         {item.label}
                       </Text>
                     </View>
                     {spotType === item.value && (
-                      <Ionicons name="checkmark" size={18} color={theme.colors.primary} />
+                      <View style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: theme.colors.primary,
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}>
+                        <Ionicons name="checkmark" size={14} color="white" />
+                      </View>
                     )}
                   </TouchableOpacity>
                 ))}
@@ -3548,39 +3602,66 @@ export default function PostScreen() {
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowTravelInfoPicker(false)}
+        statusBarTranslucent={true}
       >
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
           activeOpacity={1}
           onPress={() => setShowTravelInfoPicker(false)}
         >
-          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={(e) => e.stopPropagation()}
+            style={{ width: '100%', marginBottom: 0 }}
+          >
             <View style={{ 
               backgroundColor: theme.colors.surface, 
               borderTopLeftRadius: 20, 
               borderTopRightRadius: 20,
-              paddingTop: theme.spacing.lg,
-              paddingBottom: Math.max(theme.spacing.lg, Platform.OS === 'ios' ? 34 : theme.spacing.lg),
-              maxHeight: '60%',
-              ...theme.shadows.medium
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
+              paddingTop: theme.spacing.sm,
+              paddingBottom: 0,
+              marginBottom: 0,
+              maxHeight: '70%',
+              ...theme.shadows.large
             }}>
-              {/* Compact Header */}
+              {/* Drag Handle */}
+              <View style={{ 
+                alignSelf: 'center',
+                width: 36,
+                height: 3,
+                borderRadius: 2,
+                backgroundColor: theme.colors.border,
+                marginBottom: theme.spacing.md,
+                marginTop: theme.spacing.xs
+              }} />
+              
+              {/* Header */}
               <View style={{ 
                 flexDirection: 'row', 
                 alignItems: 'center', 
                 justifyContent: 'space-between', 
-                paddingHorizontal: theme.spacing.lg, 
-                marginBottom: theme.spacing.md,
-                paddingBottom: theme.spacing.sm,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: theme.colors.border
+                paddingHorizontal: theme.spacing.md, 
+                marginBottom: theme.spacing.md
               }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="car-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.sm }} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: theme.colors.primary + '15',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: theme.spacing.sm
+                  }}>
+                    <Ionicons name="car" size={16} color={theme.colors.primary} />
+                  </View>
                   <Text style={{ 
                     fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '600', 
-                    color: theme.colors.text
+                    fontWeight: '700', 
+                    color: theme.colors.text,
+                    letterSpacing: 0.2
                   }}>
                     Select Travel Method
                   </Text>
@@ -3588,23 +3669,24 @@ export default function PostScreen() {
                 <TouchableOpacity 
                   onPress={() => setShowTravelInfoPicker(false)}
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
                     backgroundColor: theme.colors.surfaceSecondary,
                     justifyContent: 'center',
                     alignItems: 'center'
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={18} color={theme.colors.text} />
+                  <Ionicons name="close" size={16} color={theme.colors.text} />
                 </TouchableOpacity>
               </View>
               
-              {/* Compact Options List */}
+              {/* Options List */}
               <ScrollView 
                 showsVerticalScrollIndicator={false}
                 style={{ paddingHorizontal: theme.spacing.md }}
+                contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + theme.spacing.lg, theme.spacing.xl) }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
               >
@@ -3620,19 +3702,21 @@ export default function PostScreen() {
                     key={item.value}
                     style={{
                       paddingHorizontal: theme.spacing.md,
-                      paddingVertical: theme.spacing.sm + 4,
+                      paddingVertical: theme.spacing.sm,
                       marginBottom: theme.spacing.xs,
                       borderRadius: theme.borderRadius.md,
                       backgroundColor: travelInfo === item.value 
-                        ? theme.colors.primary + '10' 
-                        : 'transparent',
-                      borderWidth: travelInfo === item.value ? 1.5 : StyleSheet.hairlineWidth,
+                        ? theme.colors.primary + '15' 
+                        : theme.colors.surfaceSecondary,
+                      borderWidth: travelInfo === item.value ? 1.5 : 0,
                       borderColor: travelInfo === item.value 
                         ? theme.colors.primary 
-                        : theme.colors.border,
+                        : 'transparent',
                       flexDirection: 'row',
                       alignItems: 'center',
-                      justifyContent: 'space-between'
+                      justifyContent: 'space-between',
+                      minHeight: 44,
+                      ...(travelInfo === item.value && theme.shadows.small)
                     }}
                     onPress={() => {
                       setTravelInfo(item.value);
@@ -3641,22 +3725,43 @@ export default function PostScreen() {
                     activeOpacity={0.7}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Ionicons 
-                        name={item.icon as any} 
-                        size={18} 
-                        color={travelInfo === item.value ? theme.colors.primary : theme.colors.textSecondary} 
-                        style={{ marginRight: theme.spacing.sm }}
-                      />
+                      <View style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: travelInfo === item.value 
+                          ? theme.colors.primary + '20'
+                          : theme.colors.background,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: theme.spacing.sm
+                      }}>
+                        <Ionicons 
+                          name={item.icon as any} 
+                          size={18} 
+                          color={travelInfo === item.value ? theme.colors.primary : theme.colors.textSecondary}
+                        />
+                      </View>
                       <Text style={{ 
                         color: travelInfo === item.value ? theme.colors.primary : theme.colors.text, 
                         fontSize: theme.typography.body.fontSize,
-                        fontWeight: travelInfo === item.value ? '500' : '400'
+                        fontWeight: travelInfo === item.value ? '600' : '500',
+                        letterSpacing: 0.1
                       }}>
                         {item.label}
                       </Text>
                     </View>
                     {travelInfo === item.value && (
-                      <Ionicons name="checkmark" size={18} color={theme.colors.primary} />
+                      <View style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: theme.colors.primary,
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}>
+                        <Ionicons name="checkmark" size={14} color="white" />
+                      </View>
                     )}
                   </TouchableOpacity>
                 ))}

@@ -534,13 +534,7 @@ export default function PostDetail() {
       setActionLoading('follow');
       const response = await toggleFollow(post!.user._id);
       setIsFollowing(response.isFollowing);
-      showCustomAlertMessage(
-        'Success', 
-        response.isFollowing 
-          ? `You're now following ${post!.user.fullName}` 
-          : `You've unfollowed ${post!.user.fullName}`,
-        'success'
-      );
+      // No success alert - silent update for better UX
     } catch (error: any) {
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!error.isConflict && error.response?.status !== 409) {

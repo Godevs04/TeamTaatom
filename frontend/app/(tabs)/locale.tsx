@@ -36,7 +36,7 @@ import { createLogger } from '../../utils/logger';
 import { savedEvents } from '../../utils/savedEvents';
 import { theme } from '../../constants/theme';
 import axios from 'axios';
-import { GOOGLE_MAPS_API_KEY } from '../../utils/config';
+import { getGoogleMapsApiKey } from '../../utils/maps';
 
 const logger = createLogger('LocaleScreen');
 
@@ -69,11 +69,16 @@ const fetchRealCoords = async (
   description?: string
 ): Promise<{ lat: number; lon: number } | null> => {
   try {
+    const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
     if (!GOOGLE_MAPS_API_KEY) {
       if (__DEV__) {
         console.log('GEOCODE_FETCH_ERROR: Google Maps API key not configured');
       }
       return null;
+    }
+    
+    if (__DEV__) {
+      console.log(`🔑 Using Google Maps API Key: ${GOOGLE_MAPS_API_KEY.substring(0, 20)}... (length: ${GOOGLE_MAPS_API_KEY.length})`);
     }
 
     // Build cache key
