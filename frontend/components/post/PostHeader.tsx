@@ -43,6 +43,22 @@ export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
           <Text style={[styles.username, { color: theme.colors.text }]}>
             {user.fullName || 'Unknown User'}
           </Text>
+          
+          {/* Song - Instagram style inline */}
+          {post.song?.songId && (() => {
+            const song = post.song.songId;
+            const songTitle = song.title || 'Unknown Song';
+            const songArtist = song.artist || 'Unknown Artist';
+            return (
+              <View style={styles.inlineSong}>
+                <Ionicons name="musical-notes" size={12} color={theme.colors.textSecondary} />
+                <Text style={[styles.inlineSongText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  {songTitle} · {songArtist}
+                </Text>
+              </View>
+            );
+          })()}
+          
           <PostLocation post={post} />
         </View>
       </TouchableOpacity>
@@ -85,6 +101,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  inlineSong: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  inlineSongText: {
+    fontSize: 12,
+    marginLeft: 6,
   },
   menuButton: {
     padding: 4,

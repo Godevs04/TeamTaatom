@@ -44,6 +44,7 @@ interface PhotoCardProps {
   onRefresh?: () => void;
   onPress?: () => void;
   isVisible?: boolean; // For lazy loading
+  isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
   showBookmark?: boolean; // Show/hide bookmark button
 }
 
@@ -52,6 +53,7 @@ function PhotoCard({
   onRefresh,
   onPress,
   isVisible = true,
+  isCurrentlyVisible = false,
   showBookmark = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
@@ -757,6 +759,7 @@ function PhotoCard({
           onImageError={handleImageError}
           onRetry={handleImageRetry}
           pulseAnim={pulseAnim}
+          isCurrentlyVisible={isCurrentlyVisible}
         />
       ) : (
         // Lightweight placeholder for unmounted images
@@ -945,7 +948,7 @@ function PhotoCard({
                       `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
                       'warning',
                       () => {
-                        showCustomAlertMessage('Success', `You've unfollowed ${postUser.fullName || 'Unknown User'}`, 'success');
+                        // No success alert - silent update for better UX
                       }
                     );
                   }}
@@ -1118,7 +1121,8 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
-    prevProps.isVisible === nextProps.isVisible
+    prevProps.isVisible === nextProps.isVisible &&
+    prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });
 

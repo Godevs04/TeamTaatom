@@ -245,8 +245,10 @@ export const logger: Logger = {
         }
       } else {
         // Warnings should be tracked in production
+        // Convert the data object to an Error instance for proper Sentry tracking
         if (safeMessage && safeMessage.trim() && safeMessage !== 'Warning (no message provided)') {
-          trackError('warning', { message: safeMessage, ...data }, []);
+          const errorObj = new Error(safeMessage);
+          trackError('warning', errorObj, [{ ...data }]);
         }
       }
     }
