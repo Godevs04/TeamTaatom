@@ -31,6 +31,7 @@ import {
 import toast from 'react-hot-toast'
 import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById } from '../services/localeService'
 import { motion, AnimatePresence } from 'framer-motion'
+import { searchPlace, geocodeAddress, areCoordinatesNearby, buildAddressString } from '../utils/geocoding'
 
 // Helper function to calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -101,6 +102,13 @@ const Locales = () => {
   const [bulkActionProgress, setBulkActionProgress] = useState({ current: 0, total: 0 })
   const [isBulkActionInProgress, setIsBulkActionInProgress] = useState(false)
   
+  // Place detection state
+  const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false)
+  const [detectPlaceName, setDetectPlaceName] = useState('')
+  const [detectedPlace, setDetectedPlace] = useState(null)
+  const [isSearchingPlace, setIsSearchingPlace] = useState(false)
+  const [isEditModeForDetect, setIsEditModeForDetect] = useState(false)
+  
   // Stability & performance refs
   const isMountedRef = useRef(true)
   const abortControllerRef = useRef(null)
@@ -123,7 +131,9 @@ const Locales = () => {
     displayOrder: '0',
     spotTypes: [],
     travelInfo: 'Drivable',
-    file: null
+    file: null,
+    latitude: null,
+    longitude: null
   })
   const [editFormData, setEditFormData] = useState({
     name: '',
@@ -134,7 +144,9 @@ const Locales = () => {
     description: '',
     displayOrder: '0',
     spotTypes: [],
-    travelInfo: 'Drivable'
+    travelInfo: 'Drivable',
+    latitude: null,
+    longitude: null
   })
 
   // Lifecycle safety
@@ -719,6 +731,85 @@ const Locales = () => {
     }
   }, [searchQuery, selectedCountryCode, currentPage]) // Dependencies: only fetch params (fetchKey components), NO derived state, NO callbacks
 
+  // Handle opening detect place modal
+  const handleOpenDetectPlace = useCallback((isEditMode = false) => {
+    setIsEditModeForDetect(isEditMode)
+    setDetectPlaceName('')
+    setDetectedPlace(null)
+    setShowDetectPlaceModal(true)
+  }, [])
+
+  // Handle searching for a place
+  const handleSearchPlace = useCallback(async () => {
+    if (!detectPlaceName || detectPlaceName.trim().length === 0) {
+      toast.error('Please enter a place name')
+      return
+    }
+
+    setIsSearchingPlace(true)
+    setDetectedPlace(null)
+
+    try {
+      const placeResult = await searchPlace(detectPlaceName.trim())
+      
+      if (placeResult) {
+        setDetectedPlace(placeResult)
+      } else {
+        toast.error('Place not found. Please try a different name.')
+        setDetectedPlace(null)
+      }
+    } catch (error) {
+      console.error('Error searching place:', error)
+      toast.error('Error searching for place. Please try again.')
+      setDetectedPlace(null)
+    } finally {
+      setIsSearchingPlace(false)
+    }
+  }, [detectPlaceName])
+
+  // Handle confirming detected place and populating fields
+  const handleConfirmDetectedPlace = useCallback(() => {
+    if (!detectedPlace) return
+
+    if (isEditModeForDetect) {
+      // Populate edit form
+      setEditFormData({
+        name: detectedPlace.name || editFormData.name,
+        country: detectedPlace.country || editFormData.country,
+        countryCode: detectedPlace.countryCode || editFormData.countryCode,
+        stateProvince: detectedPlace.stateProvince || editFormData.stateProvince,
+        city: detectedPlace.city || editFormData.city,
+        description: editFormData.description,
+        displayOrder: editFormData.displayOrder,
+        spotTypes: editFormData.spotTypes,
+        travelInfo: editFormData.travelInfo,
+        latitude: detectedPlace.lat,
+        longitude: detectedPlace.lng
+      })
+    } else {
+      // Populate add form
+      setFormData({
+        ...formData,
+        name: detectedPlace.name || formData.name,
+        country: detectedPlace.country || formData.country,
+        countryCode: detectedPlace.countryCode || formData.countryCode,
+        stateProvince: detectedPlace.stateProvince || formData.stateProvince,
+        city: detectedPlace.city || formData.city,
+        description: formData.description,
+        displayOrder: formData.displayOrder,
+        spotTypes: formData.spotTypes,
+        travelInfo: formData.travelInfo,
+        latitude: detectedPlace.lat,
+        longitude: detectedPlace.lng
+      })
+    }
+
+    setShowDetectPlaceModal(false)
+    setDetectPlaceName('')
+    setDetectedPlace(null)
+    toast.success('Place details populated successfully!')
+  }, [detectedPlace, isEditModeForDetect, formData, editFormData])
+
   // Detect duplicate locales (similar names and coordinates within radius)
   const duplicateHints = useMemo(() => {
     const hints = new Map()
@@ -923,6 +1014,12 @@ const Locales = () => {
       if (formData.travelInfo) {
         uploadFormData.append('travelInfo', formData.travelInfo)
       }
+      
+      // Send latitude and longitude if available
+      if (formData.latitude && formData.longitude) {
+        uploadFormData.append('latitude', formData.latitude.toString())
+        uploadFormData.append('longitude', formData.longitude.toString())
+      }
 
       const response = await uploadLocale(uploadFormData)
       toast.success(response.message || 'Locale uploaded successfully')
@@ -937,7 +1034,9 @@ const Locales = () => {
           displayOrder: '0',
           spotTypes: [],
           travelInfo: 'Drivable',
-          file: null 
+          file: null,
+          latitude: null,
+          longitude: null
         })
       })
       // Force refresh after upload - reset page to 1 and clear fetchKey to trigger fetch
@@ -1333,7 +1432,13 @@ const Locales = () => {
       if (editFormData.travelInfo) {
         updateData.travelInfo = editFormData.travelInfo
       }
-
+      
+      // Add latitude and longitude if available
+      if (editFormData.latitude && editFormData.longitude) {
+        updateData.latitude = parseFloat(editFormData.latitude)
+        updateData.longitude = parseFloat(editFormData.longitude)
+      }
+      
       const updatedLocale = await updateLocale(localeToEdit._id, updateData)
       toast.success('Locale updated successfully')
       
@@ -2026,22 +2131,33 @@ const Locales = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
-              <div className="space-y-2.5">
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
                 <label className="block text-sm font-semibold text-gray-800">
                   Name <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
-                  placeholder="Locale name"
-                  required
-                  minLength={1}
-                  maxLength={200}
-                />
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetectPlace(false)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Detect Place
+                </button>
               </div>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
+                placeholder="Locale name"
+                required
+                minLength={1}
+                maxLength={200}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
 
               <div className="space-y-2.5">
                 <label className="block text-sm font-semibold text-gray-800">
@@ -2233,6 +2349,166 @@ const Locales = () => {
         </form>
       </Modal>
 
+      {/* Detect Place Modal - Higher z-index to appear above Edit Modal */}
+      <Modal isOpen={showDetectPlaceModal} onClose={() => {
+        setShowDetectPlaceModal(false)
+        setDetectPlaceName('')
+        setDetectedPlace(null)
+      }} className="bg-white max-w-4xl" zIndex={60}>
+        <ModalHeader onClose={() => {
+          setShowDetectPlaceModal(false)
+          setDetectPlaceName('')
+          setDetectedPlace(null)
+        }}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <MapPin className="w-5 h-5 text-blue-600" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Detect Place</h2>
+          </div>
+        </ModalHeader>
+        <ModalContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
+                Enter Place Name
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={detectPlaceName}
+                  onChange={(e) => setDetectPlaceName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearchPlace()
+                    }
+                  }}
+                  className="flex-1 px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
+                  placeholder="e.g., Museum of Anthropology"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchPlace}
+                  disabled={isSearchingPlace || !detectPlaceName.trim()}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSearchingPlace ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      Search
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {detectedPlace && (
+              <div className="space-y-4">
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    <span className="font-semibold text-gray-900">Place Found!</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-semibold">Name:</span> {detectedPlace.name}</p>
+                    <p><span className="font-semibold">Address:</span> {detectedPlace.formattedAddress}</p>
+                    {detectedPlace.city && <p><span className="font-semibold">City:</span> {detectedPlace.city}</p>}
+                    {detectedPlace.stateProvince && <p><span className="font-semibold">State/Province:</span> {detectedPlace.stateProvince}</p>}
+                    {detectedPlace.country && <p><span className="font-semibold">Country:</span> {detectedPlace.country} {detectedPlace.countryCode ? `(${detectedPlace.countryCode})` : ''}</p>}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Coordinates: {detectedPlace.lat.toFixed(6)}, {detectedPlace.lng.toFixed(6)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Google Maps Static Image */}
+                <div className="w-full h-96 rounded-xl overflow-hidden border-2 border-gray-200 shadow-lg relative group">
+                  <img
+                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${detectedPlace.lat},${detectedPlace.lng}&zoom=15&size=800x400&markers=color:red%7C${detectedPlace.lat},${detectedPlace.lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''}`}
+                    alt={`Map showing ${detectedPlace.name}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div 
+                    className="hidden absolute inset-0 bg-gray-100 flex items-center justify-center flex-col gap-2 p-4"
+                    style={{ display: 'none' }}
+                  >
+                    <MapPin className="w-12 h-12 text-gray-400" />
+                    <p className="text-sm text-gray-600 text-center">
+                      Map preview unavailable
+                    </p>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${detectedPlace.lat},${detectedPlace.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:text-blue-800 underline mt-2"
+                    >
+                      Open in Google Maps
+                    </a>
+                  </div>
+                  {/* Click overlay to open in Google Maps */}
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${detectedPlace.lat},${detectedPlace.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-10 transition-all cursor-pointer group-hover:bg-opacity-10"
+                    title="Click to open in Google Maps"
+                  >
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium text-gray-900">Open in Google Maps</span>
+                    </div>
+                  </a>
+                </div>
+
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <p className="text-sm text-blue-800">
+                    <span className="font-semibold">Confirm this is the correct place?</span> Click "Use This Place" to auto-fill all form fields.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!detectedPlace && !isSearchingPlace && detectPlaceName && (
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
+                <p className="text-sm text-gray-600">Enter a place name and click "Search" to find it on the map</p>
+              </div>
+            )}
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            type="button"
+            onClick={() => {
+              setShowDetectPlaceModal(false)
+              setDetectPlaceName('')
+              setDetectedPlace(null)
+            }}
+            className="w-full sm:w-auto px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
+          >
+            Cancel
+          </button>
+          {detectedPlace && (
+            <button
+              type="button"
+              onClick={handleConfirmDetectedPlace}
+              className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-base"
+            >
+              <CheckCircle className="w-5 h-5" />
+              Use This Place
+            </button>
+          )}
+        </ModalFooter>
+      </Modal>
+
       {/* Delete Confirmation Modal */}
       <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)}>
@@ -2311,22 +2587,33 @@ const Locales = () => {
         </ModalHeader>
         <form onSubmit={handleUpdate}>
           <ModalContent className="space-y-5 sm:space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between">
                 <label className="block text-sm font-semibold text-gray-700">
                   Name <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={editFormData.name}
-                  onChange={(e) => setEditFormData({ ...editFormData, name: sanitizeText(e.target.value) })}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  placeholder="Locale name"
-                  required
-                  minLength={1}
-                  maxLength={200}
-                />
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetectPlace(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Detect Place
+                </button>
               </div>
+              <input
+                type="text"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: sanitizeText(e.target.value) })}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Locale name"
+                required
+                minLength={1}
+                maxLength={200}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
