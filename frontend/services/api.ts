@@ -243,7 +243,16 @@ api.interceptors.response.use(
       const parsedError = parseError(error);
       // Only log as error if it's not an expected auth error
       if (!isAuth401) {
-        logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url);
+        // Create proper Error instance with meaningful message for Sentry tracking
+        const errorMessage = `${parsedError.code}: ${parsedError.message}`;
+        const errorToLog = new Error(errorMessage);
+        logger.error('API Error:', errorToLog, {
+          code: parsedError.code,
+          message: parsedError.message,
+          userMessage: parsedError.userMessage,
+          url: error.config?.url,
+          status: error.response?.status,
+        });
       } else {
         // Log auth errors as debug to reduce noise
         logger.debug('API Auth Error:', { code: parsedError.code, url: error.config?.url });

@@ -662,10 +662,12 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
         errorData = await response.json();
       } catch (jsonError) {
         // If response is not JSON, use status text or default error
-        logger.error('[createShort] Failed to parse error response as JSON', {
+        const errorToLog = jsonError instanceof Error 
+          ? jsonError 
+          : new Error(`Failed to parse error response: ${String(jsonError)}`);
+        logger.error('[createShort] Failed to parse error response as JSON', errorToLog, {
           status: response.status,
           statusText: response.statusText,
-          jsonError: jsonError,
         });
         throw new Error(`Upload failed with status ${response.status}. Please try again.`);
       }
@@ -677,9 +679,14 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     logger.debug('Response received:', responseData);
     return responseData;
   } catch (error: any) {
+    // Ensure error is an Error instance for proper Sentry tracking
+    const errorToLog = error instanceof Error 
+      ? error 
+      : new Error(error?.message || String(error) || 'Failed to create short');
+    
     // Log comprehensive error details for debugging
-    logger.error('[createShort] Error creating short', {
-      error: error,
+    // Pass error as second parameter (not nested in data object) for proper Sentry tracking
+    logger.error('[createShort] Error creating short', errorToLog, {
       errorMessage: error?.message,
       errorStack: error?.stack,
       errorName: error?.name,

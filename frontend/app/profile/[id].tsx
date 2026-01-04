@@ -72,16 +72,16 @@ export default function UserProfileScreen() {
     const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
     setFollowState(derivedState);
 
-    // Update followers/following counts in profile if provided
-    if (response.followersCount !== undefined || response.followingCount !== undefined) {
+    // Update followers count in profile if provided
+    // Note: Only update followersCount (target user's follower count)
+    // Do NOT update followingCount - the API returns the current user's following count,
+    // but the profile displays the target user's following count (who the target user follows)
+    if (response.followersCount !== undefined) {
       setProfile((prevProfile: any) => {
         if (!prevProfile) return prevProfile;
         const updated: any = { ...prevProfile };
         if (typeof response.followersCount === 'number') {
           updated.followersCount = response.followersCount;
-        }
-        if (typeof response.followingCount === 'number') {
-          updated.followingCount = response.followingCount;
         }
         return updated;
       });
@@ -355,20 +355,16 @@ export default function UserProfileScreen() {
         followingCount: response.followingCount
       });
       
-      // Show success message based on API response
-      if (response.isFollowing) {
-        showSuccess('You are now following this user!');
-      } else if (response.followRequestSent) {
-        showSuccess('Follow request sent!');
-      } else {
-        showSuccess('You have unfollowed this user.');
-      }
+      // No success alert - silent update for better UX
       
       // Refresh profile data to get updated counts and ensure consistency
       // Use a small delay to ensure the backend has processed the follow/unfollow
-      setTimeout(() => {
-        fetchProfile();
-      }, 500);
+      // --->
+      // No fetchProfile() call - update state optimistically to avoid loading screen
+      // The API response already contains the updated counts, so we don't need to reload
+      // setTimeout(() => {
+      //   fetchProfile();
+      // }, 500);
       
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that

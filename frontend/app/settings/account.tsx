@@ -280,26 +280,6 @@ export default function AccountSettingsScreen() {
               )}
             </TouchableOpacity>
           )}
-
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => {
-              // Navigate back to profile and trigger edit profile modal
-              router.back();
-              // We'll need to pass a parameter to trigger edit profile
-              setTimeout(() => {
-                router.push({ pathname: '/profile', params: { editProfile: 'true' } });
-              }, 100);
-            }}
-          >
-            <View style={styles.settingContent}>
-              <Ionicons name="create-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
-                Edit Profile
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
         </View>
 
         {/* Preferences */}
