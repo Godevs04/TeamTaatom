@@ -5,7 +5,7 @@ import { clsx } from 'clsx'
 
 const cn = (...inputs) => clsx(inputs)
 
-const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) => {
+const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true, zIndex = 50 }) => {
   // Handle ESC key to close modal
   useEffect(() => {
     if (!isOpen || !closeOnEscape) return
@@ -36,15 +36,16 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) =
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 flex items-center justify-center p-0 sm:p-4 overflow-y-auto" style={{ zIndex }}>
       <div 
         className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
         aria-hidden="true"
+        style={{ zIndex: zIndex - 1 }}
       />
       <div 
         className={cn(
-          'relative bg-white rounded-none sm:rounded-lg shadow-2xl w-full z-50 flex flex-col',
+          'relative bg-white rounded-none sm:rounded-lg shadow-2xl w-full flex flex-col',
           'h-screen sm:h-auto max-h-screen sm:max-h-[90vh]',
           'max-w-full sm:max-w-md md:max-w-lg lg:max-w-2xl xl:max-w-3xl',
           'mx-0 sm:mx-auto my-0 sm:my-auto',
@@ -53,6 +54,7 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true }) =
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
+        style={{ zIndex }}
       >
         {children}
       </div>
@@ -65,7 +67,8 @@ Modal.propTypes = {
   onClose: PropTypes.func.isRequired,
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
-  closeOnEscape: PropTypes.bool
+  closeOnEscape: PropTypes.bool,
+  zIndex: PropTypes.number
 }
 
 const ModalHeader = ({ children, onClose, className }) => {
