@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Dimensions, Animated } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useScroll } from '../../context/ScrollContext';
+import { audioManager } from '../../utils/audioManager';
+import logger from '../../utils/logger';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
@@ -14,6 +16,8 @@ export default function TabsLayout() {
   const { theme } = useTheme();
   const { isScrollingUp } = useScroll();
   const translateY = useRef(new Animated.Value(0)).current;
+  const pathname = usePathname();
+  const previousPathnameRef = useRef<string | null>(null);
 
   useEffect(() => {
     Animated.timing(translateY, {
@@ -22,6 +26,61 @@ export default function TabsLayout() {
       useNativeDriver: false, // Must be false for transform on layout properties
     }).start();
   }, [isScrollingUp, translateY]);
+
+  // Stop all audio when switching tabs (except when staying on home or shorts)
+  // Use a flag to prevent multiple rapid calls
+  const isStoppingAudioRef = useRef(false);
+  
+  useEffect(() => {
+    // Skip on initial mount
+    if (previousPathnameRef.current === null) {
+      previousPathnameRef.current = pathname;
+      return;
+    }
+
+    const previousPath = previousPathnameRef.current;
+    
+    // Prevent infinite loops - only process if pathname actually changed
+    if (previousPath === pathname) {
+      return;
+    }
+
+    // Prevent rapid-fire calls
+    if (isStoppingAudioRef.current) {
+      return;
+    }
+
+    previousPathnameRef.current = pathname;
+
+    // Only handle tab navigation within tabs layout (not full route changes)
+    // Check if both paths are within tabs - be more specific to avoid false matches
+    const isCurrentTab = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname === '/(tabs)/post' || pathname === '/(tabs)/locale' || pathname === '/(tabs)/profile' ||
+                        pathname?.endsWith('/home') || pathname?.endsWith('/shorts') || pathname?.endsWith('/post') || pathname?.endsWith('/locale') || pathname?.endsWith('/profile');
+    const wasTab = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath === '/(tabs)/post' || previousPath === '/(tabs)/locale' || previousPath === '/(tabs)/profile' ||
+                   previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts') || previousPath?.endsWith('/post') || previousPath?.endsWith('/locale') || previousPath?.endsWith('/profile');
+    
+    // Only handle tab-to-tab navigation here
+    if (isCurrentTab && wasTab) {
+      const isHomeOrShorts = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname?.endsWith('/home') || pathname?.endsWith('/shorts');
+      const wasHomeOrShorts = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts');
+      
+      // If leaving home or shorts, stop audio
+      if (wasHomeOrShorts && !isHomeOrShorts) {
+        isStoppingAudioRef.current = true;
+        logger.debug('[TabsLayout] Stopping all audio - navigating away from home/shorts');
+        audioManager.stopAll()
+          .catch((error) => {
+            logger.error('[TabsLayout] Error stopping audio:', error);
+          })
+          .finally(() => {
+            // Reset flag after a short delay to allow for navigation
+            setTimeout(() => {
+              isStoppingAudioRef.current = false;
+            }, 100);
+          });
+      }
+    }
+  }, [pathname]);
 
   const animatedTabBarStyle = {
     backgroundColor: theme.colors.surface,
