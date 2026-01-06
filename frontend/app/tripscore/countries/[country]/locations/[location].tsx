@@ -941,24 +941,34 @@ export default function LocationDetailScreen() {
                   style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
                   activeOpacity={0.7}
                   onPress={async () => {
-                    // CRITICAL: For locale flow, use EXACT coordinates from localeData
+                    // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
                     // For tripscore flow, use coordinates from data
                     let coords: { latitude: number; longitude: number } | undefined = undefined;
                     
                     if (isAdminLocale && localeData) {
-                      // Locale flow: Use EXACT coordinates from locale data
+                      // Locale flow: Use EXACT coordinates from database (localeData)
+                      // These are the coordinates saved in the database from admin locale
                       if (localeData.latitude && localeData.longitude && 
-                          localeData.latitude !== 0 && localeData.longitude !== 0) {
+                          localeData.latitude !== 0 && localeData.longitude !== 0 &&
+                          !isNaN(localeData.latitude) && !isNaN(localeData.longitude) &&
+                          localeData.latitude >= -90 && localeData.latitude <= 90 &&
+                          localeData.longitude >= -180 && localeData.longitude <= 180) {
                         coords = {
                           latitude: localeData.latitude,
                           longitude: localeData.longitude
                         };
-                        logger.debug('Using EXACT locale coordinates:', coords);
+                        logger.debug('✅ Using EXACT database coordinates from localeData:', coords);
+                      } else {
+                        logger.warn('⚠️ Invalid coordinates in localeData:', {
+                          latitude: localeData.latitude,
+                          longitude: localeData.longitude
+                        });
                       }
                     } else if (data?.coordinates) {
                       // Tripscore flow: Use coordinates from data
                       if (data.coordinates.latitude && data.coordinates.longitude &&
-                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
+                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0 &&
+                          !isNaN(data.coordinates.latitude) && !isNaN(data.coordinates.longitude)) {
                         coords = data.coordinates;
                         logger.debug('Using tripscore coordinates:', coords);
                       }
@@ -986,7 +996,14 @@ export default function LocationDetailScreen() {
                     }
                     
                     if (coords && coords.latitude && coords.longitude) {
-                      // Navigate to map with EXACT coordinates
+                      // Navigate to map with EXACT database coordinates from locale
+                      // These coordinates come from the database (admin locale) and should be displayed on the map
+                      logger.debug('📍 Navigating to map with database coordinates:', {
+                        locationName: data?.name,
+                        coordinates: coords,
+                        source: isAdminLocale ? 'Database (localeData)' : 'Data coordinates'
+                      });
+                      
                       router.push({
                         pathname: '/map/current-location',
                         params: {
@@ -1004,7 +1021,17 @@ export default function LocationDetailScreen() {
                         },
                       });
                     } else {
-                      logger.warn('Location coordinates not available for:', data?.name);
+                      logger.warn('❌ Location coordinates not available for:', {
+                        locationName: data?.name,
+                        isAdminLocale,
+                        localeData: localeData ? {
+                          hasLatitude: !!localeData.latitude,
+                          hasLongitude: !!localeData.longitude,
+                          latitude: localeData.latitude,
+                          longitude: localeData.longitude
+                        } : 'null',
+                        dataCoordinates: data?.coordinates
+                      });
                       Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
                   }}

@@ -20,7 +20,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.taatom.app",
       "buildNumber": "3",
-      "googleMapsApiKey": "${EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY}",
+      "googleMapsApiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
@@ -28,7 +28,7 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for video recording.",
         "NSUserTrackingUsageDescription": "We use your data to personalize your experience and show you relevant content. This helps us improve the app and provide better features.",
-        "NSPrivacyPolicyURL": "https://taatom.com/privacy",
+        "NSPrivacyPolicyURL": "http://localhost:8081/policies/privacy",
         "UIBackgroundModes": [
           "audio",
           "location",
@@ -62,7 +62,7 @@
       },
       "config": {
         "googleMaps": {
-          "apiKey": "${EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY}"
+          "apiKey": "AIzaSyARLEQKzcslC-romTHz5DE3lFT9GHW3lQY"
         }
       },
       "intentFilters": [
@@ -147,7 +147,7 @@
     },
     "extra": {
       "API_BASE_URL": "http://192.168.1.15:3000",
-      "WEB_SHARE_URL": "http://192.168.1.15:3000",
+      "WEB_SHARE_URL": "http://localhost:8081",
       "GOOGLE_MAPS_API_KEY": "",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -155,13 +155,9 @@
       "GOOGLE_CLIENT_ID_IOS": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_ANDROID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
-      "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
-      "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact",
-      "router": {},
-      "eas": {
-        "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
-      }
+      "PRIVACY_POLICY_URL": "http://localhost:8081/policies/privacy",
+      "TERMS_OF_SERVICE_URL": "http://localhost:8081/policies/terms",
+      "SUPPORT_URL": "http://localhost:8081/support/contact"
     },
     "owner": "taatom-technologies"
   }

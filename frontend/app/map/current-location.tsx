@@ -17,7 +17,7 @@ import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
-import { MapView, Marker, PROVIDER_GOOGLE } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
 import logger from '../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
@@ -207,8 +207,14 @@ export default function CurrentLocationMap() {
 
   useEffect(() => {
     // CRITICAL: Use exact coordinates from params if valid (for locale flow)
+    // These coordinates come from the database (admin locale) and should be used instead of current location
     if (hasValidCoordinates) {
-      logger.info('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
+      logger.info('📍 Setting map location with EXACT database coordinates from locale:', { 
+        postLatitude, 
+        postLongitude,
+        locationName,
+        userId: userIdParam
+      });
       setLocation({
         coords: {
           latitude: postLatitude!,
@@ -222,8 +228,11 @@ export default function CurrentLocationMap() {
         timestamp: Date.now(),
       });
       setLoading(false);
+      // Don't watch location when showing a specific locale location
+      setIsWatching(false);
     } else {
-      // Get current location
+      // Only get current location if no coordinates were passed
+      // This is for the "current location" flow, not locale navigation
       getCurrentLocation();
       
       // Start watching location for continuous updates
@@ -239,7 +248,7 @@ export default function CurrentLocationMap() {
         }
       };
     }
-  }, [hasValidCoordinates, postLatitude, postLongitude]);
+  }, [hasValidCoordinates, postLatitude, postLongitude, locationName, userIdParam]);
 
   const getCurrentLocation = async () => {
     try {
@@ -467,7 +476,7 @@ export default function CurrentLocationMap() {
     return (
       <MapView
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
+        provider={getMapProvider()}
         customMapStyle={satelliteTheme}
         initialRegion={{
           latitude: location.coords.latitude,
@@ -475,21 +484,29 @@ export default function CurrentLocationMap() {
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         }}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
+        showsUserLocation={!isPostLocation && !hasValidCoordinates}
+        showsMyLocationButton={!isPostLocation && !hasValidCoordinates}
         showsCompass={true}
         showsScale={true}
         mapType="terrain"
-        userLocationPriority="high"
-        followsUserLocation={true}
+        userLocationPriority={hasValidCoordinates ? "none" : "high"}
+        followsUserLocation={!hasValidCoordinates}
       >
         <Marker
           coordinate={{
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           }}
-          title={isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location'}
-          description={isPostLocation ? 'Post Location' : 'You are here'}
+          title={
+            isPostLocation 
+              ? (postAddress || 'Post Location') 
+              : (locationName || 'Your Current Location')
+          }
+          description={
+            isPostLocation 
+              ? 'Post Location' 
+              : (locationName ? `${locationName} Location` : 'You are here')
+          }
           anchor={{ x: 0.5, y: 1 }}
           onPress={() => {
             // CRITICAL: For TripScore flow, just go back to existing detail screen

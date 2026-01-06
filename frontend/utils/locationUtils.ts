@@ -606,6 +606,102 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
 };
 
 /**
+ * Calculate driving distance using Google Maps Distance Matrix API (if API key available)
+ * Falls back to OSRM if Google Maps API key is not available
+ * @param userLat User latitude
+ * @param userLon User longitude
+ * @param localeLat Locale latitude
+ * @param localeLon Locale longitude
+ * @returns Driving distance in kilometers, or null if invalid
+ */
+const calculateDrivingDistanceWithGoogleMaps = async (
+  userLat: number,
+  userLon: number,
+  localeLat: number,
+  localeLon: number
+): Promise<number | null> => {
+  try {
+    const apiKey = getGoogleMapsApiKeyFromMaps();
+    if (!apiKey) {
+      return null; // No API key, will fall back to OSRM
+    }
+
+    // Check cache first
+    const roundedUserLat = roundCoord(userLat);
+    const roundedUserLon = roundCoord(userLon);
+    const roundedLocaleLat = roundCoord(localeLat);
+    const roundedLocaleLon = roundCoord(localeLon);
+    const cacheKey = `gmaps-${roundedUserLat},${roundedUserLon}-${roundedLocaleLat},${roundedLocaleLon}`;
+    
+    if (distanceCache.has(cacheKey)) {
+      const cached = distanceCache.get(cacheKey);
+      if (cached !== undefined) {
+        logger.debug(`Using cached Google Maps distance: ${cached.toFixed(2)} km`);
+        return cached;
+      }
+    }
+
+    // Google Maps Distance Matrix API
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${roundedUserLat},${roundedUserLon}&destinations=${roundedLocaleLat},${roundedLocaleLon}&units=metric&key=${apiKey}`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`Google Maps API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.rows && data.rows[0] && data.rows[0].elements && data.rows[0].elements[0]) {
+        const element = data.rows[0].elements[0];
+        if (element.status === 'OK' && element.distance) {
+          // Distance is in meters, convert to kilometers
+          const distanceKm = element.distance.value / 1000;
+          
+          // Cache the result
+          distanceCache.set(cacheKey, distanceKm);
+          
+          if (__DEV__) {
+            logger.debug(`✅ Google Maps driving distance: ${distanceKm.toFixed(2)} km`);
+          }
+          
+          return distanceKm;
+        }
+      }
+      
+      // API returned but no valid distance
+      if (__DEV__) {
+        logger.debug(`⚠️ Google Maps API returned status: ${data.status}, falling back to OSRM`);
+      }
+      return null; // Will fall back to OSRM
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        logger.warn('Google Maps request timeout, falling back to OSRM');
+      } else {
+        logger.warn(`Google Maps API error: ${fetchError?.message || fetchError}, falling back to OSRM`);
+      }
+      
+      return null; // Will fall back to OSRM
+    }
+  } catch (error: any) {
+    if (__DEV__) {
+      logger.debug(`Google Maps API error, falling back to OSRM:`, error?.message || error);
+    }
+    return null; // Will fall back to OSRM
+  }
+};
+
+/**
  * Calculate driving distance using OSRM (Open Source Routing Machine)
  * Free, no API key required, uses real road network
  * Falls back to straight-line distance if OSRM fails
@@ -626,11 +722,18 @@ export const calculateDrivingDistanceKm = async (
     const straightLineDistance = calculateDistance(userLat, userLon, localeLat, localeLon);
     if (straightLineDistance !== null && straightLineDistance > 2000) {
       // For very large distances, use approximate straight-line distance
-      // OSRM may timeout or be slow for such distances
+      // APIs may timeout or be slow for such distances
       logger.debug(`Using approximate distance for large distance: ${straightLineDistance.toFixed(2)} km`);
       return straightLineDistance;
     }
     
+    // Try Google Maps Distance Matrix API first (if API key available)
+    const googleMapsDistance = await calculateDrivingDistanceWithGoogleMaps(userLat, userLon, localeLat, localeLon);
+    if (googleMapsDistance !== null) {
+      return googleMapsDistance;
+    }
+    
+    // Fall back to OSRM if Google Maps is not available
     // Check cache first (using rounded coordinates for stable keys)
     const roundedUserLat = roundCoord(userLat);
     const roundedUserLon = roundCoord(userLon);
@@ -751,29 +854,72 @@ export const getLocaleDistanceKm = async (
   localeLat: number | undefined,
   localeLon: number | undefined
 ): Promise<number | null> => {
-  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0) {
+  // Validate locale coordinates from database
+  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 || 
+      isNaN(localeLat) || isNaN(localeLon) ||
+      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+    if (__DEV__) {
+      logger.warn(`Invalid locale coordinates for ${localeId}:`, { localeLat, localeLon });
+    }
     return null;
   }
 
-  // Use rounded coordinates for stable cache key
+  // Validate user coordinates
+  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+    if (__DEV__) {
+      logger.warn(`Invalid user coordinates for ${localeId}:`, { userLat, userLon });
+    }
+    return null;
+  }
+
+  // Use rounded coordinates for stable cache key and consistent calculations
   const roundedUserLat = roundCoord(userLat);
   const roundedUserLon = roundCoord(userLon);
+  const roundedLocaleLat = roundCoord(localeLat);
+  const roundedLocaleLon = roundCoord(localeLon);
+  
   const cacheKey = `${localeId}-${roundedUserLat}-${roundedUserLon}`;
 
   // Check cache first
   if (distanceCache.has(cacheKey)) {
     const cached = distanceCache.get(cacheKey);
     if (cached !== undefined) {
+      if (__DEV__) {
+        logger.debug(`Using cached distance for ${localeId}: ${cached.toFixed(2)} km`);
+      }
       return cached;
     }
   }
 
-  // Get driving distance using OSRM (falls back to straight-line if API fails)
-  const distance = await calculateDrivingDistanceKm(roundedUserLat, roundedUserLon, localeLat, localeLon);
+  // Log coordinates being used for debugging
+  if (__DEV__) {
+    logger.debug(`Calculating driving distance for ${localeId}:`, {
+      userLocation: { lat: roundedUserLat, lon: roundedUserLon },
+      localeLocation: { lat: roundedLocaleLat, lon: roundedLocaleLon },
+      originalLocaleCoords: { lat: localeLat, lon: localeLon }
+    });
+  }
+
+  // Get REAL driving distance using coordinates from database
+  // This calculates actual road distance, not straight-line
+  const distance = await calculateDrivingDistanceKm(
+    roundedUserLat, 
+    roundedUserLon, 
+    roundedLocaleLat,  // Use rounded locale coordinates for consistency
+    roundedLocaleLon
+  );
 
   // Cache the result
   if (distance !== null) {
     distanceCache.set(cacheKey, distance);
+    if (__DEV__) {
+      logger.debug(`✅ Driving distance calculated for ${localeId}: ${distance.toFixed(2)} km`);
+    }
+  } else {
+    if (__DEV__) {
+      logger.warn(`Failed to calculate distance for ${localeId}`);
+    }
   }
 
   return distance;

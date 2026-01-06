@@ -181,8 +181,30 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
     
+    // Skip error logging if explicitly requested (for expected failures)
+    const skipErrorLog = error.config?.skipErrorLog
+    
+    // Skip logging for expected client errors (400, 404, 422) on certain endpoints
+    const status = error.response?.status
+    const isExpectedClientError = (status === 400 || status === 404 || status === 422) && 
+                                  (error.config?.url?.includes('/maps/search-place') || 
+                                   error.config?.url?.includes('/maps/geocode'))
+    
     const parsedError = parseError(error)
-    logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
+    
+    // Check if this is a token expiration (expected, handled gracefully)
+    const isTokenExpired = error.response?.status === 401 && 
+                          (error.response?.data?.message?.includes('expired') || 
+                           error.response?.data?.message?.includes('Token expired') ||
+                           error.response?.data?.error?.message?.includes('expired'))
+    
+    // Only log if not explicitly skipped and not an expected client error and not token expiration
+    if (!skipErrorLog && !isExpectedClientError && !isTokenExpired) {
+      logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
+    } else if (skipErrorLog || isExpectedClientError || isTokenExpired) {
+      // Log as debug for expected errors (including token expiration)
+      logger.debug('API Error (expected):', parsedError.code, parsedError.message, error.config?.url)
+    }
     
     if (error.response?.status === 401) {
       // Don't redirect for 2FA endpoints - let the frontend handle the error
@@ -213,8 +235,10 @@ api.interceptors.response.use(
     }
     
     // Handle token expiration specifically
+    // Log as debug, not warn, since this is expected behavior and handled gracefully
+    // This prevents Sentry from reporting token expiration as an error
     if (error.response?.status === 401 && error.response?.data?.message?.includes('expired')) {
-      logger.warn('Token expired, redirecting to login')
+      logger.debug('Token expired, redirecting to login')
     }
     
     // Attach parsed error to the error object for easier handling

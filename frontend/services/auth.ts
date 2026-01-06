@@ -186,9 +186,39 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
       return null;
     }
     // Network or other error - don't sign out, just return network error
-    lastAuthError = error?.message || 'Network or unknown error';
+    // Extract error message safely to avoid serialization issues
+    let errorMessage = 'Network or unknown error';
+    if (error) {
+      if (error instanceof Error) {
+        errorMessage = error.message || 'Network or unknown error';
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.message && typeof error.message === 'string') {
+        errorMessage = error.message;
+      } else {
+        // Try to stringify safely
+        try {
+          errorMessage = JSON.stringify(error);
+        } catch {
+          errorMessage = 'Network or unknown error';
+        }
+      }
+    }
+    
+    // Check for stack overflow errors - these shouldn't be logged as network errors
+    const isStackOverflow = errorMessage.includes('Maximum call stack size exceeded') || 
+                            errorMessage.includes('call stack size exceeded') ||
+                            errorMessage.includes('stack overflow');
+    
+    lastAuthError = errorMessage;
+    
     if (process.env.NODE_ENV === 'development') {
-      logger.warn('Network error in getCurrentUser:', error?.message || error);
+      if (isStackOverflow) {
+        // Log stack overflow as error, not warning, and don't include the full error object
+        logger.error('Stack overflow in getCurrentUser:', errorMessage);
+      } else {
+        logger.warn('Network error in getCurrentUser:', errorMessage);
+      }
     }
     return 'network-error';
   }
