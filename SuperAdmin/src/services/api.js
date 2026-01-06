@@ -190,6 +190,9 @@ api.interceptors.response.use(
                                   (error.config?.url?.includes('/maps/search-place') || 
                                    error.config?.url?.includes('/maps/geocode'))
     
+    // Handle 503 (Service Unavailable) gracefully - don't log as error
+    const isServiceUnavailable = status === 503
+    
     const parsedError = parseError(error)
     
     // Check if this is a token expiration (expected, handled gracefully)
@@ -198,11 +201,11 @@ api.interceptors.response.use(
                            error.response?.data?.message?.includes('Token expired') ||
                            error.response?.data?.error?.message?.includes('expired'))
     
-    // Only log if not explicitly skipped and not an expected client error and not token expiration
-    if (!skipErrorLog && !isExpectedClientError && !isTokenExpired) {
+    // Only log if not explicitly skipped and not an expected client error and not token expiration and not 503
+    if (!skipErrorLog && !isExpectedClientError && !isTokenExpired && !isServiceUnavailable) {
       logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
-    } else if (skipErrorLog || isExpectedClientError || isTokenExpired) {
-      // Log as debug for expected errors (including token expiration)
+    } else if (skipErrorLog || isExpectedClientError || isTokenExpired || isServiceUnavailable) {
+      // Log as debug for expected errors (including token expiration and 503)
       logger.debug('API Error (expected):', parsedError.code, parsedError.message, error.config?.url)
     }
     
