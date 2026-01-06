@@ -16,13 +16,17 @@ const ThemeContext = createContext<ThemeContextProps | undefined>(undefined);
 const THEME_KEY = 'themeMode';
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [mode, setMode] = useState<'dark' | 'light' | 'auto'>('auto');
+  const [mode, setMode] = useState<'dark' | 'light' | 'auto'>('light');
 
   useEffect(() => {
     (async () => {
       const storedMode = await AsyncStorage.getItem(THEME_KEY);
       if (storedMode === 'dark' || storedMode === 'light' || storedMode === 'auto') {
         setMode(storedMode);
+      } else {
+        // No stored theme - default to light for new users
+        setMode('light');
+        await AsyncStorage.setItem(THEME_KEY, 'light');
       }
     })();
   }, []);
