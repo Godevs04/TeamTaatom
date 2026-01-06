@@ -289,9 +289,14 @@ export default function ShortsScreen() {
       }
       
       return () => {
-        // Screen blurred (tab switch OR back press) - pause current video
+        // Screen blurred (tab switch OR back press) - pause current video and stop all audio
         // This ensures video pauses immediately when user leaves Shorts screen
         pauseCurrentVideo();
+        // Also stop any background audio from posts
+        logger.debug('[Shorts] Stopping all audio - leaving shorts page');
+        audioManager.stopAll().catch((error) => {
+          logger.error('[Shorts] Error stopping audio:', error);
+        });
       };
     }, [currentVisibleIndex, shorts, pauseCurrentVideo])
   );

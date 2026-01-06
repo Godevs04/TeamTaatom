@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -27,6 +27,7 @@ import * as Sentry from '@sentry/react-native';
 import { Audio } from 'expo-av';
 import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
+import { audioManager } from '../utils/audioManager';
 
 // Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
@@ -92,9 +93,65 @@ function RootLayoutInner() {
   const router = useRouter();
   const pathname = usePathname();
   const segments = useSegments();
+  const previousPathnameRef = useRef<string | null>(null);
   
   // Apply web optimizations
   useWebOptimizations();
+
+  // Stop all audio when navigating away from tabs (home/shorts) to other routes
+  // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
+  const isStoppingAudioRef = useRef(false);
+  
+  useEffect(() => {
+    // Skip on initial mount
+    if (previousPathnameRef.current === null) {
+      previousPathnameRef.current = pathname;
+      return;
+    }
+
+    const previousPath = previousPathnameRef.current;
+    
+    // Prevent infinite loops - only process if pathname actually changed
+    if (previousPath === pathname) {
+      return;
+    }
+
+    // Prevent rapid-fire calls
+    if (isStoppingAudioRef.current) {
+      return;
+    }
+
+    previousPathnameRef.current = pathname;
+
+    // Only handle navigation OUT of tabs (not tab-to-tab navigation)
+    // Be more specific to avoid false matches
+    const isCurrentTab = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname === '/(tabs)/post' || pathname === '/(tabs)/locale' || pathname === '/(tabs)/profile' ||
+                        pathname?.startsWith('/(tabs)/') || pathname?.endsWith('/home') || pathname?.endsWith('/shorts') || pathname?.endsWith('/post') || pathname?.endsWith('/locale') || pathname?.endsWith('/profile');
+    const wasTab = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath === '/(tabs)/post' || previousPath === '/(tabs)/locale' || previousPath === '/(tabs)/profile' ||
+                   previousPath?.startsWith('/(tabs)/') || previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts') || previousPath?.endsWith('/post') || previousPath?.endsWith('/locale') || previousPath?.endsWith('/profile');
+    
+    // Only handle navigation from tabs to non-tabs (not tab-to-tab)
+    if (wasTab && !isCurrentTab) {
+      const wasHomeOrShorts = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || 
+                             previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts');
+      
+      // If leaving home or shorts tab to go outside tabs, stop all audio
+      if (wasHomeOrShorts) {
+        isStoppingAudioRef.current = true;
+        logger.debug('[RootLayout] Stopping all audio - navigating away from home/shorts to:', pathname);
+        audioManager.stopAll()
+          .catch((error) => {
+            logger.error('[RootLayout] Error stopping audio:', error);
+          })
+          .finally(() => {
+            // Reset flag after a short delay to allow for navigation
+            setTimeout(() => {
+              isStoppingAudioRef.current = false;
+            }, 100);
+          });
+      }
+    }
+  }, [pathname]);
 
   // Load Poppins font for web (elegant font for auth pages)
   useEffect(() => {

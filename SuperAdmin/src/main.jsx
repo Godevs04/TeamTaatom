@@ -32,10 +32,24 @@ if (SENTRY_DSN) {
       // Usually due to network issues, cache problems, or deployment updates
       if (event.exception && event.exception.values) {
         const firstException = event.exception.values[0];
-        if (firstException?.value?.includes('Failed to fetch dynamically imported module') ||
-            firstException?.value?.includes('Loading chunk') ||
-            firstException?.value?.includes('Loading CSS chunk')) {
+        const errorValue = firstException?.value || '';
+        const errorType = firstException?.type || '';
+        
+        // Check for chunk loading errors with more comprehensive matching
+        const isChunkError = 
+          errorValue.includes('Failed to fetch dynamically imported module') ||
+          errorValue.includes('Loading chunk') ||
+          errorValue.includes('Loading CSS chunk') ||
+          errorValue.includes('dynamically imported module') ||
+          errorType === 'ChunkLoadError' ||
+          errorValue.includes('ERR_MODULE_NOT_FOUND') ||
+          (event.request?.url && event.request.url.includes('/assets/') && 
+           errorValue.includes('Failed to fetch'));
+        
+        if (isChunkError) {
           // These are usually transient network/cache issues - don't report them
+          // The lazyWithRetry utility will handle retries automatically
+          console.debug('[Sentry] Filtered chunk loading error:', errorValue);
           return null;
         }
       }

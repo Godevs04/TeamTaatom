@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react'
+import React, { Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { RealTimeProvider } from './context/RealTimeContext'
@@ -6,26 +6,27 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import { Toaster } from 'react-hot-toast'
+import { lazyWithRetry } from './utils/lazyWithRetry'
 
-// Lazy load pages for code splitting
-const Login = lazy(() => import('./pages/Login'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Analytics = lazy(() => import('./pages/Analytics'))
-const QueryMonitor = lazy(() => import('./pages/QueryMonitor'))
-const Users = lazy(() => import('./pages/Users'))
-const TravelContent = lazy(() => import('./pages/TravelContent'))
-const Reports = lazy(() => import('./pages/Reports'))
-const Moderators = lazy(() => import('./pages/Moderators'))
-const Logs = lazy(() => import('./pages/Logs'))
-const Settings = lazy(() => import('./pages/Settings'))
-const FeatureFlags = lazy(() => import('./pages/FeatureFlags'))
-const Profile = lazy(() => import('./pages/Profile'))
-const TestPage = lazy(() => import('./pages/TestPage'))
-const Songs = lazy(() => import('./pages/Songs'))
-const Locales = lazy(() => import('./pages/Locales'))
-const TripScoreAnalytics = lazy(() => import('./pages/TripScoreAnalytics'))
-const System = lazy(() => import('./pages/System'))
-const SupportInbox = lazy(() => import('./pages/SupportInbox'))
+// Lazy load pages for code splitting with retry logic
+const Login = lazyWithRetry(() => import('./pages/Login'))
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'))
+const Analytics = lazyWithRetry(() => import('./pages/Analytics'))
+const QueryMonitor = lazyWithRetry(() => import('./pages/QueryMonitor'))
+const Users = lazyWithRetry(() => import('./pages/Users'))
+const TravelContent = lazyWithRetry(() => import('./pages/TravelContent'))
+const Reports = lazyWithRetry(() => import('./pages/Reports'))
+const Moderators = lazyWithRetry(() => import('./pages/Moderators'))
+const Logs = lazyWithRetry(() => import('./pages/Logs'))
+const Settings = lazyWithRetry(() => import('./pages/Settings'))
+const FeatureFlags = lazyWithRetry(() => import('./pages/FeatureFlags'))
+const Profile = lazyWithRetry(() => import('./pages/Profile'))
+const TestPage = lazyWithRetry(() => import('./pages/TestPage'))
+const Songs = lazyWithRetry(() => import('./pages/Songs'))
+const Locales = lazyWithRetry(() => import('./pages/Locales'))
+const TripScoreAnalytics = lazyWithRetry(() => import('./pages/TripScoreAnalytics'))
+const System = lazyWithRetry(() => import('./pages/System'))
+const SupportInbox = lazyWithRetry(() => import('./pages/SupportInbox'))
 
 // Loading component
 const LoadingSpinner = () => (
