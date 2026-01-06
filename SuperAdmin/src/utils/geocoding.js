@@ -16,8 +16,11 @@ export const searchPlace = async (placeName) => {
   }
 
   try {
+    // Mark this request to skip error logging in interceptor (expected failures)
     const response = await api.post('/api/v1/maps/search-place', {
       placeName: placeName.trim()
+    }, {
+      skipErrorLog: true // Custom flag to skip error logging
     });
     
     if (response.data && response.data.success && response.data.data) {
@@ -27,7 +30,15 @@ export const searchPlace = async (placeName) => {
     return null;
 
   } catch (error) {
-    console.error('Place search error:', error);
+    // Only log unexpected errors (network errors, 500s, etc.)
+    // Don't log 404s or 400s as they're expected for invalid place names
+    const status = error.response?.status;
+    const isExpectedError = status === 404 || status === 400 || status === 422;
+    
+    if (!isExpectedError) {
+      console.error('Place search error:', error);
+    }
+    
     return null;
   }
 };
@@ -43,8 +54,11 @@ export const geocodeAddress = async (address) => {
   }
 
   try {
+    // Mark this request to skip error logging in interceptor (expected failures)
     const response = await api.post('/api/v1/maps/geocode', {
       address: address.trim()
+    }, {
+      skipErrorLog: true // Custom flag to skip error logging
     });
     
     if (response.data && response.data.success && response.data.data) {
@@ -54,7 +68,15 @@ export const geocodeAddress = async (address) => {
     return null;
 
   } catch (error) {
-    console.error('Geocoding error:', error);
+    // Only log unexpected errors (network errors, 500s, etc.)
+    // Don't log 404s or 400s as they're expected for invalid addresses
+    const status = error.response?.status;
+    const isExpectedError = status === 404 || status === 400 || status === 422;
+    
+    if (!isExpectedError) {
+      console.error('Geocoding error:', error);
+    }
+    
     return null;
   }
 };

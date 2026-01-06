@@ -755,12 +755,24 @@ const Locales = () => {
       if (placeResult) {
         setDetectedPlace(placeResult)
       } else {
-        toast.error('Place not found. Please try a different name.')
+        // Place not found - this is expected, don't show error toast
+        // The searchPlace function already handles errors gracefully
         setDetectedPlace(null)
+        toast.error('Place not found. Please try a different name.')
       }
     } catch (error) {
-      console.error('Error searching place:', error)
-      toast.error('Error searching for place. Please try again.')
+      // Only log unexpected errors (network errors, 500s, etc.)
+      // Expected errors (404, 400) are already handled by searchPlace
+      const status = error.response?.status
+      const isUnexpectedError = !status || (status >= 500)
+      
+      if (isUnexpectedError) {
+        logger.error('Unexpected error searching place:', error)
+        toast.error('Error searching for place. Please try again.')
+      } else {
+        // Expected error - just show user-friendly message
+        toast.error('Place not found. Please try a different name.')
+      }
       setDetectedPlace(null)
     } finally {
       setIsSearchingPlace(false)

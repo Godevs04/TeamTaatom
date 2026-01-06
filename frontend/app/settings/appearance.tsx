@@ -91,10 +91,6 @@ export default function AppearanceSettingsScreen() {
           updateSetting('theme', 'dark');
           showSuccess('Theme changed to Dark');
         }},
-        { text: 'Auto', icon: 'contrast-outline', onPress: () => {
-          updateSetting('theme', 'auto');
-          showSuccess('Theme set to Auto');
-        }},
       ],
       'Choose your preferred theme mode',
       true,
@@ -164,12 +160,12 @@ export default function AppearanceSettingsScreen() {
               </View>
             </View>
             <TouchableOpacity
-              onPress={() => setMode(mode === 'dark' ? 'light' : mode === 'light' ? 'auto' : 'dark')}
+              onPress={() => setMode(mode === 'dark' ? 'light' : 'dark')}
               style={[styles.toggleButton, { borderWidth:1, borderColor: theme.colors.primary }]}
               accessibilityLabel="Quick theme toggle"
             >
               <Ionicons 
-                name={mode === 'dark' ? 'moon' : mode === 'light' ? 'sunny' : 'sync'} 
+                name={mode === 'dark' ? 'moon' : 'sunny'} 
                 size={16} 
                 color={theme.colors.primary} 
               />
@@ -202,7 +198,7 @@ export default function AppearanceSettingsScreen() {
             <View style={styles.settingRight}>
               <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
                 {settings?.account?.theme === 'light' ? 'Light' : 
-                 settings?.account?.theme === 'dark' ? 'Dark' : 'Auto'}
+                 settings?.account?.theme === 'dark' ? 'Dark' : 'Light'}
               </Text>
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             </View>

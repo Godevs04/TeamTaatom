@@ -35,6 +35,7 @@ import { isWeb, throttle } from '../../utils/webOptimizations';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { audioManager } from '../../utils/audioManager';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -609,6 +610,11 @@ export default function HomeScreen() {
         setVisibleIndex(null);
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
+        // Stop all audio when leaving home page
+        logger.debug('[Home] Stopping all audio - leaving home page');
+        audioManager.stopAll().catch((error) => {
+          logger.error('[Home] Error stopping audio:', error);
+        });
       };
     }, [])
   );

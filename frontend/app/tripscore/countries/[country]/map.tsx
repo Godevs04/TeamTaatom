@@ -16,7 +16,7 @@ import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
-import { MapView, Marker, PROVIDER_GOOGLE } from '../../../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
@@ -368,7 +368,7 @@ export default function CountryMapScreen() {
           // Native MapView for iOS/Android
           <MapView
             ref={(ref: any) => { mapRef.current = ref; }}
-            provider={PROVIDER_GOOGLE}
+            provider={getMapProvider()}
             style={styles.map}
             customMapStyle={forestStyle}
             initialRegion={{
