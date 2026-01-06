@@ -850,64 +850,119 @@ export default function LocaleScreen() {
           }
           setCalculatingDistances(true);
           
-          // Fetch real coordinates for all locales (with fallback to existing coordinates)
+          // Use coordinates from database first, then calculate real driving distances
+          // Only fetch from Google Places API if database coordinates are missing/invalid
           // Use caching to avoid repeated API calls
-          // Fetch real coordinates and calculate distances in parallel using Promise.allSettled
+          // Fetch coordinates and calculate distances in parallel using Promise.allSettled
           // This prevents one failure from blocking all others and allows parallel execution
           const localeResults = await Promise.allSettled(
             newLocales.map(async (locale) => {
-              // Try to fetch real coordinates from Google Places API (with caching)
-              // This finds exact tourist spot coordinates, not city center
-              const realCoords = await fetchRealCoords(
-                locale.name, 
-                locale.countryCode,
-                googleGeocodeCacheRef.current,
-                locale.description // Pass description to help find exact tourist spot
-              );
-              
               let updatedLocale: Locale;
-              if (realCoords) {
-                // Use real coordinates from Google Places API
+              
+              // Priority 1: Use coordinates from database (admin locale)
+              if (locale.latitude && locale.longitude && 
+                  locale.latitude !== 0 && locale.longitude !== 0 &&
+                  !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                  locale.latitude >= -90 && locale.latitude <= 90 &&
+                  locale.longitude >= -180 && locale.longitude <= 180) {
+                // Database has valid coordinates - use them directly
                 if (__DEV__) {
-                  console.log(`✅ Updated coordinates for ${locale.name}:`, {
-                    old: { lat: locale.latitude, lon: locale.longitude },
-                    new: realCoords
+                  console.log(`✅ Using database coordinates for ${locale.name}:`, {
+                    lat: locale.latitude,
+                    lon: locale.longitude
                   });
                 }
-                updatedLocale = {
-                  ...locale,
-                  latitude: realCoords.lat,
-                  longitude: realCoords.lon,
-                };
+                updatedLocale = locale;
               } else {
-                // Fallback: Use existing coordinates or geocode if missing
+                // Priority 2: Database coordinates missing/invalid - try to fetch from Google Places API
                 if (__DEV__) {
-                  console.log(`⚠️ Could not fetch real coordinates for ${locale.name}, using existing or geocoding`);
+                  console.log(`⚠️ Database coordinates missing/invalid for ${locale.name}, fetching from Google Places API`);
                 }
-                if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
-                  updatedLocale = await geocodeLocale(locale);
+                const realCoords = await fetchRealCoords(
+                  locale.name, 
+                  locale.countryCode,
+                  googleGeocodeCacheRef.current,
+                  locale.description // Pass description to help find exact tourist spot
+                );
+                
+                if (realCoords) {
+                  // Use coordinates from Google Places API
+                  if (__DEV__) {
+                    console.log(`✅ Fetched coordinates from Google Places API for ${locale.name}:`, realCoords);
+                  }
+                  updatedLocale = {
+                    ...locale,
+                    latitude: realCoords.lat,
+                    longitude: realCoords.lon,
+                  };
                 } else {
-                  updatedLocale = locale;
+                  // Priority 3: Fallback to geocoding if Google Places API fails
+                  if (__DEV__) {
+                    console.log(`⚠️ Could not fetch coordinates from Google Places API for ${locale.name}, using geocoding fallback`);
+                  }
+                  updatedLocale = await geocodeLocale(locale);
                 }
               }
 
-              // Calculate driving distance using rounded coordinates for stable cache
-              const userLat = roundCoord(userLocation.latitude);
-              const userLon = roundCoord(userLocation.longitude);
+              // Calculate REAL driving distance using locale coordinates from database
+              // Compare: User's current location (userLocation) vs Locale location (from database)
+              // This calculates actual road distance using OSRM or Google Maps API
+              
+              // Get user's current location coordinates
+              const userLat = userLocation.latitude;
+              const userLon = userLocation.longitude;
+              
+              // Get locale coordinates (from database, or fetched if missing)
+              const localeLat = updatedLocale.latitude;
+              const localeLon = updatedLocale.longitude;
+              
+              // Validate coordinates before calculating distance
+              if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
+                  isNaN(localeLat) || isNaN(localeLon) ||
+                  localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+                if (__DEV__) {
+                  console.log(`❌ Invalid locale coordinates for ${updatedLocale.name}:`, {
+                    lat: localeLat,
+                    lon: localeLon
+                  });
+                }
+                return {
+                  ...updatedLocale,
+                  distanceKm: null,
+                };
+              }
+              
+              if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+                  userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+                if (__DEV__) {
+                  console.log(`❌ Invalid user coordinates:`, {
+                    lat: userLat,
+                    lon: userLon
+                  });
+                }
+                return {
+                  ...updatedLocale,
+                  distanceKm: null,
+                };
+              }
+              
+              // Calculate REAL driving distance: User Location → Locale Location
+              // Uses OSRM or Google Maps API to get actual road distance
               const distanceKm = await getLocaleDistanceKm(
                 updatedLocale._id.toString(),
-                userLat,
-                userLon,
-                updatedLocale.latitude,
-                updatedLocale.longitude
+                userLat,      // User's current latitude
+                userLon,      // User's current longitude
+                localeLat,    // Locale latitude from database
+                localeLon     // Locale longitude from database
               );
 
-              // Debug logging
+              // Debug logging to verify coordinates being used
               if (__DEV__) {
                 console.log(`📍 Driving distance calculated for ${updatedLocale.name}:`, {
                   userLocation: { lat: userLat, lon: userLon },
-                  localeCoords: { lat: updatedLocale.latitude, lon: updatedLocale.longitude },
+                  localeCoords: { lat: localeLat, lon: localeLon },
                   distanceKm: distanceKm !== null ? `${distanceKm.toFixed(2)} km` : 'null',
+                  source: 'Database coordinates → Real driving distance via OSRM/Google Maps'
                 });
               }
 
