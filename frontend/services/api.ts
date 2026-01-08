@@ -105,23 +105,47 @@ api.interceptors.request.use(
     return config;
   },
   async (error) => {
-    // Report errors to crash reporting
-    if (error.response) {
-      // Server responded with error
-      const { captureException } = await import('./crashReporting');
-      captureException(new Error(`API Error: ${error.response.status} - ${error.config?.url}`), {
-        status: error.response.status,
-        url: error.config?.url,
-        method: error.config?.method,
-        data: error.response.data,
-      });
-    } else if (error.request) {
-      // Request made but no response
-      const { captureException } = await import('./crashReporting');
-      captureException(new Error(`Network Error: ${error.config?.url}`), {
-        url: error.config?.url,
-        method: error.config?.method,
-      });
+    // Report errors using centralized error reporter
+    try {
+      const { reportApiError } = require('../utils/errorReporter');
+      if (reportApiError) {
+        if (error.response) {
+          // Server responded with error
+          const parsedError = parseError(error);
+          reportApiError(error, {
+            url: error.config?.url,
+            method: error.config?.method,
+            statusCode: error.response.status,
+            requestData: error.config?.data,
+            responseData: error.response.data,
+            errorCode: parsedError.code,
+          });
+        } else if (error.request) {
+          // Request made but no response (network error)
+          reportApiError(error, {
+            url: error.config?.url,
+            method: error.config?.method,
+            errorCode: 'NETWORK_ERROR',
+          });
+        }
+      }
+    } catch (reporterError) {
+      // Fallback to crash reporting if errorReporter not available
+      if (error.response) {
+        const { captureException } = await import('./crashReporting');
+        captureException(new Error(`API Error: ${error.response.status} - ${error.config?.url}`), {
+          status: error.response.status,
+          url: error.config?.url,
+          method: error.config?.method,
+          data: error.response.data,
+        });
+      } else if (error.request) {
+        const { captureException } = await import('./crashReporting');
+        captureException(new Error(`Network Error: ${error.config?.url}`), {
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+      }
     }
     return Promise.reject(error);
   }
@@ -243,16 +267,31 @@ api.interceptors.response.use(
       const parsedError = parseError(error);
       // Only log as error if it's not an expected auth error
       if (!isAuth401) {
-        // Create proper Error instance with meaningful message for Sentry tracking
-        const errorMessage = `${parsedError.code}: ${parsedError.message}`;
-        const errorToLog = new Error(errorMessage);
-        logger.error('API Error:', errorToLog, {
-          code: parsedError.code,
-          message: parsedError.message,
-          userMessage: parsedError.userMessage,
-          url: error.config?.url,
-          status: error.response?.status,
-        });
+        // Use centralized error reporter for better Sentry reporting
+        try {
+          const { reportApiError } = require('../utils/errorReporter');
+          if (reportApiError) {
+            reportApiError(error, {
+              url: error.config?.url,
+              method: error.config?.method,
+              statusCode: error.response?.status,
+              requestData: error.config?.data,
+              responseData: error.response?.data,
+              errorCode: parsedError.code,
+            });
+          }
+        } catch (reporterError) {
+          // Fallback to logger if errorReporter not available
+          const errorMessage = `${parsedError.code}: ${parsedError.message}`;
+          const errorToLog = new Error(errorMessage);
+          logger.error('API Error:', errorToLog, {
+            code: parsedError.code,
+            message: parsedError.message,
+            userMessage: parsedError.userMessage,
+            url: error.config?.url,
+            status: error.response?.status,
+          });
+        }
       } else {
         // Log auth errors as debug to reduce noise
         logger.debug('API Auth Error:', { code: parsedError.code, url: error.config?.url });

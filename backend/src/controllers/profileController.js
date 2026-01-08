@@ -1054,14 +1054,20 @@ const approveFollowRequest = async (req, res) => {
       logger.debug(`  [${index}] User ID: ${req.user}, Status: ${req.status}, RequestedAt: ${req.requestedAt}`);
     });
 
+    // Check if requester is already a follower (idempotency - allow re-approval)
+    const isAlreadyFollower = user.followers.some(followerId => 
+      followerId.toString() === requestId.toString()
+    );
+
     // Find the follow request by requester ID (since requestId is actually the requester's user ID)
     const request = user.followRequests.find(req => 
-      req.user.toString() === requestId && req.status === 'pending'
+      req.user.toString() === requestId
     );
     
     logger.debug('Searching for request with:');
     logger.debug('  - requestId:', requestId);
     logger.debug('  - requestId type:', typeof requestId);
+    logger.debug('  - isAlreadyFollower:', isAlreadyFollower);
     logger.debug('Found request:', request ? 'Yes' : 'No');
     
     if (request) {
@@ -1072,7 +1078,7 @@ const approveFollowRequest = async (req, res) => {
         requestedAt: request.requestedAt
       });
     } else {
-      logger.debug('❌ No pending request found for user:', requestId);
+      logger.debug('❌ No request found for user:', requestId);
       logger.debug('Available request user IDs:', user.followRequests.map(req => ({
         id: req.user.toString(),
         type: typeof req.user,
@@ -1080,7 +1086,18 @@ const approveFollowRequest = async (req, res) => {
       })));
     }
 
-    if (!request) {
+    // If already approved or already a follower, return success (idempotent operation)
+    if (isAlreadyFollower || (request && request.status === 'approved')) {
+      logger.debug('✅ Request already processed - returning success (idempotent)');
+      return sendSuccess(res, 200, 'Follow request already approved', {
+        followersCount: user.followers.length,
+        alreadyProcessed: true
+      });
+    }
+
+    // If request not found and not already a follower, return error
+    if (!request || request.status !== 'pending') {
+      logger.debug('❌ No pending request found for user:', requestId);
       return sendError(res, 'RES_3001', 'Follow request not found or already processed');
     }
 
@@ -1100,9 +1117,13 @@ const approveFollowRequest = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'You cannot approve your own follow request');
     }
 
-    // Add to followers/following
-    user.followers.push(requesterId);
-    requester.following.push(currentUserId);
+    // Add to followers/following (prevent duplicates)
+    if (!user.followers.some(followerId => followerId.toString() === requesterId.toString())) {
+      user.followers.push(requesterId);
+    }
+    if (!requester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
+      requester.following.push(currentUserId);
+    }
 
     // Update request status
     request.status = 'approved';
@@ -1131,19 +1152,26 @@ const approveFollowRequest = async (req, res) => {
           const freshUser = await User.findById(currentUserId);
           const freshRequester = await User.findById(requesterId);
           
-          // Re-apply the changes
-          freshUser.followers.push(requesterId);
-          freshRequester.following.push(currentUserId);
+          // Re-apply the changes (check for duplicates first)
+          if (!freshUser.followers.some(followerId => followerId.toString() === requesterId.toString())) {
+            freshUser.followers.push(requesterId);
+          }
+          if (!freshRequester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
+            freshRequester.following.push(currentUserId);
+          }
           
-          const freshRequest = freshUser.followRequests.id(requestId);
-          if (freshRequest) {
+          // Find the request by requester ID (not by _id)
+          const freshRequest = freshUser.followRequests.find(req => 
+            req.user.toString() === requestId.toString()
+          );
+          if (freshRequest && freshRequest.status === 'pending') {
             freshRequest.status = 'approved';
           }
           
           const freshSentRequest = freshRequester.sentFollowRequests.find(
             req => req.user.toString() === currentUserId.toString()
           );
-          if (freshSentRequest) {
+          if (freshSentRequest && freshSentRequest.status === 'pending') {
             freshSentRequest.status = 'approved';
           }
           

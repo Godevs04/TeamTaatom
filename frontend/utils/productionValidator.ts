@@ -84,10 +84,11 @@ export const validateProductionEnvironment = (): void => {
     warnings.push('   Error tracking will be disabled');
   }
 
-  // Log warnings
+  // Log warnings as info instead of warn to prevent Sentry from reporting them
+  // These are informational configuration suggestions, not critical errors
   if (warnings.length > 0) {
-    logger.warn('Production environment warnings:');
-    warnings.forEach(warning => logger.warn(warning));
+    logger.info('Production environment configuration notes:');
+    warnings.forEach(warning => logger.info(warning));
   }
 
   // Throw errors in production

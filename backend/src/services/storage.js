@@ -10,7 +10,7 @@
  * - Delete: Backend handles deletion directly
  */
 
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
@@ -149,7 +149,146 @@ const getDownloadUrl = async (key, expiresIn = 3600) => {
 };
 
 /**
+ * Upload a file using multipart upload for large files (>100MB)
+ * @param {Buffer} buffer - File buffer
+ * @param {string} key - Storage key
+ * @param {string} contentType - MIME type
+ * @returns {Promise<Object>} Upload result with key and URL
+ */
+const uploadObjectMultipart = async (buffer, key, contentType) => {
+  const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB - use multipart for files larger than this
+  const PART_SIZE = 10 * 1024 * 1024; // 10MB per part (minimum 5MB, but 10MB is more efficient)
+  
+  let uploadId = null; // Track uploadId for cleanup on error
+  
+  try {
+    if (!BUCKET_NAME) {
+      throw new Error('SEVALLA_STORAGE_BUCKET is not configured');
+    }
+
+    // For files smaller than threshold, use simple upload
+    if (buffer.length < MULTIPART_THRESHOLD) {
+      const command = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        CacheControl: 'max-age=31536000',
+      });
+
+      await s3Client.send(command);
+      logger.debug('Uploaded object (simple):', { key, contentType, size: buffer.length });
+      
+      const url = await getDownloadUrl(key, 604800);
+      return { key, url };
+    }
+
+    // For large files, use multipart upload
+    const fileSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+    logger.info('Starting multipart upload for large file:', { 
+      key, 
+      size: `${fileSizeMB}MB`, 
+      contentType,
+      totalParts: Math.ceil(buffer.length / PART_SIZE)
+    });
+    
+    // Step 1: Initialize multipart upload
+    const createCommand = new CreateMultipartUploadCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      ContentType: contentType,
+      CacheControl: 'max-age=31536000',
+    });
+    
+    const createResult = await s3Client.send(createCommand);
+    uploadId = createResult.UploadId;
+    logger.debug('Multipart upload initialized:', { key, uploadId });
+
+    // Step 2: Upload parts
+    const parts = [];
+    const totalParts = Math.ceil(buffer.length / PART_SIZE);
+    
+    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+      const start = (partNumber - 1) * PART_SIZE;
+      const end = Math.min(start + PART_SIZE, buffer.length);
+      const partBuffer = buffer.slice(start, end);
+
+      const uploadPartCommand = new UploadPartCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        PartNumber: partNumber,
+        UploadId: uploadId,
+        Body: partBuffer,
+      });
+
+      const { ETag } = await s3Client.send(uploadPartCommand);
+      parts.push({ PartNumber: partNumber, ETag });
+      
+      // Log progress every 10% or at key milestones
+      if (partNumber % Math.max(1, Math.floor(totalParts / 10)) === 0 || 
+          partNumber === 1 || 
+          partNumber === totalParts) {
+        logger.debug(`Uploaded part ${partNumber}/${totalParts}:`, { 
+          key, 
+          partNumber, 
+          partSize: `${(partBuffer.length / (1024 * 1024)).toFixed(2)}MB`,
+          progress: `${Math.round((partNumber / totalParts) * 100)}%`
+        });
+      }
+    }
+
+    // Step 3: Complete multipart upload
+    const completeCommand = new CompleteMultipartUploadCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts },
+    });
+
+    await s3Client.send(completeCommand);
+    logger.info('Multipart upload completed:', { 
+      key, 
+      totalParts, 
+      size: `${fileSizeMB}MB`,
+      uploadId 
+    });
+    
+    const url = await getDownloadUrl(key, 604800);
+    return { key, url };
+  } catch (error) {
+    logger.error('Error in multipart upload:', {
+      error: error.message || error,
+      key,
+      uploadId,
+      stack: error.stack
+    });
+    
+    // If multipart upload was initialized but failed, try to abort it
+    if (uploadId) {
+      try {
+        const abortCommand = new AbortMultipartUploadCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+          UploadId: uploadId,
+        });
+        await s3Client.send(abortCommand);
+        logger.debug('Aborted multipart upload:', { key, uploadId });
+      } catch (abortError) {
+        logger.error('Failed to abort multipart upload:', {
+          error: abortError.message || abortError,
+          key,
+          uploadId
+        });
+      }
+    }
+    
+    throw error;
+  }
+};
+
+/**
  * Upload a file directly to storage (for server-side uploads)
+ * Automatically uses multipart upload for large files (>100MB)
  * @param {Buffer} buffer - File buffer
  * @param {string} key - Storage key
  * @param {string} contentType - MIME type
@@ -157,29 +296,8 @@ const getDownloadUrl = async (key, expiresIn = 3600) => {
  */
 const uploadObject = async (buffer, key, contentType) => {
   try {
-    if (!BUCKET_NAME) {
-      throw new Error('SEVALLA_STORAGE_BUCKET is not configured');
-    }
-
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType,
-      CacheControl: 'max-age=31536000', // 1 year HTTP cache (separate from URL expiration)
-    });
-
-    await s3Client.send(command);
-    
-    // Generate a download URL for the uploaded file
-    // Use maximum allowed expiration (7 days) for presigned URLs
-    const url = await getDownloadUrl(key, 604800); // 7 days expiration (max allowed per S3-compatible spec)
-    
-    logger.debug('Uploaded object:', { key, contentType });
-    return {
-      key,
-      url,
-    };
+    // Use multipart upload for large files
+    return await uploadObjectMultipart(buffer, key, contentType);
   } catch (error) {
     logger.error('Error uploading object:', error);
     throw error;
