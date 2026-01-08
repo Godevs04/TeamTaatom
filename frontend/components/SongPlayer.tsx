@@ -23,6 +23,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const soundRef = useRef<Audio.Sound | null>(null);
   const isInitializedRef = useRef(false);
+  const isMountedRef = useRef(true); // Track if component is mounted
 
   // Get song data from post
   const song = post.song?.songId;
@@ -46,15 +47,27 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
   // Audio mode is now set globally in _layout.tsx
 
+  // Track mount status
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isMountedRef.current = false; // Mark as unmounted
       if (soundRef.current) {
+        // Silently cleanup - cancellations are expected on unmount
         soundRef.current.stopAsync().catch(() => {});
         soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
         setSound(null);
-        setIsPlaying(false);
+        if (isMountedRef.current) {
+          setIsPlaying(false);
+        }
       }
       // Audio manager handles cleanup automatically via stopAll()
       isInitializedRef.current = false;
@@ -85,14 +98,29 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     }
 
     try {
+      // Check if component is still mounted before starting
+      if (!isMountedRef.current) {
+        return;
+      }
+
       setIsLoading(true);
       
-      // Cleanup old sound
+      // Cleanup old sound (cancellations are expected)
       if (soundRef.current) {
         try {
           await soundRef.current.unloadAsync();
-        } catch (e) {
-          // Ignore errors during cleanup
+        } catch (e: any) {
+          // Ignore cancellation errors (-1102) during cleanup - they're expected
+          const errorCode = e?.code;
+          const errorDomain = e?.domain;
+          const errorMessage = e?.message || '';
+          
+          if (!(errorCode === -1102 || (errorDomain === 'NSURLErrorDomain' && errorCode === -1102) ||
+                errorMessage.includes('-1102') || errorMessage.includes('NSURLErrorCancelled') ||
+                errorMessage.includes('operation was cancelled') || errorMessage.includes('operation cancelled'))) {
+            // Only log non-cancellation errors
+            logger.debug('Error during sound cleanup (non-cancellation):', e);
+          }
         }
         soundRef.current = null;
       }
@@ -137,6 +165,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       
       // Set up playback status listener
       newSound.setOnPlaybackStatusUpdate((status: any) => {
+        // Don't update state if component is unmounted
+        if (!isMountedRef.current) return;
+
         if (status.isLoaded) {
           setIsPlaying(status.isPlaying);
           setIsLoading(false);
@@ -153,8 +184,23 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
             }
           }
         } else if (status.error) {
-          logger.error('Playback error:', status.error);
-          setIsLoading(false);
+          // Check if error is -1102 (operation cancelled) - this is expected and shouldn't be logged
+          const errorCode = status.error?.code;
+          const errorDomain = status.error?.domain;
+          const errorMessage = status.error?.message || '';
+          
+          // -1102 NSURLErrorCancelled is expected when operation is cancelled (navigation, unmount, etc.)
+          if (errorCode === -1102 || (errorDomain === 'NSURLErrorDomain' && errorCode === -1102) ||
+              errorMessage.includes('-1102') || errorMessage.includes('NSURLErrorCancelled') ||
+              errorMessage.includes('operation was cancelled') || errorMessage.includes('operation cancelled')) {
+            // Silently ignore cancelled operations - they're expected behavior
+            logger.debug('Audio playback cancelled (expected) - operation was cancelled');
+            setIsLoading(false);
+          } else {
+            // Log actual errors that aren't cancellations
+            logger.error('Playback error:', status.error);
+            setIsLoading(false);
+          }
         }
       });
 
@@ -165,12 +211,24 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       
       logger.debug('✅ Audio streaming started successfully');
     } catch (error: any) {
-      logger.error('❌ Error loading song:', error);
       setIsLoading(false);
       setIsPlaying(false);
       
-      // Handle signed URL expiry - retry once with fresh URL
+      // Check if error is -1102 (operation cancelled) - this is expected and shouldn't be logged
+      const errorCode = error?.code;
+      const errorDomain = error?.domain;
       const errorMessage = typeof error === 'string' ? error : error?.message || '';
+      
+      // -1102 NSURLErrorCancelled is expected when operation is cancelled (navigation, unmount, etc.)
+      if (errorCode === -1102 || (errorDomain === 'NSURLErrorDomain' && errorCode === -1102) || 
+          errorMessage.includes('-1102') || errorMessage.includes('NSURLErrorCancelled') ||
+          errorMessage.includes('operation was cancelled') || errorMessage.includes('operation cancelled')) {
+        // Silently ignore cancelled operations - they're expected behavior
+        logger.debug('Audio loading cancelled (expected) - operation was cancelled');
+        return; // Don't throw error or log to Sentry
+      }
+      
+      // Handle signed URL expiry - retry once with fresh URL
       const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('60');
       const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
       const isExpired = errorMessage.includes('expired') || errorMessage.includes('ExpiredRequest');
@@ -189,10 +247,11 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         }
       }
       
-      // Log error details for debugging
-      logger.error('🔍 Error Details:', {
+      // Log error details for debugging (only for actual errors, not cancellations)
+      logger.error('❌ Error loading song:', {
         message: errorMessage,
-        code: (error as any)?.code,
+        code: errorCode,
+        domain: errorDomain,
         url: audioUrlRaw
       });
       

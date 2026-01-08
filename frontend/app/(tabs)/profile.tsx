@@ -646,23 +646,45 @@ export default function ProfileScreen() {
           // Sign out and clear all auth data (includes socket disconnect and storage clearing)
           await signOut();
           
-          // Force navigation to signin - use replace to prevent back navigation
-          router.replace('/(auth)/signin');
-          
-          // Small delay to ensure navigation completes, then force reload on web
+          // Force navigation to signin immediately - use replace to prevent back navigation
+          // Use a small delay to ensure storage is cleared before navigation
           setTimeout(() => {
-            // Force a page reload on web to clear any cached state
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-              window.location.href = '/(auth)/signin';
+            try {
+              // Navigate to signin screen
+              router.replace('/(auth)/signin');
+              
+              // On web, also force a hard reload to clear all state
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                // Use a slightly longer delay to ensure navigation completes first
+                setTimeout(() => {
+                  window.location.href = '/';
+                }, 200);
+              }
+            } catch (navError) {
+              logger.error('Navigation error after signout:', navError);
+              // Fallback: try direct navigation
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                window.location.href = '/';
+              }
             }
-          }, 100);
+          }, 50);
         } catch (error: any) {
           logger.error('Sign out error:', error);
           // Even if signOut fails, try to navigate to signin
           try {
             router.replace('/(auth)/signin');
+            // On web, force reload
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 100);
+            }
           } catch (navError) {
             logger.error('Navigation error after signout:', navError);
+            // Last resort: force page reload
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.location.href = '/';
+            }
           }
           showError(error?.message || 'Failed to sign out. Please try again.');
         }

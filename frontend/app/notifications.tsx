@@ -73,10 +73,42 @@ export default function NotificationsScreen() {
 
       const response = await getNotifications(pageNum, 20);
       
+      // Filter out duplicate follow_request notifications (client-side safety check)
+      const seenFollowRequests = new Set<string>();
+      const filteredNotifications = response.notifications.filter(n => {
+        if (n.type === 'follow_request') {
+          // If we've seen a follow_request from this user before, skip it
+          const key = `${n.fromUser._id}-${n.type}`;
+          if (seenFollowRequests.has(key)) {
+            return false;
+          }
+          seenFollowRequests.add(key);
+        }
+        return true;
+      });
+      
       if (isRefresh || pageNum === 1) {
-        setNotifications(response.notifications);
+        // For first page/refresh, just use filtered notifications
+        setNotifications(filteredNotifications);
       } else {
-        setNotifications(prev => [...prev, ...response.notifications]);
+        // For pagination, filter new notifications and merge with existing (avoid duplicates)
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(n => n._id));
+          const newFiltered = filteredNotifications.filter(n => !existingIds.has(n._id));
+          // Also filter out duplicate follow_request notifications for same user
+          const followRequestKeys = new Set<string>();
+          const allNotifications = [...prev, ...newFiltered];
+          return allNotifications.filter(n => {
+            if (n.type === 'follow_request') {
+              const key = `${n.fromUser._id}-${n.type}`;
+              if (followRequestKeys.has(key)) {
+                return false; // Duplicate follow_request from same user
+              }
+              followRequestKeys.add(key);
+            }
+            return true;
+          });
+        });
       }
       
       setHasMore(response.pagination.hasNextPage);
@@ -160,7 +192,7 @@ export default function NotificationsScreen() {
   };
 
   const handleFollowRequestApprove = async () => {
-    if (!followRequestPopup.notification) return;
+    if (!followRequestPopup.notification || followRequestPopup.loading) return;
 
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
@@ -169,27 +201,17 @@ export default function NotificationsScreen() {
       const requesterId = followRequestPopup.notification.fromUser._id;
       logger.debug('Approving follow request for user:', requesterId);
 
-      // Debug: Check current follow requests data
-      try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const token = await AsyncStorage.getItem('authToken');
-        const debugResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/profile/follow-requests/debug`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        const debugData = await debugResponse.json();
-        logger.debug('🔍 Current follow requests data:', debugData);
-      } catch (debugError) {
-        logger.debug('Debug endpoint failed:', debugError);
-      }
-
-      await approveFollowRequest(requesterId);
+      const result = await approveFollowRequest(requesterId);
       
-      // Remove the notification from the list
+      // Remove the notification from the list (whether already processed or newly approved)
       setNotifications(prev => 
-        prev.filter(n => n._id !== followRequestPopup.notification!._id)
+        prev.filter(n => {
+          // Remove the follow_request notification
+          if (n._id === followRequestPopup.notification!._id) return false;
+          // Also filter out duplicate follow_request notifications for the same user
+          if (n.type === 'follow_request' && n.fromUser._id === requesterId) return false;
+          return true;
+        })
       );
 
       // Close popup
@@ -199,17 +221,41 @@ export default function NotificationsScreen() {
         loading: false,
       });
       
-      // Show success message
-      showSuccess('Follow request approved successfully!');
-    } catch (error) {
+      // Show success message (different message if already processed)
+      if (result.alreadyProcessed) {
+        showSuccess('Follow request was already approved!');
+      } else {
+        showSuccess('Follow request approved successfully!');
+      }
+    } catch (error: any) {
       logger.error('Failed to approve follow request:', error);
-      showError('Failed to approve follow request. Please try again.');
-      setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      // Check if it's an "already processed" error (even if it slipped through)
+      const errorMessage = error?.message || '';
+      if (errorMessage.toLowerCase().includes('already processed') || 
+          errorMessage.toLowerCase().includes('already approved')) {
+        // Remove notification and show success
+        setNotifications(prev => 
+          prev.filter(n => {
+            if (n._id === followRequestPopup.notification!._id) return false;
+            if (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id) return false;
+            return true;
+          })
+        );
+        setFollowRequestPopup({
+          visible: false,
+          notification: null,
+          loading: false,
+        });
+        showSuccess('Follow request was already approved!');
+      } else {
+        showError('Failed to approve follow request. Please try again.');
+        setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      }
     }
   };
 
   const handleFollowRequestReject = async () => {
-    if (!followRequestPopup.notification) return;
+    if (!followRequestPopup.notification || followRequestPopup.loading) return;
 
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
@@ -222,7 +268,13 @@ export default function NotificationsScreen() {
       
       // Remove the notification from the list
       setNotifications(prev => 
-        prev.filter(n => n._id !== followRequestPopup.notification!._id)
+        prev.filter(n => {
+          // Remove the follow_request notification
+          if (n._id === followRequestPopup.notification!._id) return false;
+          // Also filter out duplicate follow_request notifications for the same user
+          if (n.type === 'follow_request' && n.fromUser._id === requesterId) return false;
+          return true;
+        })
       );
 
       // Close popup
@@ -234,10 +286,30 @@ export default function NotificationsScreen() {
       
       // Show success message
       showSuccess('Follow request rejected successfully!');
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to reject follow request:', error);
-      showError('Failed to reject follow request. Please try again.');
-      setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      // Check if it's an "already processed" error
+      const errorMessage = error?.message || '';
+      if (errorMessage.toLowerCase().includes('already processed') || 
+          errorMessage.toLowerCase().includes('already rejected')) {
+        // Remove notification and show success
+        setNotifications(prev => 
+          prev.filter(n => {
+            if (n._id === followRequestPopup.notification!._id) return false;
+            if (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id) return false;
+            return true;
+          })
+        );
+        setFollowRequestPopup({
+          visible: false,
+          notification: null,
+          loading: false,
+        });
+        showSuccess('Follow request was already rejected!');
+      } else {
+        showError('Failed to reject follow request. Please try again.');
+        setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      }
     }
   };
 

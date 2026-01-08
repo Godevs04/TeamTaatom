@@ -28,6 +28,7 @@ import { Audio } from 'expo-av';
 import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
+import LottieSplashScreen from '../components/LottieSplashScreen';
 
 // Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
@@ -97,6 +98,15 @@ function RootLayoutInner() {
   
   // Apply web optimizations
   useWebOptimizations();
+
+  // Hide native splash screen immediately to show Lottie animation instead
+  useEffect(() => {
+    // Hide native splash as soon as React Native loads
+    // This allows the Lottie animation to show immediately
+    SplashScreen.hideAsync().catch((error) => {
+      logger.debug('Error hiding splash screen:', error);
+    });
+  }, []);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes
   // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
@@ -384,11 +394,77 @@ function RootLayoutInner() {
         }
       } finally {
         setIsInitializing(false);
-        SplashScreen.hideAsync();
+        // Native splash is already hidden, just ensure it's hidden
+        SplashScreen.hideAsync().catch(() => {
+          // Ignore errors - splash might already be hidden
+        });
       }
     };
     initialize();
   }, []);
+
+  // Periodic check for auth state changes (detects signout)
+  useEffect(() => {
+    if (isInitializing || isAuthenticated === null) {
+      return;
+    }
+
+    // Check auth state periodically to detect signout
+    const checkAuthState = async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('userData');
+        
+        // If we think we're authenticated but storage is cleared, user signed out
+        if (isAuthenticated && !token && !userData) {
+          logger.debug('[RootLayout] Auth state mismatch detected: storage cleared but state is authenticated, updating state');
+          setIsAuthenticated(false);
+          setSessionExpired(false);
+          setIsOffline(false);
+          // Navigation will be handled by the navigation useEffect
+        }
+        // If we think we're not authenticated but storage has data, re-check
+        else if (!isAuthenticated && (token || userData)) {
+          logger.debug('[RootLayout] Auth state mismatch detected: storage has data but state is not authenticated, re-checking');
+          // Re-initialize auth to get current state
+          try {
+            const user = await initializeAuth();
+            if (user && user !== 'network-error') {
+              setIsAuthenticated(true);
+            }
+          } catch (error) {
+            logger.debug('[RootLayout] Re-auth check failed:', error);
+          }
+        }
+      } catch (error) {
+        logger.debug('[RootLayout] Auth state check error:', error);
+      }
+    };
+
+    // Check every 2 seconds (not too frequent to avoid performance issues)
+    const interval = setInterval(checkAuthState, 2000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, isInitializing]);
+
+  // Listen for storage changes to detect signout (web only)
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // On web, listen for storage events (triggered when storage is cleared in another tab/window)
+      const handleStorageChange = async (e: StorageEvent) => {
+        if (e.key === 'authToken' && e.newValue === null && isAuthenticated) {
+          // Auth token was removed - user signed out
+          logger.debug('[RootLayout] Storage change detected: authToken removed, signing out');
+          setIsAuthenticated(false);
+          setSessionExpired(false);
+          setIsOffline(false);
+          router.replace('/(auth)/signin');
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      return () => window.removeEventListener('storage', handleStorageChange);
+    }
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     // Don't navigate during initialization to prevent flash to signin screen
@@ -462,7 +538,23 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/tripscore') ||
                               normalizedPath.startsWith('/onboarding');
       
-      if (isAuthenticated) {
+      // Double-check storage before trusting isAuthenticated state
+      // This ensures we detect signout even if state hasn't updated yet
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      const hasAuthData = !!(token || userData);
+      
+      // If state says authenticated but storage is cleared, user signed out
+      if (isAuthenticated && !hasAuthData) {
+        logger.debug('[Navigation] Storage cleared but state says authenticated - user signed out, updating state');
+        setIsAuthenticated(false);
+        setSessionExpired(false);
+        setIsOffline(false);
+        // Will navigate to signin in the else block below
+        return;
+      }
+      
+      if (isAuthenticated && hasAuthData) {
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
         if (isOnValidRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
@@ -498,16 +590,25 @@ function RootLayoutInner() {
         
         // Only navigate to auth if we're definitely not authenticated and not due to session expiry
         // Double-check we have no stored auth data before navigating to signin
-        const token = await AsyncStorage.getItem('authToken');
-        const userData = await AsyncStorage.getItem('userData');
-        
-        if (!token && !userData) {
+        // (token and userData already checked above, but check again for clarity)
+        if (!hasAuthData) {
           logger.debug('[Navigation] User not authenticated, navigating to auth');
+          // Use replace to prevent back navigation to authenticated routes
+          // Force navigation even if on a valid route (user signed out)
+          if (isOnValidRoute) {
+            logger.debug('[Navigation] User signed out from authenticated route, forcing navigation to signin');
+          }
           router.replace('/(auth)/signin');
         } else {
           // We have stored data but auth check failed - might be network issue
           // Don't navigate to signin, let the user stay on current screen
           logger.debug('[Navigation] Auth check failed but stored data exists, not navigating to signin');
+        }
+      } else if (sessionExpired) {
+        // Session expired - navigate to signin
+        if (!isOnAuthScreen) {
+          logger.debug('[Navigation] Session expired, navigating to signin');
+          router.replace('/(auth)/signin');
         }
       }
     };
@@ -642,11 +743,7 @@ function RootLayoutInner() {
   }, [isAuthenticated, isOffline, sessionExpired]);
 
   if (isAuthenticated === null || isInitializing) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
+    return <LottieSplashScreen visible={true} />;
   }
 
   return (
@@ -665,11 +762,7 @@ function RootLayoutInner() {
         </View>
       )}
       <Suspense
-        fallback={
-          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        }
+        fallback={<LottieSplashScreen visible={true} />}
       >
         <Stack
           screenOptions={{

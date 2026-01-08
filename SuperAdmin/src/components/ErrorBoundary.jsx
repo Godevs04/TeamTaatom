@@ -13,15 +13,18 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Check if it's a chunk loading error
+    // Check if it's a chunk/module loading error
     const isChunkError = 
       error?.message?.includes('Failed to fetch dynamically imported module') ||
       error?.message?.includes('Loading chunk') ||
       error?.message?.includes('Loading CSS chunk') ||
       error?.name === 'ChunkLoadError' ||
-      error?.message?.includes('dynamically imported module')
+      error?.message?.includes('dynamically imported module') ||
+      error?.message?.includes('Importing a module script failed') ||
+      error?.type === 'TypeError' && error?.message?.includes('module')
 
-    // Don't send chunk loading errors to Sentry (they're handled by lazyWithRetry)
+    // Don't send chunk/module loading errors to Sentry (they're handled by lazyWithRetry)
+    // These are expected when modules fail to load (network issues, cache problems, etc.)
     if (import.meta.env.VITE_SENTRY_DSN && !isChunkError) {
       Sentry.captureException(error, {
         contexts: {
@@ -35,16 +38,17 @@ class ErrorBoundary extends React.Component {
     // Use dynamic import to avoid circular dependencies
     import('../utils/logger').then(({ default: logger }) => {
       if (isChunkError) {
-        logger.warn('SuperAdmin Error Boundary caught chunk loading error (will be retried):', error)
+        // Use debug for module errors (they're expected and handled gracefully)
+        logger.debug('SuperAdmin Error Boundary caught module loading error (will be retried):', error)
       } else {
-      logger.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
+        logger.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
       }
     }).catch(() => {
       // Fallback to console if logger fails
       if (isChunkError) {
-        console.warn('SuperAdmin Error Boundary caught chunk loading error (will be retried):', error)
+        console.debug('SuperAdmin Error Boundary caught module loading error (will be retried):', error)
       } else {
-      console.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
+        console.error('SuperAdmin Error Boundary caught an error:', error, errorInfo)
       }
     })
   }
@@ -57,7 +61,9 @@ class ErrorBoundary extends React.Component {
         error?.message?.includes('Loading chunk') ||
         error?.message?.includes('Loading CSS chunk') ||
         error?.name === 'ChunkLoadError' ||
-        error?.message?.includes('dynamically imported module')
+        error?.message?.includes('dynamically imported module') ||
+        error?.message?.includes('Importing a module script failed') ||
+        (error?.type === 'TypeError' && error?.message?.includes('module'))
 
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">

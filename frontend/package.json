@@ -54,6 +54,7 @@
     "expo-video-thumbnails": "~10.0.8",
     "expo-web-browser": "^15.0.10",
     "formik": "^2.4.6",
+    "lottie-react-native": "^7.3.4",
     "node-fetch": "^3.3.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",

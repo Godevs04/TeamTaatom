@@ -38,8 +38,13 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
     const response = await api.post('/api/v1/auth/signup', data);
     return response.data;
   } catch (error: any) {
+    // Use error code parser for user-friendly messages
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    // Preserve the error code and original error so it can be detected upstream
+    const newError = new Error(parsedError.userMessage);
+    (newError as any).parsedError = parsedError;
+    (newError as any).originalError = error;
+    throw newError;
   }
 };
 
@@ -145,7 +150,11 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   } catch (error: any) {
     // Use error code parser for user-friendly messages
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    // Preserve the error code in the thrown error so it can be detected upstream
+    const newError = new Error(parsedError.userMessage);
+    (newError as any).parsedError = parsedError;
+    (newError as any).originalError = error;
+    throw newError;
   }
 };
 
@@ -366,6 +375,20 @@ export const signOut = async (): Promise<void> => {
     // Clear any other auth-related data
     await AsyncStorage.removeItem('onboarding_completed');
     
+    // Clear last auth error
+    lastAuthError = null;
+    
+    // On web, trigger storage event to notify other tabs/windows
+    if (isWeb && typeof window !== 'undefined') {
+      // Trigger a custom event that can be listened to
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'authToken',
+        newValue: null,
+        oldValue: null,
+        storageArea: window.localStorage,
+      }));
+    }
+    
     logger.debug('Sign out completed successfully');
   } catch (error) {
     logger.error('signOut error:', error);
@@ -374,6 +397,7 @@ export const signOut = async (): Promise<void> => {
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('onboarding_completed');
+      lastAuthError = null;
     } catch (clearError) {
       logger.error('Failed to clear storage during signout:', clearError);
     }

@@ -416,6 +416,45 @@ export default function SignUpScreen() {
         });
       }, 2000);
     } catch (error: any) {
+      // Extract detailed error information for Sentry reporting
+      const parsedError = error?.parsedError || (error?.originalError ? require('../../utils/errorCodes').parseError(error.originalError) : null);
+      const originalError = error?.originalError || error;
+      
+      // Check if this is an expected validation error (user input error)
+      // These shouldn't be reported to Sentry as errors since they're user input errors
+      const isValidationError = parsedError?.code?.startsWith('VAL_') || 
+                                parsedError?.code?.startsWith('AUTH_1004') ||
+                                originalError?.response?.status === 400 ||
+                                error?.message?.includes('validation') ||
+                                error?.message?.includes('already exists') ||
+                                error?.message?.includes('already taken');
+      
+      if (isValidationError) {
+        // Log validation errors as debug - these are expected user input errors
+        logger.debug('Sign-up validation error:', {
+          code: parsedError?.code,
+          message: error.message,
+          field: originalError?.response?.data?.field,
+        });
+      } else {
+        // Log unexpected errors with full context for Sentry
+        logger.error('Sign-up error:', {
+          code: parsedError?.code || 'UNKNOWN',
+          message: error.message,
+          userMessage: parsedError?.userMessage,
+          responseStatus: originalError?.response?.status,
+          responseData: originalError?.response?.data,
+          errorStack: originalError?.stack,
+          signupData: {
+            email: values.email,
+            username: values.username,
+            hasFullName: !!values.fullName,
+            // Don't log password for security
+          },
+        });
+      }
+      
+      // Show user-friendly error message
       showError(error.message);
     } finally {
       setIsLoading(false);
