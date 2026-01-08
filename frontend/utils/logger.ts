@@ -124,66 +124,101 @@ const shouldLog = (level: 'debug' | 'info' | 'warn' | 'error'): boolean => {
 
 // Error tracking function - integrated with Sentry
 const trackError = (context: string, error: any, args?: any[]) => {
+  // Filter out -1102 (operation cancelled) errors - these are expected and shouldn't be logged
+  const errorCode = error?.code;
+  const errorDomain = error?.domain;
+  const errorMessage = error?.message || String(error || '');
+  
+  // -1102 NSURLErrorCancelled is expected when operation is cancelled (navigation, unmount, etc.)
+  if (errorCode === -1102 || (errorDomain === 'NSURLErrorDomain' && errorCode === -1102) ||
+      errorMessage.includes('-1102') || errorMessage.includes('NSURLErrorCancelled') ||
+      errorMessage.includes('AVPlayerItem') && errorMessage.includes('-1102') ||
+      errorMessage.includes('operation was cancelled') || errorMessage.includes('operation cancelled')) {
+    // Silently ignore cancelled operations - they're expected behavior
+    // Only log at debug level if needed, never send to Sentry
+    if (isDev) {
+      console.debug('Logger: Ignoring cancelled operation (-1102):', error);
+    }
+    return; // Don't send to Sentry
+  }
+
   if (!isDev) {
     // In production, send to Sentry error tracking service
     // DO NOT use console in production - send to tracking service only
     try {
-      // Dynamically import Sentry to avoid circular dependencies
-      // Use lazy require to prevent circular dependency issues
+      // Use the centralized error reporter for consistent error reporting
       if (typeof require !== 'undefined') {
-        const Sentry = require('@sentry/react-native');
-        if (!Sentry) return;
-
-        // Determine if this is a warning context (for warnings, we use captureMessage)
-        const isWarning = context === 'warning';
-
-        if (error instanceof Error) {
-          // For actual Error instances, use captureException
-          if (typeof Sentry.captureException === 'function') {
-            Sentry.captureException(error, {
-              tags: { context },
-              extra: { args: sanitizeData(args) },
-              level: isWarning ? 'warning' : 'error',
-            });
-          }
-        } else if (error && typeof error === 'object') {
-          // For plain objects (like from logger.warn), convert to Error or use captureMessage
-          const errorMessage = error.message || JSON.stringify(sanitizeData(error));
+        const { reportError } = require('./errorReporter');
+        if (reportError) {
+          // Extract context from args if provided
+          const errorContext: any = {
+            component: context,
+            metadata: args && args.length > 0 ? sanitizeData(args) : undefined,
+          };
           
-          if (isWarning && typeof Sentry.captureMessage === 'function') {
-            // Use captureMessage for warnings with plain objects
-            Sentry.captureMessage(errorMessage, {
-              level: 'warning',
+          // If args contain structured context, use it
+          if (args && args.length > 0 && typeof args[0] === 'object' && !Array.isArray(args[0])) {
+            Object.assign(errorContext, sanitizeData(args[0]));
+          }
+          
+          reportError(error, errorContext);
+          return;
+        }
+      }
+      
+      // Fallback to direct Sentry if errorReporter not available
+      const Sentry = require('@sentry/react-native');
+      if (!Sentry) return;
+
+      // Determine if this is a warning context (for warnings, we use captureMessage)
+      const isWarning = context === 'warning';
+
+      if (error instanceof Error) {
+        // For actual Error instances, use captureException
+        if (typeof Sentry.captureException === 'function') {
+          Sentry.captureException(error, {
+            tags: { context },
+            extra: { args: sanitizeData(args) },
+            level: isWarning ? 'warning' : 'error',
+          });
+        }
+      } else if (error && typeof error === 'object') {
+        // For plain objects (like from logger.warn), convert to Error or use captureMessage
+        const errorMessage = error.message || JSON.stringify(sanitizeData(error));
+        
+        if (isWarning && typeof Sentry.captureMessage === 'function') {
+          // Use captureMessage for warnings with plain objects
+          Sentry.captureMessage(errorMessage, {
+            level: 'warning',
+            tags: { context },
+            extra: { 
+              originalData: sanitizeData(error),
+              args: sanitizeData(args) 
+            },
+          });
+        } else {
+          // For errors with plain objects, convert to Error instance
+          const errorObj = new Error(errorMessage);
+          if (typeof Sentry.captureException === 'function') {
+            Sentry.captureException(errorObj, {
               tags: { context },
               extra: { 
                 originalData: sanitizeData(error),
                 args: sanitizeData(args) 
               },
             });
-          } else {
-            // For errors with plain objects, convert to Error instance
-            const errorObj = new Error(errorMessage);
-            if (typeof Sentry.captureException === 'function') {
-              Sentry.captureException(errorObj, {
-                tags: { context },
-                extra: { 
-                  originalData: sanitizeData(error),
-                  args: sanitizeData(args) 
-                },
-              });
-            }
           }
-        } else if (error) {
-          // For primitive values or other types, convert to string
-          const errorMessage = String(error);
-          const errorObj = new Error(errorMessage);
-          if (typeof Sentry.captureException === 'function') {
-            Sentry.captureException(errorObj, {
-              tags: { context },
-              extra: { args: sanitizeData(args) },
-              level: isWarning ? 'warning' : 'error',
-            });
-          }
+        }
+      } else if (error) {
+        // For primitive values or other types, convert to string
+        const errorMessage = String(error);
+        const errorObj = new Error(errorMessage);
+        if (typeof Sentry.captureException === 'function') {
+          Sentry.captureException(errorObj, {
+            tags: { context },
+            extra: { args: sanitizeData(args) },
+            level: isWarning ? 'warning' : 'error',
+          });
         }
       }
     } catch (sentryError) {

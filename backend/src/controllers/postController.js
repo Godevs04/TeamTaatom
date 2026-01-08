@@ -741,6 +741,42 @@ const getPostById = async (req, res) => {
       }
     }
 
+    // CRITICAL: Generate fresh signed URL for video if post is a short (videos expire after 15 minutes)
+    if (post.type === 'short') {
+      if (post.storageKey) {
+        try {
+          const freshVideoUrl = await generateSignedUrl(post.storageKey, 'VIDEO');
+          post.videoUrl = freshVideoUrl;
+          // Also generate thumbnail URL
+          if (post.storageKeys && post.storageKeys.length > 1) {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+          } else {
+            post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          }
+          logger.debug(`Generated fresh signed URLs for short ${post._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
+          // Fallback to stored URLs if generation fails
+          post.videoUrl = post.videoUrl || post.imageUrl || null;
+        }
+      } else if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO');
+          if (post.storageKeys.length > 1) {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+          } else {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE');
+          }
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${post._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${post._id}:`, error.message);
+          post.videoUrl = post.videoUrl || post.imageUrl || null;
+        }
+      }
+      // Set mediaUrl for shorts (virtual field)
+      post.mediaUrl = post.videoUrl || post.imageUrl || null;
+    }
+
     // Use generated imageUrl (already set above)
     const optimizedImageUrl = post.imageUrl;
 
@@ -2378,6 +2414,7 @@ const getShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           songData: 0
+          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, etc.)
         }
       }
     ]);
@@ -2476,17 +2513,88 @@ const getShorts = async (req, res) => {
         logger.debug('getShorts - No song data for short:', { shortId: short._id });
       }
       
+      // Generate fresh signed URL for video if storageKey exists (CRITICAL: Videos expire after 15 minutes)
+      let videoUrl = short.videoUrl || null; // Start with stored URL as fallback
+      let imageUrl = short.imageUrl || null; // Start with stored URL as fallback
+      
+      // Priority 1: Generate fresh signed URL from storageKey (best practice)
+      if (short.storageKey) {
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          // For shorts, also generate thumbnail URL (use same storageKey or separate one)
+          if (short.storageKeys && short.storageKeys.length > 1) {
+            // Second key might be thumbnail
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } else {
+            // Use same key for thumbnail (CDN can generate thumbnails)
+            const freshImageUrl = await generateSignedUrl(short.storageKey, 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          }
+          logger.debug(`Generated fresh signed URLs for short ${short._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+          if (!videoUrl && !imageUrl) {
+            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
+          }
+        }
+      } else if (short.storageKeys && short.storageKeys.length > 0) {
+        // Try storageKeys array (backward compatibility)
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          if (short.storageKeys.length > 1) {
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } else {
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[0], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          }
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${short._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+          if (!videoUrl && !imageUrl) {
+            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
+          }
+        }
+      } else {
+        // Use stored URLs (legacy support) - no storageKey found
+        logger.debug(`Using stored URLs for short ${short._id} (no storageKey found)`);
+        if (!videoUrl && !imageUrl) {
+          logger.warn(`Short ${short._id} has no storageKey and no stored URLs`);
+        }
+      }
+      
       // Defensive: ensure mediaUrl exists (required for shorts)
-      const mediaUrl = short.videoUrl || short.imageUrl || '';
+      // Use stored URLs if fresh URLs failed, or fresh URLs if available
+      const mediaUrl = videoUrl || imageUrl || short.videoUrl || short.imageUrl || '';
       if (!mediaUrl) {
-        logger.warn(`Short ${short._id} missing mediaUrl, skipping`);
-        return null; // Filter out shorts without media
+        logger.warn(`Short ${short._id} missing mediaUrl completely (no storageKey, no stored URLs), skipping`);
+        return null; // Filter out shorts without any media URL
       }
       
       return {
         ...short,
         _id: short._id,
-        mediaUrl, // Include virtual field with validation
+        // Use fresh signed URLs if available, otherwise use stored URLs as fallback
+        videoUrl: videoUrl || short.videoUrl || null,
+        imageUrl: imageUrl || short.imageUrl || null,
+        mediaUrl, // Include virtual field with fresh signed URL or fallback
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
@@ -2613,9 +2721,28 @@ const createShort = async (req, res) => {
       extension
     });
     
+    // Log file size for monitoring large uploads
+    const fileSizeMB = (videoFile.buffer.length / (1024 * 1024)).toFixed(2);
+    logger.info('Starting video upload:', {
+      key: videoStorageKey,
+      size: `${fileSizeMB}MB`,
+      mimetype: videoFile.mimetype,
+      userId: req.user._id.toString()
+    });
+    
     let videoUploadResult;
     try {
+      // uploadObject automatically uses multipart upload for files > 100MB
+      const uploadStartTime = Date.now();
       videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+      
+      logger.info('Video upload completed:', {
+        key: videoStorageKey,
+        size: `${fileSizeMB}MB`,
+        duration: `${uploadDuration}s`,
+        uploadSpeed: `${(parseFloat(fileSizeMB) / parseFloat(uploadDuration)).toFixed(2)}MB/s`
+      });
       
       // Defensive: validate upload result has URL
       if (!videoUploadResult || !videoUploadResult.url) {
@@ -2623,8 +2750,24 @@ const createShort = async (req, res) => {
         return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
       }
     } catch (uploadErr) {
-      logger.error('Storage upload error:', uploadErr);
-      return sendError(res, 'FILE_4004', uploadErr.message || 'Video upload failed. Please try again.');
+      logger.error('Storage upload error:', {
+        error: uploadErr.message || uploadErr,
+        key: videoStorageKey,
+        size: `${fileSizeMB}MB`,
+        stack: uploadErr.stack
+      });
+      
+      // Provide more specific error messages for large files
+      let errorMessage = uploadErr.message || 'Video upload failed. Please try again.';
+      if (uploadErr.message?.includes('timeout') || uploadErr.message?.includes('ETIMEDOUT')) {
+        errorMessage = 'Upload timeout. The file may be too large or network is too slow. Please try again with a better connection.';
+      } else if (uploadErr.message?.includes('ECONNRESET') || uploadErr.message?.includes('socket')) {
+        errorMessage = 'Connection lost during upload. Please check your internet connection and try again.';
+      } else if (uploadErr.message?.includes('413') || uploadErr.message?.includes('too large')) {
+        errorMessage = 'File is too large. Please try a smaller file or compress the video.';
+      }
+      
+      return sendError(res, 'FILE_4004', errorMessage);
     }
 
     // Note: Video duration validation would require video processing library

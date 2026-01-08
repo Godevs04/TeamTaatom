@@ -17,13 +17,15 @@ export function lazyWithRetry(importFn, retries = 3, delay = 1000) {
         importFn()
           .then(resolve)
           .catch((error) => {
-            // Check if it's a chunk loading error
+            // Check if it's a chunk/module loading error
             const isChunkError = 
               error?.message?.includes('Failed to fetch dynamically imported module') ||
               error?.message?.includes('Loading chunk') ||
               error?.message?.includes('Loading CSS chunk') ||
               error?.name === 'ChunkLoadError' ||
               error?.code === 'ERR_MODULE_NOT_FOUND' ||
+              error?.message?.includes('Importing a module script failed') ||
+              error?.type === 'TypeError' && error?.message?.includes('module') ||
               (error?.message && typeof error.message === 'string' && 
                error.message.includes('dynamically imported module'))
 
@@ -31,7 +33,7 @@ export function lazyWithRetry(importFn, retries = 3, delay = 1000) {
               // Retry after delay with exponential backoff
               const retryDelay = delay * Math.pow(2, attempt - 1)
               console.warn(
-                `[lazyWithRetry] Chunk load failed (attempt ${attempt}/${retries}), retrying in ${retryDelay}ms...`,
+                `[lazyWithRetry] Module load failed (attempt ${attempt}/${retries}), retrying in ${retryDelay}ms...`,
                 error
               )
               

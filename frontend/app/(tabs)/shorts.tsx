@@ -103,6 +103,9 @@ export default function ShortsScreen() {
   const activeVideoIdRef = useRef<string | null>(null);
   // Track last viewed short ID for analytics de-duplication
   const lastViewedShortIdRef = useRef<string | null>(null);
+  // Guard to prevent duplicate navigation on rapid swipes
+  const isNavigatingRef = useRef<boolean>(false);
+  const lastNavigationUserIdRef = useRef<string | null>(null);
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
   
@@ -261,6 +264,19 @@ export default function ShortsScreen() {
   // Handle app backgrounding/foregrounding and screen focus/blur
   // Pause videos when screen loses focus or app goes to background
   // Uses centralized pauseCurrentVideo helper to prevent race conditions
+  // Reset navigation guard when screen comes into focus (user navigated back)
+  useFocusEffect(
+    useCallback(() => {
+      // Reset navigation guard when returning to screen
+      isNavigatingRef.current = false;
+      lastNavigationUserIdRef.current = null;
+      
+      return () => {
+        // Cleanup on blur if needed
+      };
+    }, [])
+  );
+
   useFocusEffect(
     useCallback(() => {
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
@@ -377,15 +393,17 @@ export default function ShortsScreen() {
           setVideoQuality('high');
         } catch (fetchError) {
           clearTimeout(timeoutId);
-          // Network probe failed - log warning but don't downgrade quality unnecessarily
+          // Network probe failed - log as debug since this is expected and handled gracefully
           // The video URL itself may still be accessible even if favicon check fails
-          logger.warn('Network quality probe failed, keeping current quality setting', fetchError);
+          // The app keeps the current quality setting, which is the correct behavior
+          logger.debug('[ShortsScreen] Network quality probe failed, keeping current quality setting', fetchError);
           // Only downgrade if we're currently on high quality and probe consistently fails
           // This prevents unnecessary quality drops when CDN is accessible but probe fails
         }
       } catch (error) {
         // Outer catch for any unexpected errors
-        logger.warn('Network status check error (non-critical):', error);
+        // Log as debug since this is non-critical and handled gracefully
+        logger.debug('[ShortsScreen] Network status check error (non-critical):', error);
         // Don't change quality on unexpected errors - let video loading determine quality
       }
     };
@@ -417,30 +435,73 @@ export default function ShortsScreen() {
   const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 
   // Get quality-adaptive video URL with caching
+  // Priority: videoUrl > mediaUrl > imageUrl (for shorts, videoUrl should always be present)
+  // CRITICAL: Signed URLs expire after 15 minutes, so cache is limited to 10 minutes
   const getVideoUrl = useCallback((item: PostType) => {
-    const baseUrl = item.mediaUrl || item.imageUrl;
+    // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
+    const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
     const videoId = item._id;
     
-    // Check cache first
+    // Validate base URL exists
+    if (!baseUrl || typeof baseUrl !== 'string' || baseUrl.trim() === '') {
+      logger.error(`Invalid video URL for item ${videoId}:`, {
+        videoUrl: item.videoUrl,
+        mediaUrl: item.mediaUrl,
+        imageUrl: item.imageUrl
+      });
+      return '';
+    }
+    
+    // CRITICAL: Signed URLs expire after 15 minutes, so cache for max 10 minutes
+    // This ensures we don't use expired URLs
+    const CACHE_MAX_AGE = 10 * 60 * 1000; // 10 minutes (signed URLs expire after 15 minutes)
+    
+    // Check cache first (but don't use if too old - signed URLs expire)
     const cached = videoCacheRef.current.get(videoId);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      return cached.url;
+    if (cached) {
+      const cacheAge = Date.now() - cached.timestamp;
+      if (cacheAge < CACHE_MAX_AGE) {
+        // Verify cached URL is still the same as current base URL
+        const cachedBaseUrl = cached.url.split('?')[0]; // Remove query params for comparison
+        const currentBaseUrl = baseUrl.split('?')[0];
+        if (cachedBaseUrl === currentBaseUrl) {
+          // Check if cache is close to expiry (within 2 minutes)
+          if (cacheAge < (CACHE_MAX_AGE - 2 * 60 * 1000)) {
+            return cached.url;
+          } else {
+            // Cache is getting old, but still valid - return it but don't update cache timestamp
+            // This will force a refresh on next call
+            logger.debug(`Video ${videoId} cache is close to expiry (${Math.round(cacheAge / 1000 / 60)} minutes old)`);
+            return cached.url;
+          }
+        } else {
+          // Base URL changed, clear cache for this item
+          videoCacheRef.current.delete(videoId);
+        }
+      } else {
+        // Cache expired, clear it
+        logger.debug(`Video ${videoId} cache expired (${Math.round(cacheAge / 1000 / 60)} minutes old), clearing`);
+        videoCacheRef.current.delete(videoId);
+      }
     }
     
     // Generate URL based on quality
-    let url = baseUrl;
-    if (videoQuality === 'low') {
-      url = `${baseUrl}?q=low`;
-    } else if (videoQuality === 'medium') {
-      url = `${baseUrl}?q=medium`;
+    let url = baseUrl.trim();
+    // Only add quality param if URL doesn't already have query params
+    if (!url.includes('?') && videoQuality !== 'high') {
+      url = `${baseUrl}?q=${videoQuality}`;
+    } else if (videoQuality !== 'high' && url.includes('?')) {
+      // URL already has params, append quality
+      url = `${baseUrl}&q=${videoQuality}`;
     }
     
-    // Cache the URL
+    // Cache the URL with current timestamp (fresh from backend)
     videoCacheRef.current.set(videoId, {
       url,
       timestamp: Date.now()
     });
     
+    logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
     return url;
   }, [videoQuality]);
   
@@ -478,12 +539,45 @@ export default function ShortsScreen() {
     // Play current video
     if (currentVideo) {
       activeVideoIdRef.current = currentShortId;
-      currentVideo.playAsync().catch(() => {});
-      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+      // Get current status and play if not already playing
+      currentVideo.getStatusAsync().then((status) => {
+        if (status.isLoaded) {
+          // If music exists, ensure video is muted
+          const hasMusic = !!(shorts[currentVisibleIndex]?.song?.songId?.s3Url);
+          if (hasMusic) {
+            currentVideo.setIsMutedAsync(true).catch(() => {});
+            currentVideo.setVolumeAsync(0.0).catch(() => {});
+          }
+          
+          // Play if not already playing
+          if (!status.isPlaying) {
+            currentVideo.playAsync().then(() => {
+              setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+              logger.debug(`Video ${currentShortId} started playing via useEffect`);
+            }).catch((error) => {
+              logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
+              // Retry after short delay
+              setTimeout(() => {
+                currentVideo.playAsync().catch(() => {});
+              }, 500);
+            });
+          } else {
+            setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+          }
+        } else {
+          // Video not loaded yet, wait for onLoad callback
+          logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
+        }
+      }).catch((error) => {
+        logger.error(`Failed to get status for video ${currentShortId}:`, error);
+        // Try to play anyway
+        currentVideo.playAsync().catch(() => {});
+      });
     } else {
       // Video ref not available yet, mark as active for when it mounts
       activeVideoIdRef.current = currentShortId;
       setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+      logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
     }
   }, [currentVisibleIndex, shorts]);
 
@@ -560,10 +654,56 @@ export default function ShortsScreen() {
     }
   };
 
+  // Helper function to refetch a single short with fresh signed URL
+  const refetchShortWithFreshUrl = useCallback(async (shortId: string): Promise<PostType | null> => {
+    try {
+      logger.debug(`Refetching short ${shortId} to get fresh signed URL...`);
+      const response = await getPostById(shortId);
+      // getPostById returns { post: PostType } or PostType directly
+      const short = response?.post || response;
+      if (short && (short.mediaUrl || short.videoUrl || short.imageUrl)) {
+        logger.debug(`Successfully refetched short ${shortId} with fresh URL`);
+        return short as PostType;
+      }
+      logger.warn(`Refetched short ${shortId} but no valid URL found`);
+      return null;
+    } catch (error) {
+      logger.error(`Failed to refetch short ${shortId}:`, error);
+      return null;
+    }
+  }, []);
+
+  // Helper function to retry video loading
+  const retryVideoLoad = useCallback((videoId: string, delay: number = 1000) => {
+    setTimeout(() => {
+      const video = videoRefs.current[videoId];
+      if (video) {
+        const short = shorts.find(s => s._id === videoId);
+        if (short) {
+          const videoUrl = getVideoUrl(short);
+          video.unloadAsync().then(() => {
+            video.loadAsync({ uri: videoUrl }).then(() => {
+              video.playAsync().catch(() => {
+                logger.error(`Video ${videoId} retry play failed`);
+              });
+            }).catch((loadError) => {
+              logger.error(`Video ${videoId} retry load failed:`, loadError);
+            });
+          }).catch(() => {
+            // If unload fails, try to reload directly
+            video.loadAsync({ uri: videoUrl }).catch(() => {});
+          });
+        }
+      }
+    }, delay);
+  }, [shorts, getVideoUrl]);
+
   const loadShorts = async () => {
     try {
       setLoading(true);
       const response = await getShorts(1, 20);
+      // Clear video cache when loading new shorts (old URLs might be expired)
+      videoCacheRef.current.clear();
       setShorts(response.shorts);
       
       // Scroll to specific short if shortId is provided in params
@@ -860,10 +1000,28 @@ export default function ShortsScreen() {
   };
 
   const handleProfilePress = (userId: string) => {
+    // Prevent duplicate navigation
+    if (isNavigatingRef.current && lastNavigationUserIdRef.current === userId) {
+      logger.debug('Navigation already in progress, skipping duplicate navigation');
+      return;
+    }
+    
+    isNavigatingRef.current = true;
+    lastNavigationUserIdRef.current = userId;
+    
     router.push(`/profile/${userId}`);
+    
+    // Reset navigation guard after a delay
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+      lastNavigationUserIdRef.current = null;
+    }, 1000);
   };
 
   const handleSwipeLeft = (userId: string) => {
+    // Note: Navigation guard is already set in handleTouchEnd before calling this function
+    // This prevents duplicate navigations on rapid swipes
+    
     // Animate swipe gesture
     Animated.sequence([
       Animated.timing(swipeAnimation, {
@@ -883,6 +1041,13 @@ export default function ShortsScreen() {
       // Reset animations
       swipeAnimation.setValue(0);
       fadeAnimation.setValue(1);
+      
+      // Reset navigation guard after navigation completes
+      // Use a longer timeout to ensure navigation has completed
+      setTimeout(() => {
+        isNavigatingRef.current = false;
+        lastNavigationUserIdRef.current = null;
+      }, 1000);
     });
   };
 
@@ -928,10 +1093,14 @@ export default function ShortsScreen() {
     const deltaX = pageX - swipeStartX;
     const deltaY = pageY - swipeStartY;
     
-    // Update animation based on horizontal movement
-    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    // Only animate for left swipes (negative deltaX)
+    // Right swipes should not trigger any animation or navigation
+    if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
       const progress = Math.min(Math.abs(deltaX) / 100, 1);
       swipeAnimation.setValue(-progress);
+    } else {
+      // Reset animation if swiping right or vertical
+      swipeAnimation.setValue(0);
     }
   };
 
@@ -942,19 +1111,47 @@ export default function ShortsScreen() {
     const deltaX = pageX - swipeStartX;
     const deltaY = pageY - swipeStartY;
     
-    // Only trigger swipe if horizontal movement is significantly greater
+    // Only trigger navigation for LEFT swipes (deltaX must be negative)
+    // Right swipes (positive deltaX) should be ignored
     const horizontalRatio = Math.abs(deltaX) / (Math.abs(deltaY) || 1);
-    if (horizontalRatio > 1.5 && Math.abs(deltaX) > 50) {
+    const isLeftSwipe = deltaX < 0; // Negative deltaX means swipe left
+    
+    if (isLeftSwipe && horizontalRatio > 1.5 && Math.abs(deltaX) > 50) {
+      // Check if navigation is already in progress to prevent duplicate navigations
+      // This prevents rapid double swipes from causing duplicate navigation
+      if (isNavigatingRef.current) {
+        logger.debug('Swipe left detected but navigation already in progress, ignoring duplicate swipe');
+        // Reset animation
+        Animated.spring(swipeAnimation, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }).start();
+        // Reset touch state
+        setSwipeStartX(null);
+        setSwipeStartY(null);
+        return;
+      }
+      
+      // Set guard immediately to prevent duplicate swipes
+      isNavigatingRef.current = true;
+      lastNavigationUserIdRef.current = userId;
+      
       logger.debug('Swipe left detected, navigating to profile:', userId);
       handleSwipeLeft(userId);
     } else {
-      // Reset animation if not a valid swipe
+      // Reset animation if not a valid left swipe (right swipe or invalid gesture)
       Animated.spring(swipeAnimation, {
         toValue: 0,
         useNativeDriver: true,
         tension: 100,
         friction: 8,
       }).start();
+      
+      if (!isLeftSwipe && Math.abs(deltaX) > 50) {
+        logger.debug('Swipe right detected, ignoring (only left swipes navigate to profile)');
+      }
     }
     
     setSwipeStartX(null);
@@ -1022,6 +1219,7 @@ export default function ShortsScreen() {
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
               {shouldRenderVideo ? (
                 <Video
+                key={`video-${item._id}-${getVideoUrl(item)}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
@@ -1054,6 +1252,7 @@ export default function ShortsScreen() {
                 })()}
                 // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
+                  logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
@@ -1067,9 +1266,71 @@ export default function ShortsScreen() {
                           // Silently handle volume errors
                         });
                       }
-                      video.playAsync().catch(() => {
-                        // Silently handle play errors
+                    }
+                  }
+                }}
+                onError={(error) => {
+                  // Handle video loading errors (likely expired signed URL)
+                  logger.error(`Video ${item._id} failed to load:`, error);
+                  
+                  // Clear cache for this video URL to force refresh
+                  videoCacheRef.current.delete(item._id);
+                  
+                  // Update state to show video failed
+                  setVideoStates(prev => ({
+                    ...prev,
+                    [item._id]: false
+                  }));
+                  
+                  // Check if this is likely an expired URL error (403, 404, or network error)
+                  const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
+                  const isExpiredUrl = errorMessage.includes('403') || 
+                                     errorMessage.includes('404') || 
+                                     errorMessage.includes('Forbidden') ||
+                                     errorMessage.includes('expired') ||
+                                     errorMessage.includes('ExpiredRequest');
+                  
+                  // Retry loading with fresh URL from backend if this is the current visible video
+                  if (index === currentVisibleIndex) {
+                    if (isExpiredUrl) {
+                      // URL likely expired - refetch short data to get fresh signed URL
+                      logger.debug(`Video ${item._id} URL expired, refetching from backend...`);
+                      refetchShortWithFreshUrl(item._id).then((freshShort) => {
+                        if (freshShort && freshShort.mediaUrl) {
+                          // Update the short in state with fresh URL
+                          setShorts(prev => prev.map(s => 
+                            s._id === item._id ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl } : s
+                          ));
+                          
+                          // Clear cache and reload video with fresh URL
+                          videoCacheRef.current.delete(item._id);
+                          const video = videoRefs.current[item._id];
+                          if (video) {
+                            setTimeout(() => {
+                              const freshVideoUrl = freshShort.mediaUrl || freshShort.videoUrl || freshShort.imageUrl;
+                              video.unloadAsync().then(() => {
+                                video.loadAsync({ uri: freshVideoUrl }).then(() => {
+                                  video.playAsync().catch(() => {
+                                    logger.error(`Video ${item._id} retry play failed after refresh`);
+                                  });
+                                }).catch((loadError) => {
+                                  logger.error(`Video ${item._id} retry load failed after refresh:`, loadError);
+                                });
+                              }).catch(() => {
+                                // If unload fails, try to reload with fresh URL
+                                video.loadAsync({ uri: freshVideoUrl }).catch(() => {});
+                              });
+                            }, 500);
+                          }
+                        }
+                      }).catch((refetchError) => {
+                        logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
+                        // Fallback: retry with current URL after delay
+                        retryVideoLoad(item._id, 1000);
                       });
+                    } else {
+                      // Not an expired URL error, just retry loading
+                      retryVideoLoad(item._id, 1000);
                     }
                   }
                 }}
@@ -1117,15 +1378,63 @@ export default function ShortsScreen() {
                       
                       return newState;
                     });
+                  } else if (status.error) {
+                    // Handle playback errors
+                    logger.error(`Video ${item._id} playback error:`, status.error);
+                    // Clear cache and retry if this is the current visible video
+                    if (index === currentVisibleIndex) {
+                      videoCacheRef.current.delete(item._id);
+                    }
                   }
                 }}
                 onLoad={(status) => {
-                  // Initialize video state when video loads
+                  // CRITICAL: Ensure video plays after it fully loads, especially for subsequent videos
                   if (status.isLoaded) {
+                    logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${index === currentVisibleIndex}`);
+                    
+                    // Initialize video state when video loads
                     setVideoStates(prev => ({
                       ...prev,
                       [item._id]: status.isPlaying || false
                     }));
+                    
+                    // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
+                    // This fixes the black screen issue for subsequent videos
+                    if (index === currentVisibleIndex) {
+                      const video = videoRefs.current[item._id];
+                      if (video) {
+                        // Small delay to ensure video is fully ready
+                        setTimeout(() => {
+                          video.getStatusAsync().then((currentStatus) => {
+                            if (currentStatus.isLoaded) {
+                              // If music exists, ensure video is muted
+                              const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                              if (hasMusic) {
+                                video.setIsMutedAsync(true).catch(() => {});
+                                video.setVolumeAsync(0.0).catch(() => {});
+                              }
+                              
+                              // Play video if it's not already playing
+                              if (!currentStatus.isPlaying) {
+                                activeVideoIdRef.current = item._id;
+                                video.playAsync().then(() => {
+                                  setVideoStates(prev => ({
+                                    ...prev,
+                                    [item._id]: true
+                                  }));
+                                  logger.debug(`Video ${item._id} started playing after load`);
+                                }).catch((error) => {
+                                  logger.error(`Video ${item._id} failed to play after load:`, error);
+                                });
+                              }
+                            }
+                          }).catch(() => {
+                            // If status check fails, try to play anyway
+                            video.playAsync().catch(() => {});
+                          });
+                        }, 100);
+                      }
+                    }
                   }
                 }}
               />
@@ -1825,7 +2134,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 80,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    paddingTop: 20,
+    paddingTop: 16, // Reduced from 20 to move content up slightly
     paddingHorizontal: 20,
     zIndex: 5,
   },
@@ -1869,12 +2178,12 @@ const styles = StyleSheet.create({
   },
   userDetails: {
     flex: 1,
-    paddingTop: 2,
+    paddingTop: 0, // Reduced from 2 to 0 to move text up slightly
   },
   usernameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 4, // Reduced from 6 to move text up slightly
     flexWrap: 'wrap',
   },
   username: {
@@ -1912,7 +2221,8 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
     lineHeight: isTablet ? 22 : 20,
-    marginBottom: isTablet ? theme.spacing.md : 10,
+    marginTop: 2, // Small margin to separate from location
+    marginBottom: isTablet ? theme.spacing.md : 8, // Reduced from 10 to move text up
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,

@@ -201,11 +201,28 @@ api.interceptors.response.use(
                            error.response?.data?.message?.includes('Token expired') ||
                            error.response?.data?.error?.message?.includes('expired'))
     
-    // Only log if not explicitly skipped and not an expected client error and not token expiration and not 503
-    if (!skipErrorLog && !isExpectedClientError && !isTokenExpired && !isServiceUnavailable) {
+    // Check if this is a network error (expected - network issues, offline, etc.)
+    const isNetworkError = error.message === 'Network Error' || 
+                          error.code === 'ERR_NETWORK' ||
+                          parsedError.code === 'SRV_6003' ||
+                          parsedError.message?.includes('Network error')
+    
+    // Check if this is a 401 (authentication error - expected, handled with redirect)
+    const isAuthError = status === 401
+    
+    // Determine if this is an expected error that shouldn't be sent to Sentry
+    const isExpectedError = skipErrorLog || 
+                           isExpectedClientError || 
+                           isTokenExpired || 
+                           isServiceUnavailable ||
+                           isNetworkError ||
+                           isAuthError
+    
+    // Only log as error and send to Sentry if it's not an expected error
+    if (!isExpectedError) {
       logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
-    } else if (skipErrorLog || isExpectedClientError || isTokenExpired || isServiceUnavailable) {
-      // Log as debug for expected errors (including token expiration and 503)
+    } else {
+      // Log as debug for expected errors (don't send to Sentry)
       logger.debug('API Error (expected):', parsedError.code, parsedError.message, error.config?.url)
     }
     

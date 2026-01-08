@@ -91,10 +91,11 @@ class SocketService {
       this.socket.once('connect_error', (error) => {
         this.isConnecting = false
         // Only log if it's not a normal connection attempt or WebSocket closed error
+        // Use debug instead of warn to prevent Sentry reporting (connection errors are expected)
         if (error.message && 
             !error.message.includes('xhr poll error') && 
             !error.message.includes('WebSocket is closed')) {
-          logger.warn('⚠️ Socket connection failed, will retry:', error.message)
+          logger.debug('⚠️ Socket connection failed, will retry:', error.message)
         }
       })
 
@@ -107,7 +108,8 @@ class SocketService {
 
       return this.socket
     } catch (error) {
-      logger.warn('⚠️ Socket connection setup failed:', error)
+      // Use debug instead of warn to prevent Sentry reporting (connection failures are expected)
+      logger.debug('⚠️ Socket connection setup failed:', error)
       return null
     }
   }
@@ -129,9 +131,12 @@ class SocketService {
     })
 
     this.socket.on('disconnect', (reason) => {
-      // Only log if it's not a normal client disconnect
+      // Socket disconnections are expected (network issues, server timeouts, etc.)
+      // The socket library automatically handles reconnection
+      // Use debug level to avoid sending to Sentry (never use warn/error for disconnects)
       if (reason !== 'io client disconnect') {
-        logger.warn('⚠️ Socket disconnected:', reason)
+        // Use debug instead of warn to prevent Sentry reporting
+        logger.debug('Socket disconnected:', reason, '- Will attempt to reconnect automatically')
       }
       this.isConnected = false
       this.emit('disconnect', reason)
@@ -139,8 +144,9 @@ class SocketService {
 
     this.socket.on('connect_error', (error) => {
       // Don't log WebSocket closed errors as they're often transient
+      // Use debug instead of error to prevent Sentry reporting (connection errors are expected)
       if (error.message && !error.message.includes('WebSocket is closed')) {
-        logger.error('❌ Socket connection error:', error.message)
+        logger.debug('❌ Socket connection error (will retry):', error.message)
       }
       this.reconnectAttempts++
       this.emit('connect_error', error)
@@ -153,12 +159,14 @@ class SocketService {
     })
 
     this.socket.on('reconnect_error', (error) => {
-      logger.error('❌ Socket reconnection error:', error.message)
+      // Use debug instead of error to prevent Sentry reporting (reconnection errors are expected)
+      logger.debug('❌ Socket reconnection error (will retry):', error.message)
       this.emit('reconnect_error', error)
     })
 
     this.socket.on('reconnect_failed', () => {
-      logger.warn('⚠️ Socket reconnection failed')
+      // Use debug instead of warn to prevent Sentry reporting (reconnection failures are expected)
+      logger.debug('⚠️ Socket reconnection failed (max attempts reached)')
       this.emit('reconnect_failed')
     })
 
@@ -200,7 +208,8 @@ class SocketService {
     if (this.socket && this.isConnected) {
       this.socket.emit(event, data)
     } else {
-      logger.warn('Socket not connected, cannot send data')
+      // Use debug instead of warn to prevent Sentry reporting (not connected is expected)
+      logger.debug('Socket not connected, cannot send data')
     }
   }
 
