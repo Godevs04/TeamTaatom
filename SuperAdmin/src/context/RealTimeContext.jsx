@@ -85,7 +85,9 @@ export const RealTimeProvider = ({ children }) => {
       // Check if user is authenticated before making API calls
       const token = localStorage.getItem('founder_token')
       if (!token) {
-        logger.warn('⚠️ No auth token found, setting empty dashboard data')
+        // Log as debug instead of warn - this is expected when user is not logged in
+        // Other functions in this file also use debug for missing auth tokens
+        logger.debug('No auth token found, setting empty dashboard data')
         // Set empty data structure to prevent infinite loading
         if (!dashboardData && !cachedDashboardDataRef.current) {
           const emptyData = {

@@ -86,12 +86,25 @@ export default function FollowRequestsScreen() {
 
   const handleApprove = async (requestId: string, userName: string) => {
     try {
-      await approveFollowRequest(requestId);
+      const result = await approveFollowRequest(requestId);
       setFollowRequests(prev => prev.filter(req => req._id !== requestId));
-      showSuccess(`${userName} is now following you!`);
-    } catch (error) {
+      // Show different message if already processed
+      if (result.alreadyProcessed) {
+        showSuccess(`${userName} is already following you!`);
+      } else {
+        showSuccess(`${userName} is now following you!`);
+      }
+    } catch (error: any) {
       logger.error('Error approving follow request', error);
-      showError('Failed to approve follow request');
+      // Check if it's an "already processed" error
+      const errorMessage = error?.message || '';
+      if (errorMessage.toLowerCase().includes('already processed') || 
+          errorMessage.toLowerCase().includes('already approved')) {
+        setFollowRequests(prev => prev.filter(req => req._id !== requestId));
+        showSuccess(`${userName} is already following you!`);
+      } else {
+        showError('Failed to approve follow request');
+      }
     }
   };
 

@@ -326,7 +326,22 @@ export default function SignInScreen() {
         router.replace('/(tabs)/home');
       }
     } catch (error: any) {
-      logger.error('Sign-in error:', error);
+      // Check if this is an expected authentication error (incorrect credentials)
+      // These shouldn't be reported to Sentry as errors since they're user input errors
+      const { parseError } = require('../../utils/errorCodes');
+      const parsedError = error?.parsedError || (error?.originalError ? parseError(error.originalError) : null);
+      const isIncorrectCredentials = error?.message?.includes('incorrect') || 
+                                      error?.message?.includes('Invalid email or password') ||
+                                      error?.originalError?.response?.data?.error?.code === 'AUTH_1004' ||
+                                      parsedError?.code === 'AUTH_1004';
+      
+      if (isIncorrectCredentials) {
+        // Log as debug instead of error - this is expected user behavior
+        logger.debug('Sign-in failed: incorrect credentials');
+      } else {
+        // Log other errors normally
+        logger.error('Sign-in error:', error);
+      }
       
       // Check if account is not verified
       if (error.message.includes('verify')) {

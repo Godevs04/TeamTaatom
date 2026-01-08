@@ -22,6 +22,34 @@ import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+// Use existing haptic utility to avoid circular dependencies
+import { triggerHaptic } from '../utils/hapticFeedback';
+
+// Safe haptic functions using existing utility
+const hapticLight = () => {
+  try {
+    triggerHaptic('light');
+  } catch (e) {
+    // Silently fail - haptics not available
+  }
+};
+
+const hapticMedium = () => {
+  try {
+    triggerHaptic('medium');
+  } catch (e) {
+    // Silently fail - haptics not available
+  }
+};
+
+const hapticSuccess = () => {
+  try {
+    triggerHaptic('success');
+  } catch (e) {
+    // Silently fail - haptics not available
+  }
+};
+
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_SELECTION_DURATION = 60; // 60 seconds max
 
@@ -30,6 +58,7 @@ interface SongSelectorProps {
   selectedSong: Song | null;
   selectedStartTime?: number;
   selectedEndTime?: number;
+  videoDuration?: number | null; // Video duration in seconds - auto-match song selection
   visible: boolean;
   onClose: () => void;
 }
@@ -39,6 +68,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   selectedSong,
   selectedStartTime = 0,
   selectedEndTime = MAX_SELECTION_DURATION,
+  videoDuration = null, // Video duration - auto-match song selection
   visible,
   onClose
 }) => {
@@ -62,11 +92,25 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const endHandleAnim = useRef(new Animated.Value(0)).current;
   const timelineWidthRef = useRef<number>(SCREEN_WIDTH - 64);
   const lastDragXRef = useRef<number | null>(null);
+  const lastTapRef = useRef<number>(0);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timelinePaddingRef = useRef<number>(28); // Padding from timelineWrapper
 
   useEffect(() => {
     if (visible) {
       loadSongs();
-      if (selectedSong) {
+      // Auto-match song selection duration with video duration if provided
+      if (videoDuration && videoDuration > 0) {
+        const matchedDuration = Math.min(videoDuration, MAX_SELECTION_DURATION);
+        setStartTime(0);
+        setEndTime(matchedDuration);
+        logger.debug('SongSelector: Auto-matched duration with video:', {
+          videoDuration,
+          matchedDuration,
+          startTime: 0,
+          endTime: matchedDuration
+        });
+      } else if (selectedSong) {
         setCurrentSong(selectedSong);
         setStartTime(selectedStartTime);
         setEndTime(selectedEndTime);
@@ -80,7 +124,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setIsPlaying(false);
       setCurrentTime(0);
     }
-  }, [visible]);
+  }, [visible, videoDuration, selectedSong, selectedStartTime, selectedEndTime]);
 
   useEffect(() => {
     if (visible && selectedSong) {
@@ -91,6 +135,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   }, [selectedSong, selectedStartTime, selectedEndTime, visible]);
 
   // Optimized audio status polling - reduce frequency to 200ms for better performance
+  // Loop playback within selected range (startTime to endTime) to match video duration
   useEffect(() => {
     if (currentSong && isPlaying && soundRef.current) {
       const interval = setInterval(async () => {
@@ -101,11 +146,32 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               const time = status.positionMillis / 1000;
               setCurrentTime(time);
               
+              // Loop playback: when reaching endTime, restart from startTime
+              // This ensures song plays only within video duration and loops seamlessly
               if (endTime && time >= endTime) {
-                await soundRef.current.pauseAsync();
-                await soundRef.current.setPositionAsync(startTime * 1000);
-                setIsPlaying(false);
-                setCurrentTime(startTime);
+                try {
+                  // Seek back to startTime and continue playing (loop)
+                  await soundRef.current.setPositionAsync(startTime * 1000);
+                  setCurrentTime(startTime);
+                  
+                  // Ensure playback continues (in case it was paused)
+                  if (!status.isPlaying) {
+                    await soundRef.current.playAsync();
+                  }
+                  
+                  logger.debug('Song playback looped back to start:', {
+                    startTime,
+                    endTime,
+                    videoDuration,
+                    selectionDuration: endTime - startTime
+                  });
+                } catch (loopError) {
+                  logger.warn('Error looping playback:', loopError);
+                  // Fallback: pause if loop fails
+                  await soundRef.current.pauseAsync();
+                  setIsPlaying(false);
+                  setCurrentTime(startTime);
+                }
               }
             }
           } catch (error) {
@@ -116,7 +182,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
       return () => clearInterval(interval);
     }
-  }, [currentSong, isPlaying, startTime, endTime]);
+  }, [currentSong, isPlaying, startTime, endTime, videoDuration]);
 
   useEffect(() => {
     if (currentSong) {
@@ -184,6 +250,14 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [loading, hasMore, page, loadSongs]);
 
+  // Get the effective max duration based on video duration or default
+  const getMaxSelectionDuration = useCallback(() => {
+    if (videoDuration && videoDuration > 0) {
+      return Math.min(videoDuration, MAX_SELECTION_DURATION);
+    }
+    return MAX_SELECTION_DURATION;
+  }, [videoDuration]);
+
   const loadAudio = async (song: Song) => {
     try {
       if (soundRef.current) {
@@ -192,14 +266,35 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: song.s3Url },
-        { shouldPlay: false }
+        { 
+          shouldPlay: false,
+          progressUpdateIntervalMillis: 200, // Update every 200ms for smooth looping
+          isLooping: false // We handle looping manually to respect startTime/endTime
+        }
       );
       
       soundRef.current = sound;
       setCurrentSong(song);
-      setCurrentTime(0);
+      
+      // Use video duration if provided, otherwise use song duration or max
+      const maxDuration = getMaxSelectionDuration();
+      const songDuration = song.duration || MAX_SELECTION_DURATION;
+      const finalDuration = Math.min(maxDuration, songDuration);
+      
+      // Set initial times - start at 0, end at video duration (or max)
       setStartTime(0);
-      setEndTime(Math.min(MAX_SELECTION_DURATION, song.duration || MAX_SELECTION_DURATION));
+      setEndTime(finalDuration);
+      setCurrentTime(0); // Start at beginning
+      
+      logger.debug('Audio loaded with duration:', {
+        videoDuration,
+        maxDuration,
+        songDuration,
+        finalDuration,
+        startTime: 0,
+        endTime: finalDuration,
+        willLoop: true
+      });
     } catch (error) {
       logger.error('Error loading audio:', error);
       Alert.alert('Error', 'Failed to load audio preview');
@@ -214,9 +309,19 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         await soundRef.current.pauseAsync();
         setIsPlaying(false);
       } else {
+        // Always start playback from startTime to ensure it loops within selected range
         await soundRef.current.setPositionAsync(startTime * 1000);
+        setCurrentTime(startTime);
         await soundRef.current.playAsync();
         setIsPlaying(true);
+        
+        logger.debug('Playback started:', {
+          startTime,
+          endTime,
+          selectionDuration: endTime - startTime,
+          videoDuration,
+          willLoop: true
+        });
       }
     } catch (error) {
       logger.error('Error playing audio:', error);
@@ -254,21 +359,23 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
   const handleSelect = useCallback(async (song: Song) => {
     await loadAudio(song);
-  }, []);
+  }, [getMaxSelectionDuration]); // Include getMaxSelectionDuration to ensure it's available when loadAudio is called
 
   const handleConfirm = () => {
+    const maxDuration = getMaxSelectionDuration();
+    
     if (currentSong) {
-      const maxEndTime = Math.min(endTime, currentSong.duration || MAX_SELECTION_DURATION);
-      const finalEndTime = Math.min(maxEndTime, startTime + MAX_SELECTION_DURATION);
+      const maxEndTime = Math.min(endTime, currentSong.duration || maxDuration);
+      const finalEndTime = Math.min(maxEndTime, startTime + maxDuration);
       
       if (finalEndTime <= startTime) {
-        Alert.alert('Invalid Selection', 'Please select at least 1 second of the song.');
+        Alert.alert('Invalid Selection', 'Please select at least 0.5 seconds of the song.');
         return;
       }
       
       onSelect(currentSong, startTime, finalEndTime);
     } else if (selectedSong) {
-      const finalEndTime = Math.min(endTime, startTime + MAX_SELECTION_DURATION);
+      const finalEndTime = Math.min(endTime, startTime + maxDuration);
       onSelect(selectedSong, startTime, finalEndTime);
     } else {
       Alert.alert('No Song Selected', 'Please select a song first.');
@@ -281,7 +388,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     stopAudio();
     setCurrentSong(null);
     setStartTime(0);
-    setEndTime(MAX_SELECTION_DURATION);
+    const maxDuration = getMaxSelectionDuration();
+    setEndTime(maxDuration);
     onSelect(null);
   };
 
@@ -291,49 +399,120 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const getTimeFromPosition = (x: number, duration: number) => {
+  const getTimeFromPosition = useCallback((x: number, duration: number) => {
+    // Account for padding (handles extend 28px on each side)
+    const adjustedX = x - timelinePaddingRef.current;
     const width = timelineWidthRef.current;
-    const progress = Math.max(0, Math.min(100, (x / width) * 100));
+    const progress = Math.max(0, Math.min(100, (adjustedX / width) * 100));
     return (progress / 100) * duration;
-  };
+  }, []);
 
   const snapToPrecision = (time: number): number => {
     return Math.round(time * 10) / 10;
   };
 
-  const MIN_DRAG_DELTA = 2;
+  const MIN_DRAG_DELTA = 1; // Reduced from 2 for better sensitivity
 
-  // Quick adjust functions for better UX
-  const adjustStartTime = (delta: number) => {
+  // Quick adjust functions for better UX with haptic feedback
+  const adjustStartTime = useCallback((delta: number) => {
     if (!currentSong) return;
+    hapticLight();
+    const maxDuration = getMaxSelectionDuration();
     const duration = currentSong.duration || 0;
-    const newStart = Math.max(0, Math.min(startTime + delta, endTime - 1));
-    const maxEnd = Math.min(duration, newStart + MAX_SELECTION_DURATION);
+    const newStart = Math.max(0, Math.min(startTime + delta, endTime - 0.5)); // Minimum 0.5s gap
+    const maxEnd = Math.min(duration, newStart + maxDuration);
     setStartTime(newStart);
     if (endTime > maxEnd) {
       setEndTime(maxEnd);
     }
-  };
+    // Seek to new start time if playing
+    if (soundRef.current && isPlaying) {
+      soundRef.current.setPositionAsync(newStart * 1000).catch(() => {});
+      setCurrentTime(newStart);
+    }
+  }, [currentSong, startTime, endTime, isPlaying, getMaxSelectionDuration]);
 
-  const adjustEndTime = (delta: number) => {
+  const adjustEndTime = useCallback((delta: number) => {
     if (!currentSong) return;
+    hapticLight();
+    const maxDuration = getMaxSelectionDuration();
     const duration = currentSong.duration || 0;
-    const maxEnd = Math.min(duration, startTime + MAX_SELECTION_DURATION);
-    const newEnd = Math.min(maxEnd, Math.max(endTime + delta, startTime + 1));
+    const maxEnd = Math.min(duration, startTime + maxDuration);
+    const newEnd = Math.min(maxEnd, Math.max(endTime + delta, startTime + 0.5)); // Minimum 0.5s gap
     setEndTime(newEnd);
-  };
+  }, [currentSong, startTime, endTime, getMaxSelectionDuration]);
+  
+  // Tap-to-seek: Tap on timeline to jump to that position
+  const handleTimelineTap = useCallback((evt: any) => {
+    if (!currentSong || isDragging) return;
+    
+    const x = evt.nativeEvent.locationX;
+    const duration = currentSong.duration || 0;
+    const tappedTime = getTimeFromPosition(x, duration);
+    const snappedTime = snapToPrecision(tappedTime);
+    
+    // Haptic feedback
+    hapticMedium();
+    
+    // Seek audio to tapped position
+    if (soundRef.current) {
+      soundRef.current.setPositionAsync(snappedTime * 1000).catch(() => {});
+    }
+    setCurrentTime(snappedTime);
+  }, [currentSong, isDragging, getTimeFromPosition]);
+  
+  // Double-tap to set start/end point
+  const handleTimelineDoubleTap = useCallback((evt: any, pointType: 'start' | 'end') => {
+    if (!currentSong || isDragging) return;
+    
+    const x = evt.nativeEvent.locationX;
+    const duration = currentSong.duration || 0;
+    const tappedTime = getTimeFromPosition(x, duration);
+    const snappedTime = snapToPrecision(tappedTime);
+    
+    // Haptic feedback
+    hapticSuccess();
+    
+    const maxDuration = getMaxSelectionDuration();
+    
+    if (pointType === 'start') {
+      const newStart = Math.max(0, Math.min(snappedTime, endTime - 0.5)); // Minimum 0.5s gap
+      const maxEnd = Math.min(duration, newStart + maxDuration);
+      setStartTime(newStart);
+      if (endTime > maxEnd) {
+        setEndTime(maxEnd);
+      }
+      // Seek audio to new start
+      if (soundRef.current) {
+        soundRef.current.setPositionAsync(newStart * 1000).catch(() => {});
+        setCurrentTime(newStart);
+      }
+    } else {
+      const maxEnd = Math.min(duration, startTime + maxDuration);
+      const newEnd = Math.min(maxEnd, Math.max(snappedTime, startTime + 0.5)); // Minimum 0.5s gap
+      setEndTime(newEnd);
+      // Seek audio to new end
+      if (soundRef.current) {
+        soundRef.current.setPositionAsync(newEnd * 1000).catch(() => {});
+        setCurrentTime(newEnd);
+      }
+    }
+  }, [currentSong, isDragging, startTime, endTime, getTimeFromPosition, getMaxSelectionDuration]);
 
   const startHandlePanResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
+      hapticMedium();
       setIsDragging(true);
       setDragType('start');
+      // Use locationX for better accuracy relative to handle position
       lastDragXRef.current = evt.nativeEvent.locationX;
     },
     onPanResponderMove: (evt) => {
       if (!currentSong || !isDragging) return;
       
+      // Use locationX for relative positioning
       const currentX = evt.nativeEvent.locationX;
       const lastX = lastDragXRef.current;
       
@@ -342,18 +521,30 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       }
       lastDragXRef.current = currentX;
       
+      // Calculate time from position
       const duration = currentSong.duration || 0;
-      const time = getTimeFromPosition(currentX, duration);
+      // Use pageX if locationX is not accurate, otherwise use locationX
+      const relativeX = evt.nativeEvent.locationX !== undefined 
+        ? evt.nativeEvent.locationX 
+        : (evt.nativeEvent.pageX ? evt.nativeEvent.pageX - (timelinePaddingRef.current || 0) : 0);
+      const time = getTimeFromPosition(relativeX, duration);
       const snappedTime = snapToPrecision(time);
       
-      const newStart = Math.max(0, Math.min(snappedTime, endTime - 1));
-      const maxEnd = Math.min(duration, newStart + MAX_SELECTION_DURATION);
+      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
+      const newStart = Math.max(0, Math.min(snappedTime, endTime - 0.5)); // Minimum 0.5s gap
+      const maxEnd = Math.min(duration, newStart + maxDuration);
       setStartTime(newStart);
       if (endTime > maxEnd) {
         setEndTime(maxEnd);
       }
+      // Seek audio in real-time while dragging
+      if (soundRef.current) {
+        soundRef.current.setPositionAsync(newStart * 1000).catch(() => {});
+        setCurrentTime(newStart);
+      }
     },
     onPanResponderRelease: () => {
+      hapticLight();
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
@@ -364,6 +555,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
+      hapticMedium();
       setIsDragging(true);
       setDragType('end');
       lastDragXRef.current = evt.nativeEvent.locationX;
@@ -380,14 +572,25 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       lastDragXRef.current = currentX;
       
       const duration = currentSong.duration || 0;
-      const time = getTimeFromPosition(currentX, duration);
+      // Use locationX if available, otherwise calculate from pageX
+      const relativeX = evt.nativeEvent.locationX !== undefined 
+        ? evt.nativeEvent.locationX 
+        : (evt.nativeEvent.pageX ? evt.nativeEvent.pageX - (timelinePaddingRef.current || 0) : 0);
+      const time = getTimeFromPosition(relativeX, duration);
       const snappedTime = snapToPrecision(time);
       
-      const maxEnd = Math.min(duration, startTime + MAX_SELECTION_DURATION);
-      const newEnd = Math.min(maxEnd, Math.max(snappedTime, startTime + 1));
+      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
+      const maxEnd = Math.min(duration, startTime + maxDuration);
+      const newEnd = Math.min(maxEnd, Math.max(snappedTime, startTime + 0.5)); // Minimum 0.5s gap
       setEndTime(newEnd);
+      // Seek audio in real-time while dragging
+      if (soundRef.current) {
+        soundRef.current.setPositionAsync(newEnd * 1000).catch(() => {});
+        setCurrentTime(newEnd);
+      }
     },
     onPanResponderRelease: () => {
+      hapticLight();
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
@@ -417,7 +620,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       const time = getTimeFromPosition(currentX, duration);
       const snappedTime = snapToPrecision(time);
       
-      const selectionDuration = Math.min(endTime - startTime, MAX_SELECTION_DURATION);
+      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
+      const selectionDuration = Math.min(endTime - startTime, maxDuration);
       const newStart = Math.max(0, Math.min(snappedTime, duration - selectionDuration));
       const newEnd = Math.min(duration, newStart + selectionDuration);
       setStartTime(newStart);
@@ -437,7 +641,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     const startPercent = duration > 0 ? (startTime / duration) * 100 : 0;
     const endPercent = duration > 0 ? (endTime / duration) * 100 : 0;
     const selectionDuration = endTime - startTime;
-    const isMaxDuration = selectionDuration >= MAX_SELECTION_DURATION;
+    const maxDuration = getMaxSelectionDuration();
+    const isMaxDuration = selectionDuration >= maxDuration;
 
     // Generate waveform bars with deterministic heights for consistent rendering
     // Note: Cannot use useMemo here as it's inside a render function (violates Rules of Hooks)
@@ -477,7 +682,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 style={{ marginRight: 4 }}
               />
               <Text style={[styles.durationBadgeText, { color: isMaxDuration ? theme.colors.error : theme.colors.primary }]}>
-                {formatDuration(selectionDuration)} / {formatDuration(MAX_SELECTION_DURATION)}
+                {formatDuration(selectionDuration)} / {formatDuration(maxDuration)}
               </Text>
             </View>
           </View>
@@ -488,7 +693,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           <View 
             style={[styles.timelineWrapper, { overflow: 'visible' }]} 
             onLayout={(event) => {
-              timelineWidthRef.current = event.nativeEvent.layout.width;
+              const width = event.nativeEvent.layout.width;
+              timelineWidthRef.current = width - (timelinePaddingRef.current * 2); // Account for padding
             }}
           >
             {/* Waveform Visualization */}
@@ -511,9 +717,41 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               ))}
             </View>
 
-            {/* Timeline Track */}
-            <View style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40', overflow: 'visible' }]}>
-              {/* Selection Area */}
+            {/* Timeline Track - Tap to Seek, Double-tap to Set Start/End */}
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(evt) => {
+                const now = Date.now();
+                const timeSinceLastTap = now - lastTapRef.current;
+                
+                if (timeSinceLastTap < 400 && lastTapRef.current > 0) {
+                  // Double tap - determine which half to set start/end
+                  const x = evt.nativeEvent.locationX;
+                  const width = timelineWidthRef.current;
+                  const adjustedX = x - timelinePaddingRef.current;
+                  const midPoint = width / 2;
+                  const pointType = adjustedX < midPoint ? 'start' : 'end';
+                  handleTimelineDoubleTap(evt, pointType);
+                  lastTapRef.current = 0; // Reset
+                  if (tapTimeoutRef.current) {
+                    clearTimeout(tapTimeoutRef.current);
+                    tapTimeoutRef.current = null;
+                  }
+                } else {
+                  // Single tap - seek to position (delayed to detect double tap)
+                  lastTapRef.current = now;
+                  if (tapTimeoutRef.current) {
+                    clearTimeout(tapTimeoutRef.current);
+                  }
+                  tapTimeoutRef.current = setTimeout(() => {
+                    handleTimelineTap(evt);
+                    lastTapRef.current = 0;
+                  }, 400);
+                }
+              }}
+              style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40', overflow: 'visible' }]}
+            >
+              {/* Selection Area - Draggable */}
               <View 
                 style={[
                   styles.timelineSelection,
@@ -546,154 +784,96 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 ]}
               />
 
-              {/* Start Handle - Much Larger */}
+              {/* Start Handle - Instagram Style (Larger, More Visible) */}
               <Animated.View
                 style={[
                   styles.timelineHandle,
                   styles.startHandle,
+                  isDragging && dragType === 'start' && styles.handleDragging,
                   {
                     left: startHandleAnim.interpolate({
                       inputRange: [0, 100],
                       outputRange: ['0%', '100%'],
                     }),
                     transform: [
-                      { translateX: -28 } // Center handle on position (half of 56px width)
+                      { translateX: -32 }, // Center handle (64px width)
+                      { scale: isDragging && dragType === 'start' ? 1.15 : 1 }
                     ],
                   }
                 ]}
                 {...startHandlePanResponder.panHandlers}
-                hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+                hitSlop={{ top: 40, bottom: 40, left: 40, right: 40 }}
               >
-                <LinearGradient
-                  colors={[theme.colors.primary, theme.colors.secondary]}
-                  style={styles.handleGradient}
-                >
-                  <View style={styles.handleInner} />
-                  <Ionicons name="chevron-back" size={16} color="#fff" style={styles.handleIcon} />
-                </LinearGradient>
+                <View style={styles.handleOuter}>
+                  <LinearGradient
+                    colors={[theme.colors.primary, theme.colors.secondary]}
+                    style={styles.handleGradient}
+                  >
+                    <View style={styles.handleInnerCircle} />
+                  </LinearGradient>
+                </View>
               </Animated.View>
 
-              {/* End Handle - Much Larger */}
+              {/* End Handle - Instagram Style (Larger, More Visible) */}
               <Animated.View
                 style={[
                   styles.timelineHandle,
                   styles.endHandle,
+                  isDragging && dragType === 'end' && styles.handleDragging,
                   {
                     left: endHandleAnim.interpolate({
                       inputRange: [0, 100],
                       outputRange: ['0%', '100%'],
                     }),
                     transform: [
-                      { translateX: -28 } // Center handle on position (half of 56px width)
+                      { translateX: -32 }, // Center handle (64px width)
+                      { scale: isDragging && dragType === 'end' ? 1.15 : 1 }
                     ],
                   }
                 ]}
                 {...endHandlePanResponder.panHandlers}
-                hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }}
+                hitSlop={{ top: 40, bottom: 40, left: 40, right: 40 }}
               >
-                <LinearGradient
-                  colors={[theme.colors.primary, theme.colors.secondary]}
-                  style={styles.handleGradient}
-                >
-                  <View style={styles.handleInner} />
-                  <Ionicons name="chevron-forward" size={16} color="#fff" style={styles.handleIcon} />
-                </LinearGradient>
+                <View style={styles.handleOuter}>
+                  <LinearGradient
+                    colors={[theme.colors.primary, theme.colors.secondary]}
+                    style={styles.handleGradient}
+                  >
+                    <View style={styles.handleInnerCircle} />
+                  </LinearGradient>
+                </View>
               </Animated.View>
-            </View>
+            </TouchableOpacity>
 
-            {/* Time Labels */}
+            {/* Time Labels - Instagram Style (Below handles) */}
             <View style={styles.timelineLabels}>
               <View style={styles.timeLabelContainer}>
-                <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>
-                  {formatDuration(startTime)}
-                </Text>
-                <Text style={[styles.timeLabelHint, { color: theme.colors.textSecondary + '80' }]}>
-                  Start
+                <View style={[styles.timeLabelBadge, { backgroundColor: theme.colors.primary + '20' }]}>
+                  <Text style={[styles.timeLabel, { color: theme.colors.primary, fontWeight: '700' }]}>
+                    {formatDuration(startTime)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.timeLabelContainer}>
+                <Text style={[styles.timeLabelDuration, { color: theme.colors.textSecondary }]}>
+                  {formatDuration(endTime - startTime)}
                 </Text>
               </View>
               <View style={styles.timeLabelContainer}>
-                <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>
-                  {formatDuration(endTime)}
-                </Text>
-                <Text style={[styles.timeLabelHint, { color: theme.colors.textSecondary + '80' }]}>
-                  End
-                </Text>
+                <View style={[styles.timeLabelBadge, { backgroundColor: theme.colors.primary + '20' }]}>
+                  <Text style={[styles.timeLabel, { color: theme.colors.primary, fontWeight: '700' }]}>
+                    {formatDuration(endTime)}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
 
-          {/* Quick Adjust Buttons */}
-          <View style={styles.quickAdjustContainer}>
-            <View style={styles.quickAdjustGroup}>
-              <Text style={[styles.quickAdjustLabel, { color: theme.colors.textSecondary }]}>Start</Text>
-              <TouchableOpacity
-                onPress={() => adjustStartTime(-5)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="remove" size={18} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>5s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustStartTime(-1)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="remove" size={16} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>1s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustStartTime(1)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add" size={16} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>1s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustStartTime(5)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add" size={18} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>5s</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={[styles.quickAdjustGroup, styles.quickAdjustGroupEnd]}>
-              <Text style={[styles.quickAdjustLabel, { color: theme.colors.textSecondary }]}>End</Text>
-              <TouchableOpacity
-                onPress={() => adjustEndTime(-5)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="remove" size={18} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>5s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustEndTime(-1)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="remove" size={16} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>1s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustEndTime(1)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add" size={16} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>1s</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => adjustEndTime(5)}
-                style={[styles.quickAdjustButton, { backgroundColor: theme.colors.surfaceSecondary }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="add" size={18} color={theme.colors.text} />
-                <Text style={[styles.quickAdjustText, { color: theme.colors.text }]}>5s</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Simplified Help Text - Instagram Style */}
+          <View style={styles.helpTextContainer}>
+            <Text style={[styles.helpText, { color: theme.colors.textSecondary + '80' }]}>
+              Drag the handles to select your favorite part
+            </Text>
           </View>
         </View>
 
@@ -1034,10 +1214,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 1,
   },
   timelineTrack: {
-    height: 8,
-    borderRadius: 4,
+    height: 12, // Increased height for easier dragging (Instagram style)
+    borderRadius: 6,
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: 20,
     overflow: 'visible', // Ensure handles extending beyond track are visible
     width: '100%',
   },
@@ -1055,18 +1235,23 @@ const styles = StyleSheet.create({
   },
   timelineHandle: {
     position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    top: -24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    top: -28,
     zIndex: 3,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  handleDragging: {
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    elevation: 16,
   },
   startHandle: {
     // marginLeft handled inline to work with Animated
@@ -1074,22 +1259,26 @@ const styles = StyleSheet.create({
   endHandle: {
     // marginLeft handled inline to work with Animated
   },
+  handleOuter: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 32,
+    overflow: 'hidden',
+  },
   handleGradient: {
     width: '100%',
     height: '100%',
-    borderRadius: 28,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  handleInner: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  handleInnerCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    marginBottom: 2,
-  },
-  handleIcon: {
-    position: 'absolute',
+    borderWidth: 2,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   timelineLabels: {
     flexDirection: 'row',
@@ -1098,48 +1287,23 @@ const styles = StyleSheet.create({
   },
   timeLabelContainer: {
     alignItems: 'center',
+    flex: 1,
   },
   timeLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 2,
+    fontSize: 13,
+    fontWeight: '700',
   },
-  timeLabelHint: {
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  quickAdjustContainer: {
-    flexDirection: 'column',
-    gap: 12,
-    marginTop: 12,
-  },
-  quickAdjustGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'flex-start',
-  },
-  quickAdjustGroupEnd: {
-    marginTop: 0, // No extra margin, gap handles spacing
-  },
-  quickAdjustLabel: {
+  timeLabelDuration: {
     fontSize: 12,
     fontWeight: '600',
-    marginRight: 4,
-    minWidth: 40,
+    opacity: 0.7,
   },
-  quickAdjustButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  timeLabelBadge: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 4,
-  },
-  quickAdjustText: {
-    fontSize: 12,
-    fontWeight: '600',
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 50,
+    alignItems: 'center',
   },
   playbackControls: {
     flexDirection: 'row',
@@ -1285,5 +1449,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  helpTextContainer: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  helpText: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 14,
   },
 });
