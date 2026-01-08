@@ -28,7 +28,7 @@ import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
-import { createPost, createPostWithProgress, createShort, getPosts, getShorts } from "../../services/posts";
+import { createPost, createPostWithProgress, createShort, createShortWithProgress, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage, getCurrentUser } from "../../services/auth";
 import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
@@ -109,6 +109,7 @@ export default function PostScreen() {
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [songStartTime, setSongStartTime] = useState(0);
   const [songEndTime, setSongEndTime] = useState(60);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null); // Video duration in seconds
   const [showSongSelector, setShowSongSelector] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
@@ -142,14 +143,38 @@ export default function PostScreen() {
   const isSubmittingRef = useRef(false);
 
   // Progress watchdog: detect stalled uploads
-  const PROGRESS_WATCHDOG_INTERVAL = 5000; // 5 seconds
-  const PROGRESS_STALL_THRESHOLD = 10000; // 10 seconds without progress update
+  // Increased thresholds for large file uploads (400MB+)
+  const PROGRESS_WATCHDOG_INTERVAL = 10000; // 10 seconds (increased from 5)
+  const PROGRESS_STALL_THRESHOLD = 60000; // 60 seconds without progress update (increased from 10 for large files)
 
   // Media memory safety: track media references for cleanup
   const mediaRefsRef = useRef<{
     images: Array<{ uri: string }>;
     video: string | null;
   }>({ images: [], video: null });
+
+  // Auto-match song selection duration with video duration when video is selected
+  useEffect(() => {
+    if (selectedVideo && videoDuration && videoDuration > 0) {
+      const MAX_SHORT_DURATION = 60; // Max 60 seconds for shorts
+      const matchedDuration = Math.min(videoDuration, MAX_SHORT_DURATION);
+      
+      // Only update if the current song selection doesn't match video duration
+      if (songEndTime - songStartTime !== matchedDuration) {
+        setSongStartTime(0);
+        setSongEndTime(matchedDuration);
+        logger.debug('Auto-matched song selection with video duration:', {
+          videoDuration,
+          matchedDuration,
+          songStartTime: 0,
+          songEndTime: matchedDuration
+        });
+      }
+    } else if (!selectedVideo && videoDuration) {
+      // Clear video duration when video is removed
+      setVideoDuration(null);
+    }
+  }, [selectedVideo, videoDuration]); // Only watch selectedVideo and videoDuration, not songEndTime to avoid loops
 
   // Check for existing posts and shorts
   const checkExistingContent = async () => {
@@ -313,6 +338,7 @@ export default function PostScreen() {
                 setSelectedVideo(draft.selectedVideo);
               } else {
                 setSelectedVideo(null);
+                setVideoDuration(null); // Clear video duration when video is removed
               }
               if (draft.videoThumbnail && draft.videoThumbnail.trim()) {
                 setVideoThumbnail(draft.videoThumbnail);
@@ -582,6 +608,7 @@ export default function PostScreen() {
         });
         
         setSelectedVideo(null);
+        setVideoDuration(null); // Clear video duration when switching to photo
         setPostType('photo');
         
         // Add a small delay to ensure MediaLibrary is updated with the selected photo
@@ -687,13 +714,14 @@ export default function PostScreen() {
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
         
-        // Check video duration (max 60 minutes = 3600 seconds)
+        // Check video duration (max 60 minutes = 3600 seconds for upload, but max 60 seconds for shorts)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
+        let durationInSeconds: number | null = null;
         if (asset.duration) {
-          const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
+          const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds (for upload validation)
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
-          const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
+          durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
           
           // Log for debugging
           logger.debug('Video duration check:', {
@@ -720,6 +748,36 @@ export default function PostScreen() {
           setSelectedVideo(asset.uri);
           setSelectedImages([]);
           setPostType('short');
+          
+          // Get accurate video duration using Video component
+          let actualDuration: number | null = durationInSeconds;
+          try {
+            const { sound } = await Video.loadAsync({ uri: asset.uri }, { shouldPlay: false });
+            const status = await sound.getStatusAsync();
+            if (status.isLoaded && status.durationMillis) {
+              actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
+              logger.debug('Video duration from Video.loadAsync:', {
+                durationMillis: status.durationMillis,
+                durationSeconds: actualDuration
+              });
+            }
+            await sound.unloadAsync();
+          } catch (videoError) {
+            logger.warn('Failed to get video duration from Video.loadAsync, using asset.duration:', videoError);
+            // Fallback to asset.duration if Video.loadAsync fails
+            actualDuration = durationInSeconds;
+          }
+          
+          // Store video duration and auto-match song selection duration (max 60 seconds for shorts)
+          // The useEffect will automatically sync song selection duration with video duration
+          const MAX_SHORT_DURATION = 60; // Max 60 seconds for shorts
+          const shortDuration = actualDuration ? Math.min(actualDuration, MAX_SHORT_DURATION) : MAX_SHORT_DURATION;
+          setVideoDuration(shortDuration);
+          logger.info('Video selected, duration captured:', {
+            videoDuration: actualDuration,
+            shortDuration: shortDuration
+          });
+          
           // Reset audio choice and show modal to ask user
           setAudioChoice(null);
           setSelectedSong(null);
@@ -842,6 +900,7 @@ export default function PostScreen() {
         });
         
         setSelectedVideo(null);
+        setVideoDuration(null); // Clear video duration when switching to photo
         setPostType('photo');
         
         // Add a small delay to ensure MediaLibrary is updated with the captured photo
@@ -1009,6 +1068,41 @@ export default function PostScreen() {
           setSelectedVideo(asset.uri);
           setSelectedImages([]);
           setPostType('short');
+          
+          // Get accurate video duration using Video component
+          let actualDuration: number | null = durationInSeconds;
+          try {
+            const { sound } = await Video.loadAsync({ uri: asset.uri }, { shouldPlay: false });
+            const status = await sound.getStatusAsync();
+            if (status.isLoaded && status.durationMillis) {
+              actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
+              logger.debug('Video duration from Video.loadAsync (camera):', {
+                durationMillis: status.durationMillis,
+                durationSeconds: actualDuration
+              });
+            }
+            await sound.unloadAsync();
+          } catch (videoError) {
+            logger.warn('Failed to get video duration from Video.loadAsync (camera), using asset.duration:', videoError);
+            // Fallback to asset.duration if Video.loadAsync fails
+            actualDuration = durationInSeconds;
+          }
+          
+          // Store video duration and auto-match song selection duration (max 60 seconds for shorts)
+          // The useEffect will automatically sync song selection duration with video duration
+          const MAX_SHORT_DURATION = 60; // Max 60 seconds for shorts
+          const shortDuration = actualDuration ? Math.min(actualDuration, MAX_SHORT_DURATION) : MAX_SHORT_DURATION;
+          setVideoDuration(shortDuration);
+          logger.info('Camera video captured, duration captured:', {
+            videoDuration: actualDuration,
+            shortDuration: shortDuration
+          });
+          
+          // Reset audio choice and show modal to ask user
+          setAudioChoice(null);
+          setSelectedSong(null);
+          setShowAudioChoiceModal(true);
+          
           try {
             const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
             if (uri && uri.trim()) {
@@ -1530,16 +1624,19 @@ export default function PostScreen() {
     
     setIsLoading(true);
     setIsUploading(true);
-    setUploadProgress({ current: 0, total: 0, percentage: 0 });
+    setUploadProgress({ current: 0, total: 1, percentage: 0 }); // Initialize with total: 1 for shorts
     setUploadError(null);
     
-    // Progress watchdog: detect stalled uploads
+    // Progress watchdog: detect stalled uploads (more lenient for large files)
     uploadSessionRef.current.progressWatchdog = setInterval(() => {
       const now = Date.now();
       const timeSinceLastProgress = now - (uploadSessionRef.current.lastProgressTime || now);
       
+      // For large files, be more lenient - only warn after 60 seconds of no progress
+      // Large files may have periods of slow upload due to network conditions
       if (timeSinceLastProgress > PROGRESS_STALL_THRESHOLD) {
-        logger.warn('Upload progress stalled, may need retry');
+        logger.warn(`Upload progress stalled for ${Math.round(timeSinceLastProgress / 1000)} seconds, but continuing...`);
+        // Don't abort - large files may have slow periods, just log warning
       }
     }, PROGRESS_WATCHDOG_INTERVAL);
     
@@ -1736,14 +1833,48 @@ export default function PostScreen() {
         });
       }
       
-      const response = await createShort(shortData);
+      // Upload with real-time progress tracking
+      const response = await createShortWithProgress(shortData, (progress) => {
+        // Update last progress time for watchdog
+        if (uploadSessionRef.current) {
+          uploadSessionRef.current.lastProgressTime = Date.now();
+        }
+        
+        // Update progress state in real-time
+        // Progress is 0-95% during upload, 95-100% during backend processing
+        setUploadProgress(prev => {
+          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          // Never go backward
+          if (newPercentage < prev.percentage) {
+            logger.warn('Progress attempted to go backward, keeping previous value');
+            return prev;
+          }
+          return {
+            current: 1,
+            total: 1,
+            percentage: newPercentage
+          };
+        });
+        
+        logger.debug('Short upload progress:', progress + '%');
+      });
 
       logger.debug('Short created successfully:', response);
+      
+      // Set final progress to 100% (backend confirmed success)
+      setUploadProgress({
+        current: 1,
+        total: 1,
+        percentage: 100
+      });
       
       // Cleanup progress watchdog
       if (uploadSessionRef.current.progressWatchdog) {
         clearInterval(uploadSessionRef.current.progressWatchdog);
       }
+      
+      // Wait a moment to show 100% progress before showing success
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Media memory safety: release references after successful upload
       releaseMediaReferences();
@@ -1764,6 +1895,7 @@ export default function PostScreen() {
               onPress: () => {
                 clearUploadState();
                 setSelectedVideo(null);
+                setVideoDuration(null); // Clear video duration when video is removed
                 setVideoThumbnail(null);
                 setLocation(null);
                 setLocationMetadata(null);
@@ -1810,8 +1942,18 @@ export default function PostScreen() {
         return; // Don't show error for user-initiated cancellation
       }
       
+      // Check for timeout errors and provide helpful message
+      let errorMessage = error?.message || 'Failed to upload short';
+      if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+        errorMessage = 'Upload took too long. This may happen with large files or slow connections. Please check your internet connection and try again.';
+      } else if (errorMessage.includes('Network error') || errorMessage.includes('network')) {
+        errorMessage = 'Network error occurred. Please check your internet connection and try again.';
+      } else if (errorMessage.includes('413') || errorMessage.includes('too large')) {
+        errorMessage = 'File is too large. Please try a smaller file or compress the video.';
+      }
+      
       // Sanitize error message for user display
-      const sanitizedError = sanitizeErrorForDisplay(error, 'PostUpload');
+      const sanitizedError = sanitizeErrorForDisplay({ message: errorMessage } as Error, 'PostUpload');
       setUploadError(sanitizedError);
       
       // Error & retry UX: show clear error message with retry option
@@ -1855,6 +1997,7 @@ export default function PostScreen() {
     try {
       setIsLoading(true);
       setIsUploading(true);
+      setUploadProgress({ current: 0, total: 1, percentage: 0 }); // Initialize progress for shorts
       
       // Validate pendingShortData before attempting upload
       if (!pendingShortData.video || !pendingShortData.video.uri) {
@@ -1878,19 +2021,52 @@ export default function PostScreen() {
         audioSource: 'user_original',
       });
       
-      const response = await createShort({
+      // Upload with real-time progress tracking
+      const response = await createShortWithProgress({
         ...pendingShortData,
         audioSource: 'user_original',
         copyrightAccepted: true,
         copyrightAcceptedAt: new Date().toISOString(),
+      }, (progress) => {
+        // Update last progress time for watchdog
+        if (uploadSessionRef.current) {
+          uploadSessionRef.current.lastProgressTime = Date.now();
+        }
+        
+        // Update progress state in real-time
+        setUploadProgress(prev => {
+          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          // Never go backward
+          if (newPercentage < prev.percentage) {
+            logger.warn('Progress attempted to go backward, keeping previous value');
+            return prev;
+          }
+          return {
+            current: 1,
+            total: 1,
+            percentage: newPercentage
+          };
+        });
+        
+        logger.debug('Short upload progress:', progress + '%');
       });
 
       logger.debug('Short created successfully:', response);
+      
+      // Set final progress to 100% (backend confirmed success)
+      setUploadProgress({
+        current: 1,
+        total: 1,
+        percentage: 100
+      });
       
       // Cleanup progress watchdog
       if (uploadSessionRef.current.progressWatchdog) {
         clearInterval(uploadSessionRef.current.progressWatchdog);
       }
+      
+      // Wait a moment to show 100% progress before showing success
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Media memory safety: release references after successful upload
       releaseMediaReferences();
@@ -1911,6 +2087,7 @@ export default function PostScreen() {
               onPress: () => {
                 clearUploadState();
                 setSelectedVideo(null);
+                setVideoDuration(null); // Clear video duration when video is removed
                 setVideoThumbnail(null);
                 setLocation(null);
                 setLocationMetadata(null);
@@ -1973,11 +2150,18 @@ export default function PostScreen() {
         } : null,
       });
       
-      // Extract user-friendly error message
+      // Extract user-friendly error message with better handling for large files
       let errorMessage = 'Upload failed. Please try again.';
       if (error?.message) {
-        // Check if it's already a user-friendly message
-        if (!error.message.includes('Error:') && !error.message.includes('TypeError') && !error.message.includes('ReferenceError')) {
+        // Check for specific error types
+        if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+          errorMessage = 'Upload took too long. This may happen with large files or slow connections. Please check your internet connection and try again.';
+        } else if (error.message.includes('Network error') || error.message.includes('network')) {
+          errorMessage = 'Network error occurred. Please check your internet connection and try again.';
+        } else if (error.message.includes('413') || error.message.includes('too large')) {
+          errorMessage = 'File is too large. Please try a smaller file or compress the video.';
+        } else if (!error.message.includes('Error:') && !error.message.includes('TypeError') && !error.message.includes('ReferenceError')) {
+          // Check if it's already a user-friendly message
           errorMessage = error.message;
         } else {
           // Try to extract meaningful part from technical errors
@@ -3406,7 +3590,9 @@ export default function PostScreen() {
       {/* Progress Alert */}
       <ProgressAlert
         visible={isUploading}
-        message={uploadProgress.total > 1 
+        message={postType === 'short' 
+          ? `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`
+          : uploadProgress.total > 1 
           ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
           : "Please wait while your media is being uploaded..."}
         progress={uploadProgress.percentage || 0}
@@ -3416,6 +3602,10 @@ export default function PostScreen() {
           setIsUploading(false);
           setUploadProgress({ current: 0, total: 0, percentage: 0 });
           setIsLoading(false);
+          // Abort upload if in progress
+          if (uploadSessionRef.current?.abortController) {
+            uploadSessionRef.current.abortController.abort();
+          }
         }}
       />
 
@@ -3889,6 +4079,7 @@ export default function PostScreen() {
               onPress={() => {
                 setShowAudioChoiceModal(false);
                 setSelectedVideo(null);
+                setVideoDuration(null); // Clear video duration when video is removed
                 setPostType('photo');
               }}
               activeOpacity={0.7}
@@ -3973,6 +4164,7 @@ export default function PostScreen() {
         selectedSong={selectedSong}
         selectedStartTime={songStartTime}
         selectedEndTime={songEndTime}
+        videoDuration={videoDuration} // Pass video duration to auto-match song selection
       />
 
         {/* Copyright Confirmation Modal */}

@@ -182,12 +182,21 @@ export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
 };
 
 // Approve follow request
-export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number }> => {
+export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number; alreadyProcessed?: boolean }> => {
   try {
     const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/approve`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
+    // If error is "already processed", treat as success (idempotent operation)
+    if (parsedError.userMessage?.toLowerCase().includes('already processed') || 
+        parsedError.userMessage?.toLowerCase().includes('already approved')) {
+      return {
+        message: 'Follow request already approved',
+        followersCount: 0,
+        alreadyProcessed: true
+      };
+    }
     throw new Error(parsedError.userMessage);
   }
 };
