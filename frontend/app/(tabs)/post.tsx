@@ -35,7 +35,7 @@ import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
 import * as VideoThumbnails from "expo-video-thumbnails";
-import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
+import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
 import MentionSuggest from "../../components/MentionSuggest";
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -749,22 +749,25 @@ export default function PostScreen() {
           setSelectedImages([]);
           setPostType('short');
           
-          // Get accurate video duration using Video component
+          // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
           try {
-            const { sound } = await Video.loadAsync({ uri: asset.uri }, { shouldPlay: false });
+            const { sound } = await Audio.Sound.createAsync(
+              { uri: asset.uri },
+              { shouldPlay: false }
+            );
             const status = await sound.getStatusAsync();
             if (status.isLoaded && status.durationMillis) {
               actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
-              logger.debug('Video duration from Video.loadAsync:', {
+              logger.debug('Video duration from Audio.Sound.createAsync:', {
                 durationMillis: status.durationMillis,
                 durationSeconds: actualDuration
               });
             }
             await sound.unloadAsync();
           } catch (videoError) {
-            logger.warn('Failed to get video duration from Video.loadAsync, using asset.duration:', videoError);
-            // Fallback to asset.duration if Video.loadAsync fails
+            logger.warn('Failed to get video duration from Audio.Sound.createAsync, using asset.duration:', videoError);
+            // Fallback to asset.duration if Audio.Sound.createAsync fails
             actualDuration = durationInSeconds;
           }
           
@@ -1038,11 +1041,12 @@ export default function PostScreen() {
         
         // Check video duration (max 60 minutes = 3600 seconds)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
+        let durationInSeconds: number | null = null;
         if (asset.duration) {
           const MAX_VIDEO_DURATION = 60 * 60; // 60 minutes in seconds
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
-          const durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
+          durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
           
           // Log for debugging
           logger.debug('Video duration check:', {
@@ -1069,22 +1073,25 @@ export default function PostScreen() {
           setSelectedImages([]);
           setPostType('short');
           
-          // Get accurate video duration using Video component
+          // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
           try {
-            const { sound } = await Video.loadAsync({ uri: asset.uri }, { shouldPlay: false });
+            const { sound } = await Audio.Sound.createAsync(
+              { uri: asset.uri },
+              { shouldPlay: false }
+            );
             const status = await sound.getStatusAsync();
             if (status.isLoaded && status.durationMillis) {
               actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
-              logger.debug('Video duration from Video.loadAsync (camera):', {
+              logger.debug('Video duration from Audio.Sound.createAsync (camera):', {
                 durationMillis: status.durationMillis,
                 durationSeconds: actualDuration
               });
             }
             await sound.unloadAsync();
           } catch (videoError) {
-            logger.warn('Failed to get video duration from Video.loadAsync (camera), using asset.duration:', videoError);
-            // Fallback to asset.duration if Video.loadAsync fails
+            logger.warn('Failed to get video duration from Audio.Sound.createAsync (camera), using asset.duration:', videoError);
+            // Fallback to asset.duration if Audio.Sound.createAsync fails
             actualDuration = durationInSeconds;
           }
           
