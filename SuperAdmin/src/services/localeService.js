@@ -112,3 +112,18 @@ export const updateLocale = async (id, data) => {
   }
 };
 
+/**
+ * Get all unique countries from all locales (for filter dropdown)
+ * @returns {Promise} Array of unique countries with codes, names, and localeCount
+ */
+export const getUniqueCountries = async () => {
+  try {
+    const response = await api.get('/api/v1/locales/countries');
+    // Backend returns: { success: true, message, countries: [...] } (sendSuccess spreads data)
+    return response.data.countries || [];
+  } catch (error) {
+    logger.error('Error fetching unique countries:', error);
+    throw error;
+  }
+};
+
