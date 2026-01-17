@@ -14,6 +14,7 @@ import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import logger from '../../utils/logger';
+import { getUserShorts } from '../../services/posts';
 
 const { width } = Dimensions.get('window');
 
@@ -32,6 +33,9 @@ export default function UserProfileScreen() {
   const [followRequestSent, setFollowRequestSent] = useState(false);
   const [followState, setFollowState] = useState<FollowState>('FOLLOW');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userShorts, setUserShorts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
+  const [loadingShorts, setLoadingShorts] = useState(false);
   // Ref to track if we're in the middle of a follow/unfollow action
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
@@ -265,6 +269,39 @@ export default function UserProfileScreen() {
         
         userProfile.posts = allPosts;
       }
+      
+      // Fetch shorts if user can view posts (same as own profile page)
+      if (userProfile.canViewPosts) {
+        try {
+          setLoadingShorts(true);
+          // Use same parameters as own profile: getUserShorts(userId, page, limit)
+          const shortsRes = await getUserShorts(id as string, 1, 100);
+          const fetchedShorts = shortsRes.shorts || [];
+          
+          // Log for debugging
+          if (__DEV__ && fetchedShorts.length > 0) {
+            logger.debug('Fetched shorts for other user profile:', {
+              count: fetchedShorts.length,
+              firstShort: {
+                _id: fetchedShorts[0]._id,
+                imageUrl: (fetchedShorts[0] as any).imageUrl?.substring(0, 50),
+                thumbnailUrl: (fetchedShorts[0] as any).thumbnailUrl?.substring(0, 50),
+                mediaUrl: (fetchedShorts[0] as any).mediaUrl?.substring(0, 50),
+              }
+            });
+          }
+          
+          setUserShorts(fetchedShorts);
+        } catch (err) {
+          logger.error('Error fetching shorts:', err);
+          setUserShorts([]);
+        } finally {
+          setLoadingShorts(false);
+        }
+      } else {
+        setUserShorts([]);
+      }
+      
       setProfile(userProfile);
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
@@ -591,44 +628,155 @@ export default function UserProfileScreen() {
           </View>
         </Pressable>
 
-        {/* Recent Posts Section */}
+        {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
           <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
-            <Text style={[styles.postsSectionTitle, { color: profileTheme.textPrimary }]}>Recent Posts</Text>
-            {profile.posts && profile.posts.length > 0 ? (
-              <View style={styles.postsGrid}>
-                {((profile.posts || [])
-                  .sort((a: any, b: any) => {
-                    // Sort by createdAt date (newest first)
-                    const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
-                    const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
-                    return dateB - dateA;
-                  })
-                  .map((item: any, index: number) => (
-                  <Pressable
-                    key={item._id}
-                    style={[
-                      styles.postThumbnail,
-                      { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
-                      (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
-                    ]}
-                    onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
-                  >
-                    <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
-                  </Pressable>
-                  ))
-                )}
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                  <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
-                <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                  This user hasn't shared any posts yet
+            {/* Tabs */}
+            <View style={styles.postsTabsSection}>
+              <Pressable
+                style={[
+                  styles.pillTab,
+                  activeTab === 'posts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                ]}
+                onPress={() => setActiveTab('posts')}
+              >
+                <Text style={[
+                  styles.pillTabText,
+                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary }
+                ]}>
+                  Posts
                 </Text>
-              </View>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.pillTab,
+                  activeTab === 'shorts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                ]}
+                onPress={() => setActiveTab('shorts')}
+              >
+                <Text style={[
+                  styles.pillTabText,
+                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary }
+                ]}>
+                  Shorts
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Posts Tab */}
+            {activeTab === 'posts' && (
+              profile.posts && profile.posts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {((profile.posts || [])
+                    .sort((a: any, b: any) => {
+                      // Sort by createdAt date (newest first)
+                      const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+                      const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+                      return dateB - dateA;
+                    })
+                    .map((item: any, index: number) => (
+                    <Pressable
+                      key={item._id}
+                      style={[
+                        styles.postThumbnail,
+                        { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                        (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                      ]}
+                      onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+                    >
+                      <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+                    </Pressable>
+                    ))
+                  )}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn't shared any posts yet
+                  </Text>
+                </View>
+              )
+            )}
+
+            {/* Shorts Tab */}
+            {activeTab === 'shorts' && (
+              loadingShorts ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color={profileTheme.accent} />
+                </View>
+              ) : userShorts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {userShorts.map((s: any, index: number) => {
+                    // Get thumbnail URL - check multiple fields for compatibility (same as own profile)
+                    const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
+                    
+                    // Validate URI - check if it's a valid URL format
+                    const isValidUri = uri && typeof uri === 'string' && uri.trim() !== '' && 
+                                      (uri.startsWith('http://') || uri.startsWith('https://'));
+                    
+                    if (!isValidUri) {
+                      return (
+                        <Pressable 
+                          key={s._id} 
+                          style={[
+                            styles.postThumbnail,
+                            { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                            (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                          ]}
+                        >
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                        </Pressable>
+                      );
+                    }
+                    return (
+                      <Pressable 
+                        key={s._id} 
+                        style={[
+                          styles.postThumbnail,
+                          { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                          (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                        ]}
+                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}&userId=${id}`)}
+                      >
+                        <Image 
+                          source={{ uri }} 
+                          style={styles.postImage} 
+                          resizeMode="cover"
+                          onError={(error) => {
+                            logger.warn('Short thumbnail failed to load:', {
+                              shortId: s._id,
+                              uri: uri?.substring(0, 100),
+                              imageUrl: (s as any).imageUrl?.substring(0, 50),
+                              thumbnailUrl: (s as any).thumbnailUrl?.substring(0, 50),
+                              mediaUrl: (s as any).mediaUrl?.substring(0, 50),
+                              error: error?.nativeEvent?.error?.message || 'Unknown error'
+                            });
+                          }}
+                        />
+                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="play" size={24} color="#FFFFFF" />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn't shared any shorts yet
+                  </Text>
+                </View>
+              )
             )}
           </View>
         )}
@@ -972,6 +1120,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 24,
   },
+  postsTabsSection: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  pillTab: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  pillTabActive: {
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  pillTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   postsSectionTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -1001,6 +1171,25 @@ const styles = StyleSheet.create({
   postImage: {
     width: '100%',
     height: '100%',
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholderThumbnail: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playIconOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Empty State

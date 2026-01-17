@@ -1237,11 +1237,12 @@ const getUserShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           'user.followers': 0 // Remove followers array from response
+          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, thumbnailUrl, etc.)
         }
       }
     ]);
 
-    // Generate signed URLs for profile pictures
+    // Generate signed URLs for profile pictures and short thumbnails
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       // Generate signed URL for short author's profile picture
       if (short.user && short.user.profilePicStorageKey) {
@@ -1259,6 +1260,146 @@ const getUserShorts = async (req, res) => {
       } else if (short.user && short.user.profilePic) {
         // Legacy: use existing profilePic if no storage key
         // Keep the existing profilePic value
+      }
+
+      // Generate signed URLs for short video and thumbnail
+      let videoUrl = short.videoUrl || null;
+      let imageUrl = short.imageUrl || short.thumbnailUrl || null;
+      
+      // Log initial state for debugging
+      logger.debug(`Processing short ${short._id}`, {
+        hasStorageKey: !!short.storageKey,
+        storageKey: short.storageKey ? short.storageKey.substring(0, 100) : null,
+        hasStorageKeys: !!(short.storageKeys && short.storageKeys.length > 0),
+        storageKeysLength: short.storageKeys ? short.storageKeys.length : 0,
+        storageKeys: short.storageKeys ? short.storageKeys.map(k => k?.substring(0, 50)) : null,
+        hasVideoUrl: !!short.videoUrl,
+        hasImageUrl: !!short.imageUrl,
+        hasThumbnailUrl: !!short.thumbnailUrl
+      });
+      
+      // Priority 1: Check storageKeys array first (most reliable - contains both video and thumbnail)
+      if (short.storageKeys && short.storageKeys.length > 0) {
+        try {
+          // First key is always the video
+          videoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
+          if (!videoUrl) {
+            logger.warn(`Failed to generate video URL from storageKeys[0] for short ${short._id}`);
+          }
+          
+          // Second key is the thumbnail (if it exists)
+          if (short.storageKeys.length > 1 && short.storageKeys[1]) {
+            try {
+              const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+                logger.debug(`Generated thumbnail from storageKeys[1] for short ${short._id}`, {
+                  storageKey: short.storageKeys[1]?.substring(0, 50)
+                });
+              } else {
+                logger.warn(`Failed to generate thumbnail URL from storageKeys[1] for short ${short._id} - returned null`);
+              }
+            } catch (thumbError) {
+              logger.warn(`Failed to generate thumbnail from storageKeys[1] for short ${short._id}:`, {
+                error: thumbError.message,
+                storageKey: short.storageKeys[1]?.substring(0, 50)
+              });
+            }
+          }
+          
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${short._id}`, { 
+            videoUrl: !!videoUrl, 
+            imageUrl: !!imageUrl,
+            storageKeysCount: short.storageKeys.length
+          });
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
+        }
+      } else if (short.storageKey) {
+        // Fallback: Use single storageKey (older shorts might only have this)
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          
+          // For older shorts without storageKeys array, try to use existing thumbnailUrl from DB
+          // Don't try to generate image from video storageKey - it won't work
+          
+          logger.debug(`Generated fresh video URL from storageKey for short ${short._id}`, { videoUrl: !!videoUrl });
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKey for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+        }
+      } else {
+        // No storage keys - use existing URLs from database
+        logger.debug(`Short ${short._id} has no storageKey or storageKeys - using existing URLs from DB`, {
+          hasVideoUrl: !!short.videoUrl,
+          hasImageUrl: !!short.imageUrl,
+          hasThumbnailUrl: !!short.thumbnailUrl
+        });
+      }
+
+      // Update short with generated URLs
+      short.videoUrl = videoUrl;
+      
+      // CRITICAL: Only set imageUrl/thumbnailUrl if we successfully generated a valid one
+      // Validate that imageUrl is a proper URL (not incomplete)
+      if (imageUrl && imageUrl !== videoUrl && imageUrl.trim() !== '') {
+        // Validate URL format - must be a complete URL
+        const isValidUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+        if (isValidUrl && imageUrl.length > 20) { // Basic validation: complete URL
+          short.imageUrl = imageUrl;
+          short.thumbnailUrl = imageUrl;
+        } else {
+          logger.warn(`Short ${short._id} generated invalid thumbnail URL: ${imageUrl?.substring(0, 100)}`);
+          // Fall through to check existing URLs
+          imageUrl = null; // Reset to null so we check existing URLs
+        }
+      }
+      
+      // If no valid generated URL, check existing URLs from database
+      if (!imageUrl || imageUrl === videoUrl) {
+        // Check existing thumbnailUrl first (preferred field for shorts)
+        if (short.thumbnailUrl && short.thumbnailUrl.trim() !== '' && 
+            (short.thumbnailUrl.startsWith('http://') || short.thumbnailUrl.startsWith('https://')) &&
+            short.thumbnailUrl !== short.videoUrl) { // Don't use video URL as thumbnail
+          // Validate URL is complete (has proper structure)
+          if (short.thumbnailUrl.length > 30 && short.thumbnailUrl.includes('/')) {
+            short.imageUrl = short.thumbnailUrl;
+            // Keep thumbnailUrl as is
+            logger.debug(`Short ${short._id} using existing thumbnailUrl from database`);
+          } else {
+            logger.warn(`Short ${short._id} has incomplete thumbnailUrl: ${short.thumbnailUrl?.substring(0, 100)}`);
+            short.imageUrl = null;
+            short.thumbnailUrl = null;
+          }
+        } else if (short.imageUrl && short.imageUrl.trim() !== '' && 
+                   (short.imageUrl.startsWith('http://') || short.imageUrl.startsWith('https://')) &&
+                   short.imageUrl !== short.videoUrl) { // Don't use video URL as thumbnail
+          // Validate URL is complete
+          if (short.imageUrl.length > 30 && short.imageUrl.includes('/')) {
+            short.thumbnailUrl = short.imageUrl;
+            // Keep imageUrl as is
+            logger.debug(`Short ${short._id} using existing imageUrl from database`);
+          } else {
+            logger.warn(`Short ${short._id} has incomplete imageUrl: ${short.imageUrl?.substring(0, 100)}`);
+            short.imageUrl = null;
+            short.thumbnailUrl = null;
+          }
+        } else {
+          // No valid thumbnail available - set to null (frontend will show placeholder)
+          short.imageUrl = null;
+          short.thumbnailUrl = null;
+          logger.warn(`Short ${short._id} has no valid thumbnail URL available`, {
+            storageKey: short.storageKey?.substring(0, 50),
+            storageKeys: short.storageKeys?.map(k => k?.substring(0, 50)),
+            generatedImageUrl: imageUrl?.substring(0, 50),
+            existingImageUrl: short.imageUrl?.substring(0, 50),
+            existingThumbnailUrl: short.thumbnailUrl?.substring(0, 50),
+            videoUrl: short.videoUrl?.substring(0, 50)
+          });
+        }
       }
 
       // Generate signed URLs for comment users' profile pictures
@@ -1287,23 +1428,59 @@ const getUserShorts = async (req, res) => {
       return short;
     }));
 
-    // Defensive: filter out shorts without media URLs and add mediaUrl field
+    // Defensive: filter out shorts without video URLs (video is required, thumbnail is optional)
     const validShorts = shortsWithProfilePics
       .filter(short => {
-        const hasMedia = short.videoUrl || short.imageUrl;
-        if (!hasMedia) {
-          logger.warn(`User short ${short._id} missing mediaUrl, filtering out`);
+        // Video URL is required - shorts must have a video
+        const hasVideo = !!short.videoUrl;
+        if (!hasVideo) {
+          logger.warn(`User short ${short._id} missing videoUrl, filtering out`, {
+            hasVideoUrl: !!short.videoUrl,
+            hasImageUrl: !!short.imageUrl,
+            hasThumbnailUrl: !!short.thumbnailUrl,
+            hasStorageKey: !!short.storageKey,
+            hasStorageKeys: !!(short.storageKeys && short.storageKeys.length > 0)
+          });
         }
-        return hasMedia;
+        return hasVideo;
       })
-      .map(short => ({
-        ...short,
-        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
-        user: {
-          ...short.user,
-          isFollowing: short.isFollowing || false
+      .map(short => {
+        // Ensure we have a thumbnail URL - prioritize imageUrl, then thumbnailUrl
+        // If neither exists, that's okay - frontend will show placeholder
+        const thumbnailUrl = short.imageUrl || short.thumbnailUrl || null;
+        
+        // Validate thumbnail URL format if present
+        let validThumbnailUrl = thumbnailUrl;
+        if (thumbnailUrl) {
+          // Check if URL looks valid (has proper format)
+          const urlPattern = /^https?:\/\/.+/;
+          if (!urlPattern.test(thumbnailUrl)) {
+            logger.warn(`Short ${short._id} has invalid thumbnail URL format: ${thumbnailUrl?.substring(0, 100)}`);
+            validThumbnailUrl = null;
+          }
         }
-      }));
+        
+        // Log for debugging if thumbnail is missing (but don't filter out - video is what matters)
+        if (!validThumbnailUrl && short.videoUrl) {
+          logger.debug(`Short ${short._id} has videoUrl but no valid thumbnailUrl - frontend will show placeholder`, {
+            videoUrl: short.videoUrl ? 'present' : 'missing',
+            imageUrl: short.imageUrl ? 'present' : 'missing',
+            thumbnailUrl: short.thumbnailUrl ? 'present' : 'missing'
+          });
+        }
+        
+        return {
+          ...short,
+          mediaUrl: short.videoUrl, // Use videoUrl as mediaUrl for shorts
+          // CRITICAL: Set thumbnailUrl for frontend display (null is acceptable - shows placeholder)
+          thumbnailUrl: validThumbnailUrl,
+          imageUrl: validThumbnailUrl, // Also set imageUrl for compatibility
+          user: {
+            ...short.user,
+            isFollowing: short.isFollowing || false
+          }
+        };
+      });
 
     const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
 
@@ -2829,6 +3006,12 @@ const createShort = async (req, res) => {
       songVolume: songVolume
     });
     
+    // Build storageKeys array: [video, thumbnail] if thumbnail exists
+    const storageKeys = [videoStorageKey];
+    if (thumbnailStorageKey) {
+      storageKeys.push(thumbnailStorageKey);
+    }
+    
     // Build base post object
     const postData = {
       user: req.user._id,
@@ -2837,7 +3020,9 @@ const createShort = async (req, res) => {
       thumbnailUrl: thumbnailUrl || '', // New field for clarity - thumbnail for shorts
       videoUrl: videoUploadResult.url, // Video URL goes here
       storageKey: videoStorageKey, // Primary storage key for video
+      storageKeys: storageKeys, // CRITICAL: Array with video and thumbnail keys [video, thumbnail]
       cloudinaryPublicId: videoStorageKey, // Backward compatibility
+      cloudinaryPublicIds: storageKeys, // Backward compatibility: use storageKeys as cloudinaryPublicIds
       tags: allHashtags,
       type: 'short',
       location: {

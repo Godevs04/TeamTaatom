@@ -199,33 +199,40 @@ export default function CountryMapScreen() {
   };
 
   // Get locations with coordinates for map rendering
+  // CRITICAL: Only show locations with valid coordinates (no random coordinates)
   const getMapLocations = (countryDisplayName: string): Location[] => {
     if (!data) return [];
-    const withCoords = data.locations.filter(
-      loc => !!loc.coordinates?.latitude && !!loc.coordinates?.longitude
+    
+    // Filter locations to only include those with valid coordinates
+    const markers = data.locations.filter(
+      loc => loc.coordinates?.latitude && 
+             loc.coordinates?.longitude && 
+             loc.coordinates.latitude !== 0 && 
+             loc.coordinates.longitude !== 0 &&
+             !isNaN(loc.coordinates.latitude) &&
+             !isNaN(loc.coordinates.longitude) &&
+             loc.coordinates.latitude >= -90 && 
+             loc.coordinates.latitude <= 90 &&
+             loc.coordinates.longitude >= -180 && 
+             loc.coordinates.longitude <= 180
     );
-    let markers = withCoords.length > 0
-      ? withCoords
-      : data.locations.map((loc) => ({
-          ...loc,
-          coordinates: {
-            latitude: getRandomLatitude(countryDisplayName || ''),
-            longitude: getRandomLongitude(countryDisplayName || ''),
-          },
-        }));
+    
+    // If no valid locations, show center marker as fallback
     if (markers.length === 0) {
-      markers = [{
+      const center = getCountryCenter(countryDisplayName || '');
+      return [{
         name: countryDisplayName || 'Center',
         score: 0,
         date: new Date().toISOString(),
         caption: '',
         category: { fromYou: '', typeOfSpot: '' },
         coordinates: {
-          latitude: getCountryCenter(countryDisplayName || '').latitude,
-          longitude: getCountryCenter(countryDisplayName || '').longitude,
+          latitude: center.latitude,
+          longitude: center.longitude,
         },
-      } as any];
+      } as Location];
     }
+    
     return markers;
   };
 
