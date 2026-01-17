@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
-const { getLocales, getLocaleById, uploadLocale, deleteLocaleById, toggleLocaleStatus, updateLocale } = require('../controllers/localeController');
+const { getLocales, getLocaleById, uploadLocale, deleteLocaleById, toggleLocaleStatus, updateLocale, getUniqueCountries } = require('../controllers/localeController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { sendError } = require('../utils/errorCodes');
 
@@ -101,6 +101,18 @@ const uploadLocaleValidation = [
  *         description: List of active locales
  */
 router.get('/', getLocales);
+
+/**
+ * @swagger
+ * /api/v1/locales/countries:
+ *   get:
+ *     summary: Get all unique countries from locales
+ *     tags: [Locales]
+ *     responses:
+ *       200:
+ *         description: List of unique countries with locale counts
+ */
+router.get('/countries', getUniqueCountries);
 
 /**
  * @swagger
