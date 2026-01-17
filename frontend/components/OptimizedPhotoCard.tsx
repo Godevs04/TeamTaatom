@@ -776,7 +776,7 @@ function PhotoCard({
           onComment={handleOpenComments}
           onShare={handleShareClick}
           onSave={handleSave}
-          showBookmark={showBookmark && currentUser && currentUser._id !== postUser._id}
+          showBookmark={showBookmark} // Allow users to save their own posts
           isLoading={actionLoading.size > 0}
         />
       </View>
@@ -998,7 +998,7 @@ function PhotoCard({
         </TouchableOpacity>
       </Modal>
 
-      {/* Edit Modal */}
+      {/* Edit Modal - Fixed alignment and responsiveness */}
       <Modal
         visible={showEditModal}
         transparent
@@ -1015,8 +1015,9 @@ function PhotoCard({
           style={styles.editModalOverlay}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
+          {/* Overlay background - close modal on press */}
           <TouchableOpacity 
-            style={{ flex: 1 }}
+            style={styles.editModalOverlayTouchable}
             activeOpacity={1}
             onPress={() => {
               if (!isMenuLoading) {
@@ -1025,7 +1026,9 @@ function PhotoCard({
               }
             }}
           >
+            {/* Modal container - prevent close on press */}
             <TouchableOpacity 
+              style={styles.editModalContainerTouchable}
               activeOpacity={1}
               onPress={(e) => e.stopPropagation()}
             >
@@ -1045,31 +1048,31 @@ function PhotoCard({
                   maxLength={1000}
                   autoFocus
                 />
-              <View style={styles.editModalActions}>
-                <TouchableOpacity
-                  style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
-                  onPress={() => {
-                    setShowEditModal(false);
-                    setEditCaption(post.caption || '');
-                  }}
-                >
-                  <Text style={[styles.editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.editModalButton, styles.editModalButtonSave, { backgroundColor: theme.colors.primary, marginLeft: 6 }]}
-                  onPress={handleEditPost}
-                  disabled={isMenuLoading || !editCaption.trim()}
-                >
-                  {isMenuLoading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.editModalButtonTextSave}>Save</Text>
-                  )}
-                </TouchableOpacity>
+                <View style={styles.editModalActions}>
+                  <TouchableOpacity
+                    style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
+                    onPress={() => {
+                      setShowEditModal(false);
+                      setEditCaption(post.caption || '');
+                    }}
+                  >
+                    <Text style={[styles.editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editModalButton, styles.editModalButtonSave, { backgroundColor: theme.colors.primary, marginLeft: 6 }]}
+                    onPress={handleEditPost}
+                    disabled={isMenuLoading || !editCaption.trim()}
+                  >
+                    {isMenuLoading ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.editModalButtonTextSave}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1216,11 +1219,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  editModalOverlayTouchable: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
+  },
+  editModalContainerTouchable: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   editModalContainer: {
     width: '100%',
-    maxWidth: 400,
     borderRadius: 20,
     padding: 24,
     shadowColor: '#000',
