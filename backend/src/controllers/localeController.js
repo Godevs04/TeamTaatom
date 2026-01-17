@@ -689,12 +689,60 @@ const updateLocale = async (req, res) => {
   }
 };
 
+// @desc    Get all unique countries from locales (for filter dropdown)
+// @route   GET /api/v1/locales/countries
+// @access  Public
+const getUniqueCountries = async (req, res) => {
+  try {
+    // Aggregate all unique countries from all locales (not paginated)
+    const uniqueCountries = await Locale.aggregate([
+      {
+        $match: {
+          countryCode: { $exists: true, $ne: null, $ne: '' }
+        }
+      },
+      {
+        $group: {
+          _id: '$countryCode',
+          country: { $first: '$country' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          code: '$_id',
+          name: {
+            $cond: {
+              if: { $and: [{ $ne: ['$country', null] }, { $ne: ['$country', ''] }] },
+              then: '$country',
+              else: '$_id'
+            }
+          },
+          localeCount: '$count'
+        }
+      },
+      {
+        $sort: { name: 1 }
+      }
+    ]);
+
+    return sendSuccess(res, 200, 'Countries fetched successfully', {
+      countries: uniqueCountries
+    });
+  } catch (error) {
+    logger.error('Get unique countries error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching countries');
+  }
+};
+
 module.exports = {
   getLocales,
   getLocaleById,
   uploadLocale,
   deleteLocaleById,
   toggleLocaleStatus,
-  updateLocale
+  updateLocale,
+  getUniqueCountries
 };
 
