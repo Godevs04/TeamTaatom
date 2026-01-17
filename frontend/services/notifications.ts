@@ -63,28 +63,59 @@ export const handleNotificationClick = async (notification: any): Promise<{
     // Determine navigation based on notification type
     switch (notification.type) {
       case 'like':
-      case 'comment':
-        // Navigate to the post/short
-        if (notification.postId) {
+        // Navigate to the liked post/short
+        if (notification.postId || notification.post?._id) {
+          const postId = notification.postId || notification.post?._id;
           return {
             success: true,
-            message: 'Navigating to post...',
+            message: 'Navigating to liked post...',
             shouldNavigate: true,
-            navigationPath: `/post/${notification.postId}`
+            navigationPath: `/post/${postId}`
           };
         }
-        break;
+        // Post was deleted
+        return {
+          success: true,
+          message: 'The post you liked has been deleted by the user.',
+          shouldNavigate: false
+        };
+        
+      case 'comment':
+        // Navigate to the commented post/short
+        if (notification.postId || notification.post?._id) {
+          const postId = notification.postId || notification.post?._id;
+          return {
+            success: true,
+            message: 'Navigating to commented post...',
+            shouldNavigate: true,
+            navigationPath: `/post/${postId}`
+          };
+        }
+        // Post was deleted
+        return {
+          success: true,
+          message: 'The post you commented on has been deleted by the user.',
+          shouldNavigate: false
+        };
+        
       case 'follow':
         // Navigate to user profile
-        if (notification.fromUserId) {
+        if (notification.fromUserId || notification.fromUser?._id) {
+          const userId = notification.fromUserId || notification.fromUser?._id;
           return {
             success: true,
             message: 'Navigating to profile...',
             shouldNavigate: true,
-            navigationPath: `/profile/${notification.fromUserId}`
+            navigationPath: `/profile/${userId}`
           };
         }
-        break;
+        // User account was deleted
+        return {
+          success: true,
+          message: 'This user account is no longer available.',
+          shouldNavigate: false
+        };
+        
       case 'post_deleted':
       case 'short_deleted':
         return {
@@ -92,45 +123,86 @@ export const handleNotificationClick = async (notification: any): Promise<{
           message: 'This content has been deleted by the user.',
           shouldNavigate: false
         };
-      case 'like':
+        
+      case 'mention':
+        // Navigate to the post where user was mentioned
+        if (notification.postId || notification.post?._id) {
+          const postId = notification.postId || notification.post?._id;
+          return {
+            success: true,
+            message: 'Navigating to post...',
+            shouldNavigate: true,
+            navigationPath: `/post/${postId}`
+          };
+        }
         return {
           success: true,
-          message: 'Navigating to liked post...',
-          shouldNavigate: true,
-          navigationPath: `/post/${notification.postId}`
+          message: 'The post you were mentioned in has been deleted.',
+          shouldNavigate: false
         };
-      case 'comment':
+        
+      case 'share':
+        // Navigate to the shared post
+        if (notification.postId || notification.post?._id) {
+          const postId = notification.postId || notification.post?._id;
+          return {
+            success: true,
+            message: 'Navigating to shared post...',
+            shouldNavigate: true,
+            navigationPath: `/post/${postId}`
+          };
+        }
         return {
           success: true,
-          message: 'Navigating to commented post...',
-          shouldNavigate: true,
-          navigationPath: `/post/${notification.postId}`
+          message: 'The shared post has been deleted by the user.',
+          shouldNavigate: false
         };
-      case 'follow':
-        return {
-          success: true,
-          message: 'Navigating to profile...',
-          shouldNavigate: true,
-          navigationPath: `/profile/${notification.fromUserId}`
-        };
+        
       default:
+        // For unknown notification types, don't show a message if navigation is possible
+        if (notification.postId || notification.post?._id) {
+          const postId = notification.postId || notification.post?._id;
+          return {
+            success: true,
+            message: 'Navigating to post...',
+            shouldNavigate: true,
+            navigationPath: `/post/${postId}`
+          };
+        }
+        if (notification.fromUserId || notification.fromUser?._id) {
+          const userId = notification.fromUserId || notification.fromUser?._id;
+          return {
+            success: true,
+            message: 'Navigating to profile...',
+            shouldNavigate: true,
+            navigationPath: `/profile/${userId}`
+          };
+        }
+        // No navigation possible, but successfully processed
         return {
           success: true,
           message: 'Notification processed successfully.',
           shouldNavigate: false
         };
     }
-    
-    return {
-      success: true,
-      message: 'The current action was Removed or Deleted by the user.',
-      shouldNavigate: false
-    };
   } catch (error: any) {
     logger.error('handleNotificationClick', error);
+    const errorMessage = error?.message || '';
+    
+    // Check if error indicates content was deleted
+    if (errorMessage.toLowerCase().includes('deleted') || 
+        errorMessage.toLowerCase().includes('removed') ||
+        errorMessage.toLowerCase().includes('not found')) {
+      return {
+        success: true,
+        message: 'This content is no longer available.',
+        shouldNavigate: false
+      };
+    }
+    
     return {
       success: false,
-      message: error.message || 'Failed to process notification',
+      message: errorMessage || 'Failed to process notification. Please try again.',
       shouldNavigate: false
     };
   }
