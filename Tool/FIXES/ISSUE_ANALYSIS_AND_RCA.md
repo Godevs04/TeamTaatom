@@ -1190,28 +1190,94 @@ Localization/internationalization is not working properly. Text might be showing
 
 ## Summary & Priority Matrix
 
-### Critical (Fix Immediately)
-1. **Issue #4:** Viewing own shorts shows wrong content
-2. **Issue #6:** Uploaded shorts not visible until restart
-3. **Issue #9:** Pause button not working
-4. **Issue #15:** Message notifications not clearing
+### ✅ FIXED Issues
 
-### High Priority (Fix Soon)
-1. **Issue #1:** Profile map locations not marked
-2. **Issue #3:** Explore map TripScore and markers incorrect
-3. **Issue #12:** Text and profile not visible in shorts
+1. **Issue #2:** Shorts cover page not visible - **FIXED**
+   - Backend now includes `thumbnailUrl` in `getUserShorts` response
+   - Signed URLs generated for thumbnail images
+   - Frontend displays thumbnails correctly in profile shorts tab
 
-### Medium Priority (Fix in Next Release)
-1. **Issue #2:** Shorts cover page not visible
-2. **Issue #7:** Location message appearing incorrectly
-3. **Issue #8:** Pause button flexing
-4. **Issue #10:** Save button missing in own posts
-5. **Issue #13:** Notifications not viewing properly
-6. **Issue #14:** Edit post alignment issues
+2. **Issue #3 (Nearby Locations):** Nearby locations not showing properly - **FIXED**
+   - Nearby location calculation implemented in `frontend/app/tripscore/countries/[country]/locations/[location].tsx`
+   - Distance calculation using `calculateDistance` utility
+   - Top 5 nearby locations displayed sorted by distance
 
-### Low-Medium Priority (Fix When Possible)
-1. **Issue #5:** Locale issues
-2. **Issue #11:** Hashtag alignment
+3. **Issue #3 (Duplicate Countries):** Duplicate country names - **FIXED**
+   - `normalizeCountryName` function implemented in `backend/src/controllers/profileController.js`
+   - Maps regions/states to parent countries (e.g., "England" → "United Kingdom")
+   - Applied in `getTripScoreCountries` and country queries
+
+4. **Issue #4:** Viewing own shorts shows wrong content - **FIXED**
+   - `userId` parameter added to shorts navigation from profile
+   - Shorts screen filters by `userId` when parameter present
+   - Only shows user's shorts when navigating from profile
+
+5. **Issue #6:** Uploaded shorts not visible until restart - **FIXED**
+   - Socket.IO integration added to shorts screen
+   - Listens for `short:created` and `invalidate:feed` events
+   - `useFocusEffect` refreshes shorts list on screen focus
+
+6. **Issue #8:** Pause button flexing on like/unlike - **FIXED**
+   - Fixed dimensions (`width: 70, height: 70`) added to pause button
+   - `pointerEvents: 'none'` prevents interaction interference
+   - Direct calculation of pause button visibility (no useMemo in useCallback)
+
+7. **Issue #10:** Save button missing in own posts - **FIXED**
+   - Ownership check removed from `showBookmark` prop
+   - Users can now bookmark their own posts
+   - `PostActions` component updated in `OptimizedPhotoCard.tsx`
+
+8. **Issue #11:** Hashtag alignment in posts - **FIXED**
+   - Replaced `TouchableOpacity` with `Text` components using `onPress`
+   - Same fix applied to mentions in `HashtagMentionText.tsx`
+   - Proper inline text flow and wrapping restored
+
+9. **Issue #12:** Tab bar hiding content in shorts - **FIXED**
+   - Tab bar frozen (always visible, no animation) on shorts page only
+   - `transform: [{ translateY: 0 }]` for shorts page in `_layout.tsx`
+   - `bottomContent` padding increased to account for tab bar height (88px mobile, 70px web)
+
+10. **Issue #14:** Edit post section not aligned properly - **FIXED**
+    - Modal structure reworked with proper centering
+    - `KeyboardAvoidingView` with proper offsets
+    - `editModalOverlayTouchable` and `editModalContainerTouchable` styles added
+
+### ⚠️ PARTIALLY FIXED / NEEDS VERIFICATION
+
+1. **Issue #9:** Pause button click not working - **NEEDS VERIFICATION**
+   - `TouchableWithoutFeedback` exists with `onPress` handler
+   - Pause button has `pointerEvents: 'none'` (may prevent clicks)
+   - Status: Code structure looks correct, needs manual testing
+
+2. **Issue #15:** Message notification visible even after reading - **PARTIALLY FIXED**
+   - Mark-as-seen logic exists in `ChatWindow` component
+   - Socket.IO events for `seen` status implemented
+   - Delay-based marking (3-second) and interaction-based marking present
+   - Status: Implementation complete, needs verification in production
+
+3. **Issue #13:** Notification not viewing properly - **NEEDS VERIFICATION**
+   - Code structure appears correct in `frontend/app/notifications.tsx`
+   - Proper flexbox properties and text truncation
+   - Status: Layout looks correct, needs manual testing on various devices
+
+### ❌ NOT FIXED
+
+1. **Issue #1:** Profile map - Locations added in TripScore not marked - **NOT FIXED**
+   - `getTravelMapData` endpoint (line 1872-1950) only queries `Post` collection
+   - Does not include `TripVisit` locations (verified TripScore locations)
+   - Recommendation: Merge locations from both `Post` and `TripVisit` collections
+   - Filter TripVisits by `verificationStatus: { $in: ['auto_verified', 'approved'] }`
+
+2. **Issue #7:** Location message appearing even when no location added - **NOT FIXED**
+   - Alert still shown on line 656-660 in `frontend/app/(tabs)/post.tsx`
+   - Alert triggers whenever location extraction fails, regardless of user intent
+   - Recommendation: Only show alert if user explicitly wants to add location
+   - Make location extraction opt-in rather than automatic
+
+3. **Issue #5:** Locale not fixed properly - **NOT FIXED**
+   - General i18n implementation issue
+   - Requires comprehensive audit of translation coverage
+   - Needs investigation of locale detection, storage, and provider setup
 
 ---
 
@@ -1258,7 +1324,157 @@ After implementing fixes, test the following scenarios:
 
 ---
 
-**Document Version:** 1.0  
+---
+
+## Issue Status Update
+
+**Document Version:** 1.1  
+**Last Updated:** 2025-01-27  
+**Status Analysis Date:** 2025-01-27  
+**Author:** Development Team  
+**Review Status:** In Progress
+
+### Summary of Fix Status
+
+**Total Issues:** 15  
+**Fixed:** 10  
+**Partially Fixed / Needs Verification:** 3  
+**Not Fixed:** 2
+
+### Detailed Status Breakdown
+
+#### ✅ Fully Fixed (10 issues)
+
+1. **Issue #2: Profile - Shorts Cover Page Not Visible**
+   - Status: ✅ FIXED
+   - Files Modified: `backend/src/controllers/postController.js`, `frontend/app/(tabs)/profile.tsx`, `frontend/app/profile/[id].tsx`
+   - Solution: Backend generates and includes `thumbnailUrl` in `getUserShorts` response with signed URLs
+
+2. **Issue #3 (Nearby Locations): Nearby locations not showing properly**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/app/tripscore/countries/[country]/locations/[location].tsx`
+   - Solution: Implemented nearby location calculation using `calculateDistance` utility, displays top 5 nearby locations
+
+3. **Issue #3 (Duplicate Countries): Duplicate country names in TripScore**
+   - Status: ✅ FIXED
+   - Files Modified: `backend/src/controllers/profileController.js`
+   - Solution: `normalizeCountryName` function implemented to map regions/states to parent countries
+
+4. **Issue #4: Viewing own shorts shows wrong content**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/app/(tabs)/profile.tsx`, `frontend/app/(tabs)/shorts.tsx`
+   - Solution: Added `userId` parameter to navigation, ShortsScreen filters by `userId` when present
+
+5. **Issue #6: Uploaded shorts not visible until restart**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/app/(tabs)/shorts.tsx`
+   - Solution: Socket.IO integration for real-time updates, listens for `short:created` and `invalidate:feed` events
+
+6. **Issue #8: Pause button flexing on like/unlike**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/app/(tabs)/shorts.tsx`
+   - Solution: Fixed dimensions, `pointerEvents: 'none'`, direct calculation of visibility
+
+7. **Issue #10: Save button missing in own posts**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/components/OptimizedPhotoCard.tsx`
+   - Solution: Removed ownership check from `showBookmark` prop
+
+8. **Issue #11: Hashtag alignment in posts**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/components/HashtagText.tsx`, `frontend/components/HashtagMentionText.tsx`, `frontend/components/post/PostCaption.tsx`
+   - Solution: Replaced `TouchableOpacity` with `Text` components using `onPress` for inline flow
+
+9. **Issue #12: Tab bar hiding content in shorts**
+   - Status: ✅ FIXED
+   - Files Modified: `frontend/app/(tabs)/_layout.tsx`, `frontend/app/(tabs)/shorts.tsx`
+   - Solution: Tab bar frozen on shorts page (no animation), padding adjusted to account for tab bar height
+
+10. **Issue #14: Edit post section not aligned properly**
+    - Status: ✅ FIXED
+    - Files Modified: `frontend/components/OptimizedPhotoCard.tsx`
+    - Solution: Modal structure reworked with proper centering, `KeyboardAvoidingView` adjustments
+
+#### ⚠️ Partially Fixed / Needs Verification (3 issues)
+
+1. **Issue #9: Pause button click not working**
+   - Status: ⚠️ NEEDS VERIFICATION
+   - Current Implementation: `TouchableWithoutFeedback` with `onPress` handler exists, but pause button has `pointerEvents: 'none'`
+   - Issue: May prevent clicks despite handler being present
+   - Recommendation: Test manually, verify touch events work correctly, may need to adjust `pointerEvents` or event handling
+
+2. **Issue #15: Message notification visible even after reading**
+   - Status: ⚠️ PARTIALLY FIXED (Needs Verification)
+   - Current Implementation: Mark-as-seen logic exists with Socket.IO integration, delay-based (3-second) and interaction-based marking
+   - Files: `frontend/app/chat/index.tsx`
+   - Recommendation: Verify in production that unread count clears correctly when chat is opened and messages are viewed
+
+3. **Issue #13: Notification not viewing properly**
+   - Status: ⚠️ NEEDS VERIFICATION
+   - Current Implementation: Code structure appears correct with proper flexbox properties and text truncation
+   - Files: `frontend/app/notifications.tsx`
+   - Recommendation: Manual testing on various screen sizes and devices to verify layout correctness
+
+#### ❌ Not Fixed (2 issues)
+
+1. **Issue #1: Profile map - Locations added in TripScore not marked**
+   - Status: ❌ NOT FIXED
+   - Current State: `getTravelMapData` endpoint only queries `Post` collection (line 1872-1950 in `backend/src/controllers/profileController.js`)
+   - Issue: Does not include `TripVisit` locations (verified TripScore locations)
+   - Recommended Solution:
+     - Merge locations from both `Post` and `TripVisit` collections in `getTravelMapData`
+     - Filter TripVisits by `verificationStatus: { $in: ['auto_verified', 'approved'] }`
+     - Deduplicate using `getLocationKey` logic
+     - Combine and sort by date
+   - Priority: High (affects complete travel history visualization)
+
+2. **Issue #7: Location message appearing even when no location added**
+   - Status: ❌ NOT FIXED
+   - Current State: Alert shown on line 656-660 in `frontend/app/(tabs)/post.tsx` whenever location extraction fails
+   - Issue: Alert triggers regardless of user intent to add location
+   - Recommended Solution:
+     - Only show alert if user explicitly wants to add location
+     - Make location extraction opt-in rather than automatic
+     - Add flag to track user intent
+   - Priority: Medium (UX issue, not critical functionality)
+
+3. **Issue #5: Locale not fixed properly**
+   - Status: ❌ NOT FIXED
+   - Current State: General i18n issue requiring comprehensive investigation
+   - Issues: Missing translation keys, locale detection, storage, provider setup
+   - Recommended Solution:
+     - Audit all text strings for translation keys
+     - Implement proper locale detection from device settings
+     - Fix i18n provider setup and translation loading
+   - Priority: Low-Medium (affects internationalization but doesn't break core functionality)
+
+---
+
+### Codebase Analysis Notes
+
+**Analysis Date:** 2025-01-27
+
+**Backend Analysis:**
+- TripScore locations stored in `TripVisit` collection with `verificationStatus` in `['auto_verified','approved']`
+- `getTravelMapData` only queries `Post` collection, creating disconnect with TripScore data
+- `normalizeCountryName` function successfully implemented for country name deduplication
+- `createTripVisitFromPost` correctly skips posts without location (Issue #6 fix verified in codebase)
+
+**Frontend Analysis:**
+- Shorts thumbnails now properly fetched and displayed in profile pages
+- Socket.IO integration present in shorts screen for real-time updates
+- Pause button positioning fixed with stable dimensions
+- Hashtag/mention alignment fixed using `Text` with `onPress` instead of `TouchableOpacity`
+- Tab bar frozen on shorts page with proper padding for content visibility
+
+**Areas Requiring Attention:**
+1. Profile map endpoint needs to merge `Post` and `TripVisit` data
+2. Location extraction alert needs conditional logic based on user intent
+3. i18n implementation needs comprehensive audit
+
+---
+
+**Document Version:** 1.1  
 **Last Updated:** 2025-01-27  
 **Author:** Development Team  
-**Review Status:** Pending Review
+**Review Status:** In Progress

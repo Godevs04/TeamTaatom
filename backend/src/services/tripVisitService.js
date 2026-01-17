@@ -313,10 +313,17 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       typeof lng === 'number' &&
       !(lat === 0 && lng === 0);
     
-    // Scenario 5: Only skip if BOTH coordinates are missing/0 AND address is completely empty/null
-    // If location object exists, create TripVisit (even with 0,0 and "Unknown Location" = manual location needs review)
-    if (!hasValidCoords && (!post.location.address || post.location.address.trim() === '')) {
-      logger.debug('[TripVisit Debug] Scenario 5: Post has no meaningful location data (no address and no valid coordinates), skipping TripVisit creation');
+    // Check if address is meaningful (not empty and not default "Unknown Location")
+    const hasMeaningfulAddress = 
+      post.location.address && 
+      post.location.address.trim() !== '' && 
+      post.location.address.trim() !== 'Unknown Location';
+    
+    // Scenario 5: Skip TripVisit creation if location was not entered by user
+    // This happens when: coordinates are 0,0 AND address is empty/null OR "Unknown Location"
+    // This prevents posts/shorts without location from going to admin approval and adding tripscore points
+    if (!hasValidCoords && !hasMeaningfulAddress) {
+      logger.debug('[TripVisit Debug] Scenario 5: Post has no location entered by user (coordinates 0,0 and address is empty/null/"Unknown Location"), skipping TripVisit creation - no tripscore points, no admin approval');
       return null;
     }
     

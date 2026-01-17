@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
+import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
 import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
@@ -39,6 +39,7 @@ import { theme } from '../../constants/theme';
 import { audioManager } from '../../utils/audioManager';
 import PostLocation from '../../components/post/PostLocation';
 import { geocodeAddress } from '../../utils/locationUtils';
+import { socketService } from '../../services/socket';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -108,6 +109,25 @@ export default function ShortsScreen() {
   const lastNavigationUserIdRef = useRef<string | null>(null);
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  // Ref to store loadShorts function for socket handlers (prevents stale closure)
+  const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  // Refs for handlers to avoid recreating renderItem on every handler change
+  const handlersRef = useRef({
+    handleTouchStart: null as any,
+    handleTouchMove: null as any,
+    handleTouchEnd: null as any,
+    toggleVideoPlayback: null as any,
+    showPauseButtonTemporarily: null as any,
+    handleDeleteShort: null as any,
+    handleProfilePress: null as any,
+    handleLike: null as any,
+    handleComment: null as any,
+    handleShare: null as any,
+    handleSave: null as any,
+    getVideoUrl: null as any,
+    refetchShortWithFreshUrl: null as any,
+    retryVideoLoad: null as any,
+  });
   
   const { theme, mode } = useTheme();
   const router = useRouter();
@@ -221,8 +241,10 @@ export default function ShortsScreen() {
     }, 3000);
     
     // Cleanup video refs on unmount
+    // Note: Socket subscriptions are handled in a separate useEffect after loadShorts is defined
     return () => {
       clearTimeout(timer);
+      
       // Cleanup all video refs
       const cleanupPromises = Object.values(videoRefs.current).map(async (video) => {
         if (video) {
@@ -259,22 +281,42 @@ export default function ShortsScreen() {
       activeVideoIdRef.current = null;
       lastViewedShortIdRef.current = null;
     };
-  }, []);
+  }, [params.userId]);
+
 
   // Handle app backgrounding/foregrounding and screen focus/blur
   // Pause videos when screen loses focus or app goes to background
   // Uses centralized pauseCurrentVideo helper to prevent race conditions
   // Reset navigation guard when screen comes into focus (user navigated back)
+  // CRITICAL: Refresh shorts feed when screen comes into focus (real-time updates after upload)
   useFocusEffect(
     useCallback(() => {
       // Reset navigation guard when returning to screen
       isNavigatingRef.current = false;
       lastNavigationUserIdRef.current = null;
       
+      // Refresh shorts feed when screen comes into focus (handles real-time updates after upload)
+      // Use a small delay to prevent unnecessary refreshes on every tab switch
+      // This ensures newly uploaded shorts appear immediately when user navigates to shorts tab
+      const refreshTimer = setTimeout(() => {
+        // Only refresh if we're not filtering by a specific user (general feed)
+        const userIdParam = params.userId;
+        const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+        if (!shouldFilterByUser) {
+          logger.debug('Shorts screen focused - refreshing feed for real-time updates');
+          // Use ref to avoid stale closure issues
+          const loadFn = loadShortsRef.current;
+          if (loadFn) {
+            loadFn();
+          }
+        }
+      }, 300); // Small delay to prevent excessive refreshes on rapid tab switching
+      
       return () => {
+        clearTimeout(refreshTimer);
         // Cleanup on blur if needed
       };
-    }, [])
+    }, [params.userId])
   );
 
   useFocusEffect(
@@ -698,10 +740,25 @@ export default function ShortsScreen() {
     }, delay);
   }, [shorts, getVideoUrl]);
 
-  const loadShorts = async () => {
+  const loadShorts = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await getShorts(1, 20);
+      
+      // CRITICAL: If userId is provided in params, filter to show only that user's shorts
+      // This ensures when clicking from another user's profile, only their shorts are shown
+      const userIdParam = params.userId;
+      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      
+      let response;
+      if (shouldFilterByUser) {
+        // Load only the specified user's shorts (from profile page)
+        logger.debug(`Loading shorts for specific user: ${userIdParam}`);
+        response = await getUserShorts(userIdParam, 1, 100); // Get more shorts for user-specific view
+      } else {
+        // Load all shorts (general feed)
+        response = await getShorts(1, 20);
+      }
+      
       // Clear video cache when loading new shorts (old URLs might be expired)
       videoCacheRef.current.clear();
       setShorts(response.shorts);
@@ -735,7 +792,59 @@ export default function ShortsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [params.userId, params.shortId, showError]);
+
+  // Update ref whenever loadShorts changes (for socket handlers)
+  useEffect(() => {
+    loadShortsRef.current = loadShorts;
+  }, [loadShorts]);
+
+  // CRITICAL: Subscribe to Socket.IO events for real-time feed updates after loadShorts is defined
+  // Listen for 'short:created' and 'invalidate:feed' events to refresh feed immediately
+  useEffect(() => {
+    const handleShortCreated = (payload: { shortId?: string }) => {
+      logger.debug('Short created event received, refreshing feed:', payload);
+      // Only refresh if we're not filtering by a specific user (general feed)
+      const userIdParam = params.userId;
+      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      if (!shouldFilterByUser) {
+        // Refresh feed to show new short immediately using ref to avoid stale closure
+        const loadFn = loadShortsRef.current;
+        if (loadFn) {
+          loadFn();
+        }
+      }
+    };
+    
+    const handleInvalidateFeed = () => {
+      logger.debug('Feed invalidation event received, refreshing shorts feed');
+      // Only refresh if we're not filtering by a specific user (general feed)
+      const userIdParam = params.userId;
+      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      if (!shouldFilterByUser) {
+        // Refresh feed to show updated content using ref to avoid stale closure
+        const loadFn = loadShortsRef.current;
+        if (loadFn) {
+          loadFn();
+        }
+      }
+    };
+    
+    // Subscribe to socket events for real-time updates
+    socketService.subscribe('short:created', handleShortCreated).catch(err => {
+      logger.warn('Error subscribing to short:created event:', err);
+    });
+    
+    socketService.subscribe('invalidate:feed', handleInvalidateFeed).catch(err => {
+      logger.warn('Error subscribing to invalidate:feed event:', err);
+    });
+    
+    // Cleanup: Unsubscribe from socket events when component unmounts or params change
+    return () => {
+      socketService.unsubscribe('short:created', handleShortCreated);
+      socketService.unsubscribe('invalidate:feed', handleInvalidateFeed);
+    };
+  }, [params.userId]); // Only depend on params.userId, not loadShorts (use ref instead)
 
   // Pause all videos except the specified one to ensure only one plays at a time
   const pauseAllVideosExcept = useCallback(async (activeVideoId: string | null) => {
@@ -1158,6 +1267,27 @@ export default function ShortsScreen() {
     setSwipeStartY(null);
   };
 
+  // CRITICAL: Update handlers ref whenever handlers change (prevents stale closures in renderShortItem)
+  // This MUST be after all handlers are defined
+  useEffect(() => {
+    handlersRef.current = {
+      handleTouchStart,
+      handleTouchMove,
+      handleTouchEnd,
+      toggleVideoPlayback,
+      showPauseButtonTemporarily,
+      handleDeleteShort,
+      handleProfilePress,
+      handleLike,
+      handleComment,
+      handleShare,
+      handleSave,
+      getVideoUrl,
+      refetchShortWithFreshUrl,
+      retryVideoLoad,
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad]);
+
   // Memoized video item component to prevent unnecessary re-renders
   // Only re-renders when relevant props change (currentVisibleIndex, videoStates, etc.)
   // CRITICAL: Conditionally renders Video component to prevent memory leaks
@@ -1175,6 +1305,11 @@ export default function ShortsScreen() {
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
+    
+    // Calculate pause button visibility and icon - isolated from like state to prevent flexing
+    // These values are stable during like/unlike actions since they only depend on video state
+    const shouldShowPauseButton = showPauseButton[item._id] || !videoStates[item._id];
+    const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
     
     // Debug: Log song data
     if (item.song) {
@@ -1199,19 +1334,19 @@ export default function ShortsScreen() {
           {/* Video Player with Gesture Handling */}
           <View
             style={styles.videoContainer}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={(event) => handleTouchEnd(event, item.user._id)}
+            onTouchStart={handlersRef.current.handleTouchStart}
+            onTouchMove={handlersRef.current.handleTouchMove}
+            onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
           >
             <TouchableWithoutFeedback 
               onPress={() => {
-                toggleVideoPlayback(item._id);
-                showPauseButtonTemporarily(item._id);
+                handlersRef.current.toggleVideoPlayback(item._id);
+                handlersRef.current.showPauseButtonTemporarily(item._id);
               }}
               onLongPress={() => {
                 // Only allow delete for own content
                 if (item.user._id === currentUser?._id) {
-                  handleDeleteShort(item._id);
+                  handlersRef.current.handleDeleteShort(item._id);
                 }
               }}
             >
@@ -1219,11 +1354,11 @@ export default function ShortsScreen() {
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
               {shouldRenderVideo ? (
                 <Video
-                key={`video-${item._id}-${getVideoUrl(item)}`}
+                key={`video-${item._id}-${handlersRef.current.getVideoUrl(item)}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
-                source={{ uri: getVideoUrl(item) }}
+                source={{ uri: handlersRef.current.getVideoUrl(item) }}
                 style={styles.shortVideo}
                 resizeMode={ResizeMode.COVER}
                 // Autoplay behavior: only play if this is the current visible index
@@ -1295,7 +1430,7 @@ export default function ShortsScreen() {
                     if (isExpiredUrl) {
                       // URL likely expired - refetch short data to get fresh signed URL
                       logger.debug(`Video ${item._id} URL expired, refetching from backend...`);
-                      refetchShortWithFreshUrl(item._id).then((freshShort) => {
+                      handlersRef.current.refetchShortWithFreshUrl(item._id).then((freshShort: PostType | null) => {
                         if (freshShort && freshShort.mediaUrl) {
                           // Update the short in state with fresh URL
                           setShorts(prev => prev.map(s => 
@@ -1323,10 +1458,10 @@ export default function ShortsScreen() {
                             }, 500);
                           }
                         }
-                      }).catch((refetchError) => {
+                      }).catch((refetchError: any) => {
                         logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
                         // Fallback: retry with current URL after delay
-                        retryVideoLoad(item._id, 1000);
+                        handlersRef.current.retryVideoLoad(item._id, 1000);
                       });
                     } else {
                       // Not an expired URL error, just retry loading
@@ -1456,12 +1591,12 @@ export default function ShortsScreen() {
             style={styles.bottomGradient}
           />
           
-          {/* Play/Pause Overlay */}
-          {(showPauseButton[item._id] || !videoStates[item._id]) && (
-            <View style={styles.playButton}>
+          {/* Play/Pause Overlay - Memoized to prevent flexing during like/unlike */}
+          {shouldShowPauseButton && (
+            <View style={styles.playButton} pointerEvents="none">
               <View style={styles.playButtonBlur}>
                 <Ionicons 
-                  name={videoStates[item._id] ? "pause" : "play"} 
+                  name={pauseButtonIcon} 
                   size={50} 
                   color="white" 
                 />
@@ -1509,7 +1644,7 @@ export default function ShortsScreen() {
             {/* Like Button */}
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => handleLike(item._id)}
+              onPress={() => handlersRef.current.handleLike(item._id)}
               disabled={actionLoading === item._id}
             >
               <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
@@ -1525,7 +1660,7 @@ export default function ShortsScreen() {
             {/* Comment Button */}
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => handleComment(item._id)}
+              onPress={() => handlersRef.current.handleComment(item._id)}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="chatbubble-outline" size={28} color="white" />
@@ -1536,7 +1671,7 @@ export default function ShortsScreen() {
             {/* Share Button */}
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => handleShare(item)}
+              onPress={() => handlersRef.current.handleShare(item)}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="paper-plane-outline" size={28} color="white" />
@@ -1546,7 +1681,7 @@ export default function ShortsScreen() {
             {/* Save Button */}
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => handleSave(item._id)}
+              onPress={() => handlersRef.current.handleSave(item._id)}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons 
@@ -1568,7 +1703,7 @@ export default function ShortsScreen() {
             <View style={styles.bottomContentInner}>
               <TouchableOpacity 
                 style={styles.userProfileSection}
-                onPress={() => handleProfilePress(item.user._id)}
+                onPress={() => handlersRef.current.handleProfilePress(item.user._id)}
                 activeOpacity={0.7}
               >
                 <View style={styles.avatarContainer}>
@@ -1697,7 +1832,7 @@ export default function ShortsScreen() {
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, swipeAnimation, fadeAnimation, handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, shorts]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, swipeAnimation, fadeAnimation]);
 
   // Memoize keyExtractor and getItemLayout at top level (before conditional returns)
   const keyExtractor = useCallback((item: PostType) => item._id, []);
@@ -1857,6 +1992,7 @@ export default function ShortsScreen() {
         initialNumToRender={3}
         maxToRenderPerBatch={2}
         windowSize={5}
+        updateCellsBatchingPeriod={50} // Batch updates every 50ms for better performance
         onScroll={handleScroll}
         scrollEventThrottle={16}
         directionalLockEnabled={false}
@@ -2024,8 +2160,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: '50%',
     left: '50%',
-    transform: [{ translateX: -35 }, { translateY: -35 }],
+    transform: [{ translateX: -35 }, { translateY: -35 }], // Fixed transform for stability
     zIndex: 10,
+    width: 70, // Fixed dimensions to prevent flexing during re-renders
+    height: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   playButtonBlur: {
     width: 70,
@@ -2133,8 +2273,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 80,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    paddingTop: 16, // Reduced from 20 to move content up slightly
+    // Tab bar is frozen (visible) on shorts page (88px height on mobile, 70px on web)
+    // Add padding to ensure text content (name, location, caption, hashtags) is above the tab bar
+    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 102 : 122) : (isWeb ? 102 : 112), // Tab bar height (88/70) + safe area
+    paddingTop: 16,
     paddingHorizontal: 20,
     zIndex: 5,
   },
