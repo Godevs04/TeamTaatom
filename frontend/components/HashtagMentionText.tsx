@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { searchUsers } from '../services/profile';
@@ -144,35 +144,31 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
       {parts.map((part, index) => {
         if (part.type === 'hashtag' && part.value) {
           return (
-            <TouchableOpacity
+            <Text
               key={index}
               onPress={() => handleHashtagPress(part.text)}
-              activeOpacity={0.7}
+              style={[styles.hashtag, { color: theme.colors.primary }]}
             >
-              <Text style={[styles.hashtag, { color: theme.colors.primary }]}>
-                {part.text}
-              </Text>
-            </TouchableOpacity>
+              {part.text}
+            </Text>
           );
         }
         if (part.type === 'mention' && part.value) {
           const isLoading = loadingMention === part.value;
+          // For mentions, use Text with onPress for proper text flow
+          // Note: ActivityIndicator cannot be used inline, so we disable interaction during loading
           return (
-            <TouchableOpacity
+            <Text
               key={index}
-              onPress={() => handleMentionPress(part.value!)}
-              activeOpacity={0.7}
-              disabled={isLoading}
-              style={styles.mentionContainer}
+              onPress={() => !isLoading && handleMentionPress(part.value!)}
+              style={[
+                styles.mention,
+                { color: theme.colors.primary },
+                isLoading && styles.mentionLoading
+              ]}
             >
-              {isLoading ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              ) : (
-              <Text style={[styles.mention, { color: theme.colors.primary }]}>
-                {part.text}
-              </Text>
-              )}
-            </TouchableOpacity>
+              {part.text}
+            </Text>
           );
         }
         return <Text key={index}>{part.text}</Text>;
@@ -192,11 +188,8 @@ const styles = StyleSheet.create({
   mention: {
     fontWeight: '600',
   },
-  mentionContainer: {
-    minWidth: 20,
-    minHeight: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  mentionLoading: {
+    opacity: 0.6,
   },
 });
 

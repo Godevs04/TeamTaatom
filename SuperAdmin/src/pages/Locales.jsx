@@ -101,6 +101,10 @@ const Locales = () => {
   const [bulkActionType, setBulkActionType] = useState(null) // 'enable' or 'disable'
   const [bulkActionProgress, setBulkActionProgress] = useState({ current: 0, total: 0 })
   const [isBulkActionInProgress, setIsBulkActionInProgress] = useState(false)
+  const [allCountries, setAllCountries] = useState([]) // All unique countries from database
+  const [loadingCountries, setLoadingCountries] = useState(false)
+  const [countryFilterOpen, setCountryFilterOpen] = useState(false) // Dropdown open state
+  const [countrySearchQuery, setCountrySearchQuery] = useState('') // Search within country filter
   
   // Place detection state
   const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false)
@@ -1497,11 +1501,64 @@ const Locales = () => {
     }
   }
 
-  // Get unique country codes for filter
+  // Load all unique countries from locales data
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    
+    try {
+      setLoadingCountries(true);
+      // Extract unique countries from locales
+      const countryMap = new Map();
+      
+      locales.forEach(locale => {
+        if (locale.countryCode) {
+          if (!countryMap.has(locale.countryCode)) {
+            countryMap.set(locale.countryCode, {
+              code: locale.countryCode,
+              name: locale.country || locale.countryCode,
+              localeCount: 0
+            });
+          }
+          // Increment count
+          countryMap.get(locale.countryCode).localeCount += 1;
+        }
+      });
+      
+      const countries = Array.from(countryMap.values()).sort((a, b) => 
+        (a.name || a.code).localeCompare(b.name || b.code)
+      );
+      
+      if (isMountedRef.current) {
+        setAllCountries(countries);
+      }
+    } catch (error) {
+      logger.error('Failed to process countries from locales:', error);
+      if (isMountedRef.current) {
+        setAllCountries([]);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoadingCountries(false);
+      }
+    }
+  }, [locales]) // Update when locales change
+
+  // Get filtered countries based on search query
+  const filteredCountries = useMemo(() => {
+    if (!countrySearchQuery.trim()) {
+      return allCountries;
+    }
+    const query = countrySearchQuery.toLowerCase().trim();
+    return allCountries.filter(country => 
+      country.name?.toLowerCase().includes(query) || 
+      country.code?.toLowerCase().includes(query)
+    );
+  }, [allCountries, countrySearchQuery])
+
+  // Get unique country codes for filter (backward compatibility - now using allCountries)
   const countryCodes = useMemo(() => {
-    const codes = [...new Set(locales.map(l => l.countryCode).filter(Boolean))]
-    return codes.sort()
-  }, [locales])
+    return allCountries.map(c => c.code).sort()
+  }, [allCountries])
 
   const SortIcon = ({ field }) => {
     if (sortField !== field) return null
@@ -1855,23 +1912,128 @@ const Locales = () => {
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
               />
             </div>
+            {/* Enhanced Country Filter with Search */}
             <div className="relative">
-              <Filter className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
-              <select
-                value={selectedCountryCode}
-                onChange={(e) => {
-                  setSelectedCountryCode(e.target.value)
-                  setCurrentPage(1)
-                }}
-                className="pl-12 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer transition-all"
+              <button
+                type="button"
+                onClick={() => setCountryFilterOpen(!countryFilterOpen)}
+                className="flex items-center gap-3 pl-4 pr-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl text-gray-900 hover:border-green-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all min-w-[200px] md:min-w-[240px]"
               >
-                <option value="all">All Countries</option>
-                {countryCodes.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
+                <Filter className="w-5 h-5 text-green-600" />
+                <span className="flex-1 text-left font-medium">
+                  {selectedCountryCode === 'all' 
+                    ? 'All Countries' 
+                    : allCountries.find(c => c.code === selectedCountryCode)?.name || selectedCountryCode}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${countryFilterOpen ? 'rotate-180' : ''}`} />
+                {selectedCountryCode !== 'all' && (
+                  <span className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded-full">
+                    {allCountries.find(c => c.code === selectedCountryCode)?.localeCount || 0}
+                  </span>
+                )}
+              </button>
+              
+              {/* Enhanced Dropdown with Search */}
+              {countryFilterOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full left-0 right-0 mt-2 bg-white border-2 border-green-200 rounded-xl shadow-2xl z-50 max-h-[400px] overflow-hidden flex flex-col"
+                >
+                  {/* Search Input */}
+                  <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Search countries..."
+                        value={countrySearchQuery}
+                        onChange={(e) => setCountrySearchQuery(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Country List */}
+                  <div className="overflow-y-auto max-h-[320px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCountryCode('all');
+                        setCountryFilterOpen(false);
+                        setCountrySearchQuery('');
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full px-4 py-3 text-left hover:bg-green-50 transition-colors flex items-center justify-between ${
+                        selectedCountryCode === 'all' ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        All Countries
+                      </span>
+                      <span className="text-xs text-gray-500">{totalLocales}</span>
+                    </button>
+                    
+                    {loadingCountries ? (
+                      <div className="px-4 py-8 text-center text-gray-500">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                        <p className="text-sm">Loading countries...</p>
+                      </div>
+                    ) : filteredCountries.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-gray-500">
+                        <p className="text-sm">No countries found</p>
+                      </div>
+                    ) : (
+                      filteredCountries.map((country) => (
+                        <button
+                          key={country.code}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCountryCode(country.code);
+                            setCountryFilterOpen(false);
+                            setCountrySearchQuery('');
+                            setCurrentPage(1);
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-green-50 transition-colors flex items-center justify-between border-b border-gray-100 ${
+                            selectedCountryCode === country.code 
+                              ? 'bg-green-100 font-semibold text-green-700' 
+                              : 'text-gray-700'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-8 h-6 bg-gradient-to-r from-green-400 to-emerald-400 rounded text-white text-xs font-bold flex items-center justify-center">
+                              {country.code}
+                            </span>
+                            <span>{country.name || country.code}</span>
+                          </span>
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
+                            {country.localeCount || 0}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  
+                  {/* Footer with count */}
+                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-600 text-center">
+                    {filteredCountries.length} {filteredCountries.length === 1 ? 'country' : 'countries'} {countrySearchQuery && `matching "${countrySearchQuery}"`}
+                  </div>
+                </motion.div>
+              )}
+              
+              {/* Overlay to close dropdown on outside click */}
+              {countryFilterOpen && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => {
+                    setCountryFilterOpen(false);
+                    setCountrySearchQuery('');
+                  }}
+                />
+              )}
             </div>
             {selectedLocales.length > 0 && (
               <div className="flex items-center gap-2">
