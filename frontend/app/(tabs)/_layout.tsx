@@ -82,6 +82,9 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
+  // Check if current page is shorts to freeze tab bar
+  const isShortsPage = pathname === '/(tabs)/shorts' || pathname?.endsWith('/shorts');
+  
   const animatedTabBarStyle = {
     backgroundColor: theme.colors.surface,
     borderTopColor: theme.colors.border,
@@ -93,7 +96,8 @@ export default function TabsLayout() {
     bottom: 0,
     left: 0,
     right: 0,
-    transform: [{ translateY }],
+    // Freeze tab bar on shorts page (no animation, always visible)
+    transform: isShortsPage ? [{ translateY: 0 }] : [{ translateY }],
     ...(isWeb && {
       maxWidth: 600,
       alignSelf: 'center' as const,

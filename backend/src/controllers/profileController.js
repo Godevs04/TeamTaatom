@@ -1475,14 +1475,16 @@ const getTripScoreCountries = async (req, res) => {
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
-        const country = visit.country || 'Unknown';
+        // CRITICAL: Normalize country name to prevent duplicates
+        // Maps regions/states to parent countries (e.g., "England" -> "United Kingdom")
+        const rawCountry = visit.country || 'Unknown';
+        const normalizedCountry = normalizeCountryName(rawCountry);
         
-        // Count unique places visited
-        if (!countryScores[country]) {
-          countryScores[country] = 0;
+        // Count unique places visited using normalized country name
+        if (!countryScores[normalizedCountry]) {
+          countryScores[normalizedCountry] = 0;
         }
-        countryScores[country] += 1;
-        continentScore += 1;
+        countryScores[normalizedCountry] += 1;
       }
     });
 
@@ -1536,13 +1538,20 @@ const getTripScoreCountryDetails = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
+    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
+    // This ensures we find all locations even if stored with different country names
+    const normalizedCountryParam = normalizeCountryName(country);
+    
     // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Populate post to get image data
+    // Search for both normalized and original country names to handle legacy data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
+      $or: [
+        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
+        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
+      ]
     })
     .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
@@ -1727,13 +1736,20 @@ const getTripScoreLocations = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
+    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
+    // This ensures we find all locations even if stored with different country names
+    const normalizedCountryParam = normalizeCountryName(country);
+    
     // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Populate post to get image data
+    // Search for both normalized and original country names to handle legacy data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
+      $or: [
+        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
+        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
+      ]
     })
     .select('lat lng address takenAt uploadedAt post contentType')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
@@ -2031,6 +2047,82 @@ const getCountryFromLocation = (address) => {
   if (addressLower.includes('morocco')) return 'Morocco';
   
   return 'Unknown';
+};
+
+// Helper function to normalize country names - maps regions/states to parent countries
+// This prevents duplicates like "England" and "United Kingdom" or US states and "United States"
+const normalizeCountryName = (country) => {
+  if (!country || typeof country !== 'string') return country || 'Unknown';
+  
+  const countryLower = country.toLowerCase().trim();
+  
+  // United Kingdom regions -> United Kingdom
+  if (countryLower === 'england' || countryLower === 'scotland' || 
+      countryLower === 'wales' || countryLower === 'northern ireland' ||
+      countryLower === 'great britain' || countryLower === 'britain') {
+    return 'United Kingdom';
+  }
+  
+  // United States states and territories -> United States
+  // Common US state patterns (50 states + DC + territories)
+  const usStates = [
+    'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut',
+    'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa',
+    'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan',
+    'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire',
+    'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio',
+    'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota',
+    'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia',
+    'wisconsin', 'wyoming', 'district of columbia', 'washington dc', 'dc',
+    'puerto rico', 'guam', 'american samoa', 'us virgin islands', 'northern mariana islands'
+  ];
+  
+  if (usStates.includes(countryLower)) {
+    return 'United States';
+  }
+  
+  // Check if country contains US state names (e.g., "California, United States")
+  for (const state of usStates) {
+    if (countryLower.includes(state)) {
+      return 'United States';
+    }
+  }
+  
+  // Canada provinces -> Canada
+  const canadaProvinces = [
+    'ontario', 'quebec', 'nova scotia', 'new brunswick', 'manitoba', 'british columbia',
+    'prince edward island', 'saskatchewan', 'alberta', 'newfoundland and labrador',
+    'northwest territories', 'yukon', 'nunavut'
+  ];
+  
+  if (canadaProvinces.includes(countryLower)) {
+    return 'Canada';
+  }
+  
+  // Australia states/territories -> Australia
+  const australiaStates = [
+    'new south wales', 'victoria', 'queensland', 'western australia', 'south australia',
+    'tasmania', 'northern territory', 'australian capital territory', 'act'
+  ];
+  
+  if (australiaStates.includes(countryLower)) {
+    return 'Australia';
+  }
+  
+  // China regions/provinces -> China
+  if (countryLower.includes('china') || countryLower.includes('taiwan') || 
+      countryLower.includes('hong kong') || countryLower.includes('macau')) {
+    return 'China';
+  }
+  
+  // India states -> India (keep India as is since states are usually not stored as country)
+  // But handle common variations
+  if (countryLower === 'india' || countryLower === 'bharat') {
+    return 'India';
+  }
+  
+  // Keep original if no normalization needed
+  return country;
 };
 
 // Helper function to get countries for a continent

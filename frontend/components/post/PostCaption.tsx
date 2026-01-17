@@ -76,6 +76,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     flexShrink: 1,
+    textAlign: 'left', // Ensure proper text alignment
   },
   username: {
     fontWeight: '600',
