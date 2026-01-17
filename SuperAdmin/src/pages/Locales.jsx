@@ -29,7 +29,7 @@ import {
   Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById } from '../services/localeService'
+import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById, getUniqueCountries } from '../services/localeService'
 import { motion, AnimatePresence } from 'framer-motion'
 import { searchPlace, geocodeAddress, areCoordinatesNearby, buildAddressString } from '../utils/geocoding'
 
@@ -1501,47 +1501,52 @@ const Locales = () => {
     }
   }
 
-  // Load all unique countries from locales data
+  // Load all unique countries from backend on mount (efficient - gets all countries from all locales)
   useEffect(() => {
-    if (!isMountedRef.current) return;
-    
-    try {
-      setLoadingCountries(true);
-      // Extract unique countries from locales
-      const countryMap = new Map();
-      
-      locales.forEach(locale => {
-        if (locale.countryCode) {
-          if (!countryMap.has(locale.countryCode)) {
-            countryMap.set(locale.countryCode, {
-              code: locale.countryCode,
-              name: locale.country || locale.countryCode,
-              localeCount: 0
-            });
-          }
-          // Increment count
-          countryMap.get(locale.countryCode).localeCount += 1;
+    const loadAllCountries = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        setLoadingCountries(true);
+        const countries = await getUniqueCountries();
+        if (isMountedRef.current) {
+          // Ensure all countries have localeCount set (should come from backend)
+          const processedCountries = (countries || []).map(country => ({
+            ...country,
+            localeCount: country.localeCount !== undefined ? country.localeCount : 0
+          }));
+          setAllCountries(processedCountries);
         }
-      });
-      
-      const countries = Array.from(countryMap.values()).sort((a, b) => 
-        (a.name || a.code).localeCompare(b.name || b.code)
-      );
-      
-      if (isMountedRef.current) {
-        setAllCountries(countries);
+      } catch (error) {
+        logger.error('Failed to load countries:', error);
+        // Fallback: use countries from current locales if API fails
+        if (isMountedRef.current && locales.length > 0) {
+          const countryMap = new Map();
+          locales.forEach(locale => {
+            if (locale.countryCode) {
+              if (!countryMap.has(locale.countryCode)) {
+                countryMap.set(locale.countryCode, {
+                  code: locale.countryCode,
+                  name: locale.country || locale.countryCode,
+                  localeCount: 0
+                });
+              }
+              countryMap.get(locale.countryCode).localeCount += 1;
+            }
+          });
+          const countries = Array.from(countryMap.values()).sort((a, b) => 
+            (a.name || a.code).localeCompare(b.name || b.code)
+          );
+          setAllCountries(countries);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoadingCountries(false);
+        }
       }
-    } catch (error) {
-      logger.error('Failed to process countries from locales:', error);
-      if (isMountedRef.current) {
-        setAllCountries([]);
-      }
-    } finally {
-      if (isMountedRef.current) {
-        setLoadingCountries(false);
-      }
-    }
-  }, [locales]) // Update when locales change
+    };
+    
+    loadAllCountries();
+  }, []) // Only run on mount - fetch all countries from backend
 
   // Get filtered countries based on search query
   const filteredCountries = useMemo(() => {
