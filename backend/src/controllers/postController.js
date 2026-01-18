@@ -1150,10 +1150,54 @@ const getUserShorts = async (req, res) => {
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
     const safeSkip = Math.max(skip, 0);
 
-    // Check if user exists
-    const user = await User.findById(userId).select('fullName profilePic');
+    // Check if user exists and get privacy settings
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
     if (!user) {
       return sendError(res, 'RES_3002', 'User not found');
+    }
+
+    // Check privacy settings for "followers only" profile
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+    const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
+    
+    // For "followers only" profiles, check if current user is following
+    if (!isOwnProfile && profileVisibility === 'followers') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty shorts array
+        return sendSuccess(res, 200, 'Shorts fetched successfully', {
+          shorts: [],
+          totalShorts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
+    }
+    
+    // For "private" profiles, check if current user is following (approved)
+    if (!isOwnProfile && profileVisibility === 'private') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty shorts array
+        return sendSuccess(res, 200, 'Shorts fetched successfully', {
+          shorts: [],
+          totalShorts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
     }
 
     // Use aggregation pipeline to avoid N+1 queries
@@ -1506,13 +1550,57 @@ const getUserPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Check if user exists
-    const user = await User.findById(userId).select('fullName profilePic');
+    // Check if user exists and get privacy settings
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
         message: 'User does not exist'
       });
+    }
+
+    // Check privacy settings for "followers only" profile
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+    const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
+    
+    // For "followers only" profiles, check if current user is following
+    if (!isOwnProfile && profileVisibility === 'followers') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty posts array
+        return sendSuccess(res, 200, 'Posts fetched successfully', {
+          posts: [],
+          totalPosts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
+    }
+    
+    // For "private" profiles, check if current user is following (approved)
+    if (!isOwnProfile && profileVisibility === 'private') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty posts array
+        return sendSuccess(res, 200, 'Posts fetched successfully', {
+          posts: [],
+          totalPosts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
     }
 
     // Cache key

@@ -99,13 +99,11 @@ function RootLayoutInner() {
   // Apply web optimizations
   useWebOptimizations();
 
-  // Hide native splash screen immediately to show Lottie animation instead
+  // Use default Expo splash screen (no longer hiding immediately for Lottie)
+  // The native splash screen will show until app is ready
   useEffect(() => {
-    // Hide native splash as soon as React Native loads
-    // This allows the Lottie animation to show immediately
-    SplashScreen.hideAsync().catch((error) => {
-      logger.debug('Error hiding splash screen:', error);
-    });
+    // Keep native splash visible until app initialization is complete
+    // This provides better UX with the default splash icon
   }, []);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes

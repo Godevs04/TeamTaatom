@@ -8,8 +8,13 @@
 const fs = require('fs');
 const path = require('path');
 
-// Load environment variables from .env file
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+// Load environment variables from .env file (with .env.prod fallback for production)
+const envPath = path.join(__dirname, '../.env');
+const envProdPath = path.join(__dirname, '../.env.prod');
+
+// Load .env first, then .env.prod (prod will override if both exist)
+require('dotenv').config({ path: envPath });
+require('dotenv').config({ path: envProdPath, override: true });
 
 const appJsonPath = path.join(__dirname, '../app.json');
 const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
@@ -20,8 +25,9 @@ const isStaging = process.env.EXPO_PUBLIC_ENV === 'staging';
 
 // For production, require environment variables (no fallbacks to localhost/local IP)
 // For development/staging, allow fallbacks
+// Support both EXPO_PUBLIC_API_BASE_URL and API_BASE_URL for compatibility
 const getApiBaseUrl = () => {
-  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  const envUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || process.env.API_BASE_URL)?.trim();
   if (envUrl && envUrl !== '') {
     // Reject localhost and local IPs in production
     if (isProduction && (envUrl.includes('localhost') || envUrl.includes('192.168.') || envUrl.includes('10.') || envUrl.includes('172.'))) {
@@ -40,7 +46,7 @@ const getApiBaseUrl = () => {
   
   // Production requires explicit URL
   console.error('❌ ERROR: EXPO_PUBLIC_API_BASE_URL is required for production builds!');
-  console.error('   Please set EXPO_PUBLIC_API_BASE_URL in your .env file');
+  console.error('   Please set EXPO_PUBLIC_API_BASE_URL in your .env or .env.prod file');
   process.exit(1);
 };
 
@@ -103,45 +109,62 @@ const getSupportUrl = () => {
   return appJson.expo.extra?.SUPPORT_URL || '';
 };
 
-// Update extra config from environment variables
+// Update extra config from environment variables (ALWAYS from .env/.env.prod, no hardcoded fallbacks)
+// All values are now dynamically loaded from .env file
+// Support both EXPO_PUBLIC_ prefix and non-prefixed versions for compatibility
 appJson.expo.extra = {
   API_BASE_URL: getApiBaseUrl(),
   WEB_SHARE_URL: getWebShareUrl(),
-  GOOGLE_MAPS_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || appJson.expo.extra?.GOOGLE_MAPS_API_KEY || '',
-  LOGO_IMAGE: process.env.EXPO_PUBLIC_LOGO_IMAGE || appJson.expo.extra?.LOGO_IMAGE || 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1756537440/bokj2vfio8cenbo6wfea.png',
-  EXPO_PROJECT_ID: appJson.expo.extra?.EXPO_PROJECT_ID || '10a6919b-ba8b-4dfb-b379-d36909e67701',
-  // Google Client ID - check both EXPO_PUBLIC_ prefix and alternative names
-  GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
-  GOOGLE_CLIENT_ID_IOS: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || appJson.expo.extra?.GOOGLE_CLIENT_ID_IOS || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
-  GOOGLE_CLIENT_ID_ANDROID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || appJson.expo.extra?.GOOGLE_CLIENT_ID_ANDROID || appJson.expo.extra?.GOOGLE_CLIENT_ID || '',
+  GOOGLE_MAPS_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+  LOGO_IMAGE: process.env.EXPO_PUBLIC_LOGO_IMAGE || process.env.LOGO_IMAGE || '',
+  EXPO_PROJECT_ID: process.env.EXPO_PUBLIC_EXPO_PROJECT_ID || '',
+  // Google Client ID - check both EXPO_PUBLIC_ prefix and alternative names (GOOGLE_WEB_CLIENT_ID)
+  GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
+  GOOGLE_CLIENT_ID_IOS: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
+  GOOGLE_CLIENT_ID_ANDROID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
   // SECURITY: GOOGLE_CLIENT_SECRET is intentionally NOT included here
   // Client secrets should NEVER be exposed in the frontend bundle
   // The secret should only be used on the backend server
   // Google Redirect URI - check both EXPO_PUBLIC_ prefix and alternative names
-  GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || process.env.EXPO_REDIRECT_URI || appJson.expo.extra?.GOOGLE_REDIRECT_URI || '',
+  GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || process.env.EXPO_REDIRECT_URI || '',
   // Privacy and legal URLs
   PRIVACY_POLICY_URL: getPrivacyPolicyUrl(),
   TERMS_OF_SERVICE_URL: getTermsOfServiceUrl(),
   SUPPORT_URL: getSupportUrl(),
 };
 
-// Update iOS Google Maps API key from environment variable
-const iosMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || appJson.expo.ios?.googleMapsApiKey || '';
+// Update iOS Google Maps API key from environment variable (ALWAYS from .env, no hardcoded fallback)
+const iosMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || '';
+if (!appJson.expo.ios) {
+  appJson.expo.ios = {};
+}
 if (iosMapsApiKey) {
-  if (!appJson.expo.ios) {
-    appJson.expo.ios = {};
-  }
   appJson.expo.ios.googleMapsApiKey = iosMapsApiKey;
-} else if (isProduction) {
-  console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY not set. Google Maps may not work on iOS in production.');
+} else {
+  // Remove hardcoded value - require from .env
+  delete appJson.expo.ios.googleMapsApiKey;
+  if (isProduction) {
+    console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY not set. Google Maps may not work on iOS in production.');
+  }
 }
 
-// Update Android Google Maps API key from environment variable
-const androidMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY || appJson.expo.android?.config?.googleMaps?.apiKey || '';
-if (appJson.expo.android?.config?.googleMaps) {
-  if (androidMapsApiKey) {
-    appJson.expo.android.config.googleMaps.apiKey = androidMapsApiKey;
-  } else if (isProduction) {
+// Update Android Google Maps API key from environment variable (ALWAYS from .env, no hardcoded fallback)
+const androidMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY || '';
+if (!appJson.expo.android) {
+  appJson.expo.android = {};
+}
+if (!appJson.expo.android.config) {
+  appJson.expo.android.config = {};
+}
+if (!appJson.expo.android.config.googleMaps) {
+  appJson.expo.android.config.googleMaps = {};
+}
+if (androidMapsApiKey) {
+  appJson.expo.android.config.googleMaps.apiKey = androidMapsApiKey;
+} else {
+  // Remove hardcoded value - require from .env
+  delete appJson.expo.android.config.googleMaps.apiKey;
+  if (isProduction) {
     console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY not set. Google Maps may not work on Android in production.');
   }
 }
