@@ -27,8 +27,9 @@ export const signUpSchema = Yup.object().shape({
 
 export const signInSchema = Yup.object().shape({
   email: Yup.string()
-    .email('Please enter a valid email')
-    .required('Email is required'),
+    .required('Email or username is required')
+    .min(3, 'Email or username must be at least 3 characters')
+    .max(100, 'Email or username must be less than 100 characters'),
   password: Yup.string()
     .required('Password is required'),
 });

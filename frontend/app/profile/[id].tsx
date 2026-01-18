@@ -236,47 +236,83 @@ export default function UserProfileScreen() {
   };
 
   const fetchProfile = useCallback(async () => {
+    const startTime = Date.now();
     setLoading(true);
     try {
       // Add cache-busting parameter if we have a stored follow response
       // This ensures we get fresh data instead of cached stale data (304 responses)
       const cacheBuster = lastFollowApiResponse.current ? `?t=${Date.now()}` : '';
+      
+      // OPTIMIZATION: Try to load cached profile first for instant display (optimistic)
+      try {
+        const cachedProfile = await AsyncStorage.getItem(`cachedUserProfile_${id}`).catch(() => null);
+        if (cachedProfile) {
+          const parsed = JSON.parse(cachedProfile);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
+            setProfile(parsed.data);
+            setLoading(false); // Show cached data immediately
+          }
+        }
+      } catch (cacheError) {
+        logger.debug('Cache load error (non-critical):', cacheError);
+      }
+      
+      // OPTIMIZATION: Fetch profile, posts, and shorts in parallel if canViewPosts is true
+      // First get profile to check canViewPosts
       const res = await api.get(`/api/v1/profile/${id}${cacheBuster}`);
       let userProfile = res.data.profile;
       
-      // If posts are not included, fetch them
-      if (!Array.isArray(userProfile.posts)) {
-        // Fetch all posts with pagination
-        let allPosts: any[] = [];
-        let page = 1;
-        let hasMore = true;
-        const limit = 100; // Fetch 100 posts per page
+      // Cache profile for next time
+      AsyncStorage.setItem(`cachedUserProfile_${id}`, JSON.stringify({
+        data: userProfile,
+        timestamp: Date.now()
+      })).catch(() => {});
+      
+      setProfile(userProfile);
+      
+      // OPTIMIZATION: Fetch posts and shorts in parallel if user can view posts
+      if (userProfile.canViewPosts) {
+        setLoadingShorts(true);
         
-        while (hasMore) {
-          try {
-            const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${page}&limit=${limit}`);
-            const posts = postsRes.data.posts || [];
-            allPosts = [...allPosts, ...posts];
+        // Fetch posts with pagination and shorts in parallel
+        const [postsResult, shortsResult] = await Promise.allSettled([
+          // Fetch all posts with pagination
+          (async () => {
+            let allPosts: any[] = [];
+            let page = 1;
+            let hasMore = true;
+            const limit = 100;
             
-            // Check if there are more posts
-            hasMore = posts.length === limit;
-            page++;
-          } catch (err) {
-            logger.error('Error fetching posts page:', err);
-            hasMore = false;
-          }
+            while (hasMore) {
+              try {
+                const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${page}&limit=${limit}`);
+                const posts = postsRes.data.posts || [];
+                allPosts = [...allPosts, ...posts];
+                hasMore = posts.length === limit;
+                page++;
+              } catch (err) {
+                logger.error('Error fetching posts page:', err);
+                hasMore = false;
+              }
+            }
+            return allPosts;
+          })(),
+          // Fetch shorts in parallel
+          getUserShorts(id as string, 1, 100)
+        ]);
+        
+        // Handle posts result
+        if (postsResult.status === 'fulfilled') {
+          userProfile.posts = postsResult.value;
+        } else {
+          userProfile.posts = [];
         }
         
-        userProfile.posts = allPosts;
-      }
-      
-      // Fetch shorts if user can view posts (same as own profile page)
-      if (userProfile.canViewPosts) {
-        try {
-          setLoadingShorts(true);
-          // Use same parameters as own profile: getUserShorts(userId, page, limit)
-          const shortsRes = await getUserShorts(id as string, 1, 100);
-          const fetchedShorts = shortsRes.shorts || [];
+        // Handle shorts result
+        if (shortsResult.status === 'fulfilled') {
+          const fetchedShorts = shortsResult.value.shorts || [];
+          setUserShorts(fetchedShorts);
           
           // Log for debugging
           if (__DEV__ && fetchedShorts.length > 0) {
@@ -290,19 +326,19 @@ export default function UserProfileScreen() {
               }
             });
           }
-          
-          setUserShorts(fetchedShorts);
-        } catch (err) {
-          logger.error('Error fetching shorts:', err);
+        } else {
+          logger.error('Error fetching shorts:', shortsResult.reason);
           setUserShorts([]);
-        } finally {
-          setLoadingShorts(false);
         }
+        
+        setLoadingShorts(false);
+        setProfile(userProfile); // Update profile with posts (includes fetched posts)
       } else {
+        // User cannot view posts, set empty arrays
+        userProfile.posts = [];
         setUserShorts([]);
+        setProfile(userProfile);
       }
-      
-      setProfile(userProfile);
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
       // This prevents cached/stale profile data (including 304 responses) from overriding the correct follow state
@@ -330,6 +366,9 @@ export default function UserProfileScreen() {
         setFollowState(derivedState);
       }
       // If in the middle of an action but no stored response yet, preserve current state
+      
+      const loadTime = Date.now() - startTime;
+      logger.debug(`[PERF] User profile loaded in ${loadTime}ms (optimized parallel fetch with cache)`);
     } catch (e) {
       logger.error('Error fetching profile:', e);
       showError('Failed to load user profile');

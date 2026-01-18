@@ -214,8 +214,31 @@ const signin = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user by email or username
+    // Check if input is email format or username format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isEmail = emailRegex.test(email.toLowerCase());
+    
+    let user;
+    if (isEmail) {
+      // Try to find by email first
+      user = await User.findOne({ email: email.toLowerCase() });
+    } else {
+      // Try to find by username (already lowercase in validation)
+      user = await User.findOne({ username: email.toLowerCase() });
+    }
+    
+    // If not found with first method, try the other as fallback
+    if (!user) {
+      if (isEmail) {
+        // Already tried email, try username
+        user = await User.findOne({ username: email.toLowerCase() });
+      } else {
+        // Already tried username, try email
+        user = await User.findOne({ email: email.toLowerCase() });
+      }
+    }
+    
     if (!user) {
       return sendError(res, 'AUTH_1004', 'Invalid email or password');
     }

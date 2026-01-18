@@ -445,14 +445,14 @@ export default function SignInScreen() {
               {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
                 <View style={styles.formFields}>
                   <AuthInput
-                    label="Email"
-                    placeholder="Enter your email"
+                    label="Email or Username"
+                    placeholder="Enter your email or username"
                     value={values.email}
                     onChangeText={handleChange('email')}
                     onBlur={handleBlur('email')}
                     error={errors.email}
                     touched={touched.email}
-                    keyboardType="email-address"
+                    keyboardType="default"
                     autoCapitalize="none"
                   />
 

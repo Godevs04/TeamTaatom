@@ -695,13 +695,25 @@ export default function LocaleScreen() {
   }, [isAndroid]);
   
   // Navigation & Lifecycle Safety: Setup and cleanup
+  // OPTIMIZATION: Load data in parallel for faster initialization
   useEffect(() => {
     isMountedRef.current = true;
-    loadCountries();
-    loadSavedLocales();
+    const startTime = Date.now();
+    
+    // OPTIMIZATION: Load countries, saved locales, and user location in parallel (non-blocking)
+    // These don't depend on each other, so they can run concurrently
+    Promise.allSettled([
+      loadCountries(),
+      loadSavedLocales(),
+      getUserCurrentLocation().catch(() => {}) // Non-critical, continue if location fails
+    ]).then(() => {
+      const loadTime = Date.now() - startTime;
+      logger.debug(`[PERF] Locale screen initial data loaded in ${loadTime}ms (parallel)`);
+    });
+    
+    // Load locales after initial data (depends on filters, but can start immediately)
     // Always force initial load to ensure data is loaded
     loadAdminLocales(true);
-    getUserCurrentLocation(); // Get user location for distance sorting
     
     return () => {
       isMountedRef.current = false;
