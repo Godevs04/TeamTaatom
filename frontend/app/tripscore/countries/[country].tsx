@@ -180,7 +180,8 @@ export default function TripScoreCountryDetailScreen() {
                   </Text>
                 </View>
                 
-                <View style={styles.statDivider} />
+                {/* TODO: Distance section commented out temporarily */}
+                {/* <View style={styles.statDivider} />
                 
                 <View style={styles.statBox}>
                   <View style={styles.statIconContainer}>
@@ -192,7 +193,7 @@ export default function TripScoreCountryDetailScreen() {
                   <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
                     DISTANCE
                   </Text>
-                </View>
+                </View> */}
               </View>
             </View>
 
