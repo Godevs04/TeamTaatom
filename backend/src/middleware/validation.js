@@ -44,7 +44,24 @@ const authValidations = {
     handleValidationErrors,
   ],
   signin: [
-    commonValidations.email(),
+    body('email')
+      .trim()
+      .notEmpty()
+      .withMessage('Email or username is required')
+      .bail()
+      .custom((value) => {
+        // Accept either email format or username format
+        if (!value || typeof value !== 'string') {
+          throw new Error('Email or username must be a string');
+        }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const usernameRegex = /^[a-z0-9_.]{3,20}$/;
+        const normalizedValue = value.toLowerCase().trim();
+        if (emailRegex.test(normalizedValue) || usernameRegex.test(normalizedValue)) {
+          return true;
+        }
+        throw new Error('Please provide a valid email or username');
+      }),
     body('password').notEmpty().withMessage('Password is required'),
     handleValidationErrors,
   ],

@@ -143,9 +143,10 @@ export default function TripScoreContinentsScreen() {
                     </Text>
                   </View>
                   <View style={styles.continentRight}>
-                    <Text style={[styles.continentDistance, { color: theme.colors.textSecondary }]}>
+                    {/* TODO: Distance display commented out temporarily */}
+                    {/* <Text style={[styles.continentDistance, { color: theme.colors.textSecondary }]}>
                       {continent.distance} km
-                    </Text>
+                    </Text> */}
                     <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
                   </View>
                 </TouchableOpacity>
