@@ -56,7 +56,7 @@ if (brevoApiKey) {
  * @param {string} fromName - Sender name (optional, defaults to "TeamTaatom")
  * @returns {Promise<Object>} - Success response with messageId
  */
-const sendEmail = async (to, subject, html, text = null, fromName = 'TeamTaatom') => {
+const sendEmail = async (to, subject, html, text = null, fromName = 'Taatom') => {
   if (!isConfigured || !apiInstance) {
     throw new Error('Brevo email service not configured. Please set BREVO_API_KEY in environment variables.');
   }

@@ -1005,7 +1005,7 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">🛡️ TeamTaatom SuperAdmin</div>
+              <div class="logo">🛡️ Taatom SuperAdmin</div>
               <h2>Two-Factor Authentication</h2>
               <p>Hi ${fullName}, please verify your SuperAdmin login.</p>
             </div>
@@ -1036,7 +1036,7 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
         </html>
       `;
 
-    const info = await sendEmail(email, subject, html, null, 'TeamTaatom SuperAdmin');
+    const info = await sendEmail(email, subject, html, null, 'Taatom SuperAdmin');
     logger.info('✅ SuperAdmin 2FA email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
@@ -1048,14 +1048,14 @@ const sendSuperAdmin2FAEmail = async (email, otpCode, fullName = 'SuperAdmin') =
 // SuperAdmin Login Alert Email
 const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, ipAddress) => {
   try {
-    const subject = '🔐 SuperAdmin Login Alert - TeamTaatom Dashboard';
+    const subject = '🔐 SuperAdmin Login Alert - Taatom Dashboard';
     const html = `
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: #fff; border-radius: 10px; padding: 32px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <div style="text-align: center; margin-bottom: 32px;">
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
               <h1 style="margin: 0; font-size: 24px; font-weight: bold;">🛡️ SuperAdmin Login Alert</h1>
-              <p style="margin: 8px 0 0 0; opacity: 0.9;">TeamTaatom Dashboard Access</p>
+              <p style="margin: 8px 0 0 0; opacity: 0.9;">Taatom Dashboard Access</p>
             </div>
           </div>
 
@@ -1130,13 +1130,13 @@ const sendSuperAdminLoginAlertEmail = async (email, fullName, device, location, 
 
           <!-- Footer -->
           <div style="border-top: 1px solid #e9ecef; padding-top: 20px; text-align: center; color: #6c757d; font-size: 12px;">
-            <p style="margin: 0 0 8px 0;">This is an automated security notification from TeamTaatom SuperAdmin System</p>
+            <p style="margin: 0 0 8px 0;">This is an automated security notification from Taatom SuperAdmin System</p>
             <p style="margin: 0;">For security reasons, please do not reply to this email</p>
           </div>
         </div>
       `;
 
-    const info = await sendEmail(email, subject, html, null, 'TeamTaatom SuperAdmin');
+    const info = await sendEmail(email, subject, html, null, 'Taatom SuperAdmin');
     logger.info('✅ SuperAdmin login alert email sent successfully:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
