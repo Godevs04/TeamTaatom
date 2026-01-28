@@ -132,7 +132,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
             </p>
             
             <div class="footer">
-              <p>If you have any questions, contact us at support@taatom.com</p>
+              <p>If you have any questions, contact us at contact@taatom.com</p>
               <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>
@@ -277,7 +277,7 @@ const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
             </div>
             
             <div class="footer">
-              <p>If you have any questions, contact us at support@taatom.com</p>
+              <p>If you have any questions, contact us at contact@taatom.com</p>
               <p>&copy; 2026 Taatom. All rights reserved.</p>
             </div>
           </div>

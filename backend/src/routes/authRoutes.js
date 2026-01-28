@@ -78,7 +78,22 @@ const signinValidation = [
  * /api/v1/auth/signup:
  *   post:
  *     summary: Register a new user account
- *     description: Creates a new user and sends a verification OTP to the provided email address.
+ *     description: |
+ *       Creates a new user account and sends a 6-digit verification OTP to the provided email address.
+ *       
+ *       **Password Requirements:**
+ *       - Minimum 8 characters
+ *       - At least one uppercase letter
+ *       - At least one lowercase letter
+ *       - At least one number
+ *       - At least one special character
+ *       
+ *       **Username Requirements:**
+ *       - 3-20 characters
+ *       - Lowercase letters, numbers, and underscores only
+ *       - Must be unique
+ *       
+ *       After signup, verify the OTP using `/api/v1/auth/verify-otp` to activate the account.
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -94,33 +109,65 @@ const signinValidation = [
  *             properties:
  *               fullName:
  *                 type: string
- *                 example: Jane Traveler
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 description: User's full name
+ *                 example: "Jane Traveler"
  *               username:
  *                 type: string
- *                 example: janetravels
+ *                 minLength: 3
+ *                 maxLength: 20
+ *                 pattern: '^[a-z0-9_.]+$'
+ *                 description: Unique username (lowercase, numbers, underscores only)
+ *                 example: "janetravels"
  *               email:
  *                 type: string
  *                 format: email
- *                 example: jane@example.com
+ *                 description: Valid email address (must be unique)
+ *                 example: "jane@example.com"
  *               password:
  *                 type: string
  *                 format: password
- *                 example: P@ssw0rd!
+ *                 minLength: 8
+ *                 description: Strong password meeting all requirements
+ *                 example: "P@ssw0rd!"
  *     responses:
  *       201:
- *         description: Signup successful and OTP sent
+ *         description: Signup successful and OTP sent to email
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Account created. Please verify your email with the OTP sent."
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     isVerified:
+ *                       type: boolean
+ *                       example: false
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         $ref: '#/components/responses/BadRequest'
  *       409:
  *         description: Email or username already exists
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Error'
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: "AUTH_1005"
+ *                 message: "Email already registered"
  */
 router.post('/signup', authValidations.signup, endpointLimiters.signup, signup);
 /**
@@ -128,6 +175,15 @@ router.post('/signup', authValidations.signup, endpointLimiters.signup, signup);
  * /api/v1/auth/verify-otp:
  *   post:
  *     summary: Verify OTP for account activation
+ *     description: |
+ *       Verifies the 6-digit OTP sent to the user's email during signup.
+ *       
+ *       **OTP Details:**
+ *       - 6-digit numeric code
+ *       - Expires after 10 minutes
+ *       - Can be resent using `/api/v1/auth/resend-otp`
+ *       
+ *       Upon successful verification, the account is activated and the user can sign in.
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -142,16 +198,46 @@ router.post('/signup', authValidations.signup, endpointLimiters.signup, signup);
  *               email:
  *                 type: string
  *                 format: email
+ *                 description: Email address used during signup
+ *                 example: "jane@example.com"
  *               otp:
  *                 type: string
+ *                 pattern: '^[0-9]{6}$'
+ *                 description: 6-digit OTP code sent to email
  *                 example: "123456"
  *     responses:
  *       200:
- *         description: OTP verified successfully
+ *         description: OTP verified successfully, account activated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Account verified successfully"
+ *                 token:
+ *                   type: string
+ *                   description: JWT token for authenticated requests
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         $ref: '#/components/responses/BadRequest'
  *       404:
  *         description: User not found or OTP expired
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: "AUTH_1004"
+ *                 message: "Invalid or expired OTP"
  */
 router.post('/verify-otp', authValidations.verifyOtp, endpointLimiters.otp, verifyOTP);
 /**
@@ -159,14 +245,25 @@ router.post('/verify-otp', authValidations.verifyOtp, endpointLimiters.otp, veri
  * /api/v1/auth/check-username:
  *   get:
  *     summary: Check username availability
+ *     description: |
+ *       Checks if a username is available for registration. Useful for real-time validation in signup forms.
+ *       
+ *       **Username Rules:**
+ *       - 3-20 characters
+ *       - Lowercase letters, numbers, and underscores only
+ *       - Must be unique
  *     tags: [Authentication]
  *     parameters:
  *       - in: query
  *         name: username
  *         schema:
  *           type: string
+ *           minLength: 3
+ *           maxLength: 20
+ *           pattern: '^[a-z0-9_.]+$'
  *         required: true
- *         description: Username to check
+ *         description: Username to check for availability
+ *         example: "janetravels"
  *     responses:
  *       200:
  *         description: Username availability status
@@ -177,8 +274,13 @@ router.post('/verify-otp', authValidations.verifyOtp, endpointLimiters.otp, veri
  *               properties:
  *                 available:
  *                   type: boolean
+ *                   example: true
+ *                   description: true if username is available, false if taken
+ *                 message:
+ *                   type: string
+ *                   example: "Username is available"
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         $ref: '#/components/responses/BadRequest'
  */
 // Check username availability - no validation middleware to avoid blocking requests
 // Validation is handled in the controller
@@ -213,6 +315,14 @@ router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, rese
  * /api/v1/auth/signin:
  *   post:
  *     summary: User sign in
+ *     description: |
+ *       Authenticates a user with email and password. Returns a JWT token for API clients and sets an HttpOnly cookie for web clients.
+ *       
+ *       **Authentication Methods:**
+ *       - **Mobile/API**: Use the `token` from response in `Authorization: Bearer <token>` header
+ *       - **Web**: Cookie is automatically set, no manual handling needed
+ *       
+ *       **Note:** Account must be verified (OTP verified) before signin.
  *     tags: [Authentication]
  *     requestBody:
  *       required: true
@@ -227,19 +337,22 @@ router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, rese
  *               email:
  *                 type: string
  *                 format: email
- *                 example: jane@example.com
+ *                 description: Registered email address
+ *                 example: "jane@example.com"
  *               password:
  *                 type: string
  *                 format: password
- *                 example: P@ssw0rd!
+ *                 description: User password
+ *                 example: "P@ssw0rd!"
  *     responses:
  *       200:
  *         description: Sign in successful
  *         headers:
  *           Set-Cookie:
- *             description: HttpOnly auth cookie for web clients
+ *             description: HttpOnly auth cookie for web clients (automatically sent)
  *             schema:
  *               type: string
+ *               example: "authToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; HttpOnly; Secure; SameSite=Strict"
  *         content:
  *           application/json:
  *             schema:
@@ -247,12 +360,29 @@ router.post('/resend-otp', authValidations.verifyOtp, endpointLimiters.otp, rese
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Sign in successful"
  *                 token:
  *                   type: string
+ *                   description: JWT token for API clients (use in Authorization header)
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *                 user:
  *                   $ref: '#/components/schemas/User'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Account not verified
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: "AUTH_1006"
+ *                 message: "Please verify your email address first"
  */
 router.post('/signin', authValidations.signin, endpointLimiters.signin, signin);
 /**
@@ -286,13 +416,20 @@ router.post('/google', endpointLimiters.signin, googleSignIn);
  * /api/v1/auth/me:
  *   get:
  *     summary: Get authenticated user profile
+ *     description: |
+ *       Returns the current authenticated user's profile information.
+ *       
+ *       **Use Cases:**
+ *       - Check if user is logged in
+ *       - Get user profile data
+ *       - Verify authentication status
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Authenticated user info
+ *         description: Authenticated user info retrieved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -300,10 +437,11 @@ router.post('/google', endpointLimiters.signin, googleSignIn);
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 user:
  *                   $ref: '#/components/schemas/User'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
  */
 router.get('/me', authMiddleware, getMe);
 /**
@@ -311,15 +449,36 @@ router.get('/me', authMiddleware, getMe);
  * /api/v1/auth/refresh:
  *   post:
  *     summary: Refresh JWT token
+ *     description: |
+ *       Generates a new JWT token using the current valid token. Useful for extending session without re-authentication.
+ *       
+ *       **Token Expiry:**
+ *       - Tokens expire after 24 hours
+ *       - Refresh before expiry to maintain session
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: New token issued
+ *         description: New token issued successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Token refreshed successfully"
+ *                 token:
+ *                   type: string
+ *                   description: New JWT token
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
  */
 router.post('/refresh', authMiddleware, refreshToken);
 /**
@@ -387,6 +546,13 @@ router.post('/reset-password', authValidations.resetPassword, endpointLimiters.p
  * /api/v1/auth/logout:
  *   post:
  *     summary: Log out the current user
+ *     description: |
+ *       Invalidates the current session and clears authentication cookies.
+ *       
+ *       **What happens:**
+ *       - JWT token is invalidated
+ *       - HttpOnly cookie is cleared
+ *       - User must sign in again to access protected routes
  *     tags: [Authentication]
  *     security:
  *       - bearerAuth: []
@@ -394,8 +560,19 @@ router.post('/reset-password', authValidations.resetPassword, endpointLimiters.p
  *     responses:
  *       200:
  *         description: Logout successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Logged out successfully"
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
  */
 router.post('/logout', authMiddleware, logout);
 

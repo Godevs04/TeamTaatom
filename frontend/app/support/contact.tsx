@@ -206,7 +206,7 @@ export default function ContactSupport() {
           
           <View style={[styles.contactBox, { backgroundColor: activeTheme.colors.background, borderColor: activeTheme.colors.border }]}>
             <Ionicons name="mail-outline" size={20} color={activeTheme.colors.primary} />
-            <Text style={[styles.contactText, { color: activeTheme.colors.text }]}>support@taatom.com</Text>
+            <Text style={[styles.contactText, { color: activeTheme.colors.text }]}>contact@taatom.com</Text>
           </View>
 
           <Text style={[styles.contactNote, { color: activeTheme.colors.textSecondary }]}>
