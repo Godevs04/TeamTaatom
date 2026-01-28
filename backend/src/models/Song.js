@@ -47,6 +47,17 @@ const songSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Image storage for song cover/artwork
+  imageStorageKey: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true
+  },
+  imageUrl: {
+    type: String,
+    required: false
+  },
   genre: {
     type: String,
     default: 'General'

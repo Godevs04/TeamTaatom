@@ -27,6 +27,7 @@ const songRoutes = require('./routes/songRoutes');
 const localeRoutes = require('./routes/localeRoutes');
 const mapsRoutes = require('./routes/mapsRoutes');
 const policyRoutes = require('./routes/policyRoutes');
+const shortUrlRoutes = require('./routes/shortUrlRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -384,6 +385,13 @@ if (enableSwagger) {
 } else {
   logger.info('📚 Swagger is disabled. Set ENABLE_SWAGGER=true to enable in production.');
 }
+
+// Short URL routes (public redirect route at root level, BEFORE policy routes)
+// IMPORTANT: Mount redirect route early to ensure it's matched
+// Mount redirect route at root level: /s/:shortCode
+app.use('/s', shortUrlRoutes.redirectRoute);
+// Mount create route under API: /api/v1/short-url/create
+app.use('/api/v1/short-url', shortUrlRoutes.createRoute);
 
 // Policy routes (serve markdown files - public access, before 404 handler)
 app.use('/', policyRoutes);

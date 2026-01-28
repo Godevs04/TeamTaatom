@@ -99,12 +99,19 @@ export const toggleSongStatus = async (id, isActive) => {
 /**
  * Update song details
  * @param {string} id - Song ID
- * @param {object} data - Song data to update (title, artist, genre, duration)
+ * @param {object|FormData} data - Song data to update (title, artist, genre, duration, image)
+ * @param {boolean} isFormData - Whether data is FormData (for image upload)
  * @returns {Promise} Updated song data
  */
-export const updateSong = async (id, data) => {
+export const updateSong = async (id, data, isFormData = false) => {
   try {
-    const response = await api.put(`/api/v1/songs/${id}`, data);
+    const config = {};
+    if (isFormData) {
+      config.headers = {
+        'Content-Type': 'multipart/form-data',
+      };
+    }
+    const response = await api.put(`/api/v1/songs/${id}`, data, config);
     return response.data;
   } catch (error) {
     logger.error('Error updating song:', error);

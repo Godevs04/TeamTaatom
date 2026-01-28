@@ -66,10 +66,35 @@ export default function ActivityFeedScreen() {
         type: filterType === 'all' ? undefined : filterType,
       });
 
+      // Deduplicate activities based on user, type, and post/collection
+      const deduplicateActivities = (activities: ActivityType[]) => {
+        const seen = new Map<string, ActivityType>();
+        
+        activities.forEach(activity => {
+          // Create a unique key: user_type_post or user_type_collection
+          const key = activity.post 
+            ? `${activity.user._id}_${activity.type}_${activity.post._id || activity.post}`
+            : activity.collection
+            ? `${activity.user._id}_${activity.type}_${activity.collection._id || activity.collection}`
+            : `${activity.user._id}_${activity.type}_${activity.targetUser?._id || activity.targetUser || 'none'}`;
+          
+          // Keep the most recent activity if duplicate found
+          if (!seen.has(key) || new Date(activity.createdAt) > new Date(seen.get(key)!.createdAt)) {
+            seen.set(key, activity);
+          }
+        });
+        
+        return Array.from(seen.values());
+      };
+
+      const deduplicatedActivities = deduplicateActivities(response.activities);
+
       if (shouldAppend) {
-        setActivities(prev => [...prev, ...response.activities]);
+        // Also deduplicate with existing activities
+        const allActivities = [...activities, ...deduplicatedActivities];
+        setActivities(deduplicateActivities(allActivities));
       } else {
-        setActivities(response.activities);
+        setActivities(deduplicatedActivities);
       }
 
       setHasMore(response.pagination.hasNextPage);
@@ -145,7 +170,8 @@ export default function ActivityFeedScreen() {
       style={[styles.activityItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
       onPress={() => {
         if (item.post) {
-          router.push(`/post/${item.post._id}`);
+          // Post detail page commented out - navigate to home with postId to scroll to specific post
+          router.push(`/(tabs)/home?postId=${item.post._id}`);
         } else if (item.collection) {
           router.push(`/collections/${item.collection._id}`);
         } else if (item.targetUser) {

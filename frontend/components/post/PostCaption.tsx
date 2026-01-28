@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -13,6 +13,7 @@ interface PostCaptionProps {
 export default function PostCaption({ post }: PostCaptionProps) {
   const { theme } = useTheme();
   const router = useRouter();
+  const [isExpanded, setIsExpanded] = useState(false);
 
   if (!post.caption) return null;
 
@@ -29,23 +30,53 @@ export default function PostCaption({ post }: PostCaptionProps) {
     }
   };
 
+  // Calculate number of lines in caption
+  const captionLines = post.caption ? post.caption.split('\n').length : 0;
+  const MAX_COLLAPSED_LINES = 3;
+  const shouldShowMoreButton = captionLines > MAX_COLLAPSED_LINES && !isExpanded;
+
   return (
     <View style={styles.captionContainer}>
       <View style={styles.captionWrapper}>
-        <Text style={[styles.captionText, { color: theme.colors.text }]}>
+        <Text 
+          style={[styles.captionText, { color: theme.colors.text }]}
+          numberOfLines={shouldShowMoreButton ? MAX_COLLAPSED_LINES : undefined}
+        >
           <Text 
             onPress={handleUserPress}
             style={[styles.username, { color: theme.colors.text }]}
           >
             {user.fullName || 'Unknown User'}{' '}
           </Text>
-      <HashtagMentionText
+          <HashtagMentionText
             text={post.caption}
             style={[styles.caption, { color: theme.colors.text }]}
             postId={post._id}
-      />
+          />
         </Text>
       </View>
+      {shouldShowMoreButton && (
+        <TouchableOpacity
+          onPress={() => setIsExpanded(true)}
+          style={styles.moreButton}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.moreButtonText, { color: theme.colors.textSecondary }]}>
+            more...
+          </Text>
+        </TouchableOpacity>
+      )}
+      {isExpanded && captionLines > MAX_COLLAPSED_LINES && (
+        <TouchableOpacity
+          onPress={() => setIsExpanded(false)}
+          style={styles.moreButton}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.moreButtonText, { color: theme.colors.textSecondary }]}>
+            show less
+          </Text>
+        </TouchableOpacity>
+      )}
       
       {/* Multiple images hint */}
       {post.images && post.images.length > 1 && (
@@ -105,6 +136,15 @@ const styles = StyleSheet.create({
   hintText: {
     fontSize: 11,
     fontWeight: '500',
+  },
+  moreButton: {
+    marginTop: 4,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+  },
+  moreButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
 

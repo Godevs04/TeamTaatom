@@ -34,6 +34,18 @@ export interface CreatePostData {
   songVolume?: number;
   spotType?: string;
   travelInfo?: string;
+  detectedPlace?: {          // Detected place data for admin review
+    name?: string;
+    country?: string;
+    countryCode?: string;
+    city?: string;
+    stateProvince?: string;
+    continent?: string;
+    latitude?: number;
+    longitude?: number;
+    placeId?: string;
+    formattedAddress?: string;
+  };
 }
 
 export interface CreateShortData {
@@ -219,6 +231,25 @@ export const createPostWithProgress = async (
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add detected place data for admin review
+    // Always send all fields if detectedPlace exists (even if some are empty strings)
+    // This ensures country and city are sent even if name is empty
+    if (data.detectedPlace) {
+      formData.append('detectedPlaceName', data.detectedPlace.name || '');
+      formData.append('detectedPlaceCountry', data.detectedPlace.country || '');
+      formData.append('detectedPlaceCountryCode', data.detectedPlace.countryCode || '');
+      formData.append('detectedPlaceCity', data.detectedPlace.city || '');
+      formData.append('detectedPlaceStateProvince', data.detectedPlace.stateProvince || '');
+      if (data.detectedPlace.latitude !== undefined && data.detectedPlace.latitude !== null) {
+        formData.append('detectedPlaceLatitude', data.detectedPlace.latitude.toString());
+      }
+      if (data.detectedPlace.longitude !== undefined && data.detectedPlace.longitude !== null) {
+        formData.append('detectedPlaceLongitude', data.detectedPlace.longitude.toString());
+      }
+      formData.append('detectedPlacePlaceId', data.detectedPlace.placeId || '');
+      formData.append('detectedPlaceFormattedAddress', data.detectedPlace.formattedAddress || '');
+    }
 
     // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
@@ -315,6 +346,29 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add detected place data for admin review
+    // Always send all fields if detectedPlace exists (even if some are empty strings)
+    // This ensures country and city are sent even if name is empty
+    if (data.detectedPlace) {
+      formData.append('detectedPlaceName', data.detectedPlace.name || '');
+      formData.append('detectedPlaceCountry', data.detectedPlace.country || '');
+      formData.append('detectedPlaceCountryCode', data.detectedPlace.countryCode || '');
+      formData.append('detectedPlaceCity', data.detectedPlace.city || '');
+      formData.append('detectedPlaceStateProvince', data.detectedPlace.stateProvince || '');
+      if (data.detectedPlace.latitude !== undefined && data.detectedPlace.latitude !== null) {
+        formData.append('detectedPlaceLatitude', data.detectedPlace.latitude.toString());
+      }
+      if (data.detectedPlace.longitude !== undefined && data.detectedPlace.longitude !== null) {
+        formData.append('detectedPlaceLongitude', data.detectedPlace.longitude.toString());
+      }
+      formData.append('detectedPlacePlaceId', data.detectedPlace.placeId || '');
+      formData.append('detectedPlaceFormattedAddress', data.detectedPlace.formattedAddress || '');
     }
 
     const response = await api.post('/api/v1/posts', formData, {

@@ -845,7 +845,44 @@ const createPost = async (req, res) => {
       return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo } = req.body;
+    const { 
+      caption, 
+      address, 
+      latitude, 
+      longitude, 
+      tags, 
+      songId, 
+      songStartTime, 
+      songEndTime, 
+      songVolume, 
+      spotType, 
+      travelInfo,
+      // Detected place data from Google Maps API
+      detectedPlaceName,
+      detectedPlaceCountry,
+      detectedPlaceCountryCode,
+      detectedPlaceCity,
+      detectedPlaceStateProvince,
+      detectedPlaceLatitude,
+      detectedPlaceLongitude,
+      detectedPlacePlaceId,
+      detectedPlaceFormattedAddress
+    } = req.body;
+
+    // Debug: Log detected place data to verify it's being received
+    if (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity) {
+      logger.debug('Detected place data received:', {
+        name: detectedPlaceName,
+        country: detectedPlaceCountry,
+        countryCode: detectedPlaceCountryCode,
+        city: detectedPlaceCity,
+        stateProvince: detectedPlaceStateProvince,
+        latitude: detectedPlaceLatitude,
+        longitude: detectedPlaceLongitude,
+        placeId: detectedPlacePlaceId,
+        formattedAddress: detectedPlaceFormattedAddress
+      });
+    }
 
     // Defensive guard: validate caption length within limits
     if (caption && caption.length > 2000) {
@@ -949,7 +986,24 @@ const createPost = async (req, res) => {
       } : undefined,
       // TripScore metadata from user dropdowns
       spotType: spotType || null,
-      travelInfo: travelInfo || null
+      travelInfo: travelInfo || null,
+      // Detected place data for admin review (from Google Maps API)
+      // Check if any detected place field exists (handle empty strings from FormData)
+      // Save detected place data if ANY field is provided (even if some are empty)
+      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity || 
+                     detectedPlaceCountryCode || detectedPlaceStateProvince || 
+                     detectedPlaceLatitude || detectedPlaceLongitude || 
+                     detectedPlacePlaceId || detectedPlaceFormattedAddress) ? {
+        name: (detectedPlaceName && detectedPlaceName.trim()) || null,
+        country: (detectedPlaceCountry && detectedPlaceCountry.trim()) || null,
+        countryCode: (detectedPlaceCountryCode && detectedPlaceCountryCode.trim()) || null,
+        city: (detectedPlaceCity && detectedPlaceCity.trim()) || null,
+        stateProvince: (detectedPlaceStateProvince && detectedPlaceStateProvince.trim()) || null,
+        latitude: (detectedPlaceLatitude && detectedPlaceLatitude.toString().trim() && !isNaN(parseFloat(detectedPlaceLatitude))) ? parseFloat(detectedPlaceLatitude) : null,
+        longitude: (detectedPlaceLongitude && detectedPlaceLongitude.toString().trim() && !isNaN(parseFloat(detectedPlaceLongitude))) ? parseFloat(detectedPlaceLongitude) : null,
+        placeId: (detectedPlacePlaceId && detectedPlacePlaceId.trim()) || null,
+        formattedAddress: (detectedPlaceFormattedAddress && detectedPlaceFormattedAddress.trim()) || null
+      } : undefined
     });
 
     await post.save();
@@ -1404,32 +1458,109 @@ const getUserShorts = async (req, res) => {
       
       // If no valid generated URL, check existing URLs from database
       if (!imageUrl || imageUrl === videoUrl) {
+        // Helper function to check if URL is an R2 URL
+        const isR2Url = (url) => {
+          return url && typeof url === 'string' && 
+                 (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) &&
+                 !url.includes('?'); // Not already signed
+        };
+        
+        // Helper function to extract storage key from R2 URL
+        const extractStorageKeyFromR2Url = (url) => {
+          try {
+            // R2 URL format: https://[account-id].r2.cloudflarestorage.com/[bucket]/[key]
+            const urlObj = new URL(url);
+            const pathParts = urlObj.pathname.split('/').filter(p => p);
+            if (pathParts.length >= 2) {
+              // Remove bucket name (first part), rest is the storage key
+              return pathParts.slice(1).join('/');
+            }
+          } catch (e) {
+            logger.warn(`Failed to extract storage key from R2 URL: ${url?.substring(0, 100)}`);
+          }
+          return null;
+        };
+        
         // Check existing thumbnailUrl first (preferred field for shorts)
         if (short.thumbnailUrl && short.thumbnailUrl.trim() !== '' && 
             (short.thumbnailUrl.startsWith('http://') || short.thumbnailUrl.startsWith('https://')) &&
             short.thumbnailUrl !== short.videoUrl) { // Don't use video URL as thumbnail
-          // Validate URL is complete (has proper structure)
-          if (short.thumbnailUrl.length > 30 && short.thumbnailUrl.includes('/')) {
-            short.imageUrl = short.thumbnailUrl;
-            // Keep thumbnailUrl as is
-            logger.debug(`Short ${short._id} using existing thumbnailUrl from database`);
+          
+          // If it's an R2 URL, convert to signed URL
+          if (isR2Url(short.thumbnailUrl)) {
+            const storageKey = extractStorageKeyFromR2Url(short.thumbnailUrl);
+            if (storageKey) {
+              try {
+                const signedUrl = await generateSignedUrl(storageKey, 'IMAGE');
+                if (signedUrl) {
+                  short.imageUrl = signedUrl;
+                  short.thumbnailUrl = signedUrl;
+                  logger.debug(`Converted R2 thumbnailUrl to signed URL for short ${short._id}`);
+                } else {
+                  logger.warn(`Failed to generate signed URL from R2 thumbnailUrl for short ${short._id}`);
+                  short.imageUrl = null;
+                  short.thumbnailUrl = null;
+                }
+              } catch (error) {
+                logger.warn(`Error converting R2 thumbnailUrl to signed URL for short ${short._id}:`, error.message);
+                short.imageUrl = null;
+                short.thumbnailUrl = null;
+              }
+            } else {
+              logger.warn(`Could not extract storage key from R2 thumbnailUrl for short ${short._id}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
           } else {
-            logger.warn(`Short ${short._id} has incomplete thumbnailUrl: ${short.thumbnailUrl?.substring(0, 100)}`);
-            short.imageUrl = null;
-            short.thumbnailUrl = null;
+            // Not an R2 URL, validate and use as-is
+            if (short.thumbnailUrl.length > 30 && short.thumbnailUrl.includes('/')) {
+              short.imageUrl = short.thumbnailUrl;
+              logger.debug(`Short ${short._id} using existing thumbnailUrl from database`);
+            } else {
+              logger.warn(`Short ${short._id} has incomplete thumbnailUrl: ${short.thumbnailUrl?.substring(0, 100)}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
           }
         } else if (short.imageUrl && short.imageUrl.trim() !== '' && 
                    (short.imageUrl.startsWith('http://') || short.imageUrl.startsWith('https://')) &&
                    short.imageUrl !== short.videoUrl) { // Don't use video URL as thumbnail
-          // Validate URL is complete
-          if (short.imageUrl.length > 30 && short.imageUrl.includes('/')) {
-            short.thumbnailUrl = short.imageUrl;
-            // Keep imageUrl as is
-            logger.debug(`Short ${short._id} using existing imageUrl from database`);
+          
+          // If it's an R2 URL, convert to signed URL
+          if (isR2Url(short.imageUrl)) {
+            const storageKey = extractStorageKeyFromR2Url(short.imageUrl);
+            if (storageKey) {
+              try {
+                const signedUrl = await generateSignedUrl(storageKey, 'IMAGE');
+                if (signedUrl) {
+                  short.imageUrl = signedUrl;
+                  short.thumbnailUrl = signedUrl;
+                  logger.debug(`Converted R2 imageUrl to signed URL for short ${short._id}`);
+                } else {
+                  logger.warn(`Failed to generate signed URL from R2 imageUrl for short ${short._id}`);
+                  short.imageUrl = null;
+                  short.thumbnailUrl = null;
+                }
+              } catch (error) {
+                logger.warn(`Error converting R2 imageUrl to signed URL for short ${short._id}:`, error.message);
+                short.imageUrl = null;
+                short.thumbnailUrl = null;
+              }
+            } else {
+              logger.warn(`Could not extract storage key from R2 imageUrl for short ${short._id}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
           } else {
-            logger.warn(`Short ${short._id} has incomplete imageUrl: ${short.imageUrl?.substring(0, 100)}`);
-            short.imageUrl = null;
-            short.thumbnailUrl = null;
+            // Not an R2 URL, validate and use as-is
+            if (short.imageUrl.length > 30 && short.imageUrl.includes('/')) {
+              short.thumbnailUrl = short.imageUrl;
+              logger.debug(`Short ${short._id} using existing imageUrl from database`);
+            } else {
+              logger.warn(`Short ${short._id} has incomplete imageUrl: ${short.imageUrl?.substring(0, 100)}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
           }
         } else {
           // No valid thumbnail available - set to null (frontend will show placeholder)
@@ -1444,6 +1575,24 @@ const getUserShorts = async (req, res) => {
             videoUrl: short.videoUrl?.substring(0, 50)
           });
         }
+      }
+      
+      // FINAL SAFETY CHECK: Ensure we NEVER return unsigned R2 URLs
+      const isR2UrlFinal = (url) => {
+        return url && typeof url === 'string' && 
+               (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) &&
+               !url.includes('?');
+      };
+      
+      if (short.imageUrl && isR2UrlFinal(short.imageUrl)) {
+        logger.error(`CRITICAL: Short ${short._id} still has unsigned R2 URL in imageUrl! Setting to null.`);
+        short.imageUrl = null;
+        short.thumbnailUrl = null;
+      }
+      if (short.thumbnailUrl && isR2UrlFinal(short.thumbnailUrl)) {
+        logger.error(`CRITICAL: Short ${short._id} still has unsigned R2 URL in thumbnailUrl! Setting to null.`);
+        short.imageUrl = null;
+        short.thumbnailUrl = null;
       }
 
       // Generate signed URLs for comment users' profile pictures
@@ -1491,7 +1640,19 @@ const getUserShorts = async (req, res) => {
       .map(short => {
         // Ensure we have a thumbnail URL - prioritize imageUrl, then thumbnailUrl
         // If neither exists, that's okay - frontend will show placeholder
-        const thumbnailUrl = short.imageUrl || short.thumbnailUrl || null;
+        let thumbnailUrl = short.imageUrl || short.thumbnailUrl || null;
+        
+        // CRITICAL: Final safety check - if thumbnailUrl is an unsigned R2 URL, set to null
+        if (thumbnailUrl && typeof thumbnailUrl === 'string') {
+          const isR2Url = (thumbnailUrl.includes('r2.cloudflarestorage.com') || 
+                           thumbnailUrl.includes('cloudflarestorage.com')) &&
+                          !thumbnailUrl.includes('?'); // Not signed
+          
+          if (isR2Url) {
+            logger.error(`CRITICAL: Short ${short._id} has unsigned R2 URL in final response! Setting to null. URL: ${thumbnailUrl.substring(0, 100)}`);
+            thumbnailUrl = null; // Set to null so frontend shows placeholder
+          }
+        }
         
         // Validate thumbnail URL format if present
         let validThumbnailUrl = thumbnailUrl;
@@ -1864,17 +2025,39 @@ const toggleLike = async (req, res) => {
     // Verify the final state matches what we expect (use actual database state)
     const finalIsLiked = updatedPost ? updatedPost.likes.some(like => like.toString() === req.user._id.toString()) : isLiked;
 
-    // Create activity for like (respect user's privacy settings) - use final verified state
+    // Handle activity creation/deletion to prevent duplicates
+    // Check if activity already exists for this user, post, and type
+    const existingActivity = await Activity.findOne({
+      user: req.user._id,
+      type: 'post_liked',
+      post: req.params.id
+    });
+
     if (finalIsLiked) {
+      // User liked the post
       const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
       const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
-      Activity.createActivity({
-        user: req.user._id,
-        type: 'post_liked',
-        post: req.params.id,
-        targetUser: post.user,
-        isPublic: shareActivity
-      }).catch(err => logger.error('Error creating activity:', err));
+      
+      if (existingActivity) {
+        // Activity already exists, just update the timestamp to reflect the latest like
+        existingActivity.createdAt = new Date();
+        existingActivity.isPublic = shareActivity;
+        await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+      } else {
+        // Create new activity only if it doesn't exist
+        Activity.createActivity({
+          user: req.user._id,
+          type: 'post_liked',
+          post: req.params.id,
+          targetUser: post.user,
+          isPublic: shareActivity
+        }).catch(err => logger.error('Error creating activity:', err));
+      }
+    } else {
+      // User unliked the post - remove the activity if it exists
+      if (existingActivity) {
+        await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
+      }
     }
 
     // Invalidate cache
