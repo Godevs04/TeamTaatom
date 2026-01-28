@@ -3061,7 +3061,8 @@ const createStyles = () => {
     },
     listContainer: {
       paddingHorizontal: isTabletLocal ? theme.spacing.md : 12,
-      paddingBottom: isTabletLocal ? 40 : 30,
+      // Add padding for tab bar (88px mobile, 70px web) + extra spacing
+      paddingBottom: isWebLocal ? 90 : (isTabletLocal ? 110 : 100),
     },
     row: {
       justifyContent: 'space-between',

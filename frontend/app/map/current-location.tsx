@@ -611,18 +611,6 @@ export default function CurrentLocationMap() {
               </Text>
             </View>
           )}
-          <View style={styles.locationRow}>
-            <Ionicons name="location" size={20} color={theme.colors.primary} />
-            <Text style={[styles.locationText, { color: theme.colors.text }]}>
-              Latitude: {location.coords.latitude.toFixed(6)}
-            </Text>
-          </View>
-          <View style={styles.locationRow}>
-            <Ionicons name="location" size={20} color={theme.colors.primary} />
-            <Text style={[styles.locationText, { color: theme.colors.text }]}>
-              Longitude: {location.coords.longitude.toFixed(6)}
-            </Text>
-          </View>
           {!isPostLocation && location.coords.accuracy && location.coords.accuracy > 0 && (
             <View style={styles.locationRow}>
               <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />

@@ -303,8 +303,8 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     }
     
     // Extract coordinates - may be 0,0 for manual locations
-    const lat = post.location.coordinates?.latitude ?? 0;
-    const lng = post.location.coordinates?.longitude ?? 0;
+    let lat = post.location.coordinates?.latitude ?? 0;
+    let lng = post.location.coordinates?.longitude ?? 0;
     const address = post.location.address || 'Unknown Location';
     
     // Check if coordinates are valid (not 0,0)
@@ -340,14 +340,75 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       }
     }
     
+    // Use detected place data if available (from Google Maps API)
+    // This provides accurate city and country information
+    let city = null;
+    let country = 'Unknown';
+    
+    if (post.detectedPlace) {
+      // Priority: Use detected place data from Google Maps API
+      city = post.detectedPlace.city || null;
+      country = post.detectedPlace.country || getCountryFromLocation(address);
+      
+      logger.debug('[TripVisit] Using detected place data:', {
+        postId: post._id?.toString(),
+        detectedCity: post.detectedPlace.city,
+        detectedCountry: post.detectedPlace.country,
+        detectedCountryCode: post.detectedPlace.countryCode,
+        detectedStateProvince: post.detectedPlace.stateProvince,
+      });
+      
+      // If detected place has coordinates, use them (more accurate)
+      if (post.detectedPlace.latitude && post.detectedPlace.longitude) {
+        // Use detected place coordinates if they're different from post coordinates
+        // This ensures we use the most accurate location data
+        const detectedLat = post.detectedPlace.latitude;
+        const detectedLng = post.detectedPlace.longitude;
+        
+        // Only override if detected place coordinates are valid
+        if (detectedLat !== 0 && detectedLng !== 0) {
+          // Use detected place coordinates for more accurate continent detection
+          lat = detectedLat;
+          lng = detectedLng;
+        }
+      }
+    } else {
+      // Fallback: Try to extract from address
+      country = getCountryFromLocation(address);
+    }
+    
     // Determine continent
     let continent = getContinentFromLocation(address);
     if (continent === 'Unknown') {
       continent = getContinentFromCoordinates(lat, lng);
     }
     
-    // Determine country
-    const country = getCountryFromLocation(address);
+    // If we have detected place country, use it for continent detection too
+    if (post.detectedPlace?.country && continent === 'Unknown') {
+      // Try to determine continent from country name
+      const countryLower = post.detectedPlace.country.toLowerCase();
+      if (countryLower.includes('india') || countryLower.includes('china') || 
+          countryLower.includes('japan') || countryLower.includes('thailand') ||
+          countryLower.includes('singapore') || countryLower.includes('malaysia') ||
+          countryLower.includes('indonesia') || countryLower.includes('korea')) {
+        continent = 'ASIA';
+      } else if (countryLower.includes('france') || countryLower.includes('germany') ||
+                 countryLower.includes('italy') || countryLower.includes('spain') ||
+                 countryLower.includes('united kingdom') || countryLower.includes('uk')) {
+        continent = 'EUROPE';
+      } else if (countryLower.includes('united states') || countryLower.includes('usa') ||
+                 countryLower.includes('canada') || countryLower.includes('mexico')) {
+        continent = 'NORTH AMERICA';
+      } else if (countryLower.includes('brazil') || countryLower.includes('argentina') ||
+                 countryLower.includes('chile') || countryLower.includes('peru')) {
+        continent = 'SOUTH AMERICA';
+      } else if (countryLower.includes('australia') || countryLower.includes('new zealand')) {
+        continent = 'AUSTRALIA';
+      } else if (countryLower.includes('egypt') || countryLower.includes('south africa') ||
+                 countryLower.includes('nigeria') || countryLower.includes('kenya')) {
+        continent = 'AFRICA';
+      }
+    }
     
     // Determine source
     const source = determineSource(post, metadata);
@@ -365,9 +426,9 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     }, previousVisits);
     
     // Set verification status based on source and coordinates
-    // NEW RULE: Only content taken from Taatom camera increases TripScore immediately
-    // - Photos (type === 'photo') from Taatom camera → auto-verified
-    // - Videos/shorts (type === 'short') from Taatom camera → auto-verified
+    // UPDATED RULE: All content taken from Taatom camera requires admin review
+    // - Photos (type === 'photo') from Taatom camera → pending_review
+    // - Videos/shorts (type === 'short') from Taatom camera → pending_review
     // - All other scenarios → pending review
     let verificationStatus = 'pending_review';
     let verificationReason = null;
@@ -384,11 +445,11 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       // Override trust level for manual locations
       trustLevel = 'unverified';
     }
-    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - auto-verified
-    // This increases TripScore immediately
+    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - requires review
+    // Even if taken from user's own camera, it must be reviewed by admin
     else if (source === 'taatom_camera_live') {
-      verificationStatus = 'auto_verified';
-      // No reason needed for auto-verified
+      verificationStatus = 'pending_review';
+      verificationReason = 'photo_from_camera_requires_review';
     }
     // Priority 4: All other cases go to pending review:
     // - Photos from gallery (source !== 'taatom_camera_live')
@@ -425,7 +486,7 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       hasExifGps: metadata.hasExifGps,
       address: post.location?.address,
       scenario: !hasValidCoords ? 'Manual Location (Pending Review)' :
-                source === 'taatom_camera_live' ? `${post.type === 'short' ? 'Short' : 'Photo'} from Taatom Camera (Auto-Verified)` :
+                source === 'taatom_camera_live' ? `${post.type === 'short' ? 'Short' : 'Photo'} from Taatom Camera (Pending Review)` :
                 source === 'gallery_exif' ? 'Gallery EXIF (Pending Review)' :
                 source === 'gallery_no_exif' ? 'Gallery No EXIF (Pending Review)' :
                 trustLevel === 'suspicious' ? 'Suspicious Pattern (Pending Review)' :
@@ -461,8 +522,8 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       lat,
       lng,
       continent: continent === 'Unknown' ? 'Unknown' : continent.toUpperCase(),
-      country,
-      city: null, // Can be extracted from address if needed
+      country: country || 'Unknown', // Use detected place country or fallback
+      city: city || null, // Use detected place city if available
       address,
       spotType: post.spotType || null, // Copy from post
       travelInfo: post.travelInfo || null, // Copy from post
@@ -524,8 +585,8 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     }
     
     // Extract coordinates - may be 0,0 for manual locations
-    const lat = post.location.coordinates?.latitude ?? 0;
-    const lng = post.location.coordinates?.longitude ?? 0;
+    let lat = post.location.coordinates?.latitude ?? 0;
+    let lng = post.location.coordinates?.longitude ?? 0;
     const address = post.location.address || 'Unknown Location';
     
     // Check if coordinates are valid (not 0,0)
@@ -557,12 +618,62 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
       }
     }
     
+    // Use detected place data if available (from Google Maps API)
+    let city = null;
+    let country = 'Unknown';
+    
+    if (post.detectedPlace) {
+      // Priority: Use detected place data from Google Maps API
+      city = post.detectedPlace.city || null;
+      country = post.detectedPlace.country || getCountryFromLocation(address);
+      
+      // If detected place has coordinates, use them (more accurate)
+      if (post.detectedPlace.latitude && post.detectedPlace.longitude) {
+        const detectedLat = post.detectedPlace.latitude;
+        const detectedLng = post.detectedPlace.longitude;
+        
+        // Only override if detected place coordinates are valid
+        if (detectedLat !== 0 && detectedLng !== 0) {
+          lat = detectedLat;
+          lng = detectedLng;
+        }
+      }
+    } else {
+      // Fallback: Try to extract from address
+      country = getCountryFromLocation(address);
+    }
+    
     let continent = getContinentFromLocation(address);
     if (continent === 'Unknown') {
       continent = getContinentFromCoordinates(lat, lng);
     }
     
-    const country = getCountryFromLocation(address);
+    // If we have detected place country, use it for continent detection too
+    if (post.detectedPlace?.country && continent === 'Unknown') {
+      const countryLower = post.detectedPlace.country.toLowerCase();
+      if (countryLower.includes('india') || countryLower.includes('china') || 
+          countryLower.includes('japan') || countryLower.includes('thailand') ||
+          countryLower.includes('singapore') || countryLower.includes('malaysia') ||
+          countryLower.includes('indonesia') || countryLower.includes('korea')) {
+        continent = 'ASIA';
+      } else if (countryLower.includes('france') || countryLower.includes('germany') ||
+                 countryLower.includes('italy') || countryLower.includes('spain') ||
+                 countryLower.includes('united kingdom') || countryLower.includes('uk')) {
+        continent = 'EUROPE';
+      } else if (countryLower.includes('united states') || countryLower.includes('usa') ||
+                 countryLower.includes('canada') || countryLower.includes('mexico')) {
+        continent = 'NORTH AMERICA';
+      } else if (countryLower.includes('brazil') || countryLower.includes('argentina') ||
+                 countryLower.includes('chile') || countryLower.includes('peru')) {
+        continent = 'SOUTH AMERICA';
+      } else if (countryLower.includes('australia') || countryLower.includes('new zealand')) {
+        continent = 'AUSTRALIA';
+      } else if (countryLower.includes('egypt') || countryLower.includes('south africa') ||
+                 countryLower.includes('nigeria') || countryLower.includes('kenya')) {
+        continent = 'AFRICA';
+      }
+    }
+    
     const source = determineSource(post, metadata);
     
     // Re-evaluate trust level
@@ -576,9 +687,9 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     }, previousVisits);
     
     // Set verification status based on source and coordinates
-    // NEW RULE: Only content taken from Taatom camera increases TripScore immediately
-    // - Photos (type === 'photo') from Taatom camera → auto-verified
-    // - Videos/shorts (type === 'short') from Taatom camera → auto-verified
+    // UPDATED RULE: All content taken from Taatom camera requires admin review
+    // - Photos (type === 'photo') from Taatom camera → pending_review
+    // - Videos/shorts (type === 'short') from Taatom camera → pending_review
     // - All other scenarios → pending review
     let verificationStatus = 'pending_review';
     let verificationReason = null;
@@ -595,11 +706,11 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
       // Override trust level for manual locations
       trustLevel = 'unverified';
     }
-    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - auto-verified
-    // This increases TripScore immediately
+    // Priority 3: Content from Taatom camera (photos OR videos/shorts) - requires review
+    // Even if taken from user's own camera, it must be reviewed by admin
     else if (source === 'taatom_camera_live') {
-      verificationStatus = 'auto_verified';
-      // No reason needed for auto-verified
+      verificationStatus = 'pending_review';
+      verificationReason = 'photo_from_camera_requires_review';
     }
     // Priority 4: All other cases go to pending review:
     // - Photos from gallery (source !== 'taatom_camera_live')
@@ -624,7 +735,8 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     tripVisit.lat = lat;
     tripVisit.lng = lng;
     tripVisit.continent = continent === 'Unknown' ? 'Unknown' : continent.toUpperCase();
-    tripVisit.country = country;
+    tripVisit.country = country || 'Unknown'; // Use detected place country or fallback
+    tripVisit.city = city || null; // Use detected place city if available
     tripVisit.address = address;
     tripVisit.source = source;
     tripVisit.trustLevel = trustLevel;

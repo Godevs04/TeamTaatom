@@ -7,7 +7,7 @@ const { sendError } = require('../utils/errorCodes');
 
 const router = express.Router();
 
-// Multer configuration for audio file uploads
+// Multer configuration for audio and image file uploads
 // No file size limits - unlimited uploads
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -16,11 +16,25 @@ const upload = multer({
     // fileSize removed - unlimited file size
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
+    // Allow audio files for 'song' field
+    if (file.fieldname === 'song') {
+      const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a'];
+      if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only audio files are allowed for song field (MP3, WAV, M4A)'), false);
+      }
+    }
+    // Allow image files for 'image' field
+    else if (file.fieldname === 'image') {
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image files are allowed for image field (JPEG, PNG, WebP, GIF)'), false);
+      }
     } else {
-      cb(new Error('Only audio files are allowed (MP3, WAV, M4A)'), false);
+      cb(new Error('Invalid field name'), false);
     }
   }
 });
@@ -141,10 +155,13 @@ router.get('/:id', getSongById);
  *       201:
  *         description: Song uploaded successfully
  */
-// Upload route with proper middleware order
+// Upload route with proper middleware order - accepts both song and image files
 router.post('/upload', 
   verifySuperAdminToken, 
-  upload.single('song'), 
+  upload.fields([
+    { name: 'song', maxCount: 1 },
+    { name: 'image', maxCount: 1 }
+  ]), 
   handleMulterError,
   ...uploadSongValidation,
   (req, res, next) => {
@@ -264,8 +281,27 @@ const updateSongValidation = [
  *       200:
  *         description: Song updated successfully
  */
+// Update route - can accept either JSON or multipart/form-data (for image upload)
+// Create a conditional multer middleware
+const conditionalImageUpload = (req, res, next) => {
+  // Check if request is multipart/form-data
+  if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
+    // Apply multer middleware for image upload
+    upload.single('image')(req, res, (err) => {
+      if (err) {
+        return handleMulterError(err, req, res, next);
+      }
+      next();
+    });
+  } else {
+    // For JSON requests, skip multer and go to validation
+    next();
+  }
+};
+
 router.put('/:id', 
   verifySuperAdminToken,
+  conditionalImageUpload,
   ...updateSongValidation,
   (req, res, next) => {
     const errors = validationResult(req);

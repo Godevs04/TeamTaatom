@@ -13,7 +13,8 @@ import {
   Dimensions,
   Animated,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { getSongs, Song } from '../services/songs';
 import { useTheme } from '../context/ThemeContext';
@@ -996,13 +997,21 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                   onPress={() => handleSelect(item)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.songIconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
-                    <Ionicons 
-                      name={isSelected ? "musical-notes" : "musical-note-outline"} 
-                      size={24} 
-                      color={isSelected ? theme.colors.primary : theme.colors.textSecondary} 
+                  {item.imageUrl || item.thumbnailUrl ? (
+                    <Image
+                      source={{ uri: item.imageUrl || item.thumbnailUrl }}
+                      style={[styles.songImage, { borderColor: isSelected ? theme.colors.primary : theme.colors.border }]}
+                      resizeMode="cover"
                     />
-                  </View>
+                  ) : (
+                    <View style={[styles.songIconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
+                      <Ionicons 
+                        name={isSelected ? "musical-notes" : "musical-note-outline"} 
+                        size={24} 
+                        color={isSelected ? theme.colors.primary : theme.colors.textSecondary} 
+                      />
+                    </View>
+                  )}
                   <View style={styles.songInfo}>
                     <Text style={[
                       styles.songTitle,
@@ -1363,6 +1372,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  songImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
   },
   songInfo: {
     flex: 1,
