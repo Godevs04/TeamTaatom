@@ -5,15 +5,30 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeType = typeof darkTheme;
 
+export type FontSize = 'small' | 'medium' | 'large';
+
 interface ThemeContextProps {
   theme: ThemeType;
   mode: 'dark' | 'light' | 'auto';
   setMode: (m: 'dark' | 'light' | 'auto') => void;
+  getScaledFontSize?: (baseSize: number) => number;
 }
 
 const ThemeContext = createContext<ThemeContextProps | undefined>(undefined);
 
 const THEME_KEY = 'themeMode';
+
+// Font size multipliers
+export const FONT_SIZE_MULTIPLIERS: Record<FontSize, number> = {
+  small: 0.9,
+  medium: 1.0,
+  large: 1.15,
+};
+
+// Helper function to get scaled font size
+export const getScaledFontSize = (baseSize: number, fontSize: FontSize = 'medium'): number => {
+  return Math.round(baseSize * FONT_SIZE_MULTIPLIERS[fontSize]);
+};
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [mode, setMode] = useState<'dark' | 'light' | 'auto'>('light');

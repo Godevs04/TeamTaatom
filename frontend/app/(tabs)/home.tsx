@@ -21,7 +21,7 @@ import { getPosts } from '../../services/posts';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { imageCacheManager } from '../../utils/imageCacheManager';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
@@ -173,6 +173,8 @@ export default function HomeScreen() {
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const flatListRef = useRef<FlatList>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -259,6 +261,45 @@ export default function HomeScreen() {
       
       setHasMore(response.pagination?.hasNextPage ?? false);
       setPage(pageNum);
+      
+      // Scroll to specific post if postId is provided in params
+      if (params.postId && typeof params.postId === 'string' && response.posts.length > 0) {
+        const targetIndex = response.posts.findIndex(p => p._id === params.postId);
+        if (targetIndex !== -1) {
+          // Use multiple attempts with increasing delays to ensure scroll works
+          // This handles cases where FlatList isn't ready immediately
+          const attemptScroll = (attempt: number = 0) => {
+            if (attempt > 5) {
+              logger.warn(`Failed to scroll to post ${params.postId} after 5 attempts`);
+              return;
+            }
+            
+            setTimeout(() => {
+              if (flatListRef.current) {
+                try {
+                  flatListRef.current.scrollToIndex({ 
+                    index: targetIndex, 
+                    animated: true 
+                  });
+                  logger.debug(`Successfully scrolled to post at index ${targetIndex}`);
+                } catch (error) {
+                  // If scroll fails, retry with longer delay
+                  logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
+                  attemptScroll(attempt + 1);
+                }
+              } else {
+                // FlatList not ready yet, retry
+                attemptScroll(attempt + 1);
+              }
+            }, 100 * (attempt + 1)); // Increasing delay: 100ms, 200ms, 300ms, etc.
+          };
+          
+          // Start scroll attempts
+          attemptScroll();
+        } else {
+          logger.warn(`Post ${params.postId} not found in loaded posts`);
+        }
+      }
       
       // Cache posts for offline support
       if (pageNum === 1 && !shouldAppend) {
@@ -633,6 +674,50 @@ export default function HomeScreen() {
     }, [fetchUnseenMessageCount])
   );
 
+  // Scroll to specific post when postId parameter is provided and posts are loaded
+  useEffect(() => {
+    if (!params.postId || typeof params.postId !== 'string' || posts.length === 0 || !flatListRef.current) {
+      return;
+    }
+    
+    const targetIndex = posts.findIndex(p => p._id === params.postId);
+    if (targetIndex === -1) {
+      // Post not found in current posts, might need to load more or it's not in feed
+      logger.debug(`Post ${params.postId} not found in current posts`);
+      return;
+    }
+    
+    // Use multiple attempts with increasing delays to ensure scroll works
+    const attemptScroll = (attempt: number = 0) => {
+      if (attempt > 5) {
+        logger.warn(`Failed to scroll to post ${params.postId} after 5 attempts`);
+        return;
+      }
+      
+      setTimeout(() => {
+        if (flatListRef.current) {
+          try {
+            flatListRef.current.scrollToIndex({ 
+              index: targetIndex, 
+              animated: true 
+            });
+            logger.debug(`Successfully scrolled to post at index ${targetIndex}`);
+          } catch (error) {
+            // If scroll fails, retry with longer delay
+            logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
+            attemptScroll(attempt + 1);
+          }
+        } else {
+          // FlatList not ready yet, retry
+          attemptScroll(attempt + 1);
+        }
+      }, 100 * (attempt + 1)); // Increasing delay: 100ms, 200ms, 300ms, etc.
+    };
+    
+    // Start scroll attempts
+    attemptScroll();
+  }, [params.postId, posts]);
+
   // Subscribe to socket events for real-time unread count updates
   useEffect(() => {
     if (!isOnline) return;
@@ -671,16 +756,43 @@ export default function HomeScreen() {
     
     // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
+    
+    // Scroll to top immediately for better UX
+    if (flatListRef.current && posts.length > 0) {
+      try {
+        flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      } catch (error) {
+        logger.debug('Error scrolling to top:', error);
+        // Fallback: try scrolling to index 0
+        try {
+          flatListRef.current.scrollToIndex({ index: 0, animated: true });
+        } catch (indexError) {
+          logger.debug('Error scrolling to index 0:', indexError);
+        }
+      }
+    }
+    
     setRefreshing(true);
     try {
       await Promise.all([
         fetchPosts(1, false),
         fetchUnseenMessageCount()
       ]);
+      
+      // Ensure scroll to top after posts are loaded
+      if (flatListRef.current) {
+        setTimeout(() => {
+          try {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+          } catch (error) {
+            logger.debug('Error scrolling to top after refresh:', error);
+          }
+        }, 100);
+      }
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount]);
+  }, [fetchPosts, fetchUnseenMessageCount, posts.length]);
 
   // Throttle load more for web performance
   // Request guard: prevent pagination if already paginating or refreshing
@@ -765,7 +877,8 @@ export default function HomeScreen() {
     },
     postsList: {
       paddingHorizontal: 0,
-      paddingBottom: isTablet ? 30 : 20,
+      // Add padding for tab bar (88px mobile, 70px web) + extra spacing
+      paddingBottom: isWeb ? 90 : (isTablet ? 110 : 100),
     },
     loadMoreContainer: {
       padding: isTablet ? theme.spacing.lg : theme.spacing.md,
@@ -912,6 +1025,7 @@ export default function HomeScreen() {
         )}
         
         <FlatList
+        ref={flatListRef}
         data={posts}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"

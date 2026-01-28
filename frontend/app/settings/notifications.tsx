@@ -56,6 +56,7 @@ export default function NotificationsSettingsScreen() {
   
   // Toggle Interaction Safety: Per-toggle guards to prevent multiple API calls
   const updatingKeysRef = useRef<Set<string>>(new Set());
+  const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   
   const [pushPermissionStatus, setPushPermissionStatus] = useState<string>('unknown');
   const [quietHoursModalVisible, setQuietHoursModalVisible] = useState(false);
@@ -99,24 +100,42 @@ export default function NotificationsSettingsScreen() {
         return;
       }
       
-      // Use FCM to check permission status
+      // Use FCM to check permission status (without requesting)
       try {
         const messaging = require('@react-native-firebase/messaging').default;
         if (messaging) {
-          const authStatus = await messaging().requestPermission();
+          // Check current permission status (don't request)
+          const authStatus = await messaging().hasPermission();
           // Map FCM permission status to string format
           if (authStatus === messaging.AuthorizationStatus.AUTHORIZED || 
               authStatus === messaging.AuthorizationStatus.PROVISIONAL) {
             setPushPermissionStatus('granted');
-          } else {
+          } else if (authStatus === messaging.AuthorizationStatus.DENIED) {
             setPushPermissionStatus('denied');
+          } else {
+            setPushPermissionStatus('unknown');
           }
         } else {
           setPushPermissionStatus('unknown');
         }
-      } catch (fcmError) {
-        // FCM not available - fallback to unknown
-        setPushPermissionStatus('unknown');
+      } catch (fcmError: any) {
+        // FCM not available - try alternative method
+        logger.debug('FCM not available, trying alternative method', fcmError);
+        try {
+          // Try using expo-notifications as fallback
+          const { getPermissionsAsync } = require('expo-notifications');
+          const { status } = await getPermissionsAsync();
+          if (status === 'granted') {
+            setPushPermissionStatus('granted');
+          } else if (status === 'denied') {
+            setPushPermissionStatus('denied');
+          } else {
+            setPushPermissionStatus('unknown');
+          }
+        } catch (expoError) {
+          // Both methods failed - fallback to unknown
+          setPushPermissionStatus('unknown');
+        }
       }
     } catch (error) {
       logger.error('Error checking push permission status', error);
@@ -157,8 +176,12 @@ export default function NotificationsSettingsScreen() {
           if (enabled) {
             // Re-initialize FCM to get token
             await fcmService.initialize();
+            // Refresh permission status
+            await checkPushPermissionStatus();
             showAlert('Push notifications enabled!', 'Success', 'success');
           } else {
+            // Refresh permission status
+            await checkPushPermissionStatus();
             showAlert('Push notifications permission denied. You can enable it in your device settings.', 'Permission Denied', 'warning');
           }
         } else {
@@ -221,6 +244,7 @@ export default function NotificationsSettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
+    setUpdatingKeys(new Set(updatingKeysRef.current));
     
     try {
       await updateSetting('notifications', key, value);
@@ -232,6 +256,7 @@ export default function NotificationsSettingsScreen() {
       }
     } finally {
       updatingKeysRef.current.delete(key);
+      setUpdatingKeys(new Set(updatingKeysRef.current));
     }
   }, [settings, updateSetting]);
 
@@ -246,6 +271,7 @@ export default function NotificationsSettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
+    setUpdatingKeys(new Set(updatingKeysRef.current));
     
     try {
       // Update all notification settings in parallel
@@ -264,6 +290,7 @@ export default function NotificationsSettingsScreen() {
       }
     } finally {
       updatingKeysRef.current.delete(key);
+      setUpdatingKeys(new Set(updatingKeysRef.current));
     }
   }, [settings, updateSetting]);
 
@@ -325,7 +352,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={allNotificationsEnabled || false}
               onValueChange={toggleAllNotifications}
-              disabled={updatingKeysRef.current.has('allNotifications')}
+              disabled={updatingKeys.has('allNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={allNotificationsEnabled ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -353,7 +380,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.pushNotifications || false}
               onValueChange={(value) => handleUpdateSetting('pushNotifications', value)}
-              disabled={updatingKeysRef.current.has('pushNotifications')}
+              disabled={updatingKeys.has('pushNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.pushNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -374,7 +401,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.emailNotifications || false}
               onValueChange={(value) => handleUpdateSetting('emailNotifications', value)}
-              disabled={updatingKeysRef.current.has('emailNotifications')}
+              disabled={updatingKeys.has('emailNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.emailNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -402,7 +429,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.likesNotifications || false}
               onValueChange={(value) => handleUpdateSetting('likesNotifications', value)}
-              disabled={updatingKeysRef.current.has('likesNotifications')}
+              disabled={updatingKeys.has('likesNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.likesNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -423,7 +450,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.commentsNotifications || false}
               onValueChange={(value) => handleUpdateSetting('commentsNotifications', value)}
-              disabled={updatingKeysRef.current.has('commentsNotifications')}
+              disabled={updatingKeys.has('commentsNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.commentsNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -444,7 +471,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.followsNotifications || false}
               onValueChange={(value) => handleUpdateSetting('followsNotifications', value)}
-              disabled={updatingKeysRef.current.has('followsNotifications')}
+              disabled={updatingKeys.has('followsNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.followsNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -465,7 +492,7 @@ export default function NotificationsSettingsScreen() {
             <Switch
               value={settings?.notifications?.messagesNotifications || false}
               onValueChange={(value) => handleUpdateSetting('messagesNotifications', value)}
-              disabled={updatingKeysRef.current.has('messagesNotifications')}
+              disabled={updatingKeys.has('messagesNotifications')}
               trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
               thumbColor={settings?.notifications?.messagesNotifications ? theme.colors.primary : theme.colors.textSecondary}
             />
@@ -540,7 +567,7 @@ export default function NotificationsSettingsScreen() {
                 </Text>
               </View>
             </View>
-            <View style={styles.settingContent}>
+            <View style={styles.settingRight}>
               {pushPermissionStatus === 'granted' ? (
                 <View style={[styles.permissionBadge, { backgroundColor: theme.colors.success + '20' }]}>
                   <Ionicons name="checkmark-circle" size={16} color={theme.colors.success || '#4CAF50'} />
@@ -573,9 +600,9 @@ export default function NotificationsSettingsScreen() {
             }}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="volume-high-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="volume-high-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Notification Sound
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
@@ -583,7 +610,14 @@ export default function NotificationsSettingsScreen() {
                 </Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            <View style={styles.settingRight}>
+              <View style={[styles.comingSoonBadge, { backgroundColor: 'rgba(0,0,0,0.1)' }]}>
+                <Text style={[styles.comingSoonText, { color: theme.colors.primary }]}>
+                  Coming Soon
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            </View>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -783,6 +817,24 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
     marginTop: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  settingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  comingSoonBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  comingSoonText: {
+    fontSize: 10,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

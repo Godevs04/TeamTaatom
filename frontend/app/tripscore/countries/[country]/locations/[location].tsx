@@ -889,7 +889,7 @@ export default function LocationDetailScreen() {
                       : (data?.imageUrl || getLocationImage(data?.name || ''))) // Admin locale or fallback
                 }}
                 style={styles.heroImage}
-                resizeMode="cover"
+                resizeMode="contain"
               />
               {/* Glassmorphism overlay effect */}
               <View style={styles.glassmorphismOverlay} />
