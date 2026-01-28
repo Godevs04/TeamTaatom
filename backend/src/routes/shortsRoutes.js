@@ -71,19 +71,59 @@ const createShortValidation = [
  * /api/v1/shorts:
  *   get:
  *     summary: Get feed of short-form videos
+ *     description: |
+ *       Retrieves a paginated feed of short-form videos. Similar to TikTok/Instagram Reels format.
+ *       
+ *       **Features:**
+ *       - Vertical video format
+ *       - Optional background music
+ *       - Location tagging
+ *       - Hashtags and mentions support
+ *       
+ *       **Authentication:** Optional (personalized feed if authenticated)
  *     tags: [Shorts]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     parameters:
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 20
+ *         description: Number of shorts per page
+ *         example: 20
  *     responses:
  *       200:
- *         description: Paginated shorts feed
+ *         description: Shorts feed retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 shorts:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Short'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/', optionalAuth, getShorts);
 /**
@@ -109,6 +149,18 @@ router.get('/user/:userId', optionalAuth, getUserShorts);
  * /api/v1/shorts:
  *   post:
  *     summary: Upload a new short
+ *     description: |
+ *       Uploads a new short-form video. Supports video file and optional thumbnail image.
+ *       
+ *       **File Requirements:**
+ *       - Video: MP4, MOV, AVI, or other video formats
+ *       - Thumbnail: JPEG, PNG, WebP, GIF (optional)
+ *       - No file size limit
+ *       
+ *       **Optional Features:**
+ *       - Location: Add latitude/longitude for geotagging
+ *       - Background Music: Select song with start/end time and volume
+ *       - Caption: Text with hashtags and mentions support (max 1000 characters)
  *     tags: [Shorts]
  *     security:
  *       - bearerAuth: []
@@ -121,24 +173,79 @@ router.get('/user/:userId', optionalAuth, getUserShorts);
  *             type: object
  *             required:
  *               - video
- *               - caption
  *             properties:
- *               caption:
- *                 type: string
- *                 maxLength: 1000
- *               latitude:
- *                 type: number
- *               longitude:
- *                 type: number
  *               video:
  *                 type: string
  *                 format: binary
+ *                 description: Video file (required)
  *               image:
  *                 type: string
  *                 format: binary
+ *                 description: Optional thumbnail image
+ *               caption:
+ *                 type: string
+ *                 maxLength: 1000
+ *                 description: Video caption with hashtags and mentions
+ *                 example: "Amazing sunset! #travel #sunset @friend"
+ *               latitude:
+ *                 type: number
+ *                 format: float
+ *                 minimum: -90
+ *                 maximum: 90
+ *                 description: Latitude for geotagging
+ *                 example: 40.7128
+ *               longitude:
+ *                 type: number
+ *                 format: float
+ *                 minimum: -180
+ *                 maximum: 180
+ *                 description: Longitude for geotagging
+ *                 example: -74.0060
+ *               songId:
+ *                 type: string
+ *                 description: Optional song ID for background music
+ *                 example: "507f1f77bcf86cd799439011"
+ *               songStartTime:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 description: Start time in seconds for background music
+ *                 example: 10.5
+ *               songEndTime:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 description: End time in seconds for background music
+ *                 example: 60.0
+ *               songVolume:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 maximum: 1
+ *                 description: Volume level for background music (0.0 to 1.0)
+ *                 example: 0.5
  *     responses:
  *       201:
- *         description: Short created
+ *         description: Short created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Short created successfully"
+ *                 short:
+ *                   $ref: '#/components/schemas/Short'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/', authMiddleware, upload.fields([
   { name: 'video', maxCount: 1 },

@@ -122,7 +122,7 @@ export default function AboutSettingsScreen() {
   };
 
   const handleContactSupport = async () => {
-    const supportEmail = 'support@taatom.com';
+    const supportEmail = 'contact@taatom.com';
     const supportSubject = encodeURIComponent('Taatom Support Request');
     const supportBody = encodeURIComponent(
       `Hello Taatom Support Team,\n\n` +

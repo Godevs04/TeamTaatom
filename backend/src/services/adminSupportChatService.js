@@ -31,12 +31,18 @@ async function getOrCreateSupportConversation({ userId, reason, refId = null }) 
     }
 
     // Get Taatom Official user ID - try from constant first, then find by email/username
+    // The constant should already be normalized to a valid ObjectId, but validate anyway
     let officialUserId = null;
     
-    if (TAATOM_OFFICIAL_USER_ID && mongoose.Types.ObjectId.isValid(TAATOM_OFFICIAL_USER_ID)) {
-      officialUserId = TAATOM_OFFICIAL_USER_ID;
+    // Normalize the constant (should already be done, but ensure it's valid)
+    const normalizedOfficialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+    
+    if (mongoose.Types.ObjectId.isValid(normalizedOfficialId)) {
+      officialUserId = normalizedOfficialId;
+      logger.debug('Using TAATOM_OFFICIAL_USER_ID from constant:', officialUserId);
     } else {
       // Fallback: find user by email or username
+      logger.warn('TAATOM_OFFICIAL_USER_ID is not a valid ObjectId, searching database');
       const User = require('../models/User');
       const officialUser = await User.findOne({
         $or: [
@@ -47,10 +53,16 @@ async function getOrCreateSupportConversation({ userId, reason, refId = null }) 
       
       if (officialUser && officialUser._id) {
         officialUserId = officialUser._id.toString();
-        logger.warn('TAATOM_OFFICIAL_USER_ID not set, using found user ID:', officialUserId);
+        logger.warn('TAATOM_OFFICIAL_USER_ID not valid, using found user ID:', officialUserId);
       } else {
-        throw new Error('TAATOM_OFFICIAL_USER_ID is not configured and Taatom Official user not found in database');
+        // Last resort: use the fallback ObjectId
+        officialUserId = '000000000000000000000001';
+        logger.warn('Taatom Official user not found, using fallback ObjectId:', officialUserId);
       }
+    }
+    
+    if (!officialUserId || !mongoose.Types.ObjectId.isValid(officialUserId)) {
+      throw new Error('Failed to resolve Taatom Official user ID');
     }
 
     // Convert to ObjectId

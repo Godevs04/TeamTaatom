@@ -120,32 +120,55 @@ const addCommentValidation = [
  * /api/v1/posts:
  *   get:
  *     summary: Fetch posts for the feed
- *     description: Supports offset or cursor-based pagination. Pass `useCursor=true` with `cursor` timestamp for cursor pagination.
+ *     description: |
+ *       Retrieves a paginated list of posts for the feed. Supports two pagination methods:
+ *       
+ *       **Pagination Methods:**
+ *       1. **Offset-based**: Use `page` and `limit` parameters (default)
+ *       2. **Cursor-based**: Use `useCursor=true` with `cursor` timestamp for better performance with large datasets
+ *       
+ *       **Authentication:**
+ *       - Optional: If authenticated, returns personalized feed with user-specific data (likes, follows, etc.)
+ *       - If not authenticated, returns public feed
  *     tags: [Posts]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     parameters:
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           minimum: 1
+ *           default: 1
+ *         description: Page number for offset-based pagination
+ *         example: 1
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 100
  *           default: 20
+ *         description: Number of posts per page (max 100)
+ *         example: 20
  *       - in: query
  *         name: cursor
  *         schema:
  *           type: string
  *           format: date-time
+ *         description: Timestamp cursor for cursor-based pagination (ISO 8601 format)
+ *         example: "2024-01-15T10:30:00.000Z"
  *       - in: query
  *         name: useCursor
  *         schema:
  *           type: boolean
  *           default: false
+ *         description: Enable cursor-based pagination
+ *         example: false
  *     responses:
  *       200:
- *         description: Paginated list of posts
+ *         description: Successfully retrieved posts
  *         content:
  *           application/json:
  *             schema:
@@ -153,6 +176,7 @@ const addCommentValidation = [
  *               properties:
  *                 success:
  *                   type: boolean
+ *                   example: true
  *                 data:
  *                   type: object
  *                   properties:
@@ -162,6 +186,10 @@ const addCommentValidation = [
  *                         $ref: '#/components/schemas/Post'
  *                     pagination:
  *                       $ref: '#/components/schemas/Pagination'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/', optionalAuth, getPosts);
 /**
@@ -169,13 +197,36 @@ router.get('/', optionalAuth, getPosts);
  * /api/v1/posts/archived:
  *   get:
  *     summary: Get archived posts for authenticated user
+ *     description: |
+ *       Retrieves all archived posts for the authenticated user.
+ *       
+ *       **Archive Feature:**
+ *       - Archived posts are hidden from public feed
+ *       - Only visible to the post owner
+ *       - Can be unarchived later
  *     tags: [Posts]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Archived posts list
+ *         description: Archived posts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 posts:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Post'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/archived', authMiddleware, getArchivedPosts);
 /**
@@ -183,13 +234,36 @@ router.get('/archived', authMiddleware, getArchivedPosts);
  * /api/v1/posts/hidden:
  *   get:
  *     summary: Get hidden posts for authenticated user
+ *     description: |
+ *       Retrieves all posts that the authenticated user has hidden from their feed.
+ *       
+ *       **Hide Feature:**
+ *       - Hidden posts are removed from user's feed
+ *       - Post remains visible to others
+ *       - Can be unhidden later
  *     tags: [Posts]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Hidden posts list
+ *         description: Hidden posts retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 posts:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Post'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/hidden', authMiddleware, getHiddenPosts);
 /**
@@ -197,22 +271,41 @@ router.get('/hidden', authMiddleware, getHiddenPosts);
  * /api/v1/posts/{id}:
  *   get:
  *     summary: Get post by ID
+ *     description: |
+ *       Retrieves detailed information about a specific post by its ID.
+ *       
+ *       **Authentication:**
+ *       - Optional: If authenticated, includes user-specific data (isLiked, etc.)
+ *       - If not authenticated, returns public post data only
  *     tags: [Posts]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         schema:
  *           type: string
  *         required: true
+ *         description: MongoDB ObjectId of the post
+ *         example: "507f1f77bcf86cd799439011"
  *     responses:
  *       200:
- *         description: Post details
+ *         description: Post details retrieved successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Post'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 post:
+ *                   $ref: '#/components/schemas/Post'
  *       404:
- *         $ref: '#/components/responses/NotFoundError'
+ *         $ref: '#/components/responses/NotFound'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/:id', optionalAuth, getPostById);
 /**
@@ -220,6 +313,17 @@ router.get('/:id', optionalAuth, getPostById);
  * /api/v1/posts:
  *   post:
  *     summary: Create a new post
+ *     description: |
+ *       Creates a new post with images, optional location, and optional background music.
+ *       
+ *       **File Requirements:**
+ *       - Images: JPEG, PNG, WebP, GIF (up to 10 images per post)
+ *       - No file size limit
+ *       
+ *       **Optional Features:**
+ *       - Location: Add latitude/longitude for geotagging
+ *       - Background Music: Select song with start/end time and volume
+ *       - Caption: Text with hashtags and mentions support
  *     tags: [Posts]
  *     security:
  *       - bearerAuth: []
@@ -232,29 +336,79 @@ router.get('/:id', optionalAuth, getPostById);
  *             type: object
  *             required:
  *               - images
- *               - caption
  *             properties:
- *               caption:
- *                 type: string
- *                 example: Sunrise over the Alps #travel
- *               latitude:
- *                 type: number
- *                 format: float
- *               longitude:
- *                 type: number
- *                 format: float
  *               images:
  *                 type: array
  *                 items:
  *                   type: string
  *                   format: binary
+ *                 description: Image files (1-10 images per post)
+ *                 minItems: 1
+ *                 maxItems: 10
+ *               caption:
+ *                 type: string
+ *                 maxLength: 2200
+ *                 description: Post caption with hashtags and mentions support
+ *                 example: "Sunrise over the Alps #travel #mountains @friend"
+ *               latitude:
+ *                 type: number
+ *                 format: float
+ *                 minimum: -90
+ *                 maximum: 90
+ *                 description: Latitude for geotagging
+ *                 example: 46.5197
+ *               longitude:
+ *                 type: number
+ *                 format: float
+ *                 minimum: -180
+ *                 maximum: 180
+ *                 description: Longitude for geotagging
+ *                 example: 6.6323
+ *               songId:
+ *                 type: string
+ *                 description: Optional song ID for background music
+ *                 example: "507f1f77bcf86cd799439011"
+ *               songStartTime:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 description: Start time in seconds for background music
+ *                 example: 10.5
+ *               songEndTime:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 description: End time in seconds for background music
+ *                 example: 60.0
+ *               songVolume:
+ *                 type: number
+ *                 format: float
+ *                 minimum: 0
+ *                 maximum: 1
+ *                 description: Volume level for background music (0.0 to 1.0)
+ *                 example: 0.5
  *     responses:
  *       201:
  *         description: Post created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Post created successfully"
+ *                 post:
+ *                   $ref: '#/components/schemas/Post'
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         $ref: '#/components/responses/BadRequest'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/', authMiddleware, upload.fields([{ name: 'images', maxCount: 10 }]), createPostValidation, createPost);
 /**
