@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { toggleFollow } from '../../services/profile';
+import { toggleFollow, getTravelMapData } from '../../services/profile';
 import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
@@ -15,6 +15,7 @@ import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import logger from '../../utils/logger';
 import { getUserShorts } from '../../services/posts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -36,6 +37,7 @@ export default function UserProfileScreen() {
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
   const [loadingShorts, setLoadingShorts] = useState(false);
+  const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   // Ref to track if we're in the middle of a follow/unfollow action
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
@@ -271,6 +273,20 @@ export default function UserProfileScreen() {
       
       setProfile(userProfile);
       
+      // Fetch verified locations count (for all users, regardless of privacy)
+      // This runs in parallel with posts/shorts fetching for better performance
+      getTravelMapData(id as string)
+        .then((travelMapResult) => {
+          if (travelMapResult?.data?.statistics) {
+            setVerifiedLocationsCount(travelMapResult.data.statistics.totalLocations);
+            logger.debug(`Loaded ${travelMapResult.data.statistics.totalLocations} verified locations for user ${id}`);
+          }
+        })
+        .catch((err) => {
+          logger.debug('Error fetching verified locations (non-critical):', err);
+          // Don't set error state, just log it - this is optional data
+        });
+      
       // OPTIMIZATION: Fetch posts and shorts in parallel if user can view posts
       if (userProfile.canViewPosts) {
         setLoadingShorts(true);
@@ -375,7 +391,7 @@ export default function UserProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, currentUser, deriveFollowState]);
+  }, [id, deriveFollowState]);
 
   useEffect(() => {
     setProfile(null);
@@ -384,16 +400,25 @@ export default function UserProfileScreen() {
     setFollowRequestSent(false);
     setFollowState('FOLLOW');
     setShowWorldMap(false);
+    setVerifiedLocationsCount(null); // Reset verified locations count
     // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
-  }, [id]);
+    // Fetch profile when ID changes
+    if (id) {
+      fetchProfile();
+    }
+  }, [id, fetchProfile]);
 
   useEffect(() => {
     (async () => {
       try {
-        const userData = await api.get('/auth/me');
+        const userData = await api.get('/api/v1/auth/me');
         setCurrentUser(userData.data.user);
-      } catch {}
+      } catch (error) {
+        logger.error('Error fetching current user:', error);
+        // Don't block profile loading if current user fetch fails
+        // Profile can still be loaded without current user
+      }
     })();
   }, []);
 
@@ -405,8 +430,10 @@ export default function UserProfileScreen() {
         lastFollowApiResponse.current = null;
       }
       isFollowActionInProgress.current = false;
-      if (currentUser) fetchProfile();
-    }, [fetchProfile, currentUser])
+      // Always fetch profile, don't wait for currentUser
+      // The profile fetch doesn't require currentUser to work
+      fetchProfile();
+    }, [fetchProfile])
   );
 
   const handleFollow = async () => {
@@ -525,7 +552,12 @@ export default function UserProfileScreen() {
                 </View>
               </View>
 
-              {/* Name */}
+              {/* Username */}
+              {profile.username && (
+                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>{profile.username}</Text>
+              )}
+              
+              {/* Full Name */}
               <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profile.fullName}</Text>
               
               {/* Bio */}
@@ -626,7 +658,11 @@ export default function UserProfileScreen() {
         <Pressable 
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => {
-            if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+            // Navigate to all verified locations map if available
+            if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+              router.push(`/map/all-locations?userId=${id}`);
+            } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+              // Fallback to old world map if verified locations not available
               setShowWorldMap(true);
             }
           }}
@@ -636,27 +672,29 @@ export default function UserProfileScreen() {
               <Ionicons name="globe" size={24} color={profileTheme.accent} />
             </View>
             <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>Posted Locations</Text>
+              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
               <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {profile.canViewLocations && profile.locations && profile.locations.length > 0
+                {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                  ? `${verifiedLocationsCount} verified locations visited`
+                  : profile.canViewLocations && profile.locations && profile.locations.length > 0
                   ? `${profile.locations.length} locations visited`
                   : profile.canViewLocations 
                     ? 'No locations yet'
                     : profile.profileVisibility === 'followers' 
-                    ? 'Follow to view posted locations'
+                    ? 'Follow to view locations'
                     : profile.profileVisibility === 'private'
                     ? 'Follow request pending to view locations'
-                    : 'Follow to view posted locations'}
+                    : 'Follow to view locations'}
               </Text>
             </View>
-            {profile.canViewLocations && profile.locations && profile.locations.length > 0 && (
+            {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
               <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-            )}
+            ) : null}
           </View>
           <View style={styles.locationGlobeContainer}>
-            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
+            {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
               <RotatingGlobe 
-                locations={profile.locations} 
+                locations={profile.locations || []} 
                 size={140} 
               />
             ) : (
@@ -948,12 +986,20 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  profileName: {
-    fontSize: 28,
+  username: {
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 4,
     textAlign: 'center',
     letterSpacing: 0.3,
+  },
+  profileName: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: 0.1,
+    opacity: 0.7,
   },
   bioContainer: {
     marginBottom: 16,

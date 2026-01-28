@@ -37,78 +37,114 @@ const options = {
       description: `
 # Taatom API Documentation
 
-Welcome to the Taatom API! This is a comprehensive RESTful API for the Taatom social media platform.
+Welcome to the Taatom API documentation. This comprehensive RESTful API provides all the functionality needed to integrate with the Taatom social media platform.
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Authentication
+### Authentication
 
-**For Mobile/API Clients:**
-- Use **bearerAuth** (JWT Token)
-- Sign in: \`POST /api/v1/auth/signin\`
-- Copy the \`token\` from response
-- Click "Authorize" → Enter token → Click "Authorize"
+**For API/Mobile Clients:**
+1. Authenticate via \`POST /api/v1/auth/signin\`
+2. Copy the \`token\` from the response
+3. Click "Authorize" button and enter: \`Bearer YOUR_TOKEN\`
+4. All subsequent requests will include authentication
 
 **For Web Clients:**
-- Use **cookieAuth** (HTTP-only Cookie)
-- Sign in with \`withCredentials: true\`
-- Cookie is automatically stored
-- Copy cookie value from browser DevTools → Application → Cookies → authToken
+1. Sign in with \`withCredentials: true\`
+2. Browser stores \`authToken\` cookie automatically
+3. For Swagger: Copy cookie value from DevTools → Application → Cookies
 
-### 2. Making Requests
+### Making Requests
 
-- All endpoints are prefixed with \`/api/v1\`
-- Include authentication token/cookie in requests
-- Check response status codes and error codes
+- Base URL: \`/api/v1\`
+- Authentication: Bearer token or cookie (set via Authorize button)
+- Content-Type: \`application/json\` (or \`multipart/form-data\` for file uploads)
 
-### 3. Error Handling
+### Testing Endpoints
 
-All errors follow this format:
+1. Browse endpoints by category using the tags below
+2. Click any endpoint to view details
+3. Click "Try it out" to enable editing
+4. Fill required parameters
+5. Click "Execute" to send request
+6. Review response with status, headers, and body
+
+## API Overview
+
+**Base Path:** \`/api/v1\`
+
+**Response Format:**
+\`\`\`json
+{
+  "success": true,
+  "message": "Operation successful",
+  "data": { ... }
+}
+\`\`\`
+
+**Error Format:**
 \`\`\`json
 {
   "success": false,
   "error": {
     "code": "AUTH_1004",
-    "message": "Invalid email or password"
+    "message": "Invalid credentials",
+    "details": { ... }
   }
 }
 \`\`\`
 
-## 📚 API Versioning
+## Security
 
-- Current Version: **v1**
-- Base URL: \`/api/v1\`
-- Legacy routes still supported for backward compatibility
+- Rate limiting on all endpoints
+- CSRF protection for web clients
+- Input validation and sanitization
+- JWT token authentication (24h expiry)
+- HTTP-only cookie support
 
-## 🔒 Security
+## Error Codes
 
-- **Rate Limiting**: Applied to all endpoints
-- **CSRF Protection**: Required for web (POST/PUT/DELETE)
-- **Input Sanitization**: All user input is sanitized
-- **Password Strength**: Minimum 8 characters required
+| Code | Category | Description |
+|------|----------|-------------|
+| AUTH_1001-1006 | Authentication | Auth and authorization errors |
+| VAL_2001-2005 | Validation | Input validation failures |
+| RES_3001-3005 | Resources | Resource not found/access denied |
+| FILE_4001-4004 | File Upload | File upload errors |
+| RATE_5001 | Rate Limiting | Too many requests |
+| SRV_6001-6003 | Server | Internal server errors |
+| BIZ_7001-7003 | Business Logic | Business rule violations |
 
-## 📖 Error Codes
+## Features
 
-- **AUTH_1001-1006**: Authentication & Authorization
-- **VAL_2001-2005**: Validation errors
-- **RES_3001-3005**: Resource errors
-- **FILE_4001-4004**: File upload errors
-- **RATE_5001**: Rate limiting
-- **SRV_6001-6003**: Server errors
-- **BIZ_7001-7003**: Business logic errors
+- **Authentication**: Sign up, sign in, OTP verification, password management
+- **Posts**: Create, read, update posts with images, location, and background music
+- **Profile**: User profiles, follow/unfollow, search, interests
+- **Chat**: Real-time messaging and conversations
+- **Shorts**: Short-form video content management
+- **Songs**: Music library for posts and shorts
+- **Hashtags**: Search, trending, and hashtag-based content discovery
+- **Notifications**: User notification management
+- **Collections**: Organize saved posts
+- **Search**: Advanced search for posts, users, and locations
+- **Settings**: User preferences and account settings
+- **Analytics**: User behavior and engagement metrics
 
-## 🧪 Try It Out
+## Code Generation
 
-1. Click on any endpoint
-2. Click "Try it out"
-3. Fill in required parameters
-4. Click "Execute"
-5. View response below
+Generate request code snippets in:
+- cURL (bash, PowerShell, CMD)
+- Node.js
+- Python
+- JavaScript
 
-## 📞 Support
+## Support
 
-- **Email**: support@taatom.com
+- **Email**: contact@taatom.com
 - **Documentation**: https://docs.taatom.com
+
+---
+
+**Version**: 1.0.0 | **Last Updated**: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
       `,
       contact: {
         name: 'API Support',
@@ -294,10 +330,17 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
               example: 10,
               minimum: 0
             },
+            total: {
+              type: 'integer',
+              example: 100,
+              minimum: 0,
+              description: 'Total number of items'
+            },
             totalCount: {
               type: 'integer',
               example: 100,
-              minimum: 0
+              minimum: 0,
+              description: 'Alias for total (backward compatibility)'
             },
             hasMore: {
               type: 'boolean',
@@ -308,6 +351,125 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
               type: 'integer',
               example: 20,
               description: 'Items per page'
+            }
+          }
+        },
+        Song: {
+          type: 'object',
+          required: ['_id', 'title', 'artist', 'duration'],
+          properties: {
+            _id: {
+              type: 'string',
+              example: '507f1f77bcf86cd799439011',
+              description: 'MongoDB ObjectId of the song'
+            },
+            title: {
+              type: 'string',
+              example: 'Summer Vibes',
+              description: 'Song title',
+              minLength: 1,
+              maxLength: 200
+            },
+            artist: {
+              type: 'string',
+              example: 'John Doe',
+              description: 'Artist name',
+              minLength: 1,
+              maxLength: 200
+            },
+            duration: {
+              type: 'integer',
+              example: 240,
+              description: 'Duration in seconds',
+              minimum: 0
+            },
+            genre: {
+              type: 'string',
+              example: 'Pop',
+              description: 'Song genre',
+              maxLength: 50,
+              default: 'General'
+            },
+            s3Url: {
+              type: 'string',
+              format: 'uri',
+              example: 'https://storage.example.com/songs/abc123.mp3?signature=...',
+              description: 'Signed URL for audio file (dynamically generated, expires)'
+            },
+            cloudinaryUrl: {
+              type: 'string',
+              format: 'uri',
+              example: 'https://storage.example.com/songs/abc123.mp3?signature=...',
+              description: 'Alias for s3Url (backward compatibility)'
+            },
+            imageUrl: {
+              type: 'string',
+              format: 'uri',
+              example: 'https://storage.example.com/song-images/xyz789.jpg?signature=...',
+              description: 'Signed URL for cover image (dynamically generated, expires)'
+            },
+            thumbnailUrl: {
+              type: 'string',
+              format: 'uri',
+              example: 'https://storage.example.com/song-images/xyz789.jpg?signature=...',
+              description: 'Alias for imageUrl (backward compatibility)'
+            },
+            isActive: {
+              type: 'boolean',
+              example: true,
+              description: 'Whether the song is active and visible to users',
+              default: true
+            },
+            usageCount: {
+              type: 'integer',
+              example: 15,
+              description: 'Number of posts/shorts using this song',
+              minimum: 0,
+              default: 0
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-01-15T10:30:00.000Z',
+              description: 'Song creation timestamp'
+            },
+            uploadDate: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-01-15T10:30:00.000Z',
+              description: 'Song upload timestamp'
+            }
+          }
+        },
+        ErrorResponse: {
+          type: 'object',
+          required: ['success', 'error'],
+          properties: {
+            success: {
+              type: 'boolean',
+              example: false,
+              description: 'Always false for error responses'
+            },
+            error: {
+              type: 'object',
+              required: ['code', 'message'],
+              properties: {
+                code: {
+                  type: 'string',
+                  example: 'VAL_2001',
+                  description: 'Standardized error code'
+                },
+                message: {
+                  type: 'string',
+                  example: 'Validation failed',
+                  description: 'Human-readable error message'
+                },
+                details: {
+                  type: 'object',
+                  description: 'Additional error details',
+                  additionalProperties: true
+                }
+              }
             }
           }
         },
@@ -600,6 +762,99 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2ODlmMWNlYjhjYzc3NzkwODZjZGI
                 error: {
                   code: 'SRV_6001',
                   message: 'Internal server error'
+                }
+              }
+            }
+          }
+        },
+        BadRequest: {
+          description: 'Bad request - validation error or invalid input',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse'
+              },
+              example: {
+                success: false,
+                error: {
+                  code: 'VAL_2001',
+                  message: 'Validation failed',
+                  details: {
+                    validationErrors: [
+                      {
+                        field: 'title',
+                        message: 'Title must be between 1 and 200 characters'
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        Unauthorized: {
+          description: 'Authentication required or token invalid',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse'
+              },
+              example: {
+                success: false,
+                error: {
+                  code: 'AUTH_1001',
+                  message: 'Authentication required'
+                }
+              }
+            }
+          }
+        },
+        Forbidden: {
+          description: 'Access forbidden - insufficient permissions',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse'
+              },
+              example: {
+                success: false,
+                error: {
+                  code: 'AUTH_1003',
+                  message: 'Access forbidden. SuperAdmin privileges required.'
+                }
+              }
+            }
+          }
+        },
+        NotFound: {
+          description: 'Resource not found',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse'
+              },
+              example: {
+                success: false,
+                error: {
+                  code: 'RES_3001',
+                  message: 'Song not found'
+                }
+              }
+            }
+          }
+        },
+        InternalServerError: {
+          description: 'Internal server error',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse'
+              },
+              example: {
+                success: false,
+                error: {
+                  code: 'SRV_6001',
+                  message: 'Error updating song'
                 }
               }
             }

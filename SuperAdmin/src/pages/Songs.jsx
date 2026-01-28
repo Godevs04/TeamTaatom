@@ -33,7 +33,8 @@ import {
   Edit2,
   AlertTriangle,
   Power,
-  PowerOff
+  PowerOff,
+  Image as ImageIcon
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getSongs, uploadSong, deleteSong, toggleSongStatus, updateSong } from '../services/songService'
@@ -247,13 +248,15 @@ const Songs = () => {
     artist: '',
     genre: 'General',
     durationMinutes: '', // Changed from duration to durationMinutes
-    file: null
+    file: null,
+    imageFile: null
   })
   const [editFormData, setEditFormData] = useState({
     title: '',
     artist: '',
     genre: 'General',
-    durationMinutes: '' // Changed from duration to durationMinutes
+    durationMinutes: '', // Changed from duration to durationMinutes
+    imageFile: null
   })
 
   // Lifecycle safety
@@ -475,6 +478,24 @@ const Songs = () => {
     }
   }
 
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      // Validate image file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Invalid image format. Please use JPEG, PNG, WebP, or GIF')
+        return
+      }
+      // Validate file size (10MB for images)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('Image size must be less than 10MB')
+        return
+      }
+      setFormData({ ...formData, imageFile: file })
+    }
+  }
+
   const handleUpload = async (e) => {
     e.preventDefault()
     
@@ -527,6 +548,9 @@ const Songs = () => {
     try {
       const uploadFormData = new FormData()
       uploadFormData.append('song', formData.file)
+      if (formData.imageFile) {
+        uploadFormData.append('image', formData.imageFile)
+      }
       uploadFormData.append('title', title)
       uploadFormData.append('artist', artist)
       uploadFormData.append('genre', genre)
@@ -536,7 +560,7 @@ const Songs = () => {
       const response = await uploadSong(uploadFormData)
       toast.success(response.message || 'Song uploaded successfully')
       handleModalClose(setShowUploadModal, null, () => {
-        setFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', file: null })
+        setFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', file: null, imageFile: null })
       })
       await loadSongs()
     } catch (error) {
@@ -721,21 +745,37 @@ const Songs = () => {
 
     setEditing(true)
     try {
-      const updateData = {
-        title,
-        artist,
-        genre
+      // If image file is provided, use FormData; otherwise use JSON
+      if (editFormData.imageFile) {
+        const formData = new FormData()
+        formData.append('image', editFormData.imageFile)
+        formData.append('title', title)
+        formData.append('artist', artist)
+        formData.append('genre', genre)
+        // Only include duration if provided
+        if (durationInSeconds !== undefined) {
+          formData.append('duration', durationInSeconds.toString())
+        }
+
+        await updateSong(songToEdit._id, formData, true) // Pass true to indicate FormData
+      } else {
+        const updateData = {
+          title,
+          artist,
+          genre
+        }
+        
+        // Only include duration if provided
+        if (durationInSeconds !== undefined) {
+          updateData.duration = durationInSeconds
+        }
+
+        await updateSong(songToEdit._id, updateData)
       }
       
-      // Only include duration if provided
-      if (durationInSeconds !== undefined) {
-        updateData.duration = durationInSeconds
-      }
-
-      await updateSong(songToEdit._id, updateData)
       toast.success('Song updated successfully')
       handleModalClose(setShowEditModal, setSongToEdit, () => {
-        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
+        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', imageFile: null })
       })
       await loadSongs()
     } catch (error) {
@@ -850,10 +890,29 @@ const Songs = () => {
       title: song.title || '',
       artist: song.artist || '',
       genre: song.genre || 'General',
-      durationMinutes: durationMinutes
+      durationMinutes: durationMinutes,
+      imageFile: null // Reset image file on edit
     })
     setShowEditModal(true)
   }, [])
+
+  const handleEditImageChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      // Validate image file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Invalid image format. Please use JPEG, PNG, WebP, or GIF')
+        return
+      }
+      // Validate file size (10MB for images)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('Image size must be less than 10MB')
+        return
+      }
+      setEditFormData({ ...editFormData, imageFile: file })
+    }
+  }
   
   const handleSelectAll = useCallback((e) => {
     if (!isMountedRef.current) return
@@ -1300,6 +1359,32 @@ const Songs = () => {
               </p>
             </div>
 
+            <div className="space-y-2.5">
+              <label className="block text-sm font-semibold text-gray-800">
+                Song Cover Image <span className="text-gray-500 text-xs font-normal">(Optional)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="w-full px-4 py-3 text-base bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer hover:border-gray-400"
+                />
+                {formData.imageFile && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{formData.imageFile.name}</span>
+                    <span className="text-gray-400">
+                      ({(formData.imageFile.size / 1024 / 1024).toFixed(2)} MB)
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Recommended size: 1000x1000 pixels (square). Supported formats: JPEG, PNG, WebP, GIF (Max 10MB)
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
               <div className="space-y-2.5">
                 <label className="block text-sm font-semibold text-gray-800">
@@ -1562,10 +1647,10 @@ const Songs = () => {
 
       {/* Edit Modal */}
       <Modal isOpen={showEditModal} onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
-        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
+        setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', imageFile: null })
       })} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setSongToEdit, () => {
-          setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '' })
+          setEditFormData({ title: '', artist: '', genre: 'General', durationMinutes: '', imageFile: null })
         })}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-green-100 rounded-lg">
@@ -1643,6 +1728,42 @@ const Songs = () => {
                   Enter duration in minutes (e.g., 3.5 for 3 minutes 30 seconds)
                 </p>
               </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <label className="block text-sm font-semibold text-gray-700">
+                Song Cover Image <span className="text-gray-400 text-xs">Optional</span>
+              </label>
+              {songToEdit?.imageUrl || songToEdit?.thumbnailUrl ? (
+                <div className="mb-2">
+                  <p className="text-xs text-gray-500 mb-2">Current image:</p>
+                  <img 
+                    src={songToEdit.imageUrl || songToEdit.thumbnailUrl} 
+                    alt="Current song cover" 
+                    className="w-32 h-32 object-cover rounded-lg border border-gray-300"
+                  />
+                </div>
+              ) : null}
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleEditImageChange}
+                  className="w-full px-4 py-3 text-base bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all cursor-pointer hover:border-gray-400"
+                />
+                {editFormData.imageFile && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>{editFormData.imageFile.name}</span>
+                    <span className="text-gray-400">
+                      ({(editFormData.imageFile.size / 1024 / 1024).toFixed(2)} MB)
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Recommended size: 1000x1000 pixels (square). Supported formats: JPEG, PNG, WebP, GIF (Max 10MB)
+              </p>
             </div>
 
             {songToEdit && (

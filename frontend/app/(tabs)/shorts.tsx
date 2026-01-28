@@ -11,7 +11,6 @@ import {
   Alert,
   Dimensions,
   TouchableWithoutFeedback,
-  Share,
   Platform,
   Animated,
   AppState,
@@ -40,6 +39,7 @@ import { audioManager } from '../../utils/audioManager';
 import PostLocation from '../../components/post/PostLocation';
 import { geocodeAddress } from '../../utils/locationUtils';
 import { socketService } from '../../services/socket';
+import ShareModal from '../../components/ShareModal';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -47,6 +47,16 @@ const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const logger = createLogger('ShortsScreen');
+
+// Type for particle animation values
+type ParticleAnimations = {
+  [particleId: string]: {
+    scale: Animated.Value;
+    opacity: Animated.Value;
+    translateY: Animated.Value;
+    translateX: Animated.Value;
+  };
+};
 
 // Elegant font families for each platform
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
@@ -83,12 +93,16 @@ export default function ShortsScreen() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
+  const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
+  const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
   const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
   const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
@@ -98,6 +112,8 @@ export default function ShortsScreen() {
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const likeAnimationRefs = useRef<{ [key: string]: Animated.Value }>({});
+  const likeParticleRefs = useRef<{ [key: string]: ParticleAnimations }>({});
   const swipeAnimation = useRef(new Animated.Value(0)).current;
   const fadeAnimation = useRef(new Animated.Value(1)).current;
   // Track currently active video to ensure only one plays at a time
@@ -410,10 +426,41 @@ export default function ShortsScreen() {
 
   // Handle back button press (UI or hardware)
   // Pauses video then navigates back
-  const handleBack = useCallback(() => {
+  // If userId is in params, navigate back to that profile page
+  // - If userId matches current user, go to own profile tab: /(tabs)/profile
+  // - If userId is different, go to other user's profile: /profile/${userId}
+  // Otherwise, use router.back() to go to previous screen
+  const handleBack = useCallback(async () => {
     pauseCurrentVideo();
-    router.back();
-  }, [pauseCurrentVideo, router]);
+    
+    // If we came from a profile page (userId param exists), navigate back to that profile
+    if (params.userId && typeof params.userId === 'string') {
+      // Check if this is the current user's own profile
+      let isOwnProfile = false;
+      try {
+        if (currentUser?._id) {
+          isOwnProfile = currentUser._id === params.userId;
+        } else {
+          // If currentUser not loaded yet, try to get it
+          const user = await getUserFromStorage();
+          isOwnProfile = user?._id === params.userId;
+        }
+      } catch (error) {
+        logger.debug('Error checking if own profile:', error);
+      }
+      
+      if (isOwnProfile) {
+        // Navigate to own profile tab
+        router.push('/(tabs)/profile');
+      } else {
+        // Navigate to other user's profile
+        router.push(`/profile/${params.userId}`);
+      }
+    } else {
+      // Otherwise, use normal back navigation
+      router.back();
+    }
+  }, [pauseCurrentVideo, router, params.userId, currentUser]);
 
   // Monitor network status for video quality adaptation
   // Wrapped with defensive error handling to prevent false quality downgrades
@@ -766,16 +813,43 @@ export default function ShortsScreen() {
       // Scroll to specific short if shortId is provided in params
       if (params.shortId && typeof params.shortId === 'string' && response.shorts.length > 0) {
         const targetIndex = response.shorts.findIndex(s => s._id === params.shortId);
-        if (targetIndex !== -1 && flatListRef.current) {
-          // Use setTimeout to ensure FlatList is rendered before scrolling
-          setTimeout(() => {
-            flatListRef.current?.scrollToIndex({ 
-              index: targetIndex, 
-              animated: false 
-            });
-            setCurrentIndex(targetIndex);
-            setCurrentVisibleIndex(targetIndex);
-          }, 100);
+        if (targetIndex !== -1) {
+          // Set the index immediately so it's ready when FlatList renders
+          setCurrentIndex(targetIndex);
+          setCurrentVisibleIndex(targetIndex);
+          
+          // Use multiple attempts with increasing delays to ensure scroll works
+          // This handles cases where FlatList isn't ready immediately
+          const attemptScroll = (attempt: number = 0) => {
+            if (attempt > 5) {
+              logger.warn(`Failed to scroll to short ${params.shortId} after 5 attempts`);
+              return;
+            }
+            
+            setTimeout(() => {
+              if (flatListRef.current) {
+                try {
+                  flatListRef.current.scrollToIndex({ 
+                    index: targetIndex, 
+                    animated: false 
+                  });
+                  logger.debug(`Successfully scrolled to short at index ${targetIndex}`);
+                } catch (error) {
+                  // If scroll fails, retry with longer delay
+                  logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
+                  attemptScroll(attempt + 1);
+                }
+              } else {
+                // FlatList not ready yet, retry
+                attemptScroll(attempt + 1);
+              }
+            }, 100 * (attempt + 1)); // Increasing delay: 100ms, 200ms, 300ms, etc.
+          };
+          
+          // Start scroll attempts
+          attemptScroll();
+        } else {
+          logger.warn(`Short ${params.shortId} not found in loaded shorts`);
         }
       }
       
@@ -902,6 +976,11 @@ export default function ShortsScreen() {
   }, [videoStates, pauseAllVideosExcept, shorts]);
 
   const showPauseButtonTemporarily = (videoId: string) => {
+    // Don't show pause button if like animation is showing
+    if (showLikeAnimation[videoId]) {
+      return;
+    }
+    
     setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
     
     // Clear existing timeout
@@ -915,8 +994,161 @@ export default function ShortsScreen() {
     }, 2000);
   };
 
+  const showLikeAnimationTemporarily = (shortId: string) => {
+    // Initialize animation value if not exists
+    if (!likeAnimationRefs.current[shortId]) {
+      likeAnimationRefs.current[shortId] = new Animated.Value(0);
+    }
+    
+    const animValue = likeAnimationRefs.current[shortId];
+    
+    // Reset animation
+    animValue.setValue(0);
+    
+    // Show like animation
+    setShowLikeAnimation(prev => ({ ...prev, [shortId]: true }));
+    
+    // Hide pause button while animation is showing
+    setShowPauseButton(prev => ({ ...prev, [shortId]: false }));
+    
+    // Clear existing timeout
+    if (pauseTimeoutRefs.current[shortId]) {
+      clearTimeout(pauseTimeoutRefs.current[shortId]);
+    }
+    
+    // Create multiple heart particles (Instagram-like)
+    const particleCount = 6;
+    const particles: Array<{ id: string; x: number; y: number }> = [];
+    const particleAnims: ParticleAnimations = {};
+    
+    if (!likeParticleRefs.current[shortId]) {
+      likeParticleRefs.current[shortId] = {};
+    }
+    
+    for (let i = 0; i < particleCount; i++) {
+      const particleId = `${shortId}-${Date.now()}-${i}`;
+      // Random spread around center
+      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
+      const distance = 30 + Math.random() * 40;
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
+      
+      particles.push({ id: particleId, x, y });
+      
+      // Create animation values for each particle
+      particleAnims[particleId] = {
+        scale: new Animated.Value(0),
+        opacity: new Animated.Value(0),
+        translateY: new Animated.Value(0),
+        translateX: new Animated.Value(0),
+      };
+    }
+    
+    likeParticleRefs.current[shortId] = particleAnims;
+    setLikeAnimationParticles(prev => ({ ...prev, [shortId]: particles }));
+    
+    // Main heart animation: scale from 0.5 to 1.2, then back to 1, with fade
+    Animated.sequence([
+      // Scale up and fade in
+      Animated.parallel([
+        Animated.timing(animValue, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+      // Bounce effect
+      Animated.spring(animValue, {
+        toValue: 1.2,
+        tension: 100,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      // Settle back
+      Animated.spring(animValue, {
+        toValue: 1,
+        tension: 100,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      // Fade out
+      Animated.timing(animValue, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    
+    // Animate particles floating upward with fade
+    particles.forEach((particle, index) => {
+      const anims = particleAnims[particle.id];
+      if (!anims) return;
+      
+      // Delay each particle slightly for staggered effect
+      setTimeout(() => {
+        Animated.parallel([
+          // Scale up
+          Animated.sequence([
+            Animated.timing(anims.scale, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(anims.scale, {
+              toValue: 0.6,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          // Fade in then out
+          Animated.sequence([
+            Animated.timing(anims.opacity, {
+              toValue: 0.4, // Lower opacity for subtle effect
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(anims.opacity, {
+              toValue: 0,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          // Float upward
+          Animated.timing(anims.translateY, {
+            toValue: -80 - Math.random() * 40,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+          // Slight horizontal drift
+          Animated.timing(anims.translateX, {
+            toValue: particle.x,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, index * 30); // Stagger particles
+    });
+    
+    // Hide animation after 1.5 seconds
+    pauseTimeoutRefs.current[shortId] = setTimeout(() => {
+      setShowLikeAnimation(prev => ({ ...prev, [shortId]: false }));
+      setLikeAnimationParticles(prev => {
+        const newState = { ...prev };
+        delete newState[shortId];
+        return newState;
+      });
+      // Clean up particle refs
+      if (likeParticleRefs.current[shortId]) {
+        delete likeParticleRefs.current[shortId];
+      }
+    }, 1500);
+  };
+
   const handleLike = async (shortId: string) => {
     if (actionLoading === shortId) return;
+    
+    // Show like animation immediately
+    showLikeAnimationTemporarily(shortId);
     
     // Store previous state for error revert
     let previousState: { isLiked: boolean; likesCount: number } | null = null;
@@ -1054,16 +1286,15 @@ export default function ShortsScreen() {
 
   const handleShare = async (short: PostType) => {
     try {
-      await Share.share({
-        message: `Check out this amazing short by ${short.user.fullName}: ${short.caption}`,
-        url: short.mediaUrl || short.imageUrl,
-      });
+      // Open ShareModal instead of native share
+      setSelectedShortForShare(short);
+      setShowShareModal(true);
       
       // Track share engagement
       trackEngagement('share', 'short', short._id);
     } catch (error) {
-      logger.error('Error sharing', error);
-      showError('Failed to share');
+      logger.error('Error opening share modal', error);
+      showError('Failed to open share options');
     }
   };
 
@@ -1307,9 +1538,10 @@ export default function ShortsScreen() {
     const isLiked = item.isLiked || false;
     
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
-    // These values are stable during like/unlike actions since they only depend on video state
-    const shouldShowPauseButton = showPauseButton[item._id] || !videoStates[item._id];
+    // Don't show pause button if like animation is showing
+    const shouldShowPauseButton = !showLikeAnimation[item._id] && (showPauseButton[item._id] || !videoStates[item._id]);
     const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
+    const shouldShowLikeAnimation = showLikeAnimation[item._id] || false;
     
     // Debug: Log song data
     if (item.song) {
@@ -1591,9 +1823,52 @@ export default function ShortsScreen() {
             style={styles.bottomGradient}
           />
           
-          {/* Play/Pause Overlay - Memoized to prevent flexing during like/unlike */}
+          {/* Like Animation - Shows when like button is clicked */}
+          {shouldShowLikeAnimation && (() => {
+            // Get or create animation value for this item
+            if (!likeAnimationRefs.current[item._id]) {
+              likeAnimationRefs.current[item._id] = new Animated.Value(0);
+            }
+            const animValue = likeAnimationRefs.current[item._id];
+            
+            // Create interpolated values for opacity and scale
+            const opacity = animValue.interpolate({
+              inputRange: [0, 0.5, 1, 1.2],
+              outputRange: [0, 0.4, 0.5, 0.5], // Lower opacity for subtle effect
+            });
+            
+            const scale = animValue.interpolate({
+              inputRange: [0, 0.5, 1, 1.2],
+              outputRange: [0.3, 0.8, 1, 1.2],
+            });
+            
+            return (
+              <Animated.View 
+                style={[
+                  styles.likeAnimationContainer,
+                  {
+                    opacity,
+                    transform: [{ scale }],
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                <Ionicons 
+                  name="heart" 
+                  size={80} 
+                  color="#FF3040" 
+                />
+              </Animated.View>
+            );
+          })()}
+
+          {/* Play/Pause Overlay - Stable positioning to prevent flexing during like/unlike */}
           {shouldShowPauseButton && (
-            <View style={styles.playButton} pointerEvents="none">
+            <View 
+              style={styles.playButton} 
+              pointerEvents="none"
+              collapsable={false}
+            >
               <View style={styles.playButtonBlur}>
                 <Ionicons 
                   name={pauseButtonIcon} 
@@ -1614,8 +1889,8 @@ export default function ShortsScreen() {
             </Animated.View>
           )}
         
-          {/* Right Side Action Buttons */}
-          <View style={styles.rightActions}>
+          {/* Right Side Action Buttons - Outside TouchableWithoutFeedback to prevent pause button flexing */}
+          <View style={styles.rightActions} pointerEvents="box-none">
             {/* Profile Picture */}
             <TouchableOpacity 
               style={styles.profileButton}
@@ -1642,9 +1917,11 @@ export default function ShortsScreen() {
             </TouchableOpacity>
 
             {/* Like Button */}
-            <TouchableOpacity 
+            <Pressable 
               style={styles.actionButton}
-              onPress={() => handlersRef.current.handleLike(item._id)}
+              onPress={() => {
+                handlersRef.current.handleLike(item._id);
+              }}
               disabled={actionLoading === item._id}
             >
               <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
@@ -1655,33 +1932,39 @@ export default function ShortsScreen() {
                 />
               </View>
               <Text style={styles.actionText}>{typeof item.likesCount === 'number' ? item.likesCount : 0}</Text>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Comment Button */}
-            <TouchableOpacity 
+            <Pressable 
               style={styles.actionButton}
-              onPress={() => handlersRef.current.handleComment(item._id)}
+              onPress={() => {
+                handlersRef.current.handleComment(item._id);
+              }}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="chatbubble-outline" size={28} color="white" />
               </View>
               <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Share Button */}
-            <TouchableOpacity 
+            <Pressable 
               style={styles.actionButton}
-              onPress={() => handlersRef.current.handleShare(item)}
+              onPress={() => {
+                handlersRef.current.handleShare(item);
+              }}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="paper-plane-outline" size={28} color="white" />
               </View>
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Save Button */}
-            <TouchableOpacity 
+            <Pressable 
               style={styles.actionButton}
-              onPress={() => handlersRef.current.handleSave(item._id)}
+              onPress={() => {
+                handlersRef.current.handleSave(item._id);
+              }}
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons 
@@ -1690,7 +1973,7 @@ export default function ShortsScreen() {
                   color={isSaved ? "#FFD700" : "white"} 
                 />
               </View>
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* Bottom Content with Elegant Design */}
@@ -1703,7 +1986,10 @@ export default function ShortsScreen() {
             <View style={styles.bottomContentInner}>
               <TouchableOpacity 
                 style={styles.userProfileSection}
-                onPress={() => handlersRef.current.handleProfilePress(item.user._id)}
+                onPress={(e) => {
+                  e.stopPropagation?.(); // Prevent event from bubbling
+                  handlersRef.current.handleProfilePress(item.user._id);
+                }}
                 activeOpacity={0.7}
               >
                 <View style={styles.avatarContainer}>
@@ -1832,7 +2118,7 @@ export default function ShortsScreen() {
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, swipeAnimation, fadeAnimation]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation]);
 
   // Memoize keyExtractor and getItemLayout at top level (before conditional returns)
   const keyExtractor = useCallback((item: PostType) => item._id, []);
@@ -1969,6 +2255,14 @@ export default function ShortsScreen() {
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
         getItemLayout={getItemLayout}
+        initialScrollIndex={(() => {
+          // Calculate initial scroll index from params if shortId is provided
+          if (params.shortId && typeof params.shortId === 'string' && shorts.length > 0) {
+            const index = shorts.findIndex(s => s._id === params.shortId);
+            return index !== -1 ? index : undefined;
+          }
+          return undefined;
+        })()}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -2019,6 +2313,25 @@ export default function ShortsScreen() {
             setSelectedShortComments([]);
           }}
           onCommentAdded={handleCommentAdded}
+        />
+      )}
+
+      {/* Share Modal */}
+      {selectedShortForShare && (
+        <ShareModal
+          visible={showShareModal}
+          onClose={() => {
+            setShowShareModal(false);
+            setSelectedShortForShare(null);
+          }}
+          post={{
+            _id: selectedShortForShare._id,
+            caption: selectedShortForShare.caption,
+            imageUrl: selectedShortForShare.imageUrl,
+            mediaUrl: selectedShortForShare.mediaUrl || selectedShortForShare.videoUrl,
+            videoUrl: selectedShortForShare.videoUrl,
+            user: selectedShortForShare.user,
+          }}
         />
       )}
     </View>
@@ -2156,6 +2469,30 @@ const styles = StyleSheet.create({
     height: 300,
     zIndex: 1,
   },
+  likeAnimationContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -40 }, { translateY: -40 }],
+    zIndex: 15,
+    width: 80,
+    height: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  likeParticleContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -20 }, { translateY: -20 }],
+    zIndex: 14,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
   playButton: {
     position: 'absolute',
     top: '50%',
@@ -2166,6 +2503,9 @@ const styles = StyleSheet.create({
     height: 70,
     justifyContent: 'center',
     alignItems: 'center',
+    // Prevent layout shifts during re-renders
+    flexShrink: 0,
+    flexGrow: 0,
   },
   playButtonBlur: {
     width: 70,

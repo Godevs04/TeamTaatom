@@ -45,9 +45,28 @@ activitySchema.index({ user: 1, createdAt: -1 });
 activitySchema.index({ targetUser: 1, createdAt: -1 });
 activitySchema.index({ user: 1, type: 1, createdAt: -1 });
 activitySchema.index({ isPublic: 1, createdAt: -1 });
+// Unique index to prevent duplicate activities for same user, post, and type
+activitySchema.index({ user: 1, type: 1, post: 1 }, { unique: true, sparse: true });
 
-// Static method to create activity
+// Static method to create activity (with duplicate prevention)
 activitySchema.statics.createActivity = async function(data) {
+  // For post_liked type, check if activity already exists to prevent duplicates
+  if (data.type === 'post_liked' && data.post) {
+    const existing = await this.findOne({
+      user: data.user,
+      type: data.type,
+      post: data.post
+    });
+    
+    if (existing) {
+      // Update timestamp and privacy settings if activity exists
+      existing.createdAt = new Date();
+      existing.isPublic = data.isPublic !== undefined ? data.isPublic : existing.isPublic;
+      return await existing.save();
+    }
+  }
+  
+  // Create new activity if it doesn't exist
   const activity = new this(data);
   return await activity.save();
 };

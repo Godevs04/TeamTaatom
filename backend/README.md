@@ -272,7 +272,7 @@ DEBUG=taatom:* npm run dev
 ## 📞 Support
 
 For issues and questions:
-- Email: support@taatom.com
+- Email: contact@taatom.com
 - GitHub Issues: [Create an issue](https://github.com/your-org/taatom-backend/issues)
 
 ## 📄 License
