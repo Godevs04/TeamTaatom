@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { searchPlace, geocodeAddress } = require('../controllers/mapsController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
+const { authMiddleware } = require('../middleware/authMiddleware');
 const { sendError } = require('../utils/errorCodes');
 
 const router = express.Router();
@@ -92,6 +93,19 @@ router.post('/geocode', verifySuperAdminToken, geocodeValidation, (req, res, nex
   }
   next();
 }, geocodeAddress);
+
+/**
+ * User-accessible place search endpoint
+ * @route POST /api/v1/maps/search-place-user
+ * @access Private (Regular users)
+ */
+router.post('/search-place-user', authMiddleware, searchPlaceValidation, (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
+  }
+  next();
+}, searchPlace);
 
 module.exports = router;
 

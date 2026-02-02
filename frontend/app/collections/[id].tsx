@@ -190,7 +190,7 @@ export default function CollectionDetailScreen() {
               <OptimizedPhotoCard
                 post={item as PostType}
                 onRefresh={loadCollection}
-                onPress={() => router.push(`/post/${item._id}`)}
+                onPress={() => router.push(`/(tabs)/home?postId=${item._id}`)} // Post detail page commented out - navigate to home with postId
               />
               {isOwner && (
                 <TouchableOpacity

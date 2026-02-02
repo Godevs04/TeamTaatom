@@ -6,6 +6,18 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 // Use dynamic import for node-fetch (ESM module in CommonJS context)
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+// Helper: infer continent from coordinates (aligned with TripVisit service)
+const getContinentFromCoordinates = (latitude, longitude) => {
+  if (latitude >= -10 && latitude <= 80 && longitude >= 25 && longitude <= 180) return 'ASIA';
+  if (latitude >= 35 && latitude <= 70 && longitude >= -10 && longitude <= 40) return 'EUROPE';
+  if (latitude >= 5 && latitude <= 85 && longitude >= -170 && longitude <= -50) return 'NORTH AMERICA';
+  if (latitude >= -60 && latitude <= 15 && longitude >= -85 && longitude <= -30) return 'SOUTH AMERICA';
+  if (latitude >= -40 && latitude <= 40 && longitude >= -20 && longitude <= 50) return 'AFRICA';
+  if (latitude >= -50 && latitude <= -10 && longitude >= 110 && longitude <= 180) return 'AUSTRALIA';
+  if (latitude <= -60) return 'ANTARCTICA';
+  return 'UNKNOWN';
+};
+
 /**
  * Proxy Google Places API Text Search
  * @route POST /api/v1/maps/search-place
@@ -89,6 +101,8 @@ const searchPlace = async (req, res) => {
           }
         }
 
+        const continent = getContinentFromCoordinates(location.lat, location.lng);
+
         return sendSuccess(res, 200, 'Place found successfully', {
           data: {
             lat: location.lat,
@@ -100,6 +114,7 @@ const searchPlace = async (req, res) => {
             countryCode,
             stateProvince,
             placeId: result.place_id,
+            continent,
           }
         });
       }
@@ -168,12 +183,15 @@ const geocodeAddress = async (req, res) => {
           });
         }
 
+        const continent = getContinentFromCoordinates(location.lat, location.lng);
+
         return sendSuccess(res, 200, 'Address geocoded successfully', {
           data: {
             lat: location.lat,
             lng: location.lng,
             formattedAddress: result.formatted_address || address,
             addressComponents,
+            continent,
           }
         });
       }

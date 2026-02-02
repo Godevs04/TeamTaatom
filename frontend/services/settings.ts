@@ -34,6 +34,7 @@ export interface UserSettings {
     dataUsage: 'low' | 'medium' | 'high';
     wifiOnlyDownloads?: boolean;
     autoSync?: boolean;
+    fontSize?: 'small' | 'medium' | 'large';
   };
 }
 

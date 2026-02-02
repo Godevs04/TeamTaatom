@@ -279,8 +279,15 @@ function PhotoCard({
       return;
     }
 
-    // Reset retry count when image URL changes
+    // Reset retry count and flags when image URL changes
     imageRetryCountRef.current = 0;
+    isRetryingRef.current = false;
+    
+    // Clear any pending retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
 
     setImageLoading(true);
     setImageError(false);
@@ -676,7 +683,8 @@ function PhotoCard({
         if (postId) {
           // Expo Router's router.push() doesn't return a Promise
           // It's a synchronous navigation method, so we just call it directly
-          router.push(`/post/${postId}`);
+          // Post detail page commented out - navigate to home with postId to scroll to specific post
+          router.push(`/(tabs)/home?postId=${postId}`);
         } else {
           logger.warn('Cannot navigate: post._id is missing', { post });
         }
@@ -691,15 +699,25 @@ function PhotoCard({
 
   // Image loading safety: stop retrying failed image loads to prevent retry loops
   const imageRetryCountRef = useRef(0);
+  const isRetryingRef = useRef(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_IMAGE_RETRIES = 2; // Maximum retry attempts before giving up
   
   const handleImageRetry = useCallback(async () => {
-    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      setImageError(true);
-      setImageLoading(false);
+    // Prevent multiple simultaneous retries
+    if (isRetryingRef.current) {
       return;
     }
     
+    // Check retry count before attempting
+    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
+      setImageError(true);
+      setImageLoading(false);
+      isRetryingRef.current = false;
+      return;
+    }
+    
+    isRetryingRef.current = true;
     setImageError(false);
     setImageLoading(true);
     
@@ -712,20 +730,40 @@ function PhotoCard({
       setImageUri(optimizedUrl);
       setImageLoading(false);
       imageRetryCountRef.current = 0; // Reset on success
+      isRetryingRef.current = false;
+      setImageError(false);
     } catch (error) {
-      logger.warn('Image retry failed', { postId: post._id, retryCount: imageRetryCountRef.current });
-      // handleImageError will be called by Image onError, which will check retry count
-      setImageError(true);
+      // If retry fails, set the URI anyway and let Image component try
+      // The Image component's onError will handle if it still fails
+      setImageUri(post.imageUrl);
       setImageLoading(false);
+      isRetryingRef.current = false;
+      // Don't set error here - let the Image component's onError handle it
+      // This prevents double error handling
     }
   }, [post.imageUrl, post._id]);
 
   const handleImageError = useCallback(() => {
+    // Clear any pending retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    
     // Stop retrying after max attempts to prevent retry loops
     if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
+      // Only log once to prevent spam
+      if (!imageError) {
+        logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
+      }
       setImageError(true);
       setImageLoading(false);
+      isRetryingRef.current = false;
+      return;
+    }
+    
+    // Prevent multiple simultaneous error handlers
+    if (isRetryingRef.current) {
       return;
     }
     
@@ -734,10 +772,21 @@ function PhotoCard({
     logger.debug(`Image load error, retry attempt ${imageRetryCountRef.current}`, { postId: post._id });
     
     // Retry with exponential backoff
-    setTimeout(() => {
+    retryTimeoutRef.current = setTimeout(() => {
+      retryTimeoutRef.current = null;
       handleImageRetry();
     }, 1000 * imageRetryCountRef.current);
-  }, [post._id, handleImageRetry]);
+  }, [post._id, handleImageRetry, imageError]);
+  
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
@@ -760,6 +809,7 @@ function PhotoCard({
           onRetry={handleImageRetry}
           pulseAnim={pulseAnim}
           isCurrentlyVisible={isCurrentlyVisible}
+          onDoubleTap={handleLike}
         />
       ) : (
         // Lightweight placeholder for unmounted images

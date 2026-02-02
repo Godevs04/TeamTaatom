@@ -34,7 +34,7 @@ const getSongs = async (req, res) => {
     }
 
     const songs = await Song.find(query)
-      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(validatedLimit)
@@ -58,11 +58,27 @@ const getSongs = async (req, res) => {
       } else {
         logger.warn('Song missing storage key:', { songId: song._id });
       }
+
+      // Generate image URL if image storage key exists
+      let imageUrl = null;
+      if (song.imageStorageKey) {
+        try {
+          imageUrl = await generateSignedUrl(song.imageStorageKey, 'IMAGE');
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for song image:', { 
+            songId: song._id, 
+            imageStorageKey: song.imageStorageKey, 
+            error: error.message 
+          });
+        }
+      }
       
       return {
         ...song,
         s3Url: signedUrl, // Dynamically generated URL
-        cloudinaryUrl: signedUrl // Backward compatibility
+        cloudinaryUrl: signedUrl, // Backward compatibility
+        imageUrl: imageUrl, // Dynamically generated image URL
+        thumbnailUrl: imageUrl || song.thumbnailUrl // Use imageUrl if available, fallback to thumbnailUrl
       };
     }));
 
@@ -89,7 +105,7 @@ const getSongs = async (req, res) => {
 const getSongById = async (req, res) => {
   try {
     const song = await Song.findById(req.params.id)
-      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
       .lean();
     
     if (!song) {
@@ -113,10 +129,26 @@ const getSongById = async (req, res) => {
     } else {
       logger.warn('Song missing storage key:', { songId: song._id });
     }
+
+    // Generate image URL if image storage key exists
+    let imageUrl = null;
+    if (song.imageStorageKey) {
+      try {
+        imageUrl = await generateSignedUrl(song.imageStorageKey, 'IMAGE');
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for song image:', { 
+          songId: song._id, 
+          imageStorageKey: song.imageStorageKey, 
+          error: error.message 
+        });
+      }
+    }
     
     // Add dynamically generated URLs
     song.s3Url = signedUrl;
     song.cloudinaryUrl = signedUrl; // Backward compatibility
+    song.imageUrl = imageUrl; // Dynamically generated image URL
+    song.thumbnailUrl = imageUrl || song.thumbnailUrl; // Use imageUrl if available, fallback to thumbnailUrl
 
     return sendSuccess(res, 200, 'Song fetched successfully', { song });
   } catch (error) {
@@ -131,16 +163,22 @@ const getSongById = async (req, res) => {
 const uploadSongFile = async (req, res) => {
   try {
     logger.debug('Upload song request received:', {
-      hasFile: !!req.file,
-      fileMimetype: req.file?.mimetype,
-      fileSize: req.file?.size,
+      hasSongFile: !!req.files?.song?.[0],
+      hasImageFile: !!req.files?.image?.[0],
+      songMimetype: req.files?.song?.[0]?.mimetype,
+      imageMimetype: req.files?.image?.[0]?.mimetype,
+      songFileSize: req.files?.song?.[0]?.size,
+      imageFileSize: req.files?.image?.[0]?.size,
       body: req.body
     });
 
-    if (!req.file) {
-      logger.error('No file in request');
+    if (!req.files?.song?.[0]) {
+      logger.error('No song file in request');
       return sendError(res, 'FILE_4001', 'Please upload a song file');
     }
+
+    const songFile = req.files.song[0];
+    const imageFile = req.files?.image?.[0];
 
     const { title, artist, genre, duration } = req.body;
 
@@ -151,9 +189,18 @@ const uploadSongFile = async (req, res) => {
 
     // Validate audio file
     const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a'];
-    if (!allowedTypes.includes(req.file.mimetype)) {
-      logger.error('Invalid file type:', req.file.mimetype);
+    if (!allowedTypes.includes(songFile.mimetype)) {
+      logger.error('Invalid file type:', songFile.mimetype);
       return sendError(res, 'FILE_4002', 'Invalid audio file format. Supported formats: MP3, WAV, M4A');
+    }
+
+    // Validate image file if provided
+    if (imageFile) {
+      const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (!allowedImageTypes.includes(imageFile.mimetype)) {
+        logger.error('Invalid image file type:', imageFile.mimetype);
+        return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
+      }
     }
 
     // Check storage configuration
@@ -163,18 +210,32 @@ const uploadSongFile = async (req, res) => {
     }
 
     logger.debug('Uploading to Sevalla Object Storage...');
-    // Upload to Sevalla Object Storage
-    const extension = req.file.originalname.split('.').pop() || 'mp3';
+    // Upload song to Sevalla Object Storage
+    const extension = songFile.originalname.split('.').pop() || 'mp3';
     const storageKey = buildMediaKey({
       type: 'song',
-      filename: req.file.originalname,
+      filename: songFile.originalname,
       extension
     });
     
-    await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
-    logger.debug('Storage upload successful:', { key: storageKey });
+    await uploadObject(songFile.buffer, storageKey, songFile.mimetype);
+    logger.debug('Song storage upload successful:', { key: storageKey });
 
-    // Save to database - ONLY store storage key, NOT signed URL
+    // Upload image if provided
+    let imageStorageKey = null;
+    if (imageFile) {
+      const imageExtension = imageFile.originalname.split('.').pop() || 'jpg';
+      imageStorageKey = buildMediaKey({
+        type: 'song-image',
+        filename: imageFile.originalname,
+        extension: imageExtension
+      });
+      
+      await uploadObject(imageFile.buffer, imageStorageKey, imageFile.mimetype);
+      logger.debug('Image storage upload successful:', { key: imageStorageKey });
+    }
+
+    // Save to database - ONLY store storage keys, NOT signed URLs
     const song = new Song({
       title,
       artist,
@@ -183,19 +244,20 @@ const uploadSongFile = async (req, res) => {
       storageKey: storageKey, // Store ONLY storage key
       cloudinaryKey: storageKey, // Backward compatibility
       s3Key: storageKey, // Set s3Key to prevent null duplicate key error
-      // DO NOT store cloudinaryUrl or s3Url - they will be generated dynamically
+      imageStorageKey: imageStorageKey, // Store image storage key if provided
+      // DO NOT store cloudinaryUrl, s3Url, or imageUrl - they will be generated dynamically
       uploadedBy: req.superAdmin._id,
       isActive: true // Explicitly set to active
     });
 
     await song.save();
 
-    // Return song with dynamically generated signed URL
+    // Return song with dynamically generated signed URLs
     const songResponse = await Song.findById(song._id)
-      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
       .lean();
     
-    // Generate fresh signed URL dynamically
+    // Generate fresh signed URLs dynamically
     if (songResponse) {
       const storageKeyForUrl = songResponse.storageKey || songResponse.cloudinaryKey || songResponse.s3Key;
       if (storageKeyForUrl) {
@@ -213,6 +275,18 @@ const uploadSongFile = async (req, res) => {
         logger.warn('Song missing storage key:', { songId: song._id });
         songResponse.s3Url = null;
         songResponse.cloudinaryUrl = null;
+      }
+
+      // Generate image URL if image storage key exists
+      if (songResponse.imageStorageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(songResponse.imageStorageKey, 'IMAGE');
+          songResponse.imageUrl = imageUrl;
+          songResponse.thumbnailUrl = imageUrl; // Also set thumbnailUrl for backward compatibility
+        } catch (error) {
+          logger.warn('Failed to generate signed URL for song image:', { songId: song._id, error: error.message });
+          songResponse.imageUrl = null;
+        }
       }
     }
 
@@ -337,11 +411,68 @@ const toggleSongStatus = async (req, res) => {
 const updateSong = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, artist, genre, duration } = req.body;
+    // Handle both JSON and FormData requests
+    const title = req.body.title;
+    const artist = req.body.artist;
+    const genre = req.body.genre;
+    const duration = req.body.duration;
+    const imageFile = req.file; // Image file from multer (if multipart/form-data)
+
+    logger.debug('Update song request received:', {
+      songId: id,
+      hasImageFile: !!imageFile,
+      imageMimetype: imageFile?.mimetype,
+      imageFileSize: imageFile?.size,
+      body: { title: !!title, artist: !!artist, genre: !!genre, duration: !!duration }
+    });
 
     const song = await Song.findById(id);
     if (!song) {
       return sendError(res, 'SRV_6001', 'Song not found');
+    }
+
+    // Validate and update image if provided
+    if (imageFile) {
+      // Validate image file type
+      const allowedImageTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (!allowedImageTypes.includes(imageFile.mimetype)) {
+        logger.error('Invalid image file type:', imageFile.mimetype);
+        return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
+      }
+
+      // Check storage configuration
+      if (!process.env.SEVALLA_STORAGE_BUCKET || !process.env.SEVALLA_STORAGE_ENDPOINT) {
+        logger.error('Sevalla storage configuration missing');
+        return sendError(res, 'SRV_6002', 'Storage is not configured. Please check environment variables.');
+      }
+
+      // Delete old image if it exists
+      if (song.imageStorageKey) {
+        try {
+          await deleteObject(song.imageStorageKey);
+          logger.debug('Old image deleted:', { key: song.imageStorageKey });
+        } catch (deleteError) {
+          logger.warn('Failed to delete old image (non-critical):', { 
+            key: song.imageStorageKey, 
+            error: deleteError.message 
+          });
+          // Continue with upload even if deletion fails
+        }
+      }
+
+      // Upload new image to Sevalla Object Storage
+      const imageExtension = imageFile.originalname.split('.').pop() || 'jpg';
+      const imageStorageKey = buildMediaKey({
+        type: 'song-image',
+        filename: imageFile.originalname,
+        extension: imageExtension
+      });
+      
+      await uploadObject(imageFile.buffer, imageStorageKey, imageFile.mimetype);
+      logger.debug('Image storage upload successful:', { key: imageStorageKey });
+
+      // Update song with new image storage key
+      song.imageStorageKey = imageStorageKey;
     }
 
     // Update fields if provided
@@ -376,17 +507,47 @@ const updateSong = async (req, res) => {
 
     await song.save();
 
+    // Fetch updated song with all fields
+    const updatedSong = await Song.findById(song._id)
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
+      .lean();
+
+    // Generate signed URLs dynamically
+    let imageUrl = null;
+    if (updatedSong.imageStorageKey) {
+      try {
+        imageUrl = await generateSignedUrl(updatedSong.imageStorageKey, 'IMAGE');
+        updatedSong.imageUrl = imageUrl;
+        updatedSong.thumbnailUrl = imageUrl; // Also set thumbnailUrl for backward compatibility
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for song image:', { 
+          songId: song._id, 
+          imageStorageKey: updatedSong.imageStorageKey, 
+          error: error.message 
+        });
+      }
+    }
+
+    // Generate audio URL if needed
+    const storageKey = updatedSong.storageKey || updatedSong.cloudinaryKey || updatedSong.s3Key;
+    if (storageKey) {
+      try {
+        const signedUrl = await generateSignedUrl(storageKey, 'AUDIO');
+        updatedSong.s3Url = signedUrl;
+        updatedSong.cloudinaryUrl = signedUrl; // Backward compatibility
+      } catch (error) {
+        logger.warn('Failed to generate signed URL for song:', { 
+          songId: song._id, 
+          storageKey, 
+          error: error.message 
+        });
+      }
+    }
+
     logger.info(`Song ${id} updated successfully`);
 
     return sendSuccess(res, 200, 'Song updated successfully', {
-      song: {
-        _id: song._id,
-        title: song.title,
-        artist: song.artist,
-        genre: song.genre,
-        duration: song.duration,
-        isActive: song.isActive
-      }
+      song: updatedSong
     });
   } catch (error) {
     logger.error('Update song error:', error);

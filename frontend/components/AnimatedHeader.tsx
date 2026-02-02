@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -134,6 +134,7 @@ export default function AnimatedHeader({
         <TouchableOpacity 
           onPress={handleLogoPress}
           activeOpacity={0.7}
+          style={styles.logoContainer}
         >
           <Animated.View
             style={[
@@ -152,6 +153,18 @@ export default function AnimatedHeader({
               resizeMode="contain"
             />
           </Animated.View>
+          <Animated.Text
+            style={[
+              styles.logoText,
+              { color: theme.colors.text },
+              {
+                transform: [{ translateX: titleAnim }]
+              }
+            ]}
+            allowFontScaling={false}
+          >
+            Taatom
+          </Animated.Text>
         </TouchableOpacity>
       )}
       
@@ -210,6 +223,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     shadowRadius: 0,
     elevation: 0,
   },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   logoImageContainer: {
     width: 56,
     height: 56,
@@ -220,6 +238,24 @@ const getStyles = (theme: any) => StyleSheet.create({
   logoImage: {
     width: 56,
     height: 56,
+  },
+  logoText: {
+    fontSize: 30,
+    fontWeight: '600',
+    fontFamily: Platform.select({
+      ios: 'Snell Roundhand',
+      android: 'cursive',
+      web: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      default: 'cursive',
+    }),
+    letterSpacing: 0.3,
+    fontStyle: 'normal',
+    ...(Platform.OS === 'web' && {
+      fontFamily: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      fontWeight: '600',
+      WebkitFontSmoothing: 'antialiased',
+      MozOsxFontSmoothing: 'grayscale',
+    } as any),
   },
   headerIcons: {
     flexDirection: 'row',
