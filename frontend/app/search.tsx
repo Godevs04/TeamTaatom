@@ -91,7 +91,18 @@ export default function SearchScreen() {
     try {
       const history = await AsyncStorage.getItem('searchHistory');
       if (history) {
-        setSearchHistory(JSON.parse(history));
+        const parsedHistory = JSON.parse(history);
+        // Clean up history: remove entries with queries less than 3 characters
+        const cleanedHistory = parsedHistory.filter((item: { type: 'users' | 'posts'; query: string }) => 
+          item.query && item.query.trim().length >= 3
+        );
+        
+        // Update storage if history was cleaned
+        if (cleanedHistory.length !== parsedHistory.length) {
+          await AsyncStorage.setItem('searchHistory', JSON.stringify(cleanedHistory));
+        }
+        
+        setSearchHistory(cleanedHistory);
       }
     } catch (error) {
       logger.error('Error loading search history:', error);
@@ -99,11 +110,17 @@ export default function SearchScreen() {
   };
 
   const saveSearchHistory = async (type: 'users' | 'posts', query: string) => {
+    // Only save meaningful searches - minimum 3 characters to avoid saving partial searches
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length < 3) {
+      return; // Don't save very short queries (like "Ka", "Kav")
+    }
+    
     try {
-      const newHistoryItem = { type, query };
+      const newHistoryItem = { type, query: trimmedQuery };
       const updatedHistory = [
         newHistoryItem,
-        ...searchHistory.filter(item => !(item.type === type && item.query === query))
+        ...searchHistory.filter(item => !(item.type === type && item.query === trimmedQuery))
       ].slice(0, 10); // Keep only last 10 searches
       
       await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
@@ -132,10 +149,12 @@ export default function SearchScreen() {
     }
   };
 
-  const selectFromHistory = (query: string, type: 'users' | 'posts') => {
+  const selectFromHistory = async (query: string, type: 'users' | 'posts') => {
     setSearchQuery(query);
     // Only set to 'users' since posts tab is commented out
     setActiveTab('users');
+    // Trigger search when selecting from history
+    // Note: This will be handled by the useEffect that watches searchQuery
   };
 
   const performSearch = async () => {
@@ -163,10 +182,8 @@ export default function SearchScreen() {
         hashtags: [], // Hashtags tab commented out
       });
 
-      // Save to history (only users)
-      if (filteredUsers.length > 0) {
-        await saveSearchHistory('users', searchQuery);
-      }
+      // Don't save to history here - only save when user explicitly selects a result
+      // This prevents partial searches (like "Ka", "Kav") from being saved
       
       /* Posts and Hashtags search - commented out, can be re-enabled later */
       /* if (activeTab === 'posts' && (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)) {
@@ -223,7 +240,13 @@ export default function SearchScreen() {
   const renderUserItem = ({ item }: { item: UserType }) => (
     <TouchableOpacity 
       style={[styles.userItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
-      onPress={() => router.push(`/profile/${item._id}`)}
+      onPress={async () => {
+        // Save to history only when user explicitly selects a result
+        if (searchQuery.trim().length >= 3) {
+          await saveSearchHistory('users', searchQuery);
+        }
+        router.push(`/profile/${item._id}`);
+      }}
     >
       <Image 
         source={{ uri: item.profilePic || 'https://via.placeholder.com/50' }} 
@@ -371,6 +394,13 @@ export default function SearchScreen() {
             placeholderTextColor={theme.colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onSubmitEditing={async () => {
+              // Save to history when user presses Enter/Submit
+              if (searchQuery.trim().length >= 3 && searchResults.users.length > 0) {
+                await saveSearchHistory('users', searchQuery);
+              }
+            }}
+            returnKeyType="search"
             autoFocus
           />
           {searchQuery.length > 0 && (
