@@ -57,30 +57,63 @@ const updateProfileValidation = [
  * /api/v1/profile/search:
  *   get:
  *     summary: Search users by name or username
+ *     description: |
+ *       Searches for users by username or full name. Supports case-insensitive partial matching.
+ *       
+ *       **Search Behavior:**
+ *       - Searches both username and fullName fields
+ *       - Returns paginated results
+ *       - Authentication optional (public search)
  *     tags: [Profile]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
  *     parameters:
  *       - in: query
  *         name: q
  *         schema:
  *           type: string
- *         description: Search term (username or full name)
+ *         required: true
+ *         description: Search query (username or full name)
+ *         example: "john"
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 20
+ *         description: Number of results per page
+ *         example: 20
  *     responses:
  *       200:
- *         description: Matching users
+ *         description: Search results retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 results:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 users:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/User'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/search', optionalAuth, searchUsers);
 /**
@@ -88,13 +121,49 @@ router.get('/search', optionalAuth, searchUsers);
  * /api/v1/profile/suggested-users:
  *   get:
  *     summary: Get AI-powered suggested users to follow
+ *     description: |
+ *       Returns personalized user suggestions based on:
+ *       - Mutual connections
+ *       - Similar interests
+ *       - Location proximity
+ *       - Activity patterns
+ *       
+ *       **Authentication Required:** Yes
  *     tags: [Profile]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 10
+ *         description: Number of suggestions to return
+ *         example: 10
  *     responses:
  *       200:
- *         description: Suggested user list
+ *         description: Suggested users retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 users:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/User'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/suggested-users', authMiddleware, getSuggestedUsers);
 /**
@@ -102,6 +171,13 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  * /api/v1/profile/interests:
  *   post:
  *     summary: Save user interests
+ *     description: |
+ *       Saves or updates user interests. Used for personalized content recommendations and user matching.
+ *       
+ *       **Interest Categories:**
+ *       - Travel destinations (beach, mountains, cities, etc.)
+ *       - Activities (adventure, photography, food, etc.)
+ *       - Hobbies and preferences
  *     tags: [Profile]
  *     security:
  *       - bearerAuth: []
@@ -119,14 +195,32 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  *                 type: array
  *                 items:
  *                   type: string
- *                 example: ["adventure", "beach", "mountains"]
+ *                 minItems: 1
+ *                 maxItems: 20
+ *                 description: Array of interest tags
+ *                 example: ["adventure", "beach", "mountains", "photography", "food"]
  *     responses:
  *       200:
  *         description: Interests saved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Interests saved successfully"
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
  *       400:
- *         $ref: '#/components/responses/ValidationError'
+ *         $ref: '#/components/responses/BadRequest'
  *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/interests', authMiddleware, saveInterests);
 /**
@@ -134,13 +228,52 @@ router.post('/interests', authMiddleware, saveInterests);
  * /api/v1/profile/follow-requests:
  *   get:
  *     summary: Get pending follow requests
+ *     description: |
+ *       Retrieves all pending follow requests for the authenticated user.
+ *       
+ *       **Follow Request Flow:**
+ *       1. User with private profile receives follow requests
+ *       2. Requests appear in this endpoint
+ *       3. User can approve or reject requests
+ *       4. Approved users can see private content
  *     tags: [Profile]
  *     security:
  *       - bearerAuth: []
  *       - cookieAuth: []
  *     responses:
  *       200:
- *         description: Pending follow requests
+ *         description: Follow requests retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 followRequests:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         description: Follow request ID
+ *                       user:
+ *                         $ref: '#/components/schemas/User'
+ *                         description: User who sent the follow request
+ *                       requestedAt:
+ *                         type: string
+ *                         format: date-time
+ *                         description: When the request was sent
+ *                       status:
+ *                         type: string
+ *                         enum: [pending, approved, rejected]
+ *                         example: "pending"
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/follow-requests', authMiddleware, getFollowRequests);
 router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
@@ -242,6 +375,7 @@ router.get('/follow-requests/cleanup-all', authMiddleware, async (req, res) => {
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
+// Approve follow request - must be before /:id route to avoid conflicts
 router.post('/follow-requests/:requestId/approve', authMiddleware, approveFollowRequest);
 /**
  * @swagger

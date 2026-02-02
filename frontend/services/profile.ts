@@ -328,3 +328,31 @@ export const getTripScoreLocations = async (
     throw new Error(parsedError.userMessage);
   }
 };
+
+export interface TravelMapDataResponse {
+  success: boolean;
+  data: {
+    locations: Array<{
+      number: number;
+      latitude: number;
+      longitude: number;
+      address: string;
+      date: string;
+    }>;
+    statistics: {
+      totalLocations: number;
+      totalDistance: number;
+      totalDays: number;
+    };
+  };
+}
+
+export const getTravelMapData = async (userId: string): Promise<TravelMapDataResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

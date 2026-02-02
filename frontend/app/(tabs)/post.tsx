@@ -28,6 +28,7 @@ import  NavBar from "../../components/NavBar";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
+import { searchPlace } from "../../utils/placeDetection";
 import { createPost, createPostWithProgress, createShort, createShortWithProgress, getPosts, getShorts } from "../../services/posts";
 import { getUserFromStorage, getCurrentUser } from "../../services/auth";
 import { getProfile } from "../../services/profile";
@@ -122,6 +123,141 @@ export default function PostScreen() {
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
   const [copyrightAccepted, setCopyrightAccepted] = useState(false);
   const [pendingShortData, setPendingShortData] = useState<any>(null);
+  
+  // Place detection state
+  const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false);
+  const [detectPlaceName, setDetectPlaceName] = useState('');
+  const [detectedPlace, setDetectedPlace] = useState<any>(null);
+  const [isSearchingPlace, setIsSearchingPlace] = useState(false);
+  const [detectedPlaceData, setDetectedPlaceData] = useState<{
+    name?: string;
+    country?: string;
+    countryCode?: string;
+    city?: string;
+    stateProvince?: string;
+    continent?: string;
+    latitude?: number;
+    longitude?: number;
+    placeId?: string;
+    formattedAddress?: string;
+  } | null>(null);
+  
+  // Ref to store Formik's setFieldValue for use in modal
+  const setFieldValueRef = useRef<((field: string, value: any) => void) | null>(null);
+  // Ref to store Formik's resetForm function
+  const resetFormRef = useRef<(() => void) | null>(null);
+
+  // Place detection handlers
+  const handleSearchPlace = useCallback(async () => {
+    if (!detectPlaceName || detectPlaceName.trim().length === 0) {
+      Alert.alert('Error', 'Please enter a place name');
+      return;
+    }
+
+    setIsSearchingPlace(true);
+    setDetectedPlace(null);
+
+    try {
+      const placeResult = await searchPlace(detectPlaceName.trim());
+      
+      if (placeResult) {
+        setDetectedPlace(placeResult);
+      } else {
+        setDetectedPlace(null);
+        Alert.alert('Not Found', 'Place not found. Please try a different name.');
+      }
+    } catch (error: any) {
+      logger.error('Error searching place:', error);
+      Alert.alert('Error', 'Failed to search for place. Please try again.');
+      setDetectedPlace(null);
+    } finally {
+      setIsSearchingPlace(false);
+    }
+  }, [detectPlaceName]);
+
+  // Comprehensive reset function to clear all form state after successful post
+  const resetFormState = useCallback(() => {
+    // Reset media
+    setSelectedImages([]);
+    setSelectedVideo(null);
+    setVideoThumbnail(null);
+    
+    // Reset location
+    setLocation(null);
+    setAddress('');
+    setLocationMetadata(null);
+    setIsFromCameraFlow(false);
+    
+    // Reset detected place data
+    setDetectedPlaceData(null);
+    setDetectedPlace(null);
+    setDetectPlaceName('');
+    setShowDetectPlaceModal(false);
+    setIsSearchingPlace(false);
+    
+    // Reset song/audio
+    setSelectedSong(null);
+    setAudioChoice(null);
+    setSongStartTime(0);
+    setSongEndTime(60);
+    setShowSongSelector(false);
+    setShowAudioChoiceModal(false);
+    
+    // Reset TripScore fields
+    setSpotType('');
+    setTravelInfo('');
+    setShowSpotTypePicker(false);
+    setShowTravelInfoPicker(false);
+    
+    // Reset copyright
+    setCopyrightAccepted(false);
+    setShowCopyrightModal(false);
+    setPendingShortData(null);
+    
+    // Reset Formik form values
+    if (resetFormRef.current) {
+      resetFormRef.current();
+    }
+    if (setFieldValueRef.current) {
+      setFieldValueRef.current('comment', '');
+      setFieldValueRef.current('placeName', '');
+      setFieldValueRef.current('tags', '');
+      setFieldValueRef.current('caption', '');
+    }
+  }, []);
+
+  const handleConfirmDetectedPlace = useCallback((setFieldValue: any) => {
+    if (!detectedPlace) return;
+
+    // Populate place name field
+    setFieldValue('placeName', detectedPlace.name || detectPlaceName);
+    
+    // Store detected place data for submission
+    // Convert empty strings to undefined to ensure they're sent properly
+    setDetectedPlaceData({
+      name: detectedPlace.name || undefined,
+      country: detectedPlace.country || undefined,
+      countryCode: detectedPlace.countryCode || undefined,
+      city: detectedPlace.city || undefined,
+      stateProvince: detectedPlace.stateProvince || undefined,
+      continent: detectedPlace.continent || undefined,
+      latitude: detectedPlace.lat,
+      longitude: detectedPlace.lng,
+      placeId: detectedPlace.placeId || undefined,
+      formattedAddress: detectedPlace.formattedAddress || undefined,
+    });
+
+    // Update location if coordinates are available
+    if (detectedPlace.lat && detectedPlace.lng) {
+      setLocation({ lat: detectedPlace.lat, lng: detectedPlace.lng });
+      setAddress(detectedPlace.formattedAddress || detectedPlace.name || '');
+    }
+
+    setShowDetectPlaceModal(false);
+    setDetectPlaceName('');
+    setDetectedPlace(null);
+    Alert.alert('Success', 'Place details populated successfully!');
+  }, [detectedPlace, detectPlaceName]);
   const router = useRouter();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -1420,12 +1556,17 @@ export default function PostScreen() {
       // Sanitize caption before sending (caption is now optional)
       const sanitizedCaption = validateAndSanitizeCaption(values.comment);
 
+      // Use detected place location if available, otherwise use existing location
+      const finalLatitude = detectedPlaceData?.latitude || location?.lat;
+      const finalLongitude = detectedPlaceData?.longitude || location?.lng;
+      const finalAddress = values.placeName || address || detectedPlaceData?.name;
+
       const response = await createPostWithProgress({
         images: imagesData,
         caption: sanitizedCaption || '',
-        address: values.placeName || address,
-        latitude: location?.lat,
-        longitude: location?.lng,
+        address: finalAddress,
+        latitude: finalLatitude,
+        longitude: finalLongitude,
         hasExifGps: locationMetadata?.hasExifGps || false,
         takenAt: locationMetadata?.takenAt || undefined,
         source: source,
@@ -1436,6 +1577,19 @@ export default function PostScreen() {
         songVolume: 0.5,
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
+        // Include detected place data for admin review
+        detectedPlace: detectedPlaceData ? {
+          name: detectedPlaceData.name,
+          country: detectedPlaceData.country,
+          countryCode: detectedPlaceData.countryCode,
+          city: detectedPlaceData.city,
+          stateProvince: detectedPlaceData.stateProvince,
+          continent: detectedPlaceData.continent,
+          latitude: detectedPlaceData.latitude,
+          longitude: detectedPlaceData.longitude,
+          placeId: detectedPlaceData.placeId,
+          formattedAddress: detectedPlaceData.formattedAddress,
+        } : undefined,
       }, (progress) => {
         // Update last progress time for watchdog
         uploadSessionRef.current.lastProgressTime = Date.now();
@@ -1499,14 +1653,8 @@ export default function PostScreen() {
               {
                 text: 'OK',
                 onPress: () => {
-                  setSelectedImages([]);
-                  setLocation(null);
-                  setAddress('');
-                  setLocationMetadata(null);
-                  setSelectedSong(null);
-                  setAudioChoice(null);
-                  setSongStartTime(0);
-                  setSongEndTime(60);
+                  // Reset all form state
+                  resetFormState();
                   // Update existing posts state
                   setHasExistingPosts(true);
                   router.replace('/(tabs)/home');
@@ -1519,14 +1667,8 @@ export default function PostScreen() {
             {
               text: 'OK',
               onPress: () => {
-                setSelectedImages([]);
-                setLocation(null);
-                setAddress('');
-                setLocationMetadata(null);
-                setSelectedSong(null);
-                setAudioChoice(null);
-                setSongStartTime(0);
-                setSongEndTime(60);
+                // Reset all form state
+                resetFormState();
                 // Update existing posts state
                 setHasExistingPosts(true);
                 router.replace('/(tabs)/home');
@@ -1900,19 +2042,11 @@ export default function PostScreen() {
             {
               text: 'OK',
               onPress: () => {
-                clearUploadState();
-                setSelectedVideo(null);
+                // Reset all form state
+                resetFormState();
                 setVideoDuration(null); // Clear video duration when video is removed
-                setVideoThumbnail(null);
-                setLocation(null);
-                setLocationMetadata(null);
-                setSelectedSong(null);
-                setAudioChoice(null);
-                setSongStartTime(0);
-                setSongEndTime(60);
                 // Update existing shorts state
                 setHasExistingShorts(true);
-                setAddress('');
                 router.replace('/(tabs)/home');
               },
             },
@@ -1923,18 +2057,11 @@ export default function PostScreen() {
           {
             text: 'OK',
             onPress: () => {
-              clearUploadState();
-              setSelectedVideo(null);
-              setVideoThumbnail(null);
-              setLocation(null);
-              setLocationMetadata(null);
-              setSelectedSong(null);
-              setAudioChoice(null);
-              setSongStartTime(0);
-              setSongEndTime(60);
+              // Reset all form state
+              resetFormState();
+              setVideoDuration(null); // Clear video duration when video is removed
               // Update existing shorts state
               setHasExistingShorts(true);
-              setAddress('');
               router.replace('/(tabs)/home');
             },
           },
@@ -2769,9 +2896,23 @@ export default function PostScreen() {
                 validationSchema={postSchema}
                 onSubmit={handlePostWrapper}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched, resetForm }) => {
                   const [commentCursorPosition, setCommentCursorPosition] = useState<number | undefined>();
+                  const [isCommentExpanded, setIsCommentExpanded] = useState(false);
                   const commentInputRef = useRef<TextInput>(null);
+                  
+                  // Calculate number of lines in comment
+                  const commentLines = values.comment ? values.comment.split('\n').length : 0;
+                  const MAX_COLLAPSED_LINES = 3;
+                  const LINE_HEIGHT = 24; // Approximate line height in pixels
+                  const COLLAPSED_HEIGHT = MAX_COLLAPSED_LINES * LINE_HEIGHT + 32; // 32px for padding
+                  const shouldShowMoreButton = commentLines > MAX_COLLAPSED_LINES && !isCommentExpanded;
+                  
+                  // Store setFieldValue and resetForm in refs for use in modal and reset
+                  useEffect(() => {
+                    setFieldValueRef.current = setFieldValue;
+                    resetFormRef.current = resetForm;
+                  }, [setFieldValue, resetForm]);
 
                   const handleHashtagSelect = (hashtag: string) => {
                     const currentText = values.comment;
@@ -2854,13 +2995,19 @@ export default function PostScreen() {
                               borderWidth: 1.5, 
                               borderColor: errors.comment && touched.comment ? theme.colors.error : theme.colors.border,
                               minHeight: 100,
-                              textAlignVertical: 'top'
+                              maxHeight: shouldShowMoreButton ? COLLAPSED_HEIGHT : undefined,
+                              textAlignVertical: 'top',
+                              overflow: 'hidden'
                             }}
                             placeholder="What's happening? Use @ to mention someone or # for hashtags"
                             placeholderTextColor={theme.colors.textSecondary}
                             value={values.comment}
                             onChangeText={(text) => {
                               handleChange("comment")(text);
+                              // Auto-expand if user is typing beyond collapsed area
+                              if (shouldShowMoreButton && text.split('\n').length > MAX_COLLAPSED_LINES) {
+                                setIsCommentExpanded(true);
+                              }
                               // Clear error when user starts typing
                               if (errors.comment && touched.comment) {
                                 setFieldTouched("comment", false);
@@ -2871,8 +3018,52 @@ export default function PostScreen() {
                             }}
                             onBlur={handleBlur("comment")}
                             multiline
-                            numberOfLines={4}
+                            numberOfLines={isCommentExpanded ? undefined : MAX_COLLAPSED_LINES}
                           />
+                          {shouldShowMoreButton && (
+                            <TouchableOpacity
+                              onPress={() => setIsCommentExpanded(true)}
+                              style={{
+                                position: 'absolute',
+                                bottom: theme.spacing.sm,
+                                right: theme.spacing.md,
+                                backgroundColor: theme.colors.primary + '15',
+                                paddingHorizontal: theme.spacing.sm,
+                                paddingVertical: 4,
+                                borderRadius: theme.borderRadius.sm,
+                                zIndex: 10
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={{
+                                color: theme.colors.primary,
+                                fontSize: theme.typography.small.fontSize,
+                                fontWeight: '600'
+                              }}>
+                                more...
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          {isCommentExpanded && commentLines > MAX_COLLAPSED_LINES && (
+                            <TouchableOpacity
+                              onPress={() => setIsCommentExpanded(false)}
+                              style={{
+                                marginTop: theme.spacing.xs,
+                                alignSelf: 'flex-end',
+                                paddingHorizontal: theme.spacing.sm,
+                                paddingVertical: 4
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={{
+                                color: theme.colors.textSecondary,
+                                fontSize: theme.typography.small.fontSize,
+                                fontWeight: '600'
+                              }}>
+                                show less
+                              </Text>
+                            </TouchableOpacity>
+                          )}
                           <View style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, marginTop: 4 }}>
                             <HashtagSuggest
                               text={values.comment}
@@ -2914,10 +3105,31 @@ export default function PostScreen() {
                         )}
                       </View>
                       <View style={{ marginBottom: theme.spacing.lg }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
-                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
-                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                            <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                            <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowDetectPlaceModal(true);
+                            }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: theme.colors.primary,
+                              paddingHorizontal: theme.spacing.md,
+                              paddingVertical: theme.spacing.xs,
+                              borderRadius: theme.borderRadius.md,
+                              gap: theme.spacing.xs,
+                            }}
+                          >
+                            <Ionicons name="search" size={16} color="#FFFFFF" />
+                            <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
+                              Detect Place
+                            </Text>
+                          </TouchableOpacity>
                         </View>
                       <TextInput
                         style={{ 
@@ -2932,12 +3144,53 @@ export default function PostScreen() {
                         }}
                         placeholder="Add a place name"
                         placeholderTextColor={theme.colors.textSecondary}
-                        value={values.placeName}
-                        onChangeText={handleChange("placeName")}
+                        value={values.placeName || (detectedPlaceData?.name || '')}
+                        onChangeText={(text) => {
+                          handleChange("placeName")(text);
+                          // Clear detected place data if user manually edits
+                          if (text !== detectedPlaceData?.name) {
+                            setDetectedPlaceData(null);
+                          }
+                        }}
                         onBlur={handleBlur("placeName")}
                       />
                       {errors.placeName && touched.placeName && (
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.placeName}</Text>
+                      )}
+                      {detectedPlaceData && (
+                        <View style={{
+                          marginTop: theme.spacing.sm,
+                          padding: theme.spacing.md,
+                          backgroundColor: theme.colors.primary + '10',
+                          borderRadius: theme.borderRadius.md,
+                          borderWidth: 1,
+                          borderColor: theme.colors.primary + '30',
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
+                            <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                            <Text style={{ fontSize: theme.typography.small.fontSize, fontWeight: '600', color: theme.colors.text }}>
+                              Detected Place Details (Will be sent for admin review)
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                            Name: {detectedPlaceData.name || 'N/A'}
+                          </Text>
+                          {detectedPlaceData.city && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                              City: {detectedPlaceData.city}
+                            </Text>
+                          )}
+                          {detectedPlaceData.stateProvince && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                              State: {detectedPlaceData.stateProvince}
+                            </Text>
+                          )}
+                          {detectedPlaceData.country && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary }}>
+                              Country: {detectedPlaceData.country} {detectedPlaceData.countryCode ? `(${detectedPlaceData.countryCode})` : ''}
+                            </Text>
+                          )}
+                        </View>
                       )}
                     </View>
                     {address && (
@@ -3156,9 +3409,23 @@ export default function PostScreen() {
                 validationSchema={shortSchema}
                 onSubmit={handleShortWrapper}
               >
-                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched }) => {
+                {({ handleChange, handleBlur, handleSubmit, values, errors, touched, setFieldValue, setFieldTouched, resetForm }) => {
                   const [captionCursorPosition, setCaptionCursorPosition] = useState<number | undefined>();
+                  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
                   const captionInputRef = useRef<TextInput>(null);
+                  
+                  // Calculate number of lines in caption
+                  const captionLines = values.caption ? values.caption.split('\n').length : 0;
+                  const MAX_COLLAPSED_LINES = 3;
+                  const LINE_HEIGHT = 24; // Approximate line height in pixels
+                  const COLLAPSED_HEIGHT = MAX_COLLAPSED_LINES * LINE_HEIGHT + 32; // 32px for padding
+                  const shouldShowMoreButton = captionLines > MAX_COLLAPSED_LINES && !isCaptionExpanded;
+                  
+                  // Store setFieldValue and resetForm in refs for use in modal and reset
+                  useEffect(() => {
+                    setFieldValueRef.current = setFieldValue;
+                    resetFormRef.current = resetForm;
+                  }, [setFieldValue, resetForm]);
 
                   const handleHashtagSelect = (hashtag: string) => {
                     const currentText = values.caption;
@@ -3244,7 +3511,9 @@ export default function PostScreen() {
                                   ? theme.colors.error 
                                   : theme.colors.border,
                                 minHeight: 100,
-                                textAlignVertical: 'top'
+                                maxHeight: shouldShowMoreButton ? COLLAPSED_HEIGHT : undefined,
+                                textAlignVertical: 'top',
+                                overflow: 'hidden'
                               }
                             ]}
                             placeholder="Add a caption... Use @ to mention someone or # for hashtags"
@@ -3252,6 +3521,10 @@ export default function PostScreen() {
                             value={values.caption}
                             onChangeText={(text) => {
                               handleChange("caption")(text);
+                              // Auto-expand if user is typing beyond collapsed area
+                              if (shouldShowMoreButton && text.split('\n').length > MAX_COLLAPSED_LINES) {
+                                setIsCaptionExpanded(true);
+                              }
                               // Clear error when user starts typing
                               if (errors.caption && touched.caption) {
                                 setFieldTouched("caption", false);
@@ -3262,8 +3535,52 @@ export default function PostScreen() {
                             }}
                             onBlur={handleBlur("caption")}
                             multiline
-                            numberOfLines={3}
+                            numberOfLines={isCaptionExpanded ? undefined : MAX_COLLAPSED_LINES}
                           />
+                          {shouldShowMoreButton && (
+                            <TouchableOpacity
+                              onPress={() => setIsCaptionExpanded(true)}
+                              style={{
+                                position: 'absolute',
+                                bottom: theme.spacing.sm,
+                                right: theme.spacing.md,
+                                backgroundColor: theme.colors.primary + '15',
+                                paddingHorizontal: theme.spacing.sm,
+                                paddingVertical: 4,
+                                borderRadius: theme.borderRadius.sm,
+                                zIndex: 10
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={{
+                                color: theme.colors.primary,
+                                fontSize: theme.typography.small.fontSize,
+                                fontWeight: '600'
+                              }}>
+                                more...
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          {isCaptionExpanded && captionLines > MAX_COLLAPSED_LINES && (
+                            <TouchableOpacity
+                              onPress={() => setIsCaptionExpanded(false)}
+                              style={{
+                                marginTop: theme.spacing.xs,
+                                alignSelf: 'flex-end',
+                                paddingHorizontal: theme.spacing.sm,
+                                paddingVertical: 4
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={{
+                                color: theme.colors.textSecondary,
+                                fontSize: theme.typography.small.fontSize,
+                                fontWeight: '600'
+                              }}>
+                                show less
+                              </Text>
+                            </TouchableOpacity>
+                          )}
                           <View style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000, marginTop: 4 }}>
                             <HashtagSuggest
                               text={values.caption}
@@ -4173,6 +4490,245 @@ export default function PostScreen() {
         selectedEndTime={songEndTime}
         videoDuration={videoDuration} // Pass video duration to auto-match song selection
       />
+
+      {/* Detect Place Modal */}
+      <Modal
+        visible={showDetectPlaceModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowDetectPlaceModal(false);
+          setDetectPlaceName('');
+          setDetectedPlace(null);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'flex-end',
+          }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <View style={{
+            backgroundColor: theme.colors.surface,
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            maxHeight: Dimensions.get('window').height * 0.85,
+            minHeight: 300,
+          }}>
+            {/* Fixed Header */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: theme.spacing.lg,
+              marginBottom: theme.spacing.lg,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: theme.colors.primary + '15',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <Ionicons name="location" size={20} color={theme.colors.primary} />
+                </View>
+                <Text style={{
+                  fontSize: theme.typography.h3.fontSize,
+                  fontWeight: '700',
+                  color: theme.colors.text,
+                }}>
+                  Detect Place
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowDetectPlaceModal(false);
+                  setDetectPlaceName('');
+                  setDetectedPlace(null);
+                }}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Scrollable Content */}
+            <ScrollView 
+              style={{ 
+                maxHeight: Dimensions.get('window').height * 0.7,
+              }}
+              contentContainerStyle={{ 
+                paddingHorizontal: theme.spacing.lg,
+                paddingBottom: theme.spacing.xl,
+                flexGrow: 1,
+              }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+            >
+              <View style={{ marginBottom: theme.spacing.md }}>
+                <Text style={{
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: '600',
+                  color: theme.colors.text,
+                  marginBottom: theme.spacing.sm,
+                }}>
+                  Enter Place Name
+                </Text>
+                <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      backgroundColor: theme.colors.surfaceSecondary,
+                      borderRadius: theme.borderRadius.md,
+                      paddingHorizontal: theme.spacing.md,
+                      paddingVertical: theme.spacing.md,
+                      fontSize: theme.typography.body.fontSize,
+                      color: theme.colors.text,
+                      borderWidth: 1.5,
+                      borderColor: theme.colors.border,
+                    }}
+                    placeholder="e.g., Museum of Anthropology"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={detectPlaceName}
+                    onChangeText={setDetectPlaceName}
+                    onSubmitEditing={handleSearchPlace}
+                    returnKeyType="search"
+                  />
+                  <TouchableOpacity
+                    onPress={handleSearchPlace}
+                    disabled={isSearchingPlace || !detectPlaceName.trim()}
+                    style={{
+                      backgroundColor: theme.colors.primary,
+                      paddingHorizontal: theme.spacing.lg,
+                      paddingVertical: theme.spacing.md,
+                      borderRadius: theme.borderRadius.md,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      opacity: (isSearchingPlace || !detectPlaceName.trim()) ? 0.5 : 1,
+                    }}
+                  >
+                    {isSearchingPlace ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="search" size={20} color="#FFFFFF" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {detectedPlace && (
+                <View style={{
+                  marginBottom: theme.spacing.lg,
+                  padding: theme.spacing.md,
+                  backgroundColor: theme.colors.primary + '10',
+                  borderRadius: theme.borderRadius.md,
+                  borderWidth: 1,
+                  borderColor: theme.colors.primary + '30',
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: theme.spacing.sm,
+                  }}>
+                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                    <Text style={{
+                      fontSize: theme.typography.body.fontSize,
+                      fontWeight: '600',
+                      color: theme.colors.text,
+                    }}>
+                      Place Found!
+                    </Text>
+                  </View>
+                  <View style={{ gap: theme.spacing.xs }}>
+                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                      <Text style={{ fontWeight: '600' }}>Name:</Text> {detectedPlace.name}
+                    </Text>
+                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                      <Text style={{ fontWeight: '600' }}>Address:</Text> {detectedPlace.formattedAddress}
+                    </Text>
+                    {detectedPlace.city && (
+                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                        <Text style={{ fontWeight: '600' }}>City:</Text> {detectedPlace.city}
+                      </Text>
+                    )}
+                    {detectedPlace.stateProvince && (
+                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                        <Text style={{ fontWeight: '600' }}>State/Province:</Text> {detectedPlace.stateProvince}
+                      </Text>
+                    )}
+                    {detectedPlace.country && (
+                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                        <Text style={{ fontWeight: '600' }}>Country:</Text> {detectedPlace.country} {detectedPlace.countryCode ? `(${detectedPlace.countryCode})` : ''}
+                      </Text>
+                    )}
+                    {detectedPlace.continent && (
+                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
+                        <Text style={{ fontWeight: '600' }}>Continent:</Text> {detectedPlace.continent}
+                      </Text>
+                    )}
+                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginTop: theme.spacing.xs }}>
+                      Coordinates: {detectedPlace.lat.toFixed(6)}, {detectedPlace.lng.toFixed(6)}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {detectedPlace && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (detectedPlace && setFieldValueRef.current) {
+                      // Populate place name field using Formik's setFieldValue
+                      setFieldValueRef.current('placeName', detectedPlace.name || detectPlaceName);
+                      
+                      // Store detected place data
+                      setDetectedPlaceData({
+                        name: detectedPlace.name,
+                        country: detectedPlace.country,
+                        countryCode: detectedPlace.countryCode,
+                        city: detectedPlace.city,
+                        stateProvince: detectedPlace.stateProvince,
+                        latitude: detectedPlace.lat,
+                        longitude: detectedPlace.lng,
+                      });
+
+                      // Update location if coordinates are available
+                      if (detectedPlace.lat && detectedPlace.lng) {
+                        setLocation({ lat: detectedPlace.lat, lng: detectedPlace.lng });
+                        setAddress(detectedPlace.formattedAddress || detectedPlace.name || '');
+                      }
+
+                      setShowDetectPlaceModal(false);
+                      setDetectPlaceName('');
+                      setDetectedPlace(null);
+                      Alert.alert('Success', 'Place details populated! The place will be sent for admin review when you submit the post.');
+                    }
+                  }}
+                  style={{
+                    backgroundColor: theme.colors.primary,
+                    paddingVertical: theme.spacing.md,
+                    borderRadius: theme.borderRadius.md,
+                    alignItems: 'center',
+                    marginTop: theme.spacing.sm,
+                  }}
+                >
+                  <Text style={{
+                    color: '#FFFFFF',
+                    fontSize: theme.typography.body.fontSize,
+                    fontWeight: '600',
+                  }}>
+                    Use This Place
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
         {/* Copyright Confirmation Modal */}
         <CopyrightConfirmationModal

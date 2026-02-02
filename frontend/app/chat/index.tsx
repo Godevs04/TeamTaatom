@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -18,6 +18,7 @@ import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
+import { getPostById } from '../../services/posts';
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
@@ -178,6 +179,94 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const flatListRef = React.useRef<FlatList>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
+  // Parse post share message
+  const parsePostShare = (text: string) => {
+    if (!text || !text.startsWith('[POST_SHARE]')) return null;
+    try {
+      const data = text.replace('[POST_SHARE]', '');
+      const parts = data.split('|');
+      if (parts.length >= 3) {
+        const imageUrl = (parts[1] || '').trim();
+        const result = {
+          postId: parts[0] || '',
+          imageUrl: imageUrl,
+          shareUrl: parts[2] || '',
+          caption: parts[3] || '',
+          authorName: parts[4] || ''
+        };
+        
+        // Debug logging
+        if (__DEV__) {
+          logger.debug('Parsed post share:', {
+            postId: result.postId,
+            hasImageUrl: !!result.imageUrl,
+            imageUrlLength: result.imageUrl.length,
+            imageUrlPreview: result.imageUrl ? result.imageUrl.substring(0, 50) + '...' : 'EMPTY',
+          });
+        }
+        
+        return result;
+      }
+    } catch (error) {
+      logger.error('Error parsing post share:', error);
+    }
+    return null;
+  };
+
+  // Handle post preview click
+  const handlePostPreviewClick = async (shareUrl: string, postId: string) => {
+    try {
+      // Try to navigate using router first (in-app navigation)
+      if (router && postId) {
+        // Check if this is a short by fetching post details
+        try {
+          const response = await getPostById(postId);
+          const post = response.post || response;
+          
+          // Check if post is a short (type === 'short' or has videoUrl/mediaUrl)
+          const isShort = post.type === 'short' || 
+                         (post.videoUrl && !post.imageUrl) || 
+                         (post.mediaUrl && post.type === 'short');
+          
+          if (isShort) {
+            // Navigate to shorts page with shortId parameter
+            router.replace(`/(tabs)/shorts?shortId=${postId}`);
+          } else {
+            // Regular post - navigate to home with postId to scroll to specific post
+            router.replace(`/(tabs)/home?postId=${postId}`);
+          }
+        } catch (fetchError) {
+          // If fetching post fails, try to determine from shareUrl or default to home
+          logger.debug('Failed to fetch post details, defaulting to home:', fetchError);
+          router.replace(`/(tabs)/home?postId=${postId}`);
+        }
+      } else if (shareUrl) {
+        // Fallback: Try deep link or web URL
+        try {
+          const deepLink = `taatom://home`;
+          await Linking.openURL(deepLink);
+        } catch (deepLinkError) {
+          // If deep link fails, try web URL
+          try {
+            await Linking.openURL(shareUrl);
+          } catch (linkError) {
+            logger.error('Error opening share URL:', linkError);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Error opening post:', error);
+      // Final fallback: try web URL
+      if (shareUrl) {
+        try {
+          await Linking.openURL(shareUrl);
+        } catch (linkError) {
+          logger.error('Error opening share URL:', linkError);
+        }
+      }
+    }
+  };
+  
   // Get current user ID on mount
   useEffect(() => {
     const getCurrentUserId = async () => {
@@ -193,6 +282,177 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     };
     getCurrentUserId();
   }, []);
+
+  // Component to handle post share thumbnail with fresh URL fetching
+  const PostShareThumbnail = React.memo(({ imageUrl, postId, isOwn, theme }: {
+    imageUrl?: string;
+    postId?: string;
+    isOwn: boolean;
+    theme: any;
+  }) => {
+    const [displayUrl, setDisplayUrl] = useState<string | null>(imageUrl?.trim() || null);
+    const [imageError, setImageError] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const hasTriedFetchRef = useRef(false);
+
+    // Fetch fresh image URL if original fails or is missing
+    const fetchFreshImage = useCallback(async () => {
+      if (!postId || hasTriedFetchRef.current || isLoading) return;
+      
+      hasTriedFetchRef.current = true;
+      setIsLoading(true);
+      try {
+        logger.debug('Fetching fresh thumbnail URL for post:', postId);
+        const response = await getPostById(postId);
+        const newImageUrl = response.post?.imageUrl || response.post?.images?.[0];
+        if (newImageUrl && newImageUrl.trim()) {
+          logger.debug('Fresh thumbnail URL fetched successfully');
+          setDisplayUrl(newImageUrl.trim());
+          setImageError(false);
+        } else {
+          setImageError(true);
+        }
+      } catch (error) {
+        logger.debug('Failed to fetch fresh thumbnail URL:', error);
+        setImageError(true);
+      } finally {
+        setIsLoading(false);
+      }
+    }, [postId, isLoading]);
+
+    // Reset when imageUrl or postId changes
+    useEffect(() => {
+      setDisplayUrl(imageUrl?.trim() || null);
+      setImageError(false);
+      hasTriedFetchRef.current = false;
+      setIsLoading(false);
+    }, [imageUrl, postId]);
+
+    // Try to fetch fresh URL if original is missing
+    useEffect(() => {
+      if (postId && (!displayUrl || displayUrl === '') && !hasTriedFetchRef.current) {
+        fetchFreshImage();
+      }
+    }, [postId, displayUrl, fetchFreshImage]);
+
+    // Show image if we have a URL
+    if (displayUrl && displayUrl.trim() && !imageError) {
+      return (
+        <Image
+          source={{ uri: displayUrl }}
+          style={styles.postShareThumbnail}
+          resizeMode="cover"
+          onError={() => {
+            logger.debug('Thumbnail image failed to load, trying to fetch fresh URL');
+            setImageError(true);
+            if (postId && !hasTriedFetchRef.current) {
+              fetchFreshImage();
+            }
+          }}
+          onLoadEnd={() => {
+            setImageError(false);
+          }}
+        />
+      );
+    }
+
+    // Show loading or fallback icon
+    if (isLoading) {
+      return (
+        <ActivityIndicator 
+          size="small" 
+          color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
+        />
+      );
+    }
+
+    // Fallback icon
+    return (
+      <Ionicons 
+        name="image" 
+        size={20} 
+        color={isOwn ? 'rgba(255,255,255,0.9)' : theme.colors.primary} 
+      />
+    );
+  });
+
+  // Component to handle post preview image with error fallback
+  const PostPreviewImage = React.memo(({ imageUrl, postId, isOwn, theme }: { 
+    imageUrl?: string; 
+    postId?: string; 
+    isOwn: boolean;
+    theme: any;
+  }) => {
+    const [imageError, setImageError] = useState(false);
+    const [freshImageUrl, setFreshImageUrl] = useState<string | null>(null);
+    const hasTriedFetchRef = useRef(false);
+
+    // Try to fetch fresh image URL if original fails
+    const fetchFreshImage = useCallback(async () => {
+      if (!postId || hasTriedFetchRef.current) return;
+      
+      hasTriedFetchRef.current = true;
+      try {
+        const response = await getPostById(postId);
+        const newImageUrl = response.post?.imageUrl || response.post?.images?.[0];
+        if (newImageUrl) {
+          setFreshImageUrl(newImageUrl);
+          setImageError(false);
+        }
+      } catch (error) {
+        logger.debug('Failed to fetch fresh image URL:', error);
+      }
+    }, [postId]);
+
+    // Reset error state when imageUrl or postId changes
+    useEffect(() => {
+      setImageError(false);
+      hasTriedFetchRef.current = false;
+      setFreshImageUrl(null);
+    }, [imageUrl, postId]);
+
+    const displayUrl = freshImageUrl || imageUrl;
+    const hasValidUrl = displayUrl && displayUrl.trim();
+
+    // Show placeholder if no URL or error occurred
+    if (!hasValidUrl || imageError) {
+      // Try to fetch fresh URL in background if we haven't tried yet and have postId
+      if (postId && !hasTriedFetchRef.current && imageError) {
+        fetchFreshImage();
+      }
+      
+      return (
+        <View style={[styles.postPreviewImageWrapper, styles.postPreviewImagePlaceholder]}>
+          <Ionicons name="image-outline" size={32} color={isOwn ? 'rgba(255,255,255,0.5)' : theme.colors.textSecondary} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.postPreviewImageWrapper}>
+        <Image
+          source={{ uri: displayUrl.trim() }}
+          style={styles.postPreviewImage}
+          resizeMode="cover"
+          onError={() => {
+            logger.debug('Error loading post preview image, showing placeholder');
+            setImageError(true);
+            // Try to fetch fresh image URL if we have postId
+            if (postId && !hasTriedFetchRef.current) {
+              fetchFreshImage();
+            }
+          }}
+          onLoadStart={() => {
+            logger.debug('Post preview image loading started');
+          }}
+          onLoadEnd={() => {
+            logger.debug('Post preview image loaded successfully');
+            setImageError(false);
+          }}
+        />
+      </View>
+    );
+  });
 
   // Get user name from user ID
   const getUserName = (userId: string): string => {
@@ -1028,6 +1288,130 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       borderRadius: 4,
       marginHorizontal: 2,
     },
+    postPreviewContainer: {
+      width: '100%',
+      borderRadius: 12,
+      overflow: 'hidden',
+      marginBottom: 4,
+      backgroundColor: 'transparent',
+    },
+    postPreviewImageWrapper: {
+      width: '100%',
+      height: 200,
+      backgroundColor: theme.colors.background,
+      overflow: 'hidden',
+    },
+    postPreviewImage: {
+      width: '100%',
+      height: '100%',
+      backgroundColor: theme.colors.background,
+    },
+    postPreviewImagePlaceholder: {
+      width: '100%',
+      height: 200,
+      backgroundColor: theme.colors.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderStyle: 'dashed',
+    },
+    postPreviewContent: {
+      padding: 12,
+      backgroundColor: 'transparent',
+      paddingTop: 8,
+    },
+    postPreviewAuthor: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    postPreviewAuthorOwn: {
+      color: '#fff',
+    },
+    postPreviewCaption: {
+      fontSize: 13,
+      color: theme.colors.textSecondary,
+      marginBottom: 8,
+      lineHeight: 18,
+    },
+    postPreviewCaptionOwn: {
+      color: 'rgba(255,255,255,0.9)',
+    },
+    postPreviewFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 4,
+    },
+    postPreviewLink: {
+      fontSize: 12,
+      color: theme.colors.primary,
+      fontWeight: '500',
+    },
+    postPreviewLinkOwn: {
+      color: 'rgba(255,255,255,0.9)',
+    },
+    postShareMessageContainer: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      width: '100%',
+      paddingVertical: 8,
+      paddingHorizontal: 4,
+    },
+    postShareIconContainer: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.colors.primary + '15',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 10,
+      marginTop: 2,
+      overflow: 'hidden',
+    },
+    postShareThumbnail: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 18,
+    },
+    postShareTextContainer: {
+      flex: 1,
+      minWidth: 0,
+    },
+    postShareAuthor: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 4,
+    },
+    postShareAuthorOwn: {
+      color: '#fff',
+    },
+    postShareCaption: {
+      fontSize: 14,
+      color: theme.colors.textSecondary,
+      marginBottom: 6,
+      lineHeight: 20,
+    },
+    postShareCaptionOwn: {
+      color: 'rgba(255,255,255,0.9)',
+    },
+    postShareFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: 2,
+    },
+    postShareLink: {
+      fontSize: 13,
+      color: theme.colors.primary,
+      fontWeight: '600',
+    },
+    postShareLinkOwn: {
+      color: 'rgba(255,255,255,0.95)',
+    },
   });
 
   return (
@@ -1204,7 +1588,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                       ]
                     );
                   },
-                  destructive: !isBlocked,
+                  destructive: Boolean(!isBlocked),
                 },
               ]}
               iconColor={theme.colors.text}
@@ -1226,21 +1610,76 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               const myUserId = normalizeId(currentUserId);
               
               // Message is "own" if sender matches current user, not other user
-              const isOwn = (senderId && myUserId && senderId === myUserId) || 
-                           (senderId && otherUserId && senderId !== otherUserId && !myUserId);
+              const isOwn = Boolean(
+                (senderId && myUserId && senderId === myUserId) || 
+                (senderId && otherUserId && senderId !== otherUserId && !myUserId)
+              );
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
+              
+              // Check if this is a post share
+              const postShare = parsePostShare(String(item.text || ''));
+              
+              // Debug logging for post share
+              if (postShare && __DEV__) {
+                logger.debug('Rendering post share:', {
+                  postId: postShare.postId,
+                  hasImageUrl: !!postShare.imageUrl,
+                  imageUrl: postShare.imageUrl ? postShare.imageUrl.substring(0, 50) + '...' : 'NO IMAGE',
+                  authorName: postShare.authorName,
+                });
+              }
               
               return (
                 <View style={[
                   styles.bubble, 
                   isOwn ? styles.bubbleOwn : styles.bubbleOther
                 ]}>
-                  <Text style={[
-                    styles.bubbleText,
-                    isOwn ? styles.bubbleOwnText : {}
-                  ]}>
-                    {String(item.text || '')}
-                  </Text>
+                  {postShare ? (
+                    // Render post share as attractive text message with small image thumbnail
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
+                      style={styles.postShareMessageContainer}
+                    >
+                      <View style={[
+                        styles.postShareIconContainer,
+                        isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
+                      ]}>
+                        <PostShareThumbnail
+                          imageUrl={postShare.imageUrl}
+                          postId={postShare.postId}
+                          isOwn={isOwn}
+                          theme={theme}
+                        />
+                      </View>
+                      <View style={styles.postShareTextContainer}>
+                        {postShare.authorName && (
+                          <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
+                            {postShare.authorName}
+                          </Text>
+                        )}
+                        {postShare.caption && (
+                          <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
+                            {postShare.caption}
+                          </Text>
+                        )}
+                        <View style={styles.postShareFooter}>
+                          <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
+                          <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
+                            View Post
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    // Regular text message
+                    <Text style={[
+                      styles.bubbleText,
+                      isOwn ? styles.bubbleOwnText : {}
+                    ]}>
+                      {String(item.text || '')}
+                    </Text>
+                  )}
                   
                   <View style={{ 
                     flexDirection: 'row', 
@@ -1407,6 +1846,111 @@ export default function ChatModal() {
   const [showGlobalCallScreen, setShowGlobalCallScreen] = useState(false);
   const [forceRender, setForceRender] = useState(0);
   const [isCalling, setIsCalling] = useState(false);
+
+  // Parse post share message (for chat list)
+  const parsePostShare = (text: string) => {
+    if (!text || !text.startsWith('[POST_SHARE]')) return null;
+    try {
+      const data = text.replace('[POST_SHARE]', '');
+      const parts = data.split('|');
+      if (parts.length >= 3) {
+        return {
+          postId: parts[0],
+          imageUrl: parts[1] || '',
+          shareUrl: parts[2] || '',
+          caption: parts[3] || '',
+          authorName: parts[4] || ''
+        };
+      }
+    } catch (error) {
+      logger.error('Error parsing post share:', error);
+    }
+    return null;
+  };
+
+  // Component for chat list post thumbnail with fresh URL fetching
+  const ChatListPostThumbnail = React.memo(({ imageUrl, postId, authorName, theme }: {
+    imageUrl?: string;
+    postId?: string;
+    authorName?: string;
+    theme: any;
+  }) => {
+    const [displayUrl, setDisplayUrl] = useState<string | null>(imageUrl?.trim() || null);
+    const [imageError, setImageError] = useState(false);
+    const hasTriedFetchRef = useRef(false);
+
+    // Fetch fresh image URL if original fails or is missing
+    const fetchFreshImage = useCallback(async () => {
+      if (!postId || hasTriedFetchRef.current) return;
+      
+      hasTriedFetchRef.current = true;
+      try {
+        logger.debug('Fetching fresh thumbnail URL for chat list post:', postId);
+        const response = await getPostById(postId);
+        const newImageUrl = response.post?.imageUrl || response.post?.images?.[0];
+        if (newImageUrl && newImageUrl.trim()) {
+          logger.debug('Fresh thumbnail URL fetched successfully for chat list');
+          setDisplayUrl(newImageUrl.trim());
+          setImageError(false);
+        } else {
+          setImageError(true);
+        }
+      } catch (error) {
+        logger.debug('Failed to fetch fresh thumbnail URL for chat list:', error);
+        setImageError(true);
+      }
+    }, [postId]);
+
+    // Reset when imageUrl or postId changes
+    useEffect(() => {
+      setDisplayUrl(imageUrl?.trim() || null);
+      setImageError(false);
+      hasTriedFetchRef.current = false;
+    }, [imageUrl, postId]);
+
+    // Try to fetch fresh URL if original is missing
+    useEffect(() => {
+      if (postId && (!displayUrl || displayUrl === '') && !hasTriedFetchRef.current) {
+        fetchFreshImage();
+      }
+    }, [postId, displayUrl, fetchFreshImage]);
+
+    return (
+      <View style={styles.chatListPostPreview}>
+        {displayUrl && displayUrl.trim() && !imageError ? (
+          <Image
+            source={{ uri: displayUrl }}
+            style={styles.chatListPostThumbnail}
+            resizeMode="cover"
+            onError={() => {
+              logger.debug('Chat list thumbnail failed to load, trying to fetch fresh URL');
+              setImageError(true);
+              if (postId && !hasTriedFetchRef.current) {
+                fetchFreshImage();
+              }
+            }}
+          />
+        ) : (
+          <View style={[styles.chatListPostThumbnail, styles.chatListPostThumbnailPlaceholder]}>
+            <Ionicons name="image-outline" size={16} color={theme.colors.textSecondary} />
+          </View>
+        )}
+        <View style={styles.chatListPostText}>
+          {authorName && (
+            <Text style={styles.chatListPostAuthor} numberOfLines={1}>
+              {authorName}
+            </Text>
+          )}
+          <View style={styles.chatListPostFooter}>
+            <Ionicons name="link-outline" size={12} color={theme.colors.textSecondary} />
+            <Text style={styles.chatListPostLink} numberOfLines={1}>
+              View Post
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  });
 
   // Move handleNewMessage here with deduplication
   const handleNewMessage = (msg: any) => {
@@ -2537,6 +3081,45 @@ export default function ChatModal() {
       fontWeight: '600',
       color: theme.colors.text,
     },
+    chatListPostPreview: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 4,
+    },
+    chatListPostThumbnail: {
+      width: 40,
+      height: 40,
+      borderRadius: 8,
+      marginRight: 8,
+      backgroundColor: theme.colors.background,
+    },
+    chatListPostThumbnailPlaceholder: {
+      backgroundColor: theme.colors.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    chatListPostText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    chatListPostAuthor: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.colors.text,
+      marginBottom: 2,
+    },
+    chatListPostFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    chatListPostLink: {
+      fontSize: 12,
+      color: theme.colors.primary,
+      fontWeight: '500',
+    },
   });
 
   return (
@@ -2781,9 +3364,30 @@ export default function ChatModal() {
                   <Text style={styles.chatName} numberOfLines={1}>
                     {other ? String(other.fullName || other._id || other) : '[No other user found]'}
                   </Text>
-                  <Text style={styles.lastMessage} numberOfLines={2}>
-                    {String(item.messages?.[item.messages.length-1]?.text || '')}
-                  </Text>
+                  {(() => {
+                    const lastMessage = item.messages?.[item.messages.length-1];
+                    const messageText = String(lastMessage?.text || '');
+                    const postShare = parsePostShare(messageText);
+                    
+                    if (postShare) {
+                      // Show post preview with thumbnail
+                      return (
+                        <ChatListPostThumbnail
+                          imageUrl={postShare.imageUrl}
+                          postId={postShare.postId}
+                          authorName={postShare.authorName}
+                          theme={theme}
+                        />
+                      );
+                    } else {
+                      // Regular text message
+                      return (
+                        <Text style={styles.lastMessage} numberOfLines={2}>
+                          {messageText}
+                        </Text>
+                      );
+                    }
+                  })()}
                 </View>
                 
                 {unreadCount > 0 && (

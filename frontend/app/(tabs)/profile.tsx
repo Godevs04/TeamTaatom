@@ -21,7 +21,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage, signOut } from '../../services/auth';
-import { getProfile } from '../../services/profile';
+import { getProfile, getTravelMapData } from '../../services/profile';
 import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, deleteShort } from '../../services/posts';
 import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -99,6 +99,7 @@ export default function ProfileScreen() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
@@ -114,6 +115,10 @@ export default function ProfileScreen() {
   
   // Request Guards: Prevent duplicate API calls on rapid tab switching
   const isFetchingRef = useRef(false);
+  
+  // Scroll position persistence: Store scroll position when navigating away
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollPositionRef = useRef<number>(0);
   
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
@@ -218,11 +223,12 @@ export default function ProfileScreen() {
         logger.debug('Cache load error (non-critical):', cacheError);
       }
       
-      // OPTIMIZATION: Fetch profile, posts, and shorts in parallel for 2-3x faster loading
-      const [profileResult, userPosts, shortsResp] = await Promise.allSettled([
+      // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
+      const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
         getProfile(userData._id),
         getUserPosts(userData._id),
-        getUserShorts(userData._id, 1, 100)
+        getUserShorts(userData._id, 1, 100),
+        getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
       ]);
       
       if (!isMountedRef.current) return;
@@ -238,6 +244,11 @@ export default function ProfileScreen() {
       }
       
       if (!isMountedRef.current) return;
+
+      // Handle verified locations count
+      if (travelMapResult.status === 'fulfilled' && travelMapResult.value?.data?.statistics) {
+        setVerifiedLocationsCount(travelMapResult.value.data.statistics.totalLocations);
+      }
       
       if (userPosts.status === 'fulfilled') {
         const fetchedPosts = userPosts.value.posts || [];
@@ -360,9 +371,68 @@ export default function ProfileScreen() {
       // Screen focused - ensure mounted
       isMountedRef.current = true;
       
+      // Restore scroll position when returning to profile page
+      // This ensures users don't have to scroll down again after viewing a post or short
+      if (scrollViewRef.current && scrollPositionRef.current > 0) {
+        // Small delay to ensure ScrollView is fully rendered
+        setTimeout(() => {
+          if (scrollViewRef.current && isMountedRef.current) {
+            scrollViewRef.current.scrollTo({
+              y: scrollPositionRef.current,
+              animated: false, // Instant scroll to avoid animation delay
+            });
+          }
+        }, 100);
+      }
+      
+      // Reload saved items when screen is focused and saved tab is active
+      // This ensures saved items persist when navigating back from a post
+      if (activeTab === 'saved' && isMountedRef.current) {
+        const reloadSaved = async () => {
+          try {
+            const savedShorts = await AsyncStorage.getItem('savedShorts');
+            const savedPosts = await AsyncStorage.getItem('savedPosts');
+            
+            let shortsArr: string[] = [];
+            let postsArr: string[] = [];
+            
+            try {
+              if (savedShorts) {
+                const parsed = JSON.parse(savedShorts);
+                shortsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedShorts on focus', error);
+            }
+            
+            try {
+              if (savedPosts) {
+                const parsed = JSON.parse(savedPosts);
+                postsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedPosts on focus', error);
+            }
+            
+            const allIds = [...postsArr, ...shortsArr];
+            const uniqueIds = Array.from(new Set(allIds));
+            
+            if (isMountedRef.current) {
+              setSavedIds(uniqueIds);
+            }
+          } catch (error) {
+            logger.error('Error reloading saved items on focus', error);
+          }
+        };
+        
+        // Reload saved items immediately when focused
+        reloadSaved();
+      }
+      
       // Refresh profile data when screen is focused to ensure privacy settings are reflected
       // This ensures profile header, visibility, and dependent UI reflect latest settings
-      if (user?._id && !isFetchingRef.current) {
+      // BUT: Don't refresh if we're on saved tab to avoid clearing saved items
+      if (user?._id && !isFetchingRef.current && activeTab !== 'saved') {
         // Small delay to avoid race conditions with navigation
         const refreshTimer = setTimeout(() => {
           if (isMountedRef.current && user?._id) {
@@ -385,7 +455,7 @@ export default function ProfileScreen() {
           abortControllerRef.current.abort();
         }
       };
-    }, [user?._id, loadUserData])
+    }, [user?._id, loadUserData, activeTab])
   );
 
   // Log posts when they change for debugging (development only)
@@ -937,12 +1007,17 @@ export default function ProfileScreen() {
     <ErrorBoundary level="route">
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(event) => {
+          handleScroll(event);
+          // Store scroll position for restoration
+          scrollPositionRef.current = event.nativeEvent.contentOffset.y;
+        }}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
@@ -1007,7 +1082,12 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              {/* Name */}
+              {/* Username */}
+              {profileData.username && (
+                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>{profileData.username}</Text>
+              )}
+              
+              {/* Full Name */}
               <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
               
               {/* Member Since */}
@@ -1117,8 +1197,10 @@ export default function ProfileScreen() {
             <Pressable 
               style={styles.unifiedSection}
               onPress={() => {
-                if (profileData?.locations && profileData.locations.length > 0) {
-                  // Navigate to locations view if available
+                const userId = user?._id || profileData?._id;
+                if (userId) {
+                  // Navigate to all verified locations map
+                  router.push(`/map/all-locations?userId=${userId}`);
                 }
               }}
             >
@@ -1129,7 +1211,9 @@ export default function ProfileScreen() {
                 <View style={styles.locationTextContainer}>
                   <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
                   <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                    {profileData?.locations && profileData.locations.length > 0 
+                    {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                      ? `${verifiedLocationsCount} verified locations visited`
+                      : profileData?.locations && profileData.locations.length > 0 
                       ? `${profileData.locations.length} locations visited`
                       : 'Add your home base'}
                   </Text>
@@ -1137,9 +1221,9 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
               </View>
               <View style={styles.locationGlobeContainer}>
-                {profileData?.locations && profileData.locations.length > 0 ? (
+                {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profileData?.locations && profileData.locations.length > 0) ? (
                   <RotatingGlobe 
-                    locations={profileData.locations} 
+                    locations={profileData?.locations || []} 
                     size={140} 
                   />
                 ) : (
@@ -1211,7 +1295,7 @@ export default function ProfileScreen() {
                         key={post._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(post._id, false)}
-                        onPress={() => router.push(`/post/${post._id}`)}
+                        onPress={() => router.push(`/(tabs)/home?postId=${post._id}`)} // Post detail page commented out - navigate to home with postId
                       >
                         {validImageUrl ? (
                           <Image 
@@ -1290,7 +1374,7 @@ export default function ProfileScreen() {
                         key={s._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
-                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}`)}
+                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}&userId=${user?._id || ''}`)}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
@@ -1321,18 +1405,65 @@ export default function ProfileScreen() {
             {activeTab === 'saved' && (
               savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
-                  {savedItems.map((item) => (
-                    <Pressable 
-                      key={item._id} 
-                      style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
-                      onPress={() => router.push(`/post/${item._id}`)}
-                    >
-                      <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
-                      <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                        <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                      </View>
-                    </Pressable>
-                  ))}
+                  {savedItems.map((item) => {
+                    // Try multiple possible image URL fields
+                    const imageUrl = (item as any).imageUrl 
+                      || (item as any).image_url 
+                      || (item as any).mediaUrl 
+                      || (item as any).images?.[0]
+                      || (item as any).thumbnailUrl;
+                    
+                    const validImageUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0 
+                      ? String(imageUrl).trim() 
+                      : null;
+                    
+                    return (
+                      <Pressable 
+                        key={item._id} 
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                        onPress={() => {
+                          // Use the same format as user-posts route
+                          router.push(`/saved-posts?postId=${item._id}`);
+                        }}
+                      >
+                        {validImageUrl ? (
+                          <Image 
+                            source={{ uri: validImageUrl }} 
+                            style={styles.thumbnailImage}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
+                              const errorMessage = error?.nativeEvent?.error?.message || '';
+                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                              
+                              if (__DEV__ && !is403) {
+                                console.warn('⚠️ [Profile] Saved item image failed:', {
+                                  postId: item._id,
+                                  url: validImageUrl.substring(0, 80),
+                                  error: errorMessage || 'Unknown'
+                                });
+                              }
+                              // Only log non-403 errors in production to reduce noise
+                              if (!is403) {
+                                logger.warn('Saved item image failed to load', {
+                                  postId: item._id,
+                                  imageUrl: validImageUrl.substring(0, 100),
+                                  error: errorMessage || 'Unknown error'
+                                });
+                              }
+                            }}
+                          />
+                        ) : (
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                        )}
+                        <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
@@ -1379,7 +1510,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: isTablet ? 30 : 20,
+    // Add padding for tab bar (88px mobile, 70px web) + extra spacing
+    paddingBottom: isWeb ? 90 : (isTablet ? 110 : 100),
   },
   loadingContainer: {
     flex: 1,
@@ -1493,13 +1625,25 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  profileName: {
-    fontSize: isTablet ? theme.typography.h1.fontSize : 28,
+  username: {
+    fontSize: isTablet ? theme.typography.h1.fontSize : 22,
     fontFamily: getFontFamily('800'),
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
     textAlign: 'center',
     letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  profileName: {
+    fontSize: isTablet ? theme.typography.body.fontSize : 16,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: isIOS ? 0.1 : 0.05,
+    opacity: 0.7,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

@@ -163,11 +163,36 @@ const getProfile = async (req, res) => {
       return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
     };
 
+    // Helper function to normalize continent name to standard format (same as getTripScoreContinents)
+    const normalizeContinentName = (continent) => {
+      if (!continent) return 'UNKNOWN';
+      const normalized = continent.toUpperCase().trim();
+      // Map common variations to standard names
+      const continentMap = {
+        'ASIA': 'ASIA',
+        'AFRICA': 'AFRICA',
+        'NORTH AMERICA': 'NORTH AMERICA',
+        'SOUTH AMERICA': 'SOUTH AMERICA',
+        'AUSTRALIA': 'AUSTRALIA',
+        'EUROPE': 'EUROPE',
+        'ANTARCTICA': 'ANTARCTICA',
+        'OCEANIA': 'AUSTRALIA', // Map Oceania to Australia
+        'AMERICA': 'NORTH AMERICA', // Default America to North America
+      };
+      return continentMap[normalized] || normalized;
+    };
+
     // Track unique locations (deduplicate by rounded lat/lng to match deduplication tolerance)
     const uniqueLocations = new Set();
 
     // Process visits to calculate TripScore (unique places only)
     trustedVisits.forEach(visit => {
+      // Skip visits with invalid coordinates
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0 || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        return;
+      }
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
       
@@ -175,7 +200,8 @@ const getProfile = async (req, res) => {
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.add(locationKey);
         
-        const continentKey = visit.continent || 'Unknown';
+        // Normalize continent name to ensure consistent matching
+        const continentKey = normalizeContinentName(visit.continent);
 
         // Add to continent score (unique locations only)
         if (!tripScoreData.continents[continentKey]) {
@@ -752,42 +778,220 @@ const searchUsers = async (req, res) => {
     const cacheKey = CacheKeys.search(q, 'users');
     
     const result = await cacheWrapper(cacheKey, async () => {
-      const users = await User.find({
-        $and: [
-          { isVerified: true },
-          {
-            $or: [
-              { fullName: { $regex: q, $options: 'i' } },
-              { email: { $regex: q, $options: 'i' } }
-            ]
+      const originalQuery = q.trim();
+      const searchQuery = originalQuery.toLowerCase(); // Username is stored in lowercase
+      const currentUserId = req.user?._id?.toString();
+      
+      // Escape special regex characters in search query
+      const escapeRegex = (str) => {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      };
+      const escapedQuery = escapeRegex(searchQuery);
+      
+      logger.debug('Search users - query processing:', {
+        originalQuery,
+        searchQuery,
+        escapedQuery,
+        currentUserId
+      });
+      
+      // Build base query - exclude current user
+      const baseMatch = {
+        isVerified: true
+      };
+      
+      if (currentUserId) {
+        baseMatch._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+      }
+      
+      // Build match query - prioritize username search
+      // Username is stored in lowercase, so we search in lowercase
+      // Username is required in schema, so we don't need $exists check
+      const matchQuery = {
+        ...baseMatch,
+        $or: [
+          // Username search (prioritized) - username is stored in lowercase
+          { 
+            username: { 
+              $regex: escapedQuery, 
+              $options: 'i' 
+            } 
+          },
+          // FullName fallback
+          { 
+            fullName: { 
+              $exists: true,
+              $ne: null,
+              $regex: escapedQuery, 
+              $options: 'i' 
+            } 
           }
         ]
-      })
-      .select('fullName email profilePic followers following totalLikes')
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-
-      const totalUsers = await User.countDocuments({
-        $and: [
-          { isVerified: true },
-          {
-            $or: [
-              { fullName: { $regex: q, $options: 'i' } },
-              { email: { $regex: q, $options: 'i' } }
-            ]
+      };
+      
+      logger.debug('Search users - match query:', JSON.stringify(matchQuery, null, 2));
+      
+      // Use aggregation to prioritize username matches, then fallback to fullName
+      const users = await User.aggregate([
+        {
+          $match: matchQuery
+        },
+        {
+          $addFields: {
+            // Score: username exact match = 4, username starts with = 3, username contains = 2, fullName = 1
+            matchScore: {
+              $cond: [
+                // Check if username exists and matches exactly (username is already lowercase)
+                {
+                  $and: [
+                    { $ne: ['$username', null] },
+                    { $ne: ['$username', ''] },
+                    { $eq: ['$username', searchQuery] } // Direct comparison since username is lowercase
+                  ]
+                },
+                4, // Exact username match - highest priority
+                {
+                  $cond: [
+                    // Username starts with query
+                    {
+                      $and: [
+                        { $ne: ['$username', null] },
+                        { $ne: ['$username', ''] },
+                        { $regexMatch: { input: '$username', regex: `^${escapedQuery}`, options: 'i' } }
+                      ]
+                    },
+                    3, // Username starts with query
+                    {
+                      $cond: [
+                        // Username contains query
+                        {
+                          $and: [
+                            { $ne: ['$username', null] },
+                            { $ne: ['$username', ''] },
+                            { $regexMatch: { input: '$username', regex: escapedQuery, options: 'i' } }
+                          ]
+                        },
+                        2, // Username contains query
+                        1  // Only fullName match
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
           }
-        ]
-      }).lean();
+        },
+        {
+          $sort: { matchScore: -1, createdAt: -1 } // Sort by match score (username matches first), then by creation date
+        },
+        {
+          $project: {
+            username: 1,
+            fullName: 1,
+            email: 1,
+            profilePic: 1,
+            profilePicStorageKey: 1,
+            followers: 1,
+            following: 1,
+            totalLikes: 1,
+            matchScore: 1
+          }
+        },
+        {
+          $skip: skip
+        },
+        {
+          $limit: parseInt(limit)
+        }
+      ]);
 
-      return { users, totalUsers };
+      // Get total count for pagination (excluding current user)
+      // Use same match query for consistency
+      const totalUsers = await User.countDocuments(matchQuery);
+      
+      // Debug logging
+      logger.debug('User search query:', {
+        searchQuery,
+        escapedQuery,
+        matchQuery,
+        usersFound: users.length,
+        totalUsers
+      });
+
+      // Remove matchScore from final results (keep profilePicStorageKey for URL generation outside cache)
+      const cleanedUsers = users.map(user => {
+        const { matchScore, ...userWithoutScore } = user;
+        return userWithoutScore;
+      });
+
+      return { users: cleanedUsers, totalUsers };
     }, CACHE_TTL.SEARCH_RESULTS);
 
     const { users, totalUsers } = result;
 
+    // Debug: Log first user to check if profilePicStorageKey is present
+    if (users.length > 0) {
+      const firstUser = users[0];
+      logger.info('First user from search (before URL generation):', {
+        userId: firstUser._id?.toString(),
+        username: firstUser.username,
+        fullName: firstUser.fullName,
+        hasProfilePicStorageKey: !!firstUser.profilePicStorageKey,
+        hasProfilePic: !!firstUser.profilePic,
+        profilePicStorageKey: firstUser.profilePicStorageKey ? firstUser.profilePicStorageKey.substring(0, 50) + '...' : 'MISSING',
+        profilePic: firstUser.profilePic ? firstUser.profilePic.substring(0, 50) + '...' : 'MISSING',
+        allKeys: Object.keys(firstUser)
+      });
+    }
+
+    // Generate signed URLs for profile pictures AFTER cache (fresh URLs each time)
+    // Same pattern as getPosts - generate fresh signed URLs for each request
+    const usersWithProfilePics = await Promise.all(users.map(async (user) => {
+      // Store original profilePic as fallback (same pattern as getPosts)
+      const originalProfilePic = user.profilePic;
+      
+      // Generate signed URL for profile picture (exact same pattern as getPosts line 234-249)
+      if (user.profilePicStorageKey) {
+        try {
+          user.profilePic = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+          logger.debug('Generated profile picture URL for search result:', {
+            userId: user._id?.toString(),
+            username: user.username,
+            hasUrl: !!user.profilePic
+          });
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for search result:', { 
+            userId: user._id?.toString(),
+            username: user.username,
+            storageKey: user.profilePicStorageKey,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available (same as getPosts)
+          user.profilePic = originalProfilePic || null;
+        }
+      } else if (user.profilePic) {
+        // Legacy: use existing profilePic if no storage key (same as getPosts line 246-249)
+        // Keep the existing profilePic value
+        logger.debug('Using legacy profilePic for search result:', {
+          userId: user._id?.toString(),
+          username: user.username
+        });
+      }
+      // Note: If no profilePicStorageKey and no profilePic, profilePic remains null/undefined
+      // This matches getPosts behavior
+      
+      // Remove profilePicStorageKey from response (not needed by frontend)
+      delete user.profilePicStorageKey;
+      
+      return user;
+    }));
+
     const currentUserId = req.user?._id?.toString();
-    const usersWithFollowStatus = users.map(user => ({
+    const usersWithFollowStatus = usersWithProfilePics.map(user => ({
       ...user,
+      _id: user._id?.toString() || user._id,
+      // Keep profilePic as is (can be null/undefined/string - frontend handles it)
+      // Don't convert null to empty string - let frontend handle fallback
       followersCount: user.followers ? user.followers.length : 0,
       followingCount: user.following ? user.following.length : 0,
       isFollowing: currentUserId && user.followers 
@@ -1349,7 +1553,32 @@ const getTripScoreContinents = async (req, res) => {
     const uniqueLocationKeys = new Set(); // Track unique locations globally
     let totalScore = 0;
 
+    // Helper function to normalize continent name to standard format
+    const normalizeContinentName = (continent) => {
+      if (!continent) return 'UNKNOWN';
+      const normalized = continent.toUpperCase().trim();
+      // Map common variations to standard names
+      const continentMap = {
+        'ASIA': 'ASIA',
+        'AFRICA': 'AFRICA',
+        'NORTH AMERICA': 'NORTH AMERICA',
+        'SOUTH AMERICA': 'SOUTH AMERICA',
+        'AUSTRALIA': 'AUSTRALIA',
+        'EUROPE': 'EUROPE',
+        'ANTARCTICA': 'ANTARCTICA',
+        'OCEANIA': 'AUSTRALIA', // Map Oceania to Australia
+        'AMERICA': 'NORTH AMERICA', // Default America to North America
+      };
+      return continentMap[normalized] || normalized;
+    };
+
     trustedVisits.forEach(visit => {
+      // Skip visits with invalid coordinates
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0 || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        return;
+      }
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
       
@@ -1357,7 +1586,8 @@ const getTripScoreContinents = async (req, res) => {
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
-        const continentKey = visit.continent || 'Unknown';
+        // Normalize continent name to ensure consistent matching
+        const continentKey = normalizeContinentName(visit.continent);
         
         // Initialize continent scores and location arrays if needed
         if (!continentScores[continentKey]) {
@@ -1412,8 +1642,23 @@ const getTripScoreContinents = async (req, res) => {
       { name: 'ANTARCTICA', score: continentScores['ANTARCTICA'] || 0, distance: Math.round(continentDistances['ANTARCTICA'] || 0) }
     ];
 
+    // CRITICAL: Recalculate totalScore as sum of all continent scores to ensure consistency
+    // This ensures totalScore always equals the sum of individual continent scores
+    const calculatedTotalScore = continents.reduce((sum, continent) => sum + continent.score, 0);
+    
+    // Check for any locations in unmapped continents (like UNKNOWN) that aren't in the formatted list
+    const unmappedScore = Object.keys(continentScores).reduce((sum, key) => {
+      const isMapped = continents.some(c => c.name === key);
+      return isMapped ? sum : sum + (continentScores[key] || 0);
+    }, 0);
+    
+    // Log warning if there's a mismatch (for debugging)
+    if (calculatedTotalScore !== totalScore) {
+      logger.warn(`TripScore mismatch detected: calculatedTotal=${calculatedTotalScore}, originalTotal=${totalScore}, unmapped=${unmappedScore}. Using calculated total.`);
+    }
+
     return sendSuccess(res, 200, 'TripScore continents fetched successfully', {
-      totalScore,
+      totalScore: calculatedTotalScore, // Use calculated total to ensure consistency
       continents
     });
 
@@ -1441,7 +1686,9 @@ const getTripScoreCountries = async (req, res) => {
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      continent: continentName
+      // IMPORTANT: Use case-insensitive match for continent to handle values like 'Asia' vs 'ASIA'
+      // This keeps TripScore consistent between the overall continents view and per-continent view
+      continent: { $regex: new RegExp(`^${continentName}$`, 'i') }
     })
     .select('lat lng country address')
     .lean();
@@ -1458,7 +1705,6 @@ const getTripScoreCountries = async (req, res) => {
     // Filter visits by continent and calculate country scores based on unique places
     const countryScores = {};
     const uniqueLocationKeys = new Set(); // Track unique locations
-    let continentScore = 0;
 
     trustedVisits.forEach(visit => {
       // Skip visits with invalid coordinates
@@ -1487,6 +1733,12 @@ const getTripScoreCountries = async (req, res) => {
         countryScores[normalizedCountry] += 1;
       }
     });
+
+    // CRITICAL: Derive continentScore from countryScores to guarantee consistency
+    const continentScore = Object.values(countryScores).reduce(
+      (sum, value) => sum + (typeof value === 'number' ? value : 0),
+      0
+    );
 
     // Get countries for this continent
     const predefinedCountries = getCountriesForContinent(continentName);
@@ -1866,7 +2118,7 @@ const getTripScoreLocations = async (req, res) => {
   }
 };
 
-// @desc    Get user's travel map data (locations, stats)
+// @desc    Get user's travel map data (locations, stats) - Returns verified trip locations
 // @route   GET /profile/:id/travel-map
 // @access  Public
 const getTravelMapData = async (req, res) => {
@@ -1876,35 +2128,52 @@ const getTravelMapData = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get all posts with valid locations
-    const posts = await Post.find({ 
-      user: id, 
+    // Get verified TripVisits (only verified trip locations)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      lat: { $exists: true, $ne: null, $ne: 0 },
+      lng: { $exists: true, $ne: null, $ne: 0 }
     })
-    .select('location createdAt')
-    .sort({ createdAt: 1 }) // Sort by creation date to maintain order
-    .lean();
+    .select('lat lng address takenAt uploadedAt')
+    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically
+    .lean()
+    .limit(1000); // Limit for performance
 
-    // Extract unique locations for the map (numbered points)
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
+
+    // Extract unique verified locations for the map (numbered points)
     const uniqueLocations = new Map();
     const locations = [];
     let locationCounter = 1;
 
-    posts.forEach(post => {
-      const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+    trustedVisits.forEach(visit => {
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0) {
+        return; // Skip invalid coordinates
+      }
+
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only add unique locations
+      // Only add unique locations (deduplicate nearby locations)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
         
+        const visitDate = visit.takenAt || visit.uploadedAt || new Date();
+        
         locations.push({
           number: locationCounter,
-          latitude: post.location.coordinates.latitude,
-          longitude: post.location.coordinates.longitude,
-          address: post.location.address,
-          date: post.createdAt
+          latitude: visit.lat,
+          longitude: visit.lng,
+          address: visit.address || 'Unknown Location',
+          date: visitDate
         });
         
         locationCounter++;
@@ -1913,7 +2182,8 @@ const getTravelMapData = async (req, res) => {
 
     // Calculate statistics
     const totalLocations = locations.length;
-    const totalDays = posts.length > 0 ? Math.ceil((Date.now() - new Date(posts[0].createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    const firstVisit = trustedVisits.length > 0 ? (trustedVisits[0].takenAt || trustedVisits[0].uploadedAt) : null;
+    const totalDays = firstVisit ? Math.ceil((Date.now() - new Date(firstVisit).getTime()) / (1000 * 60 * 60 * 24)) : 0;
     
     // Calculate approximate distance traveled (simplified calculation)
     let totalDistance = 0;

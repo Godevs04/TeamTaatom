@@ -70,7 +70,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
             success: true,
             message: 'Navigating to liked post...',
             shouldNavigate: true,
-            navigationPath: `/post/${postId}`
+            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
           };
         }
         // Post was deleted
@@ -88,7 +88,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
             success: true,
             message: 'Navigating to commented post...',
             shouldNavigate: true,
-            navigationPath: `/post/${postId}`
+            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
           };
         }
         // Post was deleted
@@ -132,7 +132,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
             success: true,
             message: 'Navigating to post...',
             shouldNavigate: true,
-            navigationPath: `/post/${postId}`
+            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
           };
         }
         return {
@@ -149,7 +149,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
             success: true,
             message: 'Navigating to shared post...',
             shouldNavigate: true,
-            navigationPath: `/post/${postId}`
+            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
           };
         }
         return {
@@ -166,7 +166,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
             success: true,
             message: 'Navigating to post...',
             shouldNavigate: true,
-            navigationPath: `/post/${postId}`
+            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
           };
         }
         if (notification.fromUserId || notification.fromUser?._id) {

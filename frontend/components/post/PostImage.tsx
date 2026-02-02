@@ -21,6 +21,7 @@ interface PostImageProps {
   onRetry: () => void;
   pulseAnim: Animated.Value;
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
+  onDoubleTap?: () => void; // Callback for double-tap to like
 }
 
 export default function PostImage({
@@ -33,6 +34,7 @@ export default function PostImage({
   onRetry,
   pulseAnim,
   isCurrentlyVisible = false,
+  onDoubleTap,
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
@@ -44,6 +46,12 @@ export default function PostImage({
   const songPlayerRef = useRef<any>(null);
   const isTogglingMuteRef = useRef(false);
   const isMutedRef = useRef(true); // Use ref to track mute state to avoid dependency issues, default to muted
+  
+  // Double-tap detection
+  const lastTapRef = useRef<number>(0);
+  const doubleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
 
   // Generate blur-up placeholder for progressive loading
   useEffect(() => {
@@ -73,6 +81,76 @@ export default function PostImage({
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
+
+  // Handle double-tap to like
+  const handleDoubleTap = useCallback(() => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 300; // 300ms window for double-tap
+    
+    if (lastTapRef.current && (now - lastTapRef.current) < DOUBLE_TAP_DELAY) {
+      // Double-tap detected - cancel single tap timer
+      if (doubleTapTimerRef.current) {
+        clearTimeout(doubleTapTimerRef.current);
+        doubleTapTimerRef.current = null;
+      }
+      
+      // Trigger like if callback is provided
+      if (onDoubleTap) {
+        onDoubleTap();
+        
+        // Show heart animation
+        heartScale.setValue(0);
+        heartOpacity.setValue(1);
+        
+        Animated.parallel([
+          Animated.spring(heartScale, {
+            toValue: 1.2,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 3,
+          }),
+          Animated.sequence([
+            Animated.delay(100),
+            Animated.timing(heartOpacity, {
+              toValue: 0,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]).start(() => {
+          heartScale.setValue(0);
+          heartOpacity.setValue(0);
+        });
+      }
+      
+      lastTapRef.current = 0;
+    } else {
+      // First tap - wait for potential second tap
+      lastTapRef.current = now;
+      
+      // Clear any existing timer
+      if (doubleTapTimerRef.current) {
+        clearTimeout(doubleTapTimerRef.current);
+      }
+      
+      // Set timer for single tap (only if no second tap occurs)
+      doubleTapTimerRef.current = setTimeout(() => {
+        // Single tap - navigate to post detail
+        lastTapRef.current = 0;
+        doubleTapTimerRef.current = null;
+        onPress();
+      }, DOUBLE_TAP_DELAY);
+    }
+  }, [onDoubleTap, onPress, heartScale, heartOpacity]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (doubleTapTimerRef.current) {
+        clearTimeout(doubleTapTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handle mute/unmute toggle with guard to prevent multiple simultaneous calls
   const handleToggleMute = useCallback(async () => {
@@ -142,7 +220,7 @@ export default function PostImage({
                 renderItem={({ item }) => (
                   <TouchableOpacity 
                     activeOpacity={1}
-                    onPress={onPress}
+                    onPress={handleDoubleTap}
                     style={{ width: screenWidth, height: '100%' }}
                   >
                     <Image
@@ -150,6 +228,20 @@ export default function PostImage({
                       style={styles.image}
                       resizeMode="cover"
                     />
+                    {/* Heart animation overlay */}
+                    <View style={styles.heartContainer} pointerEvents="none">
+                      <Animated.View
+                        style={[
+                          styles.heartAnimation,
+                          {
+                            transform: [{ scale: heartScale }],
+                            opacity: heartOpacity,
+                          },
+                        ]}
+                      >
+                        <Ionicons name="heart" size={80} color="#fff" />
+                      </Animated.View>
+                    </View>
                   </TouchableOpacity>
                 )}
                 keyExtractor={(item, index) => index.toString()}
@@ -181,7 +273,7 @@ export default function PostImage({
             </View>
           ) : (
             <TouchableOpacity 
-              onPress={onPress} 
+              onPress={handleDoubleTap} 
               activeOpacity={0.9} 
               style={StyleSheet.absoluteFill}
             >
@@ -216,12 +308,27 @@ export default function PostImage({
                   onImageError();
                 }}
               />
+              
+              {/* Heart animation overlay */}
+              <View style={styles.heartContainer} pointerEvents="none">
+                <Animated.View
+                  style={[
+                    styles.heartAnimation,
+                    {
+                      transform: [{ scale: heartScale }],
+                      opacity: heartOpacity,
+                    },
+                  ]}
+                >
+                  <Ionicons name="heart" size={80} color="#fff" />
+                </Animated.View>
+              </View>
             </TouchableOpacity>
           )}
         </View>
         ) : imageError ? (
           <TouchableOpacity 
-            onPress={onPress}
+            onPress={handleDoubleTap}
             activeOpacity={0.9}
             style={StyleSheet.absoluteFill}
           >
@@ -444,6 +551,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  heartContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  heartAnimation: {
+    shadowColor: '#ff1744',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 15,
+    elevation: 10,
   },
 });
 

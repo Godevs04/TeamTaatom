@@ -502,7 +502,7 @@ function RootLayoutInner() {
       // Include all possible route formats and nested routes
       const isOnValidRoute = segments[0] === '(tabs)' || 
                               segments[0] === 'settings' ||
-                              segments[0] === 'post' ||
+                              // segments[0] === 'post' || // Post detail page commented out
                               segments[0] === 'profile' ||
                               segments[0] === 'chat' ||
                               segments[0] === 'search' ||
@@ -512,13 +512,14 @@ function RootLayoutInner() {
                               segments[0] === 'collections' ||
                               segments[0] === 'hashtag' ||
                               segments[0] === 'user-posts' ||
+                              segments[0] === 'saved-posts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
                               segments[0] === 'onboarding' ||
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
                               segments[0] === 'help' ||
-                              normalizedPath.startsWith('/post/') || 
+                              // normalizedPath.startsWith('/post/') || // Post detail page commented out 
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||
                               normalizedPath.startsWith('/search') ||
@@ -532,6 +533,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/help') ||
                               normalizedPath.startsWith('/hashtag/') ||
                               normalizedPath.startsWith('/user-posts/') ||
+                              normalizedPath.startsWith('/saved-posts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
                               normalizedPath.startsWith('/onboarding');
@@ -780,7 +782,8 @@ function RootLayoutInner() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
-          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
+          {/* Post detail page commented out - navigation routes to home instead */}
+          {/* <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} /> */}
           <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />
@@ -789,6 +792,7 @@ function RootLayoutInner() {
           {/* Nested routes with index files */}
           <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
           <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="collections/[id]" options={{ presentation: 'card' }} />

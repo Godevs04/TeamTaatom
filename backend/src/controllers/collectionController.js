@@ -6,6 +6,7 @@ const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { deleteCache, CacheKeys } = require('../utils/cache');
+const { generateSignedUrl } = require('../services/mediaService');
 
 // @desc    Create a new collection
 // @route   POST /api/v1/collections
@@ -65,18 +66,81 @@ const getCollections = async (req, res) => {
     }
 
     const collections = await Collection.find(query)
-      .populate('posts', 'imageUrl images videoUrl type createdAt')
+      .populate('user', 'fullName profilePic profilePicStorageKey username')
+      .populate('posts', 'imageUrl images videoUrl type createdAt storageKey storageKeys thumbnailUrl')
       .sort({ order: 1, createdAt: -1 })
       .lean();
 
-    // Update cover images for collections
-    const collectionsWithCovers = collections.map(collection => {
+    // Update cover images and generate profile picture URLs for collections
+    const collectionsWithCovers = await Promise.all(collections.map(async (collection) => {
+      // Generate signed URL for collection owner's profile picture
+      if (collection.user && collection.user.profilePicStorageKey) {
+        try {
+          collection.user.profilePic = await generateSignedUrl(collection.user.profilePicStorageKey, 'PROFILE');
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for collection owner:', { 
+            collectionId: collection._id, 
+            userId: collection.user._id,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available
+          collection.user.profilePic = collection.user.profilePic || null;
+        }
+      } else if (collection.user && collection.user.profilePic) {
+        // Legacy: use existing profilePic if no storage key
+        // Keep the existing profilePic value
+      }
+
+      // Update cover image if needed
       if (!collection.coverImage && collection.posts && collection.posts.length > 0) {
         const firstPost = collection.posts[0];
-        collection.coverImage = firstPost.imageUrl || firstPost.images?.[0] || firstPost.videoUrl || '';
+        let coverImageUrl = '';
+        
+        // Priority 1: Use existing imageUrl if it's a valid URL (not from storage key)
+        if (firstPost.imageUrl && !firstPost.storageKey && !firstPost.storageKeys) {
+          coverImageUrl = firstPost.imageUrl;
+        }
+        // Priority 2: Generate signed URL from storage keys (for new posts with R2 storage)
+        else if (firstPost.storageKeys && firstPost.storageKeys.length > 0) {
+          try {
+            // For shorts: second key is usually thumbnail, first is video
+            // For photos: first key is the image
+            if (firstPost.type === 'short' && firstPost.storageKeys.length > 1) {
+              // Use thumbnail (second key) for shorts
+              coverImageUrl = await generateSignedUrl(firstPost.storageKeys[1], 'IMAGE') || '';
+            } else {
+              // Use first key for photos or if only one key exists
+              coverImageUrl = await generateSignedUrl(firstPost.storageKeys[0], 'IMAGE') || '';
+            }
+          } catch (error) {
+            logger.warn('Failed to generate signed URL for collection cover image', {
+              collectionId: collection._id,
+              postId: firstPost._id,
+              error: error.message
+            });
+          }
+        }
+        // Priority 3: Generate signed URL from single storageKey
+        else if (firstPost.storageKey) {
+          try {
+            coverImageUrl = await generateSignedUrl(firstPost.storageKey, 'IMAGE') || '';
+          } catch (error) {
+            logger.warn('Failed to generate signed URL from storageKey for collection cover', {
+              collectionId: collection._id,
+              postId: firstPost._id,
+              error: error.message
+            });
+          }
+        }
+        // Priority 4: Fallback to existing imageUrl, images array, or videoUrl
+        if (!coverImageUrl) {
+          coverImageUrl = firstPost.imageUrl || firstPost.images?.[0] || firstPost.thumbnailUrl || firstPost.videoUrl || '';
+        }
+        
+        collection.coverImage = coverImageUrl;
       }
       return collection;
-    });
+    }));
 
     return sendSuccess(res, 200, 'Collections fetched successfully', {
       collections: collectionsWithCovers
@@ -95,14 +159,14 @@ const getCollection = async (req, res) => {
     const { id } = req.params;
 
     const collection = await Collection.findById(id)
-      .populate('user', 'fullName profilePic username')
+      .populate('user', 'fullName profilePic profilePicStorageKey username')
       .populate({
         path: 'posts',
         match: { isActive: true },
-        select: 'imageUrl images videoUrl caption type location likes comments createdAt user',
+        select: 'imageUrl images videoUrl caption type location likes comments createdAt user storageKey storageKeys thumbnailUrl isActive',
         populate: {
           path: 'user',
-          select: 'fullName profilePic username'
+          select: 'fullName profilePic profilePicStorageKey username'
         }
       })
       .lean();
@@ -116,20 +180,129 @@ const getCollection = async (req, res) => {
       return sendError(res, 'AUTH_1006', 'You do not have permission to view this collection');
     }
 
-    // Update cover image if needed
-    if (!collection.coverImage && collection.posts && collection.posts.length > 0) {
-      const firstPost = collection.posts[0];
-      collection.coverImage = firstPost.imageUrl || firstPost.images?.[0] || firstPost.videoUrl || '';
+    // Generate signed URLs for all posts in the collection
+    if (collection.posts && collection.posts.length > 0) {
+      collection.posts = await Promise.all(collection.posts.map(async (post) => {
+        // Generate image URLs from storage keys (same logic as getPosts)
+        if (post.storageKeys && post.storageKeys.length > 0) {
+          try {
+            if (post.type === 'short') {
+              // For shorts: first key is video, second is thumbnail
+              if (post.storageKeys.length > 1) {
+                post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE') || post.imageUrl || null;
+                post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
+              } else {
+                post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE') || post.imageUrl || null;
+                post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
+              }
+              post.images = post.imageUrl ? [post.imageUrl] : [];
+            } else {
+              // For photos: generate URLs for all images
+              const imageUrls = await Promise.all(
+                post.storageKeys.map(key => generateSignedUrl(key, 'IMAGE'))
+              );
+              post.imageUrl = imageUrls[0] || post.imageUrl || null;
+              post.images = imageUrls.filter(url => url !== null);
+            }
+          } catch (error) {
+            logger.warn('Failed to generate image URLs for post in collection:', { 
+              postId: post._id, 
+              error: error.message 
+            });
+            // Fallback to existing imageUrl if available
+            if (!post.imageUrl) {
+              post.imageUrl = null;
+              post.images = [];
+            }
+          }
+        } else if (post.storageKey) {
+          // Fallback for single storage key
+          try {
+            if (post.type === 'short') {
+              post.videoUrl = await generateSignedUrl(post.storageKey, 'VIDEO') || post.videoUrl || null;
+              post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE') || post.imageUrl || null;
+            } else {
+              post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE') || post.imageUrl || null;
+            }
+            post.images = post.imageUrl ? [post.imageUrl] : [];
+          } catch (error) {
+            logger.warn('Failed to generate image URL for post in collection:', { 
+              postId: post._id, 
+              error: error.message 
+            });
+            if (!post.imageUrl) {
+              post.imageUrl = null;
+              post.images = [];
+            }
+          }
+        } else {
+          // Legacy: use existing imageUrl if no storage key
+          if (post.imageUrl && post.imageUrl.trim() !== '') {
+            post.images = post.images && post.images.length > 0 ? post.images : [post.imageUrl];
+          } else {
+            post.imageUrl = null;
+            post.images = [];
+          }
+        }
+        
+        return post;
+      }));
+
+      // Update cover image if needed with signed URL generation
+      if (!collection.coverImage && collection.posts.length > 0) {
+        const firstPost = collection.posts[0];
+        collection.coverImage = firstPost.imageUrl || firstPost.images?.[0] || firstPost.thumbnailUrl || firstPost.videoUrl || '';
+      }
     }
 
-    // Add like status for posts
+    // Generate signed URL for collection owner's profile picture
+    if (collection.user && collection.user.profilePicStorageKey) {
+      try {
+        collection.user.profilePic = await generateSignedUrl(collection.user.profilePicStorageKey, 'PROFILE');
+      } catch (error) {
+        logger.warn('Failed to generate profile picture URL for collection owner:', { 
+          collectionId: id, 
+          userId: collection.user._id,
+          error: error.message 
+        });
+        // Fallback to legacy URL if available
+        collection.user.profilePic = collection.user.profilePic || null;
+      }
+    } else if (collection.user && collection.user.profilePic) {
+      // Legacy: use existing profilePic if no storage key
+      // Keep the existing profilePic value
+    }
+
+    // Generate signed URLs for post authors' profile pictures and add like status
     const userId = req.user?._id?.toString();
-    if (userId && collection.posts) {
-      collection.posts = collection.posts.map(post => ({
-        ...post,
-        isLiked: post.likes ? post.likes.some(like => like.toString() === userId) : false,
-        likesCount: post.likes ? post.likes.length : 0,
-        commentsCount: post.comments ? post.comments.length : 0
+    if (collection.posts && collection.posts.length > 0) {
+      collection.posts = await Promise.all(collection.posts.map(async (post) => {
+        // Generate signed URL for post author's profile picture
+        if (post.user && post.user.profilePicStorageKey) {
+          try {
+            post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile picture URL for post author in collection:', { 
+              collectionId: id,
+              postId: post._id, 
+              userId: post.user._id,
+              error: error.message 
+            });
+            // Fallback to legacy URL if available
+            post.user.profilePic = post.user.profilePic || null;
+          }
+        } else if (post.user && post.user.profilePic) {
+          // Legacy: use existing profilePic if no storage key
+          // Keep the existing profilePic value
+        }
+
+        // Add like status
+        return {
+          ...post,
+          isLiked: userId && post.likes ? post.likes.some(like => like.toString() === userId) : false,
+          likesCount: post.likes ? post.likes.length : 0,
+          commentsCount: post.comments ? post.comments.length : 0
+        };
       }));
     }
 
