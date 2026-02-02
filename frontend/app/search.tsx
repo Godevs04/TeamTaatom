@@ -31,6 +31,7 @@ import { PostType } from '../types/post';
 import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
 import logger from '../utils/logger';
+import { getUserFromStorage } from '../services/auth';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -90,7 +91,18 @@ export default function SearchScreen() {
     try {
       const history = await AsyncStorage.getItem('searchHistory');
       if (history) {
-        setSearchHistory(JSON.parse(history));
+        const parsedHistory = JSON.parse(history);
+        // Clean up history: remove entries with queries less than 3 characters
+        const cleanedHistory = parsedHistory.filter((item: { type: 'users' | 'posts'; query: string }) => 
+          item.query && item.query.trim().length >= 3
+        );
+        
+        // Update storage if history was cleaned
+        if (cleanedHistory.length !== parsedHistory.length) {
+          await AsyncStorage.setItem('searchHistory', JSON.stringify(cleanedHistory));
+        }
+        
+        setSearchHistory(cleanedHistory);
       }
     } catch (error) {
       logger.error('Error loading search history:', error);
@@ -98,11 +110,17 @@ export default function SearchScreen() {
   };
 
   const saveSearchHistory = async (type: 'users' | 'posts', query: string) => {
+    // Only save meaningful searches - minimum 3 characters to avoid saving partial searches
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length < 3) {
+      return; // Don't save very short queries (like "Ka", "Kav")
+    }
+    
     try {
-      const newHistoryItem = { type, query };
+      const newHistoryItem = { type, query: trimmedQuery };
       const updatedHistory = [
         newHistoryItem,
-        ...searchHistory.filter(item => !(item.type === type && item.query === query))
+        ...searchHistory.filter(item => !(item.type === type && item.query === trimmedQuery))
       ].slice(0, 10); // Keep only last 10 searches
       
       await AsyncStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
@@ -131,18 +149,44 @@ export default function SearchScreen() {
     }
   };
 
-  const selectFromHistory = (query: string, type: 'users' | 'posts') => {
+  const selectFromHistory = async (query: string, type: 'users' | 'posts') => {
     setSearchQuery(query);
-    setActiveTab(type);
+    // Only set to 'users' since posts tab is commented out
+    setActiveTab('users');
+    // Trigger search when selecting from history
+    // Note: This will be handled by the useEffect that watches searchQuery
   };
 
   const performSearch = async () => {
-    if (searchQuery.trim().length < 2 && activeTab !== 'posts') return;
+    // Only search for users now (posts and hashtags tabs are commented out)
+    if (searchQuery.trim().length < 2) return;
     
     try {
       setLoading(true);
       
-      if (activeTab === 'posts' && (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)) {
+      // Get current user to filter out from results
+      const currentUser = await getUserFromStorage();
+      const currentUserId = currentUser?._id;
+      
+      // Only search for users
+      const usersResponse = await searchUsers(searchQuery, 1, 20).catch(() => ({ users: [] }));
+      
+      // Filter out current user from results (safety measure - backend should already do this)
+      const filteredUsers = (usersResponse.users || []).filter(
+        user => user._id !== currentUserId
+      );
+      
+      setSearchResults({
+        users: filteredUsers,
+        posts: [], // Posts tab commented out
+        hashtags: [], // Hashtags tab commented out
+      });
+
+      // Don't save to history here - only save when user explicitly selects a result
+      // This prevents partial searches (like "Ka", "Kav") from being saved
+      
+      /* Posts and Hashtags search - commented out, can be re-enabled later */
+      /* if (activeTab === 'posts' && (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)) {
         // Use advanced search for posts with filters
         const response = await advancedSearchPosts({
           q: searchQuery || undefined,
@@ -184,7 +228,7 @@ export default function SearchScreen() {
         } else if (activeTab === 'posts' && filteredPosts.length > 0) {
           await saveSearchHistory('posts', searchQuery);
         }
-      }
+      } */
     } catch (error: any) {
       showError('Failed to search');
       logger.error('Search error:', error);
@@ -196,15 +240,28 @@ export default function SearchScreen() {
   const renderUserItem = ({ item }: { item: UserType }) => (
     <TouchableOpacity 
       style={[styles.userItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
-      onPress={() => router.push(`/profile/${item._id}`)}
+      onPress={async () => {
+        // Save to history only when user explicitly selects a result
+        if (searchQuery.trim().length >= 3) {
+          await saveSearchHistory('users', searchQuery);
+        }
+        router.push(`/profile/${item._id}`);
+      }}
     >
       <Image 
         source={{ uri: item.profilePic || 'https://via.placeholder.com/50' }} 
-        style={styles.userAvatar} 
+        style={styles.userAvatar}
       />
       <View style={styles.userInfo}>
-        <Text style={[styles.userName, { color: theme.colors.text }]}>{item.fullName}</Text>
-        <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>{item.email}</Text>
+        {/* Show fullName as primary, username as secondary below */}
+        <Text style={[styles.userName, { color: theme.colors.text }]}>
+          {item.fullName || item.username || 'Unknown User'}
+        </Text>
+        {item.username && (
+          <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
+            @{item.username}
+          </Text>
+        )}
         <View style={styles.userStats}>
           <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
             {item.followers?.length || 0} followers
@@ -229,7 +286,7 @@ export default function SearchScreen() {
   const renderPostItem = ({ item }: { item: PostType }) => (
     <TouchableOpacity 
       style={[styles.postItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
-      onPress={() => router.push(`/post/${item._id}`)}
+      onPress={() => router.push(`/(tabs)/home?postId=${item._id}`)} // Post detail page commented out - navigate to home with postId
     >
       <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
       <View style={styles.postInfo}>
@@ -258,12 +315,12 @@ export default function SearchScreen() {
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
       <Ionicons 
-        name={activeTab === 'users' ? 'people-outline' : 'image-outline'} 
+        name="people-outline"
         size={60} 
         color={theme.colors.textSecondary} 
       />
       <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-        No {activeTab} found
+        No users found
       </Text>
       <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
         Try searching for something else
@@ -272,7 +329,8 @@ export default function SearchScreen() {
   );
 
   const renderSearchHistory = () => {
-    const filteredHistory = searchHistory.filter(item => item.type === activeTab);
+    // Only show users history (posts tab commented out)
+    const filteredHistory = searchHistory.filter(item => item.type === 'users');
     
     if (filteredHistory.length === 0) return null;
 
@@ -332,10 +390,17 @@ export default function SearchScreen() {
           <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: theme.colors.text }]}
-            placeholder="Search users and posts..."
+            placeholder="Search users..."
             placeholderTextColor={theme.colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            onSubmitEditing={async () => {
+              // Save to history when user presses Enter/Submit
+              if (searchQuery.trim().length >= 3 && searchResults.users.length > 0) {
+                await saveSearchHistory('users', searchQuery);
+              }
+            }}
+            returnKeyType="search"
             autoFocus
           />
           {searchQuery.length > 0 && (
@@ -362,7 +427,8 @@ export default function SearchScreen() {
             Users
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
+        {/* Posts tab - commented out, can be re-enabled later */}
+        {/* <TouchableOpacity
           style={[
             styles.tab,
             activeTab === 'posts' && { borderBottomColor: theme.colors.primary }
@@ -375,8 +441,9 @@ export default function SearchScreen() {
           ]}>
             Posts
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
+        </TouchableOpacity> */}
+        {/* Hashtags tab - commented out, can be re-enabled later */}
+        {/* <TouchableOpacity
           style={[
             styles.tab,
             activeTab === 'hashtags' && { borderBottomColor: theme.colors.primary }
@@ -389,8 +456,9 @@ export default function SearchScreen() {
           ]}>
             Hashtags
           </Text>
-        </TouchableOpacity>
-        {activeTab === 'posts' && (
+        </TouchableOpacity> */}
+        {/* Advanced filters button - commented out (only used for posts) */}
+        {/* {activeTab === 'posts' && (
           <TouchableOpacity
             style={[
               styles.filterButton,
@@ -413,7 +481,7 @@ export default function SearchScreen() {
               <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]} />
             )}
           </TouchableOpacity>
-        )}
+        )} */}
       </View>
 
       {/* Search History or Results */}
@@ -434,7 +502,10 @@ export default function SearchScreen() {
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.users.length === 0 ? styles.emptyListContainer : undefined}
         />
-      ) : activeTab === 'hashtags' ? (
+      ) : null}
+
+      {/* Hashtags and Posts tab rendering - commented out, can be re-enabled later */}
+      {/* : activeTab === 'hashtags' ? (
         <FlatList
           data={searchResults.hashtags}
           renderItem={({ item }) => (
@@ -469,10 +540,10 @@ export default function SearchScreen() {
           ListEmptyComponent={searchQuery.length >= 2 ? renderEmptyState : null}
           contentContainerStyle={searchResults.posts.length === 0 ? styles.emptyListContainer : undefined}
         />
-      )}
+      ) */}
 
-      {/* Advanced Filters Modal */}
-      <Modal
+      {/* Advanced Filters Modal - commented out (only used for posts tab) */}
+      {/* <Modal
         visible={showAdvancedFilters}
         animationType="slide"
         transparent={true}
@@ -596,7 +667,7 @@ export default function SearchScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -652,9 +723,11 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
+    justifyContent: 'center', // Center the single Users tab
   },
   tab: {
-    flex: 1,
+    // Remove flex: 1 to prevent stretching, add paddingHorizontal for proper spacing
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     paddingVertical: isTablet ? theme.spacing.lg : 16,
     alignItems: 'center',
     borderBottomWidth: 2,
@@ -733,6 +806,15 @@ const styles = StyleSheet.create({
   userEmail: {
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
+    marginBottom: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  userUsername: {
+    fontSize: isTablet ? theme.typography.small.fontSize : 13,
+    fontFamily: getFontFamily('400'),
+    marginTop: 2,
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

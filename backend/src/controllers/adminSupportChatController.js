@@ -469,18 +469,81 @@ const sendSupportMessage = async (req, res) => {
     await conversation.populate('participants', 'fullName profilePic isVerified');
     const updatedConversation = await Chat.findById(conversationId).lean();
 
-    // Get user ID (not Taatom Official)
-    const user = conversation.participants.find(
-      p => p._id.toString() !== TAATOM_OFFICIAL_USER_ID
-    );
-    const userId = user?._id?.toString();
+    // Get user ID (not Taatom Official) - handle both populated and lean results
+    // Normalize official ID for comparison
+    const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+    
+    let userId = null;
+    if (updatedConversation && updatedConversation.participants) {
+      logger.info('🔍 [sendSupportMessage] Extracting user ID from lean conversation', {
+        participantCount: updatedConversation.participants.length,
+        officialId
+      });
+      for (const p of updatedConversation.participants) {
+        const participantId = p._id ? p._id.toString() : p.toString();
+        logger.debug('🔍 [sendSupportMessage] Checking participant', {
+          participantId,
+          officialId,
+          isOfficial: participantId === officialId
+        });
+        if (participantId !== officialId) {
+          userId = participantId;
+          logger.info('✅ [sendSupportMessage] Found user ID from lean conversation', { userId });
+          break;
+        }
+      }
+    }
+    
+    // Fallback: if userId not found, try from conversation.participants (populated)
+    if (!userId && conversation.participants) {
+      logger.info('🔍 [sendSupportMessage] Trying populated conversation participants');
+      for (const p of conversation.participants) {
+        const participantId = p._id ? p._id.toString() : p.toString();
+        logger.debug('🔍 [sendSupportMessage] Checking populated participant', {
+          participantId,
+          officialId,
+          isOfficial: participantId === officialId
+        });
+        if (participantId !== officialId) {
+          userId = participantId;
+          logger.info('✅ [sendSupportMessage] Found user ID from populated conversation', { userId });
+          break;
+        }
+      }
+    }
+    
+    if (!userId) {
+      logger.error('❌ [sendSupportMessage] Could not find user ID', {
+        conversationId: conversationId.toString(),
+        participants: updatedConversation?.participants?.map(p => p._id ? p._id.toString() : p.toString()) || [],
+        officialId
+      });
+    }
 
     // Emit socket events to user and admin rooms
     try {
+      logger.info('📡 [sendSupportMessage] Attempting to emit socket events', {
+        conversationId: conversation._id.toString(),
+        userId: userId || 'NOT_FOUND'
+      });
+      
       const io = getIO();
+      logger.info('📡 [sendSupportMessage] Socket instance check', {
+        hasIo: !!io,
+        hasNamespace: !!(io && io.of('/app')),
+        hasUserId: !!userId
+      });
+      
       if (io && io.of('/app') && userId) {
         const nsp = io.of('/app');
         const lastMessage = updatedConversation.messages[updatedConversation.messages.length - 1];
+        
+        logger.info('📡 [sendSupportMessage] Emitting to user', {
+          userId: userId.toString(),
+          chatId: conversation._id.toString(),
+          messageId: lastMessage._id?.toString(),
+          room: `user:${userId}`
+        });
         
         // Emit to user
         nsp.to(`user:${userId}`).emit('message:new', { 
@@ -491,6 +554,12 @@ const sendSupportMessage = async (req, res) => {
           chatId: conversation._id, 
           lastMessage: text.trim(), 
           timestamp: lastMessage.timestamp 
+        });
+        
+        logger.info('📡 [sendSupportMessage] Emitting to admin_support room', {
+          chatId: conversation._id.toString(),
+          userId: userId.toString(),
+          room: 'admin_support'
         });
         
         // Emit to admin support room for real-time updates in admin panel
@@ -507,10 +576,20 @@ const sendSupportMessage = async (req, res) => {
           userId: userId.toString()
         });
         
-        logger.debug('Emitted socket events for admin support message:', conversation._id);
+        logger.info('✅ [sendSupportMessage] Socket events emitted successfully', {
+          conversationId: conversation._id.toString(),
+          userId: userId.toString()
+        });
+      } else {
+        logger.warn('⚠️ [sendSupportMessage] Cannot emit socket events', {
+          hasIo: !!io,
+          hasNamespace: !!(io && io.of('/app')),
+          hasUserId: !!userId
+        });
       }
     } catch (socketError) {
-      logger.debug('Socket not available for support message:', socketError);
+      logger.error('❌ [sendSupportMessage] Socket error:', socketError);
+      logger.error('❌ [sendSupportMessage] Socket error stack:', socketError.stack);
     }
 
     return sendSuccess(res, 200, 'Message sent successfully', {

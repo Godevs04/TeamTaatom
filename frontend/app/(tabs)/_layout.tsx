@@ -1,9 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Tabs, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Dimensions, Animated } from 'react-native';
+import { Platform, Dimensions } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
-import { useScroll } from '../../context/ScrollContext';
 import { audioManager } from '../../utils/audioManager';
 import logger from '../../utils/logger';
 
@@ -14,18 +13,8 @@ const isIOS = Platform.OS === 'ios';
 
 export default function TabsLayout() {
   const { theme } = useTheme();
-  const { isScrollingUp } = useScroll();
-  const translateY = useRef(new Animated.Value(0)).current;
   const pathname = usePathname();
   const previousPathnameRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    Animated.timing(translateY, {
-      toValue: isScrollingUp ? 100 : 0,
-      duration: 300,
-      useNativeDriver: false, // Must be false for transform on layout properties
-    }).start();
-  }, [isScrollingUp, translateY]);
 
   // Stop all audio when switching tabs (except when staying on home or shorts)
   // Use a flag to prevent multiple rapid calls
@@ -82,10 +71,8 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
-  // Check if current page is shorts to freeze tab bar
-  const isShortsPage = pathname === '/(tabs)/shorts' || pathname?.endsWith('/shorts');
-  
-  const animatedTabBarStyle = {
+  // Tab bar style - always visible (constant, no disappearing while scrolling)
+  const tabBarStyle = {
     backgroundColor: theme.colors.surface,
     borderTopColor: theme.colors.border,
     borderTopWidth: 1,
@@ -96,8 +83,8 @@ export default function TabsLayout() {
     bottom: 0,
     left: 0,
     right: 0,
-    // Freeze tab bar on shorts page (no animation, always visible)
-    transform: isShortsPage ? [{ translateY: 0 }] : [{ translateY }],
+    // Always visible - no transform/animation
+    transform: [{ translateY: 0 }],
     ...(isWeb && {
       maxWidth: 600,
       alignSelf: 'center' as const,
@@ -111,7 +98,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: animatedTabBarStyle as any,
+        tabBarStyle: tabBarStyle as any,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
