@@ -555,28 +555,28 @@ export default function LocaleScreen() {
       setLocationPermissionGranted(true);
       
       // Get location with timeout protection and Android-specific handling
+      // OPTIMIZATION: Use faster timeout and accept cached location for better UX
       let timeoutId: NodeJS.Timeout | null = null;
       let locationPromise: Promise<Location.LocationObject> | null = null;
 
       try {
-        // Use lower accuracy on Android for better compatibility
+        // Use lower accuracy for faster response (acceptable for distance sorting)
         const accuracy = isAndroid 
           ? Location.Accuracy.Low 
-          : Location.Accuracy.Balanced;
+          : Location.Accuracy.Low; // Use Low for both platforms for faster response
 
-        locationPromise = Location.getCurrentPositionAsync({
+        // Build options object - maximumAge is not directly supported, but we can use it via options
+        const locationOptions: Location.LocationOptions = {
           accuracy,
-          // Android-specific options
-          ...(isAndroid && {
-            maximumAge: 60000, // Accept cached location up to 1 minute old
-            timeout: 15000, // 15 second timeout for Android
-          }),
-        });
+        };
+        
+        // Add timeout via Promise.race instead (handled below)
+        locationPromise = Location.getCurrentPositionAsync(locationOptions);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => {
-            reject(new Error('Location request timeout after 15 seconds'));
-          }, 15000); // Increased timeout for Android
+            reject(new Error('Location request timeout'));
+          }, isAndroid ? 10000 : 8000); // Match timeout above
         });
 
         const location = await Promise.race([locationPromise, timeoutPromise]);
@@ -853,151 +853,201 @@ export default function LocaleScreen() {
           return;
         }
         
-        // Fetch real coordinates from Google Geocoding API for accurate distance calculation
-        // This replaces city center coordinates with actual tourist spot coordinates
+        // OPTIMIZATION: Show locales immediately with straight-line distance, then update with driving distance
+        // This provides instant feedback while calculating accurate distances in background
         if (userLocation && locationPermissionGranted) {
-          // Show elegant loading animation while calculating distances
+          // First, quickly calculate straight-line distances for immediate display
+          const localesWithStraightLineDistance = newLocales.map((locale) => {
+            // Priority 1: Use coordinates from database (admin locale)
+            if (locale.latitude && locale.longitude && 
+                locale.latitude !== 0 && locale.longitude !== 0 &&
+                !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                locale.latitude >= -90 && locale.latitude <= 90 &&
+                locale.longitude >= -180 && locale.longitude <= 180) {
+              // Calculate straight-line distance immediately for instant sorting
+              // Use rounded coordinates for consistency
+              const userLat = roundCoord(userLocation.latitude);
+              const userLon = roundCoord(userLocation.longitude);
+              const localeLat = roundCoord(locale.latitude);
+              const localeLon = roundCoord(locale.longitude);
+              
+              const straightLineDistance = calculateDistance(
+                userLat,
+                userLon,
+                localeLat,
+                localeLon
+              );
+              return {
+                ...locale,
+                distanceKm: straightLineDistance, // Temporary straight-line distance
+              };
+            }
+            return {
+              ...locale,
+              distanceKm: null,
+            };
+          });
+
+          // Show locales immediately with straight-line distances (sorted)
+          const sortedByStraightLine = sortLocalesByDistance(localesWithStraightLineDistance);
+          if (forceRefresh || currentPageRef.current === 1) {
+            setAdminLocales(sortedByStraightLine);
+          } else {
+            setAdminLocales(prev => {
+              const localeMap = new Map<string, Locale & { distanceKm?: number | null }>();
+              prev.forEach(locale => localeMap.set(locale._id, locale));
+              sortedByStraightLine.forEach(locale => localeMap.set(locale._id, locale));
+              return Array.from(localeMap.values());
+            });
+          }
+          setLoadingLocales(false);
+          setLoading(false);
+          loadedOnceRef.current = true;
+
+          // Now calculate real driving distances in background and update progressively
           if (__DEV__) {
-            console.log('🚀 Starting distance calculation - showing travel loading overlay');
+            console.log('🚀 Starting background driving distance calculation');
           }
           setCalculatingDistances(true);
           
-          // Use coordinates from database first, then calculate real driving distances
-          // Only fetch from Google Places API if database coordinates are missing/invalid
-          // Use caching to avoid repeated API calls
-          // Fetch coordinates and calculate distances in parallel using Promise.allSettled
-          // This prevents one failure from blocking all others and allows parallel execution
-          const localeResults = await Promise.allSettled(
-            newLocales.map(async (locale) => {
-              let updatedLocale: Locale;
-              
-              // Priority 1: Use coordinates from database (admin locale)
-              if (locale.latitude && locale.longitude && 
-                  locale.latitude !== 0 && locale.longitude !== 0 &&
-                  !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                  locale.latitude >= -90 && locale.latitude <= 90 &&
-                  locale.longitude >= -180 && locale.longitude <= 180) {
-                // Database has valid coordinates - use them directly
-                if (__DEV__) {
-                  console.log(`✅ Using database coordinates for ${locale.name}:`, {
-                    lat: locale.latitude,
-                    lon: locale.longitude
-                  });
-                }
-                updatedLocale = locale;
-              } else {
-                // Priority 2: Database coordinates missing/invalid - try to fetch from Google Places API
-                if (__DEV__) {
-                  console.log(`⚠️ Database coordinates missing/invalid for ${locale.name}, fetching from Google Places API`);
-                }
-                const realCoords = await fetchRealCoords(
-                  locale.name, 
-                  locale.countryCode,
-                  googleGeocodeCacheRef.current,
-                  locale.description // Pass description to help find exact tourist spot
-                );
+          // Process locales in batches to avoid rate limiting and improve UX
+          const BATCH_SIZE = 5; // Process 5 at a time
+          const localeResults: (Locale & { distanceKm?: number | null })[] = [];
+          
+          for (let i = 0; i < newLocales.length; i += BATCH_SIZE) {
+            const batch = newLocales.slice(i, i + BATCH_SIZE);
+            
+            const batchResults = await Promise.allSettled(
+              batch.map(async (locale) => {
+                let updatedLocale: Locale;
                 
-                if (realCoords) {
-                  // Use coordinates from Google Places API
-                  if (__DEV__) {
-                    console.log(`✅ Fetched coordinates from Google Places API for ${locale.name}:`, realCoords);
-                  }
-                  updatedLocale = {
-                    ...locale,
-                    latitude: realCoords.lat,
-                    longitude: realCoords.lon,
-                  };
+                // Priority 1: Use coordinates from database (admin locale)
+                if (locale.latitude && locale.longitude && 
+                    locale.latitude !== 0 && locale.longitude !== 0 &&
+                    !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                    locale.latitude >= -90 && locale.latitude <= 90 &&
+                    locale.longitude >= -180 && locale.longitude <= 180) {
+                  // Database has valid coordinates - use them directly
+                  updatedLocale = locale;
                 } else {
-                  // Priority 3: Fallback to geocoding if Google Places API fails
-                  if (__DEV__) {
-                    console.log(`⚠️ Could not fetch coordinates from Google Places API for ${locale.name}, using geocoding fallback`);
+                  // Priority 2: Database coordinates missing/invalid - try to fetch from Google Places API
+                  const realCoords = await fetchRealCoords(
+                    locale.name, 
+                    locale.countryCode,
+                    googleGeocodeCacheRef.current,
+                    locale.description
+                  );
+                  
+                  if (realCoords) {
+                    updatedLocale = {
+                      ...locale,
+                      latitude: realCoords.lat,
+                      longitude: realCoords.lon,
+                    };
+                  } else {
+                    // Priority 3: Fallback to geocoding if Google Places API fails
+                    updatedLocale = await geocodeLocale(locale);
                   }
-                  updatedLocale = await geocodeLocale(locale);
                 }
-              }
 
-              // Calculate REAL driving distance using locale coordinates from database
-              // Compare: User's current location (userLocation) vs Locale location (from database)
-              // This calculates actual road distance using OSRM or Google Maps API
-              
-              // Get user's current location coordinates
-              const userLat = userLocation.latitude;
-              const userLon = userLocation.longitude;
-              
-              // Get locale coordinates (from database, or fetched if missing)
-              const localeLat = updatedLocale.latitude;
-              const localeLon = updatedLocale.longitude;
-              
-              // Validate coordinates before calculating distance
-              if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                  isNaN(localeLat) || isNaN(localeLon) ||
-                  localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-                if (__DEV__) {
-                  console.log(`❌ Invalid locale coordinates for ${updatedLocale.name}:`, {
-                    lat: localeLat,
-                    lon: localeLon
-                  });
+                // Get user's current location coordinates
+                const userLat = userLocation.latitude;
+                const userLon = userLocation.longitude;
+                
+                // Get locale coordinates (from database, or fetched if missing)
+                const localeLat = updatedLocale.latitude;
+                const localeLon = updatedLocale.longitude;
+                
+                // Validate coordinates before calculating distance
+                if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
+                    isNaN(localeLat) || isNaN(localeLon) ||
+                    localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+                  return {
+                    ...updatedLocale,
+                    distanceKm: null,
+                  };
                 }
+                
+                if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+                    userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+                  return {
+                    ...updatedLocale,
+                    distanceKm: null,
+                  };
+                }
+                
+                // Calculate REAL driving distance: User Location → Locale Location
+                const distanceKm = await getLocaleDistanceKm(
+                  updatedLocale._id.toString(),
+                  userLat,
+                  userLon,
+                  localeLat,
+                  localeLon
+                );
+
                 return {
                   ...updatedLocale,
-                  distanceKm: null,
+                  distanceKm: distanceKm,
                 };
-              }
-              
-              if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                  userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-                if (__DEV__) {
-                  console.log(`❌ Invalid user coordinates:`, {
-                    lat: userLat,
-                    lon: userLon
-                  });
-                }
-                return {
-                  ...updatedLocale,
+              })
+            );
+            
+            // Process batch results
+            batchResults.forEach((result, index) => {
+              if (result.status === 'fulfilled') {
+                localeResults.push(result.value);
+              } else {
+                logger.error(`Failed to process locale ${batch[index]?.name}:`, result.reason);
+                localeResults.push({
+                  ...batch[index],
                   distanceKm: null,
-                };
-              }
-              
-              // Calculate REAL driving distance: User Location → Locale Location
-              // Uses OSRM or Google Maps API to get actual road distance
-              const distanceKm = await getLocaleDistanceKm(
-                updatedLocale._id.toString(),
-                userLat,      // User's current latitude
-                userLon,      // User's current longitude
-                localeLat,    // Locale latitude from database
-                localeLon     // Locale longitude from database
-              );
-
-              // Debug logging to verify coordinates being used
-              if (__DEV__) {
-                console.log(`📍 Driving distance calculated for ${updatedLocale.name}:`, {
-                  userLocation: { lat: userLat, lon: userLon },
-                  localeCoords: { lat: localeLat, lon: localeLon },
-                  distanceKm: distanceKm !== null ? `${distanceKm.toFixed(2)} km` : 'null',
-                  source: 'Database coordinates → Real driving distance via OSRM/Google Maps'
                 });
               }
-
-              // Store distance in locale object
-              return {
-                ...updatedLocale,
-                distanceKm: distanceKm,
-              };
-            })
-          );
+            });
+            
+            // Update UI progressively after each batch
+            if (isMountedRef.current && localeResults.length > 0) {
+              const sorted = sortLocalesByDistance(localeResults);
+              setAdminLocales(sorted);
+            }
+            
+            // Small delay between batches to avoid rate limiting
+            if (i + BATCH_SIZE < newLocales.length) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
           
-          // Process results - handle both fulfilled and rejected promises
-          const localesWithRealCoords = localeResults.map((result, index) => {
-            if (result.status === 'fulfilled') {
-              return result.value;
-            } else {
-              // If a locale failed, use the original locale data
-              logger.error(`Failed to process locale ${newLocales[index]?.name}:`, result.reason);
+          // Final processing - ensure all locales are included with their distances
+          // Create a map of processed locales by ID
+          const processedMap = new Map<string, Locale & { distanceKm?: number | null }>();
+          localeResults.forEach(locale => {
+            processedMap.set(locale._id, locale);
+          });
+          
+          // Include all locales - use processed ones if available, otherwise use original with null distance
+          const finalLocalesWithDistances = newLocales.map(locale => {
+            const processed = processedMap.get(locale._id);
+            if (processed) {
+              return processed;
+            }
+            // If not processed, check if it has valid coordinates for straight-line distance
+            if (locale.latitude && locale.longitude && 
+                locale.latitude !== 0 && locale.longitude !== 0 &&
+                !isNaN(locale.latitude) && !isNaN(locale.longitude)) {
+              const userLat = roundCoord(userLocation.latitude);
+              const userLon = roundCoord(userLocation.longitude);
+              const localeLat = roundCoord(locale.latitude);
+              const localeLon = roundCoord(locale.longitude);
+              const straightLineDistance = calculateDistance(userLat, userLon, localeLat, localeLon);
               return {
-                ...newLocales[index],
-                distanceKm: null,
+                ...locale,
+                distanceKm: straightLineDistance,
               };
             }
+            return {
+              ...locale,
+              distanceKm: null,
+            };
           });
           
           if (!isMountedRef.current) {
@@ -1008,15 +1058,15 @@ export default function LocaleScreen() {
             return;
           }
           
-          // Always use the updated locales with distances
+          // Final update with all calculated driving distances (sorted by distance)
+          const finalSorted = sortLocalesByDistance(finalLocalesWithDistances);
           if (forceRefresh || currentPageRef.current === 1) {
-            setAdminLocales(localesWithRealCoords);
-            loadedOnceRef.current = true; // Mark as loaded
+            setAdminLocales(finalSorted);
           } else {
             setAdminLocales(prev => {
               const localeMap = new Map<string, Locale & { distanceKm?: number | null }>();
               prev.forEach(locale => localeMap.set(locale._id, locale));
-              localesWithRealCoords.forEach(locale => localeMap.set(locale._id, locale));
+              finalSorted.forEach(locale => localeMap.set(locale._id, locale));
               return Array.from(localeMap.values());
             });
           }

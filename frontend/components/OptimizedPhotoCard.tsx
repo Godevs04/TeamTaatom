@@ -809,6 +809,7 @@ function PhotoCard({
           onRetry={handleImageRetry}
           pulseAnim={pulseAnim}
           isCurrentlyVisible={isCurrentlyVisible}
+          onDoubleTap={handleLike}
         />
       ) : (
         // Lightweight placeholder for unmounted images
