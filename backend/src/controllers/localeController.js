@@ -127,12 +127,16 @@ const getLocales = async (req, res) => {
       query.spotTypes = { $in: [spotType] };
     }
 
+    // OPTIMIZATION: Use lean() and select only required fields to reduce payload size
+    // Exclude large fields that aren't needed: description (can be long), full country name
+    // Note: country field removed from select to reduce payload (countryCode is sufficient)
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
-      .lean();
+      .lean()
+      .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
     
     // Generate signed URLs dynamically for all locales
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
@@ -160,14 +164,22 @@ const getLocales = async (req, res) => {
       };
     }));
 
-    const total = await Locale.countDocuments(query);
+    // OPTIMIZATION: Use countDocuments with timeout to prevent slow queries
+    // Indexes ensure this is fast (<20ms target)
+    // NOTE: For very large collections (10k+), consider caching counts or using
+    // estimatedDocumentCount() for pagination UI when no filters are applied
+    const total = await Locale.countDocuments(query).maxTimeMS(2000);
 
     // Include statistics for SuperAdmin when includeInactive is true
+    // OPTIMIZATION: Use Promise.all for parallel execution (faster than sequential)
+    // These queries use indexes and should be fast
     let statistics = null;
     if (includeInactive === 'true') {
-      const totalLocales = await Locale.countDocuments({});
-      const activeLocales = await Locale.countDocuments({ isActive: true });
-      const inactiveLocales = await Locale.countDocuments({ isActive: false });
+      const [totalLocales, activeLocales, inactiveLocales] = await Promise.all([
+        Locale.countDocuments({}).maxTimeMS(2000),
+        Locale.countDocuments({ isActive: true }).maxTimeMS(2000),
+        Locale.countDocuments({ isActive: false }).maxTimeMS(2000)
+      ]);
       statistics = {
         total: totalLocales,
         active: activeLocales,
@@ -694,10 +706,12 @@ const updateLocale = async (req, res) => {
 // @access  Public
 const getUniqueCountries = async (req, res) => {
   try {
-    // Aggregate all unique countries from all locales (not paginated)
+    // OPTIMIZATION: Filter by isActive to use index and reduce dataset
+    // Only show countries that have active locales
     const uniqueCountries = await Locale.aggregate([
       {
         $match: {
+          isActive: true, // Use index: isActive_1_countryCode_1_displayOrder_1_createdAt_-1
           countryCode: { $exists: true, $ne: null, $ne: '' }
         }
       },
@@ -725,7 +739,7 @@ const getUniqueCountries = async (req, res) => {
       {
         $sort: { name: 1 }
       }
-    ]);
+    ]).allowDiskUse(true).maxTimeMS(5000); // Allow disk use for large collections, timeout after 5s
 
     return sendSuccess(res, 200, 'Countries fetched successfully', {
       countries: uniqueCountries
