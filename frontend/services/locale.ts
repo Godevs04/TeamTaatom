@@ -11,6 +11,7 @@ export interface Locale {
   countryCode: string;
   stateProvince?: string;
   stateCode?: string;
+  city?: string;
   description?: string;
   imageUrl: string;
   spotTypes?: string[];
