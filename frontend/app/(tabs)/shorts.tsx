@@ -766,22 +766,47 @@ export default function ShortsScreen() {
   const retryVideoLoad = useCallback((videoId: string, delay: number = 1000) => {
     setTimeout(() => {
       const video = videoRefs.current[videoId];
-      if (video) {
-        const short = shorts.find(s => s._id === videoId);
-        if (short) {
-          const videoUrl = getVideoUrl(short);
-          video.unloadAsync().then(() => {
-            video.loadAsync({ uri: videoUrl }).then(() => {
-              video.playAsync().catch(() => {
-                logger.error(`Video ${videoId} retry play failed`);
-              });
+      if (!video) {
+        logger.debug(`Video ${videoId} ref is null, skipping retry`);
+        return;
+      }
+      
+      const short = shorts.find(s => s._id === videoId);
+      if (!short) {
+        logger.debug(`Short ${videoId} not found, skipping retry`);
+        return;
+      }
+      
+      const videoUrl = getVideoUrl(short);
+      
+      // Check if unloadAsync exists before calling
+      if (typeof video.unloadAsync === 'function') {
+        video.unloadAsync().then(() => {
+          // Re-check video ref after unload (it might have been cleared)
+          const videoAfterUnload = videoRefs.current[videoId];
+          if (videoAfterUnload && typeof videoAfterUnload.loadAsync === 'function') {
+            videoAfterUnload.loadAsync({ uri: videoUrl }).then(() => {
+              const videoForPlay = videoRefs.current[videoId];
+              if (videoForPlay && typeof videoForPlay.playAsync === 'function') {
+                videoForPlay.playAsync().catch(() => {
+                  logger.error(`Video ${videoId} retry play failed`);
+                });
+              }
             }).catch((loadError) => {
               logger.error(`Video ${videoId} retry load failed:`, loadError);
             });
-          }).catch(() => {
-            // If unload fails, try to reload directly
-            video.loadAsync({ uri: videoUrl }).catch(() => {});
-          });
+          }
+        }).catch(() => {
+          // If unload fails, try to reload directly (re-check video ref)
+          const videoAfterError = videoRefs.current[videoId];
+          if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
+            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {});
+          }
+        });
+      } else {
+        // If unloadAsync doesn't exist, try to reload directly
+        if (typeof video.loadAsync === 'function') {
+          video.loadAsync({ uri: videoUrl }).catch(() => {});
         }
       }
     }, delay);
@@ -1637,7 +1662,7 @@ export default function ShortsScreen() {
                   }
                 }}
                 onError={(error) => {
-                  // Handle video loading errors (likely expired signed URL)
+                  // Handle video loading errors (likely expired signed URL or timeout)
                   logger.error(`Video ${item._id} failed to load:`, error);
                   
                   // Clear cache for this video URL to force refresh
@@ -1650,7 +1675,22 @@ export default function ShortsScreen() {
                   }));
                   
                   // Check if this is likely an expired URL error (403, 404, or network error)
+                  // Also check for timeout errors (-1001, NSURLErrorTimedOut)
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
+                  const errorCode = (error as any)?.code;
+                  const errorDomain = (error as any)?.domain;
+                  
+                  // Check for timeout error (-1001 is NSURLErrorTimedOut)
+                  const isTimeoutError = errorCode === -1001 || 
+                                       errorCode === '-1001' ||
+                                       errorDomain === 'NSURLErrorDomain' ||
+                                       errorMessage.includes('-1001') ||
+                                       errorMessage.includes('NSURLErrorDomain') ||
+                                       errorMessage.includes('timeout') ||
+                                       errorMessage.includes('Timeout') ||
+                                       errorMessage.includes('timed out');
+                  
+                  // Check for expired URL errors
                   const isExpiredUrl = errorMessage.includes('403') || 
                                      errorMessage.includes('404') || 
                                      errorMessage.includes('Forbidden') ||
@@ -1658,10 +1698,16 @@ export default function ShortsScreen() {
                                      errorMessage.includes('ExpiredRequest');
                   
                   // Retry loading with fresh URL from backend if this is the current visible video
+                  // Treat timeout errors similarly to expired URLs - they may need a fresh URL
                   if (index === currentVisibleIndex) {
-                    if (isExpiredUrl) {
-                      // URL likely expired - refetch short data to get fresh signed URL
-                      logger.debug(`Video ${item._id} URL expired, refetching from backend...`);
+                    if (isExpiredUrl || isTimeoutError) {
+                      // URL likely expired or timed out - refetch short data to get fresh signed URL
+                      const errorType = isTimeoutError ? 'timeout' : 'expired URL';
+                      logger.debug(`Video ${item._id} ${errorType} error detected, refetching from backend...`, {
+                        errorCode,
+                        errorDomain,
+                        errorMessage
+                      });
                       handlersRef.current.refetchShortWithFreshUrl(item._id).then((freshShort: PostType | null) => {
                         if (freshShort && freshShort.mediaUrl) {
                           // Update the short in state with fresh URL
@@ -1674,19 +1720,45 @@ export default function ShortsScreen() {
                           const video = videoRefs.current[item._id];
                           if (video) {
                             setTimeout(() => {
+                              // Re-check video ref inside setTimeout (it might have been cleared)
+                              const videoInTimeout = videoRefs.current[item._id];
+                              if (!videoInTimeout) {
+                                logger.debug(`Video ${item._id} ref is null in setTimeout, skipping refresh`);
+                                return;
+                              }
+                              
                               const freshVideoUrl = freshShort.mediaUrl || freshShort.videoUrl || freshShort.imageUrl;
-                              video.unloadAsync().then(() => {
-                                video.loadAsync({ uri: freshVideoUrl }).then(() => {
-                                  video.playAsync().catch(() => {
-                                    logger.error(`Video ${item._id} retry play failed after refresh`);
-                                  });
-                                }).catch((loadError) => {
-                                  logger.error(`Video ${item._id} retry load failed after refresh:`, loadError);
+                              
+                              // Check if unloadAsync exists before calling
+                              if (typeof videoInTimeout.unloadAsync === 'function') {
+                                videoInTimeout.unloadAsync().then(() => {
+                                  // Re-check video ref after unload
+                                  const videoAfterUnload = videoRefs.current[item._id];
+                                  if (videoAfterUnload && typeof videoAfterUnload.loadAsync === 'function') {
+                                    videoAfterUnload.loadAsync({ uri: freshVideoUrl }).then(() => {
+                                      const videoForPlay = videoRefs.current[item._id];
+                                      if (videoForPlay && typeof videoForPlay.playAsync === 'function') {
+                                        videoForPlay.playAsync().catch(() => {
+                                          logger.error(`Video ${item._id} retry play failed after refresh`);
+                                        });
+                                      }
+                                    }).catch((loadError) => {
+                                      logger.error(`Video ${item._id} retry load failed after refresh:`, loadError);
+                                    });
+                                  }
+                                }).catch(() => {
+                                  // If unload fails, try to reload with fresh URL (re-check video ref)
+                                  const videoAfterError = videoRefs.current[item._id];
+                                  if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
+                                    videoAfterError.loadAsync({ uri: freshVideoUrl }).catch(() => {});
+                                  }
                                 });
-                              }).catch(() => {
-                                // If unload fails, try to reload with fresh URL
-                                video.loadAsync({ uri: freshVideoUrl }).catch(() => {});
-                              });
+                              } else {
+                                // If unloadAsync doesn't exist, try to reload directly
+                                if (typeof videoInTimeout.loadAsync === 'function') {
+                                  videoInTimeout.loadAsync({ uri: freshVideoUrl }).catch(() => {});
+                                }
+                              }
                             }, 500);
                           }
                         }

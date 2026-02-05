@@ -826,14 +826,30 @@ export default function UserProfileScreen() {
                           style={styles.postImage} 
                           resizeMode="cover"
                           onError={(error) => {
-                            logger.warn('Short thumbnail failed to load:', {
-                              shortId: s._id,
-                              uri: uri?.substring(0, 100),
-                              imageUrl: (s as any).imageUrl?.substring(0, 50),
-                              thumbnailUrl: (s as any).thumbnailUrl?.substring(0, 50),
-                              mediaUrl: (s as any).mediaUrl?.substring(0, 50),
-                              error: error?.nativeEvent?.error?.message || 'Unknown error'
-                            });
+                            // Check if this is a 403 Forbidden error (expired signed URL)
+                            const errorMessage = error?.nativeEvent?.error?.message || '';
+                            const is403 = errorMessage.includes('403') || 
+                                         errorMessage.includes('Forbidden') ||
+                                         errorMessage.includes('forbidden');
+                            
+                            // Don't log 403 errors - they're expected for expired signed URLs
+                            // Only log non-403 errors to reduce noise in logs
+                            if (!is403) {
+                              logger.warn('Short thumbnail failed to load:', {
+                                shortId: s._id,
+                                uri: uri?.substring(0, 100),
+                                imageUrl: (s as any).imageUrl?.substring(0, 50),
+                                thumbnailUrl: (s as any).thumbnailUrl?.substring(0, 50),
+                                mediaUrl: (s as any).mediaUrl?.substring(0, 50),
+                                error: errorMessage || 'Unknown error'
+                              });
+                            } else if (__DEV__) {
+                              // Only log 403 errors in development for debugging
+                              logger.debug('Short thumbnail URL expired (403):', {
+                                shortId: s._id,
+                                uri: uri?.substring(0, 100)
+                              });
+                            }
                           }}
                         />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
