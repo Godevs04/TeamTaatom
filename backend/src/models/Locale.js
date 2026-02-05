@@ -115,8 +115,20 @@ const localeSchema = new mongoose.Schema({
 });
 
 // Indexes for search and filtering
-localeSchema.index({ isActive: 1, createdAt: -1 });
-localeSchema.index({ countryCode: 1 });
+// CRITICAL: Compound index for most common query pattern (isActive + countryCode)
+// This index supports queries like: { isActive: true, countryCode: 'US' }
+// IMPORTANT: Index order MUST match sort order: .sort({ displayOrder: 1, createdAt: -1 })
+// If you need different sort orders, consider additional indexes
+localeSchema.index({ isActive: 1, countryCode: 1, displayOrder: 1, createdAt: -1 });
+// FUTURE OPTIMIZATION (for 10k+ docs): Consider partial index:
+// { countryCode: 1, displayOrder: 1, createdAt: -1 }, { partialFilterExpression: { isActive: true } }
+// Compound index for isActive + stateCode filtering
+localeSchema.index({ isActive: 1, stateCode: 1 });
+// Compound index for isActive + spotTypes filtering
+localeSchema.index({ isActive: 1, spotTypes: 1 });
+// Single field indexes (for queries that don't filter by isActive)
+localeSchema.index({ isActive: 1, createdAt: -1 }); // For default active locales sorted by date
+localeSchema.index({ countryCode: 1 }); // For country-only queries
 localeSchema.index({ name: 1 }); // For faster regex searches
 localeSchema.index({ country: 1 }); // For faster regex searches
 localeSchema.index({ displayOrder: 1 });
