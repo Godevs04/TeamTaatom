@@ -87,15 +87,21 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [endTime, setEndTime] = useState(selectedEndTime);
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<'start' | 'end' | 'both' | null>(null);
+  const [limitState, setLimitState] = useState<'normal' | 'approachingMin' | 'atMinimum' | 'atMaximum'>('normal');
+  const [dragTime, setDragTime] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const startHandleAnim = useRef(new Animated.Value(0)).current;
   const endHandleAnim = useRef(new Animated.Value(0)).current;
+  const floatingBadgeAnim = useRef(new Animated.Value(0)).current;
+  const floatingBadgeXAnim = useRef(new Animated.Value(0)).current;
   const timelineWidthRef = useRef<number>(SCREEN_WIDTH - 64);
+  const timelineLayoutRef = useRef<{ x: number; width: number } | null>(null);
   const lastDragXRef = useRef<number | null>(null);
   const lastTapRef = useRef<number>(0);
   const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const timelinePaddingRef = useRef<number>(28); // Padding from timelineWrapper
+  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (visible) {
@@ -124,6 +130,13 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setCurrentSong(null);
       setIsPlaying(false);
       setCurrentTime(0);
+      setLimitState('normal');
+      
+      // Clear preview timeout
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
     }
   }, [visible, videoDuration, selectedSong, selectedStartTime, selectedEndTime]);
 
@@ -186,16 +199,21 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   }, [currentSong, isPlaying, startTime, endTime, videoDuration]);
 
   useEffect(() => {
-    if (currentSong) {
+    if (currentSong && timelineLayoutRef.current) {
       const duration = currentSong.duration || 0;
       const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-      const startProgress = duration > 0 ? (startTime / duration) * 100 : 0;
-      const endProgress = duration > 0 ? (endTime / duration) * 100 : 0;
+      
+      // Convert time to pixel position using translateX
+      // translateX = (time / duration) * timelineWidth
+      const { width } = timelineLayoutRef.current;
+      const startX = duration > 0 ? (startTime / duration) * width : 0;
+      const endX = duration > 0 ? (endTime / duration) * width : width;
       
       progressAnim.setValue(progress);
-      startHandleAnim.setValue(startProgress);
-      // Ensure end handle doesn't go beyond 100% (clamp to max)
-      endHandleAnim.setValue(Math.min(endProgress, 100));
+      // Update handle positions directly in pixels (translateX)
+      // Clamp to valid range to prevent handles from going out of bounds
+      startHandleAnim.setValue(Math.max(0, Math.min(startX, width)));
+      endHandleAnim.setValue(Math.max(0, Math.min(endX, width)));
     }
   }, [currentTime, startTime, endTime, currentSong]);
 
@@ -413,6 +431,34 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   };
 
   const MIN_DRAG_DELTA = 1; // Reduced from 2 for better sensitivity
+  const MIN_DURATION = 0.5;
+  const MAX_DURATION = 60;
+  const WARNING_THRESHOLD = 0.1; // 0.1s before limit
+
+  // Check limits and provide feedback
+  const checkLimitsAndProvideFeedback = useCallback((newStart: number, newEnd: number) => {
+    const duration = newEnd - newStart;
+    
+    // Approaching minimum
+    if (duration <= MIN_DURATION + WARNING_THRESHOLD && duration > MIN_DURATION) {
+      hapticLight(); // Subtle warning
+      return { type: 'approachingMin' as const, canMove: true };
+    }
+    
+    // At minimum (can't shrink)
+    if (duration <= MIN_DURATION) {
+      hapticMedium(); // Stronger feedback
+      return { type: 'atMinimum' as const, canMove: false };
+    }
+    
+    // At maximum (can't expand)
+    if (duration >= MAX_DURATION) {
+      hapticLight(); // Subtle warning
+      return { type: 'atMaximum' as const, canMove: false };
+    }
+    
+    return { type: 'normal' as const, canMove: true };
+  }, []);
 
   // Quick adjust functions for better UX with haptic feedback
   const adjustStartTime = useCallback((delta: number) => {
@@ -444,12 +490,17 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   }, [currentSong, startTime, endTime, getMaxSelectionDuration]);
   
   // Tap-to-seek: Tap on timeline to jump to that position
-  const handleTimelineTap = useCallback((evt: any) => {
-    if (!currentSong || isDragging) return;
+  const handleTimelineTap = useCallback((pageX: number) => {
+    if (!currentSong || isDragging || !timelineLayoutRef.current) return;
     
-    const x = evt.nativeEvent.locationX;
+    // Extract position immediately to avoid synthetic event reuse
+    // Use pageX + measured layout for accurate positioning
+    const { x: timelineX, width } = timelineLayoutRef.current;
+    const relativeX = pageX - timelineX - timelinePaddingRef.current;
+    const normalizedX = Math.max(0, Math.min(1, relativeX / width));
+    
     const duration = currentSong.duration || 0;
-    const tappedTime = getTimeFromPosition(x, duration);
+    const tappedTime = normalizedX * duration;
     const snappedTime = snapToPrecision(tappedTime);
     
     // Haptic feedback
@@ -460,15 +511,20 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       soundRef.current.setPositionAsync(snappedTime * 1000).catch(() => {});
     }
     setCurrentTime(snappedTime);
-  }, [currentSong, isDragging, getTimeFromPosition]);
+  }, [currentSong, isDragging]);
   
   // Double-tap to set start/end point
-  const handleTimelineDoubleTap = useCallback((evt: any, pointType: 'start' | 'end') => {
-    if (!currentSong || isDragging) return;
+  const handleTimelineDoubleTap = useCallback((pageX: number, pointType: 'start' | 'end') => {
+    if (!currentSong || isDragging || !timelineLayoutRef.current) return;
     
-    const x = evt.nativeEvent.locationX;
+    // Extract position immediately to avoid synthetic event reuse
+    // Use pageX + measured layout for accurate positioning
+    const { x: timelineX, width } = timelineLayoutRef.current;
+    const relativeX = pageX - timelineX - timelinePaddingRef.current;
+    const normalizedX = Math.max(0, Math.min(1, relativeX / width));
+    
     const duration = currentSong.duration || 0;
-    const tappedTime = getTimeFromPosition(x, duration);
+    const tappedTime = normalizedX * duration;
     const snappedTime = snapToPrecision(tappedTime);
     
     // Haptic feedback
@@ -498,57 +554,122 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         setCurrentTime(newEnd);
       }
     }
-  }, [currentSong, isDragging, startTime, endTime, getTimeFromPosition, getMaxSelectionDuration]);
+  }, [currentSong, isDragging, startTime, endTime, getMaxSelectionDuration]);
 
   const startHandlePanResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
+      // Extract values immediately to avoid synthetic event reuse
+      const { pageX, locationX } = evt.nativeEvent;
+      const initialX = timelineLayoutRef.current 
+        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
+        : locationX;
+      
       hapticMedium();
       setIsDragging(true);
       setDragType('start');
-      // Use locationX for better accuracy relative to handle position
-      lastDragXRef.current = evt.nativeEvent.locationX;
+      lastDragXRef.current = initialX;
+      
+      // Animate floating badge in
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+      
+      // Update floating badge position
+      if (timelineLayoutRef.current && currentSong) {
+        const { width } = timelineLayoutRef.current;
+        const badgePercent = startTime / (currentSong.duration || 1) * 100;
+        const badgeX = (badgePercent / 100) * width - 28;
+        floatingBadgeXAnim.setValue(badgeX);
+      }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging) return;
+      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
       
-      // Use locationX for relative positioning
-      const currentX = evt.nativeEvent.locationX;
+      // Extract values immediately to avoid synthetic event reuse
+      const { pageX, locationX } = evt.nativeEvent;
+      const currentX = timelineLayoutRef.current
+        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
+        : locationX;
+      
       const lastX = lastDragXRef.current;
       
-      if (lastX !== null && Math.abs(currentX - lastX) < MIN_DRAG_DELTA) {
+      if (lastX === null) {
+        lastDragXRef.current = currentX;
+        return;
+      }
+      
+      const deltaX = currentX - lastX;
+      if (Math.abs(deltaX) < MIN_DRAG_DELTA) {
         return;
       }
       lastDragXRef.current = currentX;
       
-      // Calculate time from position
+      // Convert current position to time
       const duration = currentSong.duration || 0;
-      // Use pageX if locationX is not accurate, otherwise use locationX
-      const relativeX = evt.nativeEvent.locationX !== undefined 
-        ? evt.nativeEvent.locationX 
-        : (evt.nativeEvent.pageX ? evt.nativeEvent.pageX - (timelinePaddingRef.current || 0) : 0);
-      const time = getTimeFromPosition(relativeX, duration);
+      const { width } = timelineLayoutRef.current;
+      const relativeX = Math.max(0, Math.min(currentX, width));
+      const time = (relativeX / width) * duration;
       const snappedTime = snapToPrecision(time);
       
-      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
-      const newStart = Math.max(0, Math.min(snappedTime, endTime - 0.5)); // Minimum 0.5s gap
-      const maxEnd = Math.min(duration, newStart + maxDuration);
+      // Clamp start handle: cannot go past endTime - minDuration
+      const MIN_DURATION = 0.5;
+      const maxStart = endTime - MIN_DURATION;
+      const newStart = Math.max(0, Math.min(snappedTime, maxStart));
+      
+      // Check limits
+      const limitCheck = checkLimitsAndProvideFeedback(newStart, endTime);
+      setLimitState(limitCheck.type);
+      setDragTime(newStart);
+      
+      if (!limitCheck.canMove || newStart >= endTime) {
+        hapticMedium();
+        return;
+      }
+      
+      // Update start time and handle position
       setStartTime(newStart);
-      if (endTime > maxEnd) {
-        setEndTime(maxEnd);
-      }
-      // Seek audio in real-time while dragging
-      if (soundRef.current) {
-        soundRef.current.setPositionAsync(newStart * 1000).catch(() => {});
-        setCurrentTime(newStart);
-      }
+      const startX = (newStart / duration) * width;
+      startHandleAnim.setValue(startX);
     },
-    onPanResponderRelease: () => {
+    onPanResponderRelease: async () => {
       hapticLight();
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
+      setLimitState('normal');
+      
+      // Animate floating badge out
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+      
+      // ✅ Play 500ms preview at new position
+      if (soundRef.current && currentSong) {
+        try {
+          // Clear any existing preview timeout
+          if (previewTimeoutRef.current) {
+            clearTimeout(previewTimeoutRef.current);
+          }
+          
+          await soundRef.current.setPositionAsync(startTime * 1000);
+          await soundRef.current.playAsync();
+          
+          // Stop after 500ms
+          previewTimeoutRef.current = setTimeout(async () => {
+            if (soundRef.current) {
+              await soundRef.current.pauseAsync();
+            }
+          }, 500);
+        } catch (error) {
+          // Silent fail
+        }
+      }
     },
   });
 
@@ -556,45 +677,112 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
+      // Extract values immediately to avoid synthetic event reuse
+      const { pageX, locationX } = evt.nativeEvent;
+      const initialX = timelineLayoutRef.current 
+        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
+        : locationX;
+      
       hapticMedium();
       setIsDragging(true);
       setDragType('end');
-      lastDragXRef.current = evt.nativeEvent.locationX;
+      lastDragXRef.current = initialX;
+      
+      // Animate floating badge in
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+      
+      // Update floating badge position
+      if (timelineLayoutRef.current && currentSong) {
+        const { width } = timelineLayoutRef.current;
+        const badgePercent = endTime / (currentSong.duration || 1) * 100;
+        const badgeX = (badgePercent / 100) * width - 28;
+        floatingBadgeXAnim.setValue(badgeX);
+      }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging) return;
+      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
       
+      // Calculate drag delta from initial touch position
       const currentX = evt.nativeEvent.locationX;
       const lastX = lastDragXRef.current;
       
-      if (lastX !== null && Math.abs(currentX - lastX) < MIN_DRAG_DELTA) {
+      if (lastX === null) {
+        lastDragXRef.current = currentX;
+        return;
+      }
+      
+      const deltaX = currentX - lastX;
+      if (Math.abs(deltaX) < MIN_DRAG_DELTA) {
         return;
       }
       lastDragXRef.current = currentX;
       
+      // Convert current position to time
       const duration = currentSong.duration || 0;
-      // Use locationX if available, otherwise calculate from pageX
-      const relativeX = evt.nativeEvent.locationX !== undefined 
-        ? evt.nativeEvent.locationX 
-        : (evt.nativeEvent.pageX ? evt.nativeEvent.pageX - (timelinePaddingRef.current || 0) : 0);
-      const time = getTimeFromPosition(relativeX, duration);
+      const { width } = timelineLayoutRef.current;
+      const relativeX = Math.max(0, Math.min(currentX, width));
+      const time = (relativeX / width) * duration;
       const snappedTime = snapToPrecision(time);
       
+      // Clamp end handle: cannot go before startTime + minDuration
+      const MIN_DURATION = 0.5;
+      const minEnd = startTime + MIN_DURATION;
       const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
       const maxEnd = Math.min(duration, startTime + maxDuration);
-      const newEnd = Math.min(maxEnd, Math.max(snappedTime, startTime + 0.5)); // Minimum 0.5s gap
-      setEndTime(newEnd);
-      // Seek audio in real-time while dragging
-      if (soundRef.current) {
-        soundRef.current.setPositionAsync(newEnd * 1000).catch(() => {});
-        setCurrentTime(newEnd);
+      const newEnd = Math.max(minEnd, Math.min(snappedTime, maxEnd));
+      
+      // Check limits
+      const limitCheck = checkLimitsAndProvideFeedback(startTime, newEnd);
+      setLimitState(limitCheck.type);
+      setDragTime(newEnd);
+      
+      if (!limitCheck.canMove || newEnd <= startTime) {
+        hapticMedium();
+        return;
       }
+      
+      // Update end time and handle position
+      setEndTime(newEnd);
+      const endX = (newEnd / duration) * width;
+      endHandleAnim.setValue(endX);
     },
-    onPanResponderRelease: () => {
+    onPanResponderRelease: async () => {
       hapticLight();
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
+      setLimitState('normal');
+      
+      // Animate floating badge out
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+      
+      // ✅ Play 500ms preview at new position
+      if (soundRef.current && currentSong) {
+        try {
+          if (previewTimeoutRef.current) {
+            clearTimeout(previewTimeoutRef.current);
+          }
+          
+          await soundRef.current.setPositionAsync(endTime * 1000);
+          await soundRef.current.playAsync();
+          
+          previewTimeoutRef.current = setTimeout(async () => {
+            if (soundRef.current) {
+              await soundRef.current.pauseAsync();
+            }
+          }, 500);
+        } catch (error) {
+          // Silent fail
+        }
+      }
     },
   });
 
@@ -602,29 +790,73 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
+      // Extract values immediately to avoid synthetic event reuse
+      const { pageX, locationX } = evt.nativeEvent;
+      const initialX = timelineLayoutRef.current 
+        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
+        : locationX;
+      
       setIsDragging(true);
       setDragType('both');
-      lastDragXRef.current = evt.nativeEvent.locationX;
+      lastDragXRef.current = initialX;
+      
+      // Animate floating badge in
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+      
+      // Update floating badge position
+      if (timelineLayoutRef.current && currentSong) {
+        const { width } = timelineLayoutRef.current;
+        const badgePercent = (endTime - startTime) / (currentSong.duration || 1) * 100;
+        const badgeX = (badgePercent / 100) * width - 28;
+        floatingBadgeXAnim.setValue(badgeX);
+      }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging) return;
+      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
       
-      const currentX = evt.nativeEvent.locationX;
+      // Extract values immediately to avoid synthetic event reuse
+      const { pageX, locationX } = evt.nativeEvent;
+      const currentX = timelineLayoutRef.current
+        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
+        : locationX;
+      
       const lastX = lastDragXRef.current;
       
-      if (lastX !== null && Math.abs(currentX - lastX) < MIN_DRAG_DELTA) {
+      if (lastX === null) {
+        lastDragXRef.current = currentX;
+        return;
+      }
+      
+      if (Math.abs(currentX - lastX) < MIN_DRAG_DELTA) {
         return;
       }
       lastDragXRef.current = currentX;
       
       const duration = currentSong.duration || 0;
-      const time = getTimeFromPosition(currentX, duration);
+      const { width } = timelineLayoutRef.current;
+      const relativeX = Math.max(0, Math.min(currentX, width));
+      const time = (relativeX / width) * duration;
       const snappedTime = snapToPrecision(time);
       
       const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
       const selectionDuration = Math.min(endTime - startTime, maxDuration);
       const newStart = Math.max(0, Math.min(snappedTime, duration - selectionDuration));
       const newEnd = Math.min(duration, newStart + selectionDuration);
+      
+      // Check limits
+      const limitCheck = checkLimitsAndProvideFeedback(newStart, newEnd);
+      setLimitState(limitCheck.type);
+      setDragTime(newEnd - newStart); // Show duration for 'both' drag
+      
+      if (!limitCheck.canMove) {
+        hapticMedium();
+        return;
+      }
+      
       setStartTime(newStart);
       setEndTime(newEnd);
     },
@@ -632,6 +864,14 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
+      setLimitState('normal');
+      
+      // Animate floating badge out
+      Animated.timing(floatingBadgeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
     },
   });
 
@@ -694,45 +934,67 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           <View 
             style={[styles.timelineWrapper, { overflow: 'visible' }]} 
             onLayout={(event) => {
-              const width = event.nativeEvent.layout.width;
+              const { x, width } = event.nativeEvent.layout;
               timelineWidthRef.current = width - (timelinePaddingRef.current * 2); // Account for padding
+              timelineLayoutRef.current = { x, width };
             }}
           >
             {/* Waveform Visualization */}
             <View style={styles.waveformContainer}>
-              {waveformBars.map((bar, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.waveformBar,
-                    {
-                      height: bar.height,
-                      backgroundColor: bar.isInSelection
-                        ? theme.colors.primary
-                        : bar.isPlaying
-                        ? theme.colors.primary + '60'
-                        : theme.colors.border,
-                    },
-                  ]}
-                />
-              ))}
+              {waveformBars.map((bar, index) => {
+                const isDark = theme.colors.background === '#000000' || theme.colors.background === '#111114';
+                let backgroundColor: string;
+                let opacity: number = 1;
+                
+                if (bar.isInSelection) {
+                  // Selected: Full opacity, primary color
+                  backgroundColor = theme.colors.primary;
+                  opacity = 1.0;
+                } else if (bar.isPlaying) {
+                  // Playing but not selected: Primary color with reduced opacity
+                  backgroundColor = theme.colors.primary;
+                  opacity = 0.6;
+                } else {
+                  // Unselected: Border color with 30% opacity
+                  backgroundColor = theme.colors.border;
+                  opacity = isDark ? 0.3 : 0.25;
+                }
+                
+                return (
+                  <View
+                    key={index}
+                    style={[
+                      styles.waveformBar,
+                      {
+                        height: bar.height,
+                        backgroundColor,
+                        opacity,
+                      },
+                    ]}
+                  />
+                );
+              })}
             </View>
 
             {/* Timeline Track - Tap to Seek, Double-tap to Set Start/End */}
             <TouchableOpacity
               activeOpacity={1}
               onPress={(evt) => {
+                // Extract values immediately to avoid synthetic event reuse
+                const { pageX } = evt.nativeEvent;
+                
                 const now = Date.now();
                 const timeSinceLastTap = now - lastTapRef.current;
                 
                 if (timeSinceLastTap < 400 && lastTapRef.current > 0) {
                   // Double tap - determine which half to set start/end
-                  const x = evt.nativeEvent.locationX;
-                  const width = timelineWidthRef.current;
-                  const adjustedX = x - timelinePaddingRef.current;
-                  const midPoint = width / 2;
-                  const pointType = adjustedX < midPoint ? 'start' : 'end';
-                  handleTimelineDoubleTap(evt, pointType);
+                  if (timelineLayoutRef.current) {
+                    const { x: timelineX, width } = timelineLayoutRef.current;
+                    const relativeX = pageX - timelineX - timelinePaddingRef.current;
+                    const midPoint = width / 2;
+                    const pointType = relativeX < midPoint ? 'start' : 'end';
+                    handleTimelineDoubleTap(pageX, pointType);
+                  }
                   lastTapRef.current = 0; // Reset
                   if (tapTimeoutRef.current) {
                     clearTimeout(tapTimeoutRef.current);
@@ -745,7 +1007,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                     clearTimeout(tapTimeoutRef.current);
                   }
                   tapTimeoutRef.current = setTimeout(() => {
-                    handleTimelineTap(evt);
+                    handleTimelineTap(pageX);
                     lastTapRef.current = 0;
                   }, 400);
                 }
@@ -759,7 +1021,22 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                   {
                     left: `${startPercent}%`,
                     width: `${endPercent - startPercent}%`,
-                  }
+                  },
+                  limitState === 'atMinimum' && {
+                    borderWidth: 2,
+                    borderColor: theme.colors.error,
+                    borderStyle: 'solid',
+                  },
+                  limitState === 'approachingMin' && {
+                    borderWidth: 2,
+                    borderColor: theme.colors.warning,
+                    borderStyle: 'dashed',
+                  },
+                  limitState === 'atMaximum' && {
+                    borderWidth: 2,
+                    borderColor: theme.colors.warning,
+                    borderStyle: 'dashed',
+                  },
                 ]}
                 {...selectionPanResponder.panHandlers}
               >
@@ -772,79 +1049,201 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               </View>
 
               {/* Progress Indicator */}
-              <Animated.View
+              <View
                 style={[
                   styles.timelineProgress,
                   {
-                    width: progressAnim.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0%', '100%'],
-                    }),
+                    backgroundColor: 'transparent',
+                    overflow: 'hidden',
+                  }
+                ]}
+              >
+                <Animated.View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: '100%',
                     backgroundColor: theme.colors.primary + '30',
-                  }
-                ]}
-              />
-
-              {/* Start Handle - Instagram Style (Larger, More Visible) */}
-              <Animated.View
-                style={[
-                  styles.timelineHandle,
-                  styles.startHandle,
-                  isDragging && dragType === 'start' && styles.handleDragging,
-                  {
-                    left: startHandleAnim.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0%', '100%'],
-                    }),
                     transform: [
-                      { translateX: -32 }, // Center handle (64px width)
-                      { scale: isDragging && dragType === 'start' ? 1.15 : 1 }
+                      {
+                        scaleX: progressAnim.interpolate({
+                          inputRange: [0, 100],
+                          outputRange: [0, 1],
+                          extrapolate: 'clamp',
+                        }),
+                      },
+                      {
+                        translateX: 0,
+                      },
                     ],
-                  }
-                ]}
-                {...startHandlePanResponder.panHandlers}
-                hitSlop={{ top: 40, bottom: 40, left: 40, right: 40 }}
-              >
-                <View style={styles.handleOuter}>
-                  <LinearGradient
-                    colors={[theme.colors.primary, theme.colors.secondary]}
-                    style={styles.handleGradient}
-                  >
-                    <View style={styles.handleInnerCircle} />
-                  </LinearGradient>
-                </View>
-              </Animated.View>
+                  }}
+                />
+              </View>
 
-              {/* End Handle - Instagram Style (Larger, More Visible) */}
-              <Animated.View
-                style={[
-                  styles.timelineHandle,
-                  styles.endHandle,
-                  isDragging && dragType === 'end' && styles.handleDragging,
-                  {
-                    left: endHandleAnim.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ['0%', '100%'],
-                    }),
-                    transform: [
-                      { translateX: -32 }, // Center handle (64px width)
-                      { scale: isDragging && dragType === 'end' ? 1.15 : 1 }
-                    ],
-                  }
-                ]}
-                {...endHandlePanResponder.panHandlers}
-                hitSlop={{ top: 40, bottom: 40, left: 40, right: 40 }}
+              {/* Start Handle - Edge-style vertical bar */}
+              <View
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: -18,
+                  width: 44, // Touch hit area (accessibility safe)
+                  height: 60,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
               >
-                <View style={styles.handleOuter}>
-                  <LinearGradient
-                    colors={[theme.colors.primary, theme.colors.secondary]}
-                    style={styles.handleGradient}
-                  >
-                    <View style={styles.handleInnerCircle} />
-                  </LinearGradient>
-                </View>
-              </Animated.View>
+                <Animated.View
+                  style={[
+                    {
+                      width: 4, // Slim vertical bar (edge-style)
+                      height: 24,
+                      borderRadius: 2,
+                      backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
+                      transform: [
+                        {
+                          // translateX positions handle at edge of selected region
+                          // Using pixel values directly (not percentages) for native driver compatibility
+                          translateX: startHandleAnim.interpolate({
+                            inputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
+                            outputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
+                            extrapolate: 'clamp',
+                          }),
+                        },
+                        {
+                          scale: isDragging && dragType === 'start' ? 1.2 : 1,
+                        },
+                      ],
+                    },
+                    isDragging && dragType === 'start' && {
+                      shadowColor: theme.colors.primary,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 1.0,
+                      shadowRadius: 12,
+                      elevation: 12,
+                    },
+                  ]}
+                  {...startHandlePanResponder.panHandlers}
+                  hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+                >
+                  {/* Small grab dot indicator at top */}
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: theme.colors.primary,
+                      position: 'absolute',
+                      top: -3,
+                      alignSelf: 'center',
+                    }}
+                  />
+                </Animated.View>
+              </View>
+
+              {/* End Handle - Edge-style vertical bar */}
+              <View
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: -18,
+                  width: 44, // Touch hit area (accessibility safe)
+                  height: 60,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Animated.View
+                  style={[
+                    {
+                      width: 4, // Slim vertical bar (edge-style)
+                      height: 24,
+                      borderRadius: 2,
+                      backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
+                      transform: [
+                        {
+                          // translateX positions handle at edge of selected region
+                          // Using pixel values directly (not percentages) for native driver compatibility
+                          translateX: endHandleAnim.interpolate({
+                            inputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
+                            outputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
+                            extrapolate: 'clamp',
+                          }),
+                        },
+                        {
+                          scale: isDragging && dragType === 'end' ? 1.2 : 1,
+                        },
+                      ],
+                    },
+                    isDragging && dragType === 'end' && {
+                      shadowColor: theme.colors.primary,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 1.0,
+                      shadowRadius: 12,
+                      elevation: 12,
+                    },
+                  ]}
+                  {...endHandlePanResponder.panHandlers}
+                  hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+                >
+                  {/* Small grab dot indicator at top */}
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: theme.colors.primary,
+                      position: 'absolute',
+                      top: -3,
+                      alignSelf: 'center',
+                    }}
+                  />
+                </Animated.View>
+              </View>
             </TouchableOpacity>
+
+            {/* Floating Timestamp Badge (only when dragging) */}
+            {isDragging && dragType && timelineLayoutRef.current && (
+              <View
+                style={{
+                  position: 'absolute',
+                  left: timelinePaddingRef.current,
+                  top: 0,
+                }}
+              >
+                <Animated.View
+                  style={[
+                    styles.floatingBadge,
+                    {
+                      opacity: floatingBadgeAnim,
+                      transform: [
+                        { 
+                          // Position badge above the dragged handle using translateX
+                          // Subtract 28px to center badge (56px width / 2)
+                          translateX: dragType === 'start' 
+                            ? startHandleAnim.interpolate({
+                                inputRange: [0, timelineLayoutRef.current.width],
+                                outputRange: [-28, timelineLayoutRef.current.width - 28],
+                                extrapolate: 'clamp',
+                              })
+                            : endHandleAnim.interpolate({
+                                inputRange: [0, timelineLayoutRef.current.width],
+                                outputRange: [-28, timelineLayoutRef.current.width - 28],
+                                extrapolate: 'clamp',
+                              })
+                        },
+                        { translateY: -44 }, // 12px above handle + 32px badge height
+                      ],
+                    },
+                  ]}
+                >
+                  <Text style={styles.floatingBadgeText}>
+                    {formatDuration(dragTime)}
+                  </Text>
+                </Animated.View>
+              </View>
+            )}
 
             {/* Time Labels - Instagram Style (Below handles) */}
             <View style={styles.timelineLabels}>
@@ -868,6 +1267,14 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 </View>
               </View>
             </View>
+
+            {/* Limit Warning Badge */}
+            {limitState === 'atMinimum' && (
+              <View style={[styles.limitWarningBadge, { backgroundColor: theme.colors.error }]}>
+                <Ionicons name="alert-circle" size={12} color="#FFFFFF" />
+                <Text style={styles.limitWarningText}>Minimum 0.5s</Text>
+              </View>
+            )}
           </View>
 
           {/* Simplified Help Text - Instagram Style */}
@@ -1475,5 +1882,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'center',
     lineHeight: 14,
+  },
+  floatingBadge: {
+    position: 'absolute',
+    width: 56,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  floatingBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  limitWarningBadge: {
+    position: 'absolute',
+    top: -40,
+    left: '50%',
+    transform: [{ translateX: -50 }],
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    gap: 4,
+  },
+  limitWarningText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

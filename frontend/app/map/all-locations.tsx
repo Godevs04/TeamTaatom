@@ -16,8 +16,8 @@ import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
 import { getTravelMapData } from '../../services/profile';
+import { getGoogleMapsApiKey } from '../../utils/maps';
 import logger from '../../utils/logger';
-import Constants from 'expo-constants';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -43,8 +43,7 @@ export default function AllLocationsMap() {
   const { theme, mode } = useTheme();
   const userId = params.userId as string;
   const mapRef = useRef<any>(null);
-  
-  const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+  const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
 
   useEffect(() => {
     if (userId) {
@@ -110,63 +109,35 @@ export default function AllLocationsMap() {
       setLoading(true);
       setError(null);
       const response = await getTravelMapData(userId);
-      
-      // Debug logging
-      logger.debug('Travel map data response:', {
-        success: response.success,
-        hasData: !!response.data,
-        locationsCount: response.data?.locations?.length || 0,
-        locations: response.data?.locations || []
-      });
-      
-      // Handle response structure - backend returns { success: true, data: { locations, statistics } }
-      const locationsData = response.data?.locations || [];
-      const statisticsData = response.data?.statistics || null;
-      
-      logger.info('Travel map data loaded:', {
-        userId,
-        locationsCount: locationsData.length,
-        statistics: statisticsData,
-        sampleLocations: locationsData.slice(0, 3)
-      });
-      
-      if (locationsData.length === 0) {
-        logger.warn('No verified locations found for user:', userId);
-        setError('No verified travel locations found. Start posting with locations to see them here!');
-        setLocations([]);
-        setStatistics(null);
-      } else {
-        setLocations(locationsData);
-        setStatistics(statisticsData);
-        logger.info(`Successfully loaded ${locationsData.length} verified locations for map display`);
-        
-        // Fit map to show all locations after a short delay to ensure map is ready
+      const locationsData = response?.locations ?? [];
+      const statisticsData = response?.statistics ?? null;
+      setError(null);
+      setLocations(locationsData);
+      setStatistics(statisticsData);
+      if (locationsData.length > 0) {
         setTimeout(() => {
           if (mapRef.current && locationsData.length > 0) {
             const validCoords = locationsData
-              .filter(loc => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
-              .map(loc => ({
+              .filter((loc: Location) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
+              .map((loc: Location) => ({
                 latitude: loc.latitude,
                 longitude: loc.longitude,
               }));
-            
             if (validCoords.length > 0) {
               try {
                 mapRef.current.fitToCoordinates(validCoords, {
                   edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
                   animated: true,
                 });
-                logger.debug('Fitted map to coordinates:', validCoords.length);
-              } catch (err) {
-                logger.warn('Error fitting map to coordinates:', err);
-              }
+              } catch (_err) {}
             }
           }
         }, 500);
       }
     } catch (err: any) {
-      logger.error('Error loading travel map data:', err);
       setError(err.message || 'Failed to load locations');
+      setLocations([]);
+      setStatistics(null);
     } finally {
       setLoading(false);
     }
@@ -329,8 +300,17 @@ export default function AllLocationsMap() {
   };
 
   const renderMap = () => {
+    if (!GOOGLE_MAPS_API_KEY) {
+      return (
+        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+          <Text style={[styles.loadingText, { color: theme.colors.text, marginTop: 16, textAlign: 'center' }]}>
+            Map is unavailable. Configure Google Maps API key in your environment.
+          </Text>
+        </View>
+      );
+    }
     if (Platform.OS === 'web') {
-      // WebView map for web platform
       return (
         <View style={styles.mapContainer}>
           <WebView
@@ -364,19 +344,26 @@ export default function AllLocationsMap() {
       );
     }
 
-    // CRITICAL: Don't render map until locations are loaded (prevents iOS from showing current location)
-    if (locations.length === 0 || loading) {
+    if (loading) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
-            {loading ? 'Loading verified locations...' : 'No verified locations found'}
+          <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 16 }]}>
+            Loading verified locations...
           </Text>
-          {!loading && (
-            <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 8 }]}>
-              Start posting with locations to see them here!
-            </Text>
-          )}
+        </View>
+      );
+    }
+    if (locations.length === 0) {
+      return (
+        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
+            No verified travel locations yet
+          </Text>
+          <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 8 }]}>
+            Start posting with locations to see them here.
+          </Text>
         </View>
       );
     }
@@ -390,19 +377,12 @@ export default function AllLocationsMap() {
       !isNaN(loc.latitude) && !isNaN(loc.longitude)
     );
 
-    logger.debug('Rendering map with locations:', {
-      totalLocations: locations.length,
-      validLocations: validLocations.length,
-      region,
-      sampleLocations: validLocations.slice(0, 3)
-    });
-
     if (validLocations.length === 0) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <Ionicons name="alert-circle-outline" size={64} color={theme.colors.error} />
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>
-            No valid location coordinates found
+          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
+            No valid coordinates to display
           </Text>
         </View>
       );
