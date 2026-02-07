@@ -6,8 +6,8 @@ const logger = createLogger('Connectivity');
 
 export const testAPIConnectivity = async (): Promise<boolean> => {
   try {
-    // PRODUCTION-GRADE: Use config utility instead of hardcoded URL
-    const healthCheckUrl = getApiUrl('/api/health');
+    // Backend exposes health at /health (root) and /api/v1/health; use root /health
+    const healthCheckUrl = getApiUrl('/health');
     
     // Use AbortController for timeout (fetch doesn't support timeout directly)
     const controller = new AbortController();
@@ -24,7 +24,7 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
       logger.debug('API connectivity test: SUCCESS');
       return true;
     } else {
-      logger.warn('API connectivity test: FAILED - Status:', response.status);
+      logger.warn(`API connectivity test: FAILED - Status: ${response.status}`);
       return false;
     }
   } catch (error) {

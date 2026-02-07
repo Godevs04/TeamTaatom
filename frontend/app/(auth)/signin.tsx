@@ -470,6 +470,8 @@ export default function SignInScreen() {
                   <TouchableOpacity
                     style={styles.forgotPassword}
                     onPress={() => router.push('/(auth)/forgot')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Forgot password"
                   >
                     <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                   </TouchableOpacity>
@@ -478,6 +480,9 @@ export default function SignInScreen() {
                     style={[styles.signInButton, isLoading && styles.signInButtonDisabled]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel={isLoading ? 'Signing in' : 'Sign in'}
+                    accessibilityState={{ disabled: isLoading }}
                   >
                     <Text style={styles.signInButtonText}>
                       {isLoading ? 'Signing In...' : 'Sign In'}
@@ -509,7 +514,11 @@ export default function SignInScreen() {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+              <TouchableOpacity
+                onPress={() => router.push('/(auth)/signup')}
+                accessibilityRole="button"
+                accessibilityLabel="Sign up"
+              >
                 <Text style={styles.linkText}>Sign Up</Text>
               </TouchableOpacity>
             </View>

@@ -29,6 +29,7 @@ import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
+import { testAPIConnectivity } from '../utils/connectivity';
 
 // Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
@@ -104,6 +105,23 @@ function RootLayoutInner() {
   useEffect(() => {
     // Keep native splash visible until app initialization is complete
     // This provides better UX with the default splash icon
+  }, []);
+
+  // Re-check connectivity when app comes to foreground and periodically when active
+  useEffect(() => {
+    const checkAndSetOffline = async () => {
+      const ok = await testAPIConnectivity();
+      setIsOffline((prev) => (ok ? false : true));
+    };
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkAndSetOffline();
+    });
+    const interval = setInterval(checkAndSetOffline, 60000);
+    checkAndSetOffline();
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
   }, []);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes
@@ -749,14 +767,34 @@ function RootLayoutInner() {
   return (
     <ResponsiveContainer maxWidth={Platform.OS === 'web' ? 600 : undefined}>
       {isOffline && (
-        <View style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100 }}>
-          <Text style={{ color: '#222', fontWeight: 'bold' }}>You are offline. Some features may not work.</Text>
+        <View
+          style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100, flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}
+          accessibilityRole="alert"
+          accessibilityLabel="You are offline. Some features may not work."
+        >
+          <Text style={{ color: '#222', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>You are offline. Some features may not work.</Text>
+          <TouchableOpacity
+            onPress={async () => {
+              const ok = await testAPIConnectivity();
+              if (ok) setIsOffline(false);
+            }}
+            style={{ marginLeft: 8, paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#222', borderRadius: 6 }}
+            accessibilityRole="button"
+            accessibilityLabel="Retry connection"
+          >
+            <Text style={{ color: '#ffb300', fontWeight: 'bold' }}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
       {sessionExpired && showSessionBanner && (
-        <View style={{ backgroundColor: '#ff5252', padding: 8, alignItems: 'center', zIndex: 101, flexDirection: 'row', justifyContent: 'center' }}>
+        <View style={{ backgroundColor: '#ff5252', padding: 8, alignItems: 'center', zIndex: 101, flexDirection: 'row', justifyContent: 'center' }} accessibilityRole="alert" accessibilityLabel="Session expired. Please sign in again.">
           <Text style={{ color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>Session expired. Please sign in again.</Text>
-          <TouchableOpacity onPress={() => setShowSessionBanner(false)} style={{ marginLeft: 8 }}>
+          <TouchableOpacity
+            onPress={() => setShowSessionBanner(false)}
+            style={{ marginLeft: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss session expired banner"
+          >
             <Text style={{ color: '#fff', fontWeight: 'bold' }}>✕</Text>
           </TouchableOpacity>
         </View>

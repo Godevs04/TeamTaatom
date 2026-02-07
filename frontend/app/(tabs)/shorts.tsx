@@ -40,6 +40,7 @@ import PostLocation from '../../components/post/PostLocation';
 import { geocodeAddress } from '../../utils/locationUtils';
 import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
+import { ErrorBoundary } from '../../utils/errorBoundary';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -2287,6 +2288,7 @@ export default function ShortsScreen() {
   }
 
   return (
+    <ErrorBoundary level="route">
     <View style={styles.container}>
       <StatusBar 
         barStyle="light-content" 
@@ -2388,6 +2390,7 @@ export default function ShortsScreen() {
         />
       )}
     </View>
+    </ErrorBoundary>
   );
 }
 

@@ -405,6 +405,7 @@ export default function SignUpScreen() {
       // Ensure onboarding flag is not set for new users
       await AsyncStorage.removeItem('onboarding_completed');
 
+      track('signup_success', {});
       showSuccess(
         `${response.message}\n\n📧 Please check your inbox and spam folder for the verification code.`,
         'Verification Code Sent'

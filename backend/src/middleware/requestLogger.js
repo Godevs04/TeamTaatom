@@ -14,7 +14,7 @@ const sanitizeData = (data) => {
     return data;
   }
 
-  const sensitiveFields = ['password', 'token', 'otp', 'secret', 'apiKey', 'authorization', 'cookie'];
+  const sensitiveFields = ['password', 'token', 'otp', 'secret', 'apiKey', 'authorization', 'cookie', 'authToken', 'refreshToken', 'founder_token', 'csrfToken'];
   const sanitized = Array.isArray(data) ? [...data] : { ...data };
 
   for (const key in sanitized) {
@@ -42,6 +42,7 @@ const truncateString = (str, maxLength = MAX_BODY_LOG_LENGTH) => {
  */
 const extractRequestInfo = (req) => {
   const info = {
+    requestId: req.id || undefined,
     method: req.method,
     path: req.path,
     url: req.originalUrl || req.url,

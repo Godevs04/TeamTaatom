@@ -1,12 +1,16 @@
 /**
  * Module-level cache for Locale data
  * Persists across navigation and screen remounts
- * 
+ *
  * This cache survives:
  * - Screen unmount
  * - Navigation back
  * - Tab switches
  * - Component remounts
+ *
+ * Invalidation: Call invalidate() or reload when backend data may have changed
+ * (e.g. after SuperAdmin updates locales). No TTL by default; pull-to-refresh
+ * and filter Search trigger fresh load and cache update.
  */
 
 import { Locale } from '../services/locale';
