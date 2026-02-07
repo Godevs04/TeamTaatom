@@ -37,6 +37,7 @@ import { savedEvents } from '../../utils/savedEvents';
 import { theme } from '../../constants/theme';
 import axios from 'axios';
 import { getGoogleMapsApiKey } from '../../utils/maps';
+import { localeCache } from '../../cache/localeCache';
 
 const logger = createLogger('LocaleScreen');
 
@@ -871,7 +872,7 @@ export default function LocaleScreen() {
     initializeData();
     
     // Load locales after initial data (depends on filters, but can start immediately)
-    // Always force initial load to ensure data is loaded
+    // Cache check happens in separate useEffect after functions are defined
     loadAdminLocales(true);
     
     return () => {
@@ -1057,11 +1058,11 @@ export default function LocaleScreen() {
       if (shouldFetchAll) {
         // Fetch all pages until exhausted
         while (hasMorePages && isMountedRef.current) {
-          const response = await getLocales(
+      const response = await getLocales(
             baseParams.search || '',
             baseParams.countryCode || '',
             baseParams.stateCode || '',
-            spotTypesParam,
+        spotTypesParam,
             currentPage,
             BACKEND_LIMIT,
             baseParams.includeInactive
@@ -1093,11 +1094,11 @@ export default function LocaleScreen() {
           currentPageRef.current,
           20,
           baseParams.includeInactive
-        );
-        
-        if (!isMountedRef.current) return;
-        
-        if (response && response.locales) {
+      );
+      
+      if (!isMountedRef.current) return;
+      
+      if (response && response.locales) {
           allFetchedLocales = response.locales;
           
           // Update pagination state
@@ -1208,7 +1209,7 @@ export default function LocaleScreen() {
           setLoadingLocales(false);
           setLoading(false);
           loadedOnceRef.current = true;
-          
+
           // Update filtered locales
           const filtered = applyFilters(firstPage, false);
           setFilteredLocales(filtered);
@@ -1223,8 +1224,8 @@ export default function LocaleScreen() {
           const localesToCalculate = sortedByStraightLine.slice(0, STAGE2_LIMIT);
           
           if (localesToCalculate.length > 0 && shouldFetchAll) {
-            setCalculatingDistances(true);
-            
+          setCalculatingDistances(true);
+          
             // Process in batches to avoid rate limiting
             const BATCH_SIZE = 5;
             const updatedLocales = new Map<string, Locale & { distanceKm?: number | null }>();
@@ -1233,106 +1234,106 @@ export default function LocaleScreen() {
               if (!isMountedRef.current) break;
               
               const batch = localesToCalculate.slice(i, i + BATCH_SIZE);
-              
-              const batchResults = await Promise.allSettled(
-                batch.map(async (locale) => {
+            
+            const batchResults = await Promise.allSettled(
+              batch.map(async (locale) => {
                   // Skip if already calculated
                   if (drivingDistanceCalculatedRef.current.has(locale._id)) {
                     return locale;
                   }
                   
-                  let updatedLocale: Locale;
-                  
+                let updatedLocale: Locale;
+                
                   // Use coordinates from database if valid
-                  if (locale.latitude && locale.longitude && 
-                      locale.latitude !== 0 && locale.longitude !== 0 &&
-                      !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                      locale.latitude >= -90 && locale.latitude <= 90 &&
-                      locale.longitude >= -180 && locale.longitude <= 180) {
-                    updatedLocale = locale;
-                  } else {
+                if (locale.latitude && locale.longitude && 
+                    locale.latitude !== 0 && locale.longitude !== 0 &&
+                    !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                    locale.latitude >= -90 && locale.latitude <= 90 &&
+                    locale.longitude >= -180 && locale.longitude <= 180) {
+                  updatedLocale = locale;
+                } else {
                     // Try to fetch coordinates if missing
-                    const realCoords = await fetchRealCoords(
-                      locale.name, 
-                      locale.countryCode,
-                      googleGeocodeCacheRef.current,
-                      locale.description
-                    );
-                    
-                    if (realCoords) {
-                      updatedLocale = {
-                        ...locale,
-                        latitude: realCoords.lat,
-                        longitude: realCoords.lon,
-                      };
-                    } else {
-                      updatedLocale = await geocodeLocale(locale);
-                    }
-                  }
-
-                  const userLat = userLocation.latitude;
-                  const userLon = userLocation.longitude;
-                  const localeLat = updatedLocale.latitude;
-                  const localeLon = updatedLocale.longitude;
-                  
-                  // Validate coordinates
-                  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                      isNaN(localeLat) || isNaN(localeLon) ||
-                      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-                    return {
-                      ...updatedLocale,
-                      distanceKm: locale.distanceKm || null,
-                    };
-                  }
-                  
-                  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-                    return {
-                      ...updatedLocale,
-                      distanceKm: locale.distanceKm || null,
-                    };
-                  }
-                  
-                  // Calculate driving distance
-                  const distanceKm = await getLocaleDistanceKm(
-                    updatedLocale._id.toString(),
-                    userLat,
-                    userLon,
-                    localeLat,
-                    localeLon
+                  const realCoords = await fetchRealCoords(
+                    locale.name, 
+                    locale.countryCode,
+                    googleGeocodeCacheRef.current,
+                    locale.description
                   );
-
-                  drivingDistanceCalculatedRef.current.add(locale._id);
                   
+                  if (realCoords) {
+                    updatedLocale = {
+                      ...locale,
+                      latitude: realCoords.lat,
+                      longitude: realCoords.lon,
+                    };
+                  } else {
+                    updatedLocale = await geocodeLocale(locale);
+                  }
+                }
+
+                const userLat = userLocation.latitude;
+                const userLon = userLocation.longitude;
+                const localeLat = updatedLocale.latitude;
+                const localeLon = updatedLocale.longitude;
+                
+                  // Validate coordinates
+                if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
+                    isNaN(localeLat) || isNaN(localeLon) ||
+                    localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
                   return {
                     ...updatedLocale,
-                    distanceKm: distanceKm || locale.distanceKm || null,
+                      distanceKm: locale.distanceKm || null,
                   };
-                })
-              );
-              
+                }
+                
+                if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+                    userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+                  return {
+                    ...updatedLocale,
+                      distanceKm: locale.distanceKm || null,
+                  };
+                }
+                
+                  // Calculate driving distance
+                const distanceKm = await getLocaleDistanceKm(
+                  updatedLocale._id.toString(),
+                  userLat,
+                  userLon,
+                  localeLat,
+                  localeLon
+                );
+
+                  drivingDistanceCalculatedRef.current.add(locale._id);
+
+                return {
+                  ...updatedLocale,
+                    distanceKm: distanceKm || locale.distanceKm || null,
+                };
+              })
+            );
+            
               // Update distances in-place
-              batchResults.forEach((result, index) => {
-                if (result.status === 'fulfilled') {
+            batchResults.forEach((result, index) => {
+              if (result.status === 'fulfilled') {
                   updatedLocales.set(result.value._id, result.value);
-                } else {
-                  logger.error(`Failed to process locale ${batch[index]?.name}:`, result.reason);
+              } else {
+                logger.error(`Failed to process locale ${batch[index]?.name}:`, result.reason);
                   updatedLocales.set(batch[index]._id, batch[index]);
                 }
               });
               
               // Small delay between batches
               if (i + BATCH_SIZE < localesToCalculate.length) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-              }
+              await new Promise(resolve => setTimeout(resolve, 200));
             }
-            
-            if (!isMountedRef.current) {
-              setCalculatingDistances(false);
-              isSearchingRef.current = false;
-              return;
-            }
-            
+          }
+          
+          if (!isMountedRef.current) {
+            setCalculatingDistances(false);
+            isSearchingRef.current = false;
+            return;
+          }
+          
             // Update distances in-place in the sorted array
             const updatedSorted = allLocalesSortedRef.current.map(locale => {
               const updated = updatedLocales.get(locale._id);
@@ -1352,9 +1353,9 @@ export default function LocaleScreen() {
             
             setCalculatingDistances(false);
             
-            if (__DEV__) {
+          if (__DEV__) {
               logger.debug(`✅ STAGE 2 complete: Driving distances calculated for first ${STAGE2_LIMIT} locales`);
-            }
+          }
           }
           
           return;
@@ -1380,8 +1381,8 @@ export default function LocaleScreen() {
               });
             });
           }
-          setLoadingLocales(false);
-          setLoading(false);
+            setLoadingLocales(false);
+            setLoading(false);
           loadedOnceRef.current = true;
         }
       } else {
@@ -1635,14 +1636,14 @@ export default function LocaleScreen() {
       
       // PRIORITY 2: A in same city, B not - A comes first
       if (aInSameCity && !bInSameCity) {
-        return -1;
-      }
-      
+          return -1;
+        }
+        
       // PRIORITY 3: B in same city, A not - B comes first
       if (bInSameCity && !aInSameCity) {
-        return 1;
-      }
-      
+          return 1;
+        }
+        
       // PRIORITY 4: Same region/state (but different city) - sort by distance
       if (aInSameRegion && bInSameRegion) {
         const INFINITY = Number.POSITIVE_INFINITY;
@@ -2041,6 +2042,9 @@ export default function LocaleScreen() {
     // Store in single source of truth ref
     allLocalesSortedRef.current = finalSorted;
     
+    // CACHE: Persist sorted data for instant restore on back navigation
+    localeCache.set(finalSorted, snapshot);
+    
     setAllLocalesWithDistances(finalSorted);
     
     // Update displayed locales by slicing from single source of truth
@@ -2054,6 +2058,40 @@ export default function LocaleScreen() {
     const filtered = applyFilters(firstPage, false);
     setFilteredLocales(filtered);
   }, [activeTab, allLocalesWithDistances, createLocationSnapshot, sortLocalesWithSnapshot, applyFilters]);
+
+  // CACHE CHECK: Restore from cache on mount (prevents refetch on back navigation)
+  // This runs after createLocationSnapshot and applyFilters are defined
+  useEffect(() => {
+    if (activeTab !== 'locale' || adminLocales.length > 0) {
+      // Skip if not on locale tab or already have data
+      return;
+    }
+    
+    // Check cache before fetching
+    const snapshot = createLocationSnapshot();
+    if (snapshot && localeCache.isValid(snapshot.snapshotKey)) {
+      const cached = localeCache.get();
+      if (cached) {
+        logger.debug('✅ Restoring locales from cache on mount (instant restore)');
+        // Restore instantly from cache
+        allLocalesSortedRef.current = cached.locales;
+        setAllLocalesWithDistances(cached.locales);
+        const firstPage = cached.locales.slice(0, ITEMS_PER_PAGE);
+        setAdminLocales(firstPage);
+        setDisplayedPage(1);
+        setHasMore(cached.locales.length > ITEMS_PER_PAGE);
+        setTotalPages(Math.ceil(cached.locales.length / ITEMS_PER_PAGE));
+        locationSnapshotRef.current = cached.snapshot;
+        setLoadingLocales(false);
+        setLoading(false);
+        // Apply filters to first page
+        const filtered = applyFilters(firstPage, false);
+        setFilteredLocales(filtered);
+        // Skip loadAdminLocales since we restored from cache
+        return;
+      }
+    }
+  }, [activeTab, createLocationSnapshot, applyFilters, adminLocales.length]);
 
   useEffect(() => {
     // Reload saved locales when tab changes
@@ -2081,6 +2119,29 @@ export default function LocaleScreen() {
       // Only refresh saved locales (lightweight)
       loadSavedLocales();
       
+      // CACHE CHECK: Restore from cache if available (prevents refetch on back navigation)
+      const snapshot = createLocationSnapshot();
+      if (snapshot && localeCache.isValid(snapshot.snapshotKey)) {
+        const cached = localeCache.get();
+        if (cached && adminLocales.length === 0) {
+          // Only restore if we don't have data in state (fresh mount)
+          logger.debug('✅ Restoring locales from cache on focus (instant restore)');
+          allLocalesSortedRef.current = cached.locales;
+          setAllLocalesWithDistances(cached.locales);
+          const firstPage = cached.locales.slice(0, ITEMS_PER_PAGE);
+          setAdminLocales(firstPage);
+          setDisplayedPage(1);
+          setHasMore(cached.locales.length > ITEMS_PER_PAGE);
+          setTotalPages(Math.ceil(cached.locales.length / ITEMS_PER_PAGE));
+          locationSnapshotRef.current = cached.snapshot;
+          setLoadingLocales(false);
+          setLoading(false);
+          const filtered = applyFilters(firstPage, false);
+          setFilteredLocales(filtered);
+          return; // Skip fetch if cache restored
+        }
+      }
+      
       // Always load admin locales on focus if:
       // 1. We have no data (initial load), OR
       // 2. We have data but no distances calculated (user location became available)
@@ -2099,7 +2160,7 @@ export default function LocaleScreen() {
         }
         loadAdminLocales(true);
       }
-    }, [loadSavedLocales, loadAdminLocales, adminLocales, userLocation, locationPermissionGranted]) // Include dependencies to check distance status
+    }, [loadSavedLocales, loadAdminLocales, adminLocales, userLocation, locationPermissionGranted, createLocationSnapshot, applyFilters]) // Include dependencies to check distance status
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -2575,6 +2636,9 @@ export default function LocaleScreen() {
     
     if (!isMountedRef.current) return;
     
+    // CACHE: Invalidate cache on manual refresh
+    localeCache.invalidate();
+    
     setRefreshing(true);
     try {
       currentPageRef.current = 1;
@@ -2629,6 +2693,9 @@ export default function LocaleScreen() {
       dispatchFilter({ type: 'RESET' });
       setSearchQuery('');
       
+      // CACHE: Invalidate cache when filters are cleared
+      localeCache.invalidate();
+      
       // Reset pagination
       currentPageRef.current = 1;
       setHasMore(false);
@@ -2673,6 +2740,9 @@ export default function LocaleScreen() {
       // Close dropdowns
       setShowCountryDropdown(false);
       setShowStateDropdown(false);
+      
+      // CACHE: Invalidate cache when filters change
+      localeCache.invalidate();
       
       // Reset pagination cleanly when filters change
       currentPageRef.current = 1;

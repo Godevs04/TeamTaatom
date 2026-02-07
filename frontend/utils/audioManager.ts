@@ -17,12 +17,17 @@ class AudioManager {
   }
 
   async stopAll() {
-    if (this.currentSound) {
-      await this.currentSound.stopAsync().catch(() => {});
-      await this.currentSound.unloadAsync().catch(() => {});
-      this.currentSound = null;
-      this.currentPostId = null;
-      this.notifyListeners(null);
+    const sound = this.currentSound;
+    this.currentSound = null;
+    this.currentPostId = null;
+    this.notifyListeners(null);
+    if (sound) {
+      try {
+        await sound.stopAsync();
+      } catch (_) {}
+      try {
+        await sound.unloadAsync();
+      } catch (_) {}
       logger.debug('Stopped all audio');
     }
   }

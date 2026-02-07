@@ -19,6 +19,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
+const TRIP_GAP_DAYS = 7;
+
+function countTripsFromLocations(locations: Array<{ date?: string }>): number {
+  if (!locations?.length) return 0;
+  const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+  if (sorted.length === 0) return 0;
+  let trips = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].date!).getTime();
+    const curr = new Date(sorted[i].date!).getTime();
+    if ((curr - prev) / (24 * 60 * 60 * 1000) > TRIP_GAP_DAYS) trips += 1;
+  }
+  return trips;
+}
+
 // Follow state enum
 type FollowState = 'FOLLOWING' | 'REQUESTED' | 'FOLLOW';
 
@@ -38,6 +53,7 @@ export default function UserProfileScreen() {
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
   const [loadingShorts, setLoadingShorts] = useState(false);
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
+  const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   // Ref to track if we're in the middle of a follow/unfollow action
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
@@ -276,11 +292,14 @@ export default function UserProfileScreen() {
       // Fetch verified locations count (for all users, regardless of privacy)
       // This runs in parallel with posts/shorts fetching for better performance
       getTravelMapData(id as string)
-        .then((travelMapResult) => {
-          if (travelMapResult?.data?.statistics) {
-            setVerifiedLocationsCount(travelMapResult.data.statistics.totalLocations);
-            logger.debug(`Loaded ${travelMapResult.data.statistics.totalLocations} verified locations for user ${id}`);
-          }
+        .then((res) => {
+          const locs = Array.isArray(res?.locations) ? res.locations : [];
+          const total = res?.statistics?.totalLocations ?? locs.length;
+          setVerifiedLocationsCount(total);
+          setVerifiedLocations(locs.map((l: unknown) => {
+            const item = l as { latitude: number; longitude: number; address?: string; date?: string };
+            return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
+          }));
         })
         .catch((err) => {
           logger.debug('Error fetching verified locations (non-critical):', err);
@@ -400,7 +419,8 @@ export default function UserProfileScreen() {
     setFollowRequestSent(false);
     setFollowState('FOLLOW');
     setShowWorldMap(false);
-    setVerifiedLocationsCount(null); // Reset verified locations count
+    setVerifiedLocationsCount(null);
+    setVerifiedLocations([]);
     // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
     // Fetch profile when ID changes
@@ -421,6 +441,15 @@ export default function UserProfileScreen() {
       }
     })();
   }, []);
+
+  const isOwnProfile = Boolean(currentUser && id && currentUser._id === id);
+  const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
+  const countriesCount = profile?.tripScore?.countries ? Object.keys(profile.tripScore.countries).length : 0;
+  const globeLocations = useMemo(() => {
+    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+    if (profile?.canViewLocations && profile?.locations?.length) return profile.locations;
+    return [];
+  }, [verifiedLocations, profile?.canViewLocations, profile?.locations]);
 
   useFocusEffect(
     useCallback(() => {
@@ -654,15 +683,13 @@ export default function UserProfileScreen() {
           </Pressable>
         )}
 
-        {/* My Location Card - Premium Design */}
+        {/* Location Card - unified: base, verified summary, trips summary, globe */}
         <Pressable 
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => {
-            // Navigate to all verified locations map if available
             if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
               router.push(`/map/all-locations?userId=${id}`);
             } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
-              // Fallback to old world map if verified locations not available
               setShowWorldMap(true);
             }
           }}
@@ -672,31 +699,39 @@ export default function UserProfileScreen() {
               <Ionicons name="globe" size={24} color={profileTheme.accent} />
             </View>
             <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
+              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>
+                {isOwnProfile ? 'My Location' : 'Their Location'}
+              </Text>
               <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                  ? `${verifiedLocationsCount} verified locations visited`
-                  : profile.canViewLocations && profile.locations && profile.locations.length > 0
-                  ? `${profile.locations.length} locations visited`
-                  : profile.canViewLocations 
-                    ? 'No locations yet'
-                    : profile.profileVisibility === 'followers' 
-                    ? 'Follow to view locations'
-                    : profile.profileVisibility === 'private'
-                    ? 'Follow request pending to view locations'
-                    : 'Follow to view locations'}
+                {isOwnProfile ? 'Your verified travel' : 'Their verified travel'}
               </Text>
             </View>
             {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
               <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
             ) : null}
           </View>
+          <View style={styles.locationCardBody}>
+            <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
+              {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                : 'No verified travel summary yet'}
+            </Text>
+            {countriesCount > 0 ? (
+              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
+                {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
+              </Text>
+            ) : null}
+          </View>
           <View style={styles.locationGlobeContainer}>
-            {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
-              <RotatingGlobe 
-                locations={profile.locations || []} 
-                size={140} 
-              />
+            {globeLocations.length > 0 ? (
+              <RotatingGlobe locations={globeLocations} size={140} />
+            ) : !profile.canViewLocations ? (
+              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                <Ionicons name="lock-closed-outline" size={32} color={profileTheme.textSecondary} />
+                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginTop: 8, textAlign: 'center' }]}>
+                  Follow to view locations
+                </Text>
+              </View>
             ) : (
               <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
                 <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
@@ -1174,7 +1209,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  locationCardBody: {
+    marginBottom: 4,
   },
   locationIconContainer: {
     width: 48,

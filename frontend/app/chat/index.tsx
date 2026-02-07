@@ -2179,11 +2179,30 @@ export default function ChatModal() {
   }, [showGlobalCallScreen, globalCallState.otherUserId]);
 
   // Helper to fetch chat and messages - OPTIMIZED for performance
-  const openChatWithUser = async (user: any) => {
+  const openChatWithUser = async (userArg: any) => {
     const startTime = Date.now();
     setChatLoading(true);
     setError(null);
     try {
+      // Normalize: accept id string (e.g. admin chat when participants are ObjectIds) or user object
+      let user: { _id: string; fullName?: string; profilePic?: string } | null = null;
+      if (userArg != null) {
+        if (typeof userArg === 'string') {
+          user = { _id: userArg };
+        } else if (userArg && typeof userArg === 'object' && (userArg._id != null || userArg.id != null)) {
+          user = {
+            _id: String(userArg._id ?? userArg.id),
+            fullName: userArg.fullName,
+            profilePic: userArg.profilePic,
+          };
+        }
+      }
+      if (!user || !user._id) {
+        setError('Cannot open chat: user not found.');
+        setShowErrorAlert(true);
+        setChatLoading(false);
+        return;
+      }
       logger.debug('Opening chat with user:', user._id);
       
       // Add timeout to prevent infinite loading
@@ -2273,7 +2292,7 @@ export default function ChatModal() {
         if (errorMessage.includes('block')) {
           setError('You cannot chat with this user. They may have blocked you or you may have blocked them.');
           setIsBlockedError(true);
-          setBlockedUserId(user._id);
+          setBlockedUserId((typeof userArg === 'string' ? userArg : userArg?._id) ?? null);
         } else {
           setError('You cannot chat with this user. They may have blocked you or you may have blocked them.');
           setIsBlockedError(false);
@@ -2398,11 +2417,14 @@ export default function ChatModal() {
     }
   }, [params.userId]);
 
-  // When user is selected from inbox or search, fetch chat and messages
+  // When user is selected from inbox or search, fetch chat and messages.
+  // Skip if we already have this chat open (e.g. opened from list tap) to avoid double-fetch and stuck loading.
   useEffect(() => {
-    if (selectedUser && !params.userId) {
-      openChatWithUser(selectedUser);
-    }
+    if (!selectedUser || params.userId) return;
+    const otherId = normalizeId(selectedUser._id ?? (selectedUser as any).id);
+    const chatAlreadyOpen = activeChat?.participants?.some((p: any) => normalizeId(p?._id ?? p) === otherId);
+    if (chatAlreadyOpen) return;
+    openChatWithUser(selectedUser);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
