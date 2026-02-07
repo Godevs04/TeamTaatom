@@ -116,6 +116,7 @@ export default function TabsLayout() {
         name="home"
         options={{
           title: 'Home',
+          tabBarAccessibilityLabel: 'Home tab',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home" size={size} color={color} />
           ),
@@ -125,6 +126,7 @@ export default function TabsLayout() {
         name="shorts"
         options={{
           title: 'Shorts',
+          tabBarAccessibilityLabel: 'Shorts tab',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="play-circle" size={size} color={color} />
           ),
@@ -134,6 +136,7 @@ export default function TabsLayout() {
         name="post"
         options={{
           title: 'Post',
+          tabBarAccessibilityLabel: 'Create post tab',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="add-circle" size={size} color={color} />
           ),
@@ -143,6 +146,7 @@ export default function TabsLayout() {
         name="locale"
         options={{
           title: 'Locale',
+          tabBarAccessibilityLabel: 'Locale tab',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="location" size={size} color={color} />
           ),
@@ -152,6 +156,7 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
+          tabBarAccessibilityLabel: 'Profile tab',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" size={size} color={color} />
           ),

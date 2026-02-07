@@ -502,7 +502,7 @@ const updateProfile = async (req, res) => {
       name: error.name,
       stack: error.stack,
       userId: req.params.id,
-      body: req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
       hasFile: !!req.file
     });
     

@@ -63,7 +63,10 @@ export default function NavBar(props: NavBarProps) {
       }}>
         {shouldShowBack && (
           <TouchableOpacity 
-            onPress={backHandler} 
+            onPress={backHandler}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            accessibilityHint="Returns to the previous screen"
             style={{ 
               marginRight: isTablet ? theme.spacing.md : theme.spacing.sm,
               // Minimum 44x44 touch target for iOS, 48x48 for Android
@@ -88,7 +91,10 @@ export default function NavBar(props: NavBarProps) {
             />
           </TouchableOpacity>
         )}
-        <Text style={{
+        <Text
+          accessibilityRole="header"
+          accessibilityLabel={title}
+          style={{
           flex: 1,
           fontSize: isTablet ? theme.typography.h2.fontSize : 22,
           fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),

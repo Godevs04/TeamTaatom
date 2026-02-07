@@ -260,7 +260,7 @@ const uploadLocale = async (req, res) => {
       hasFile: !!req.file,
       fileMimetype: req.file?.mimetype,
       fileSize: req.file?.size,
-      body: req.body
+      bodyKeys: req.body ? Object.keys(req.body) : [],
     });
 
     if (!req.file) {

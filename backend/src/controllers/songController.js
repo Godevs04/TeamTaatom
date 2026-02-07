@@ -169,7 +169,7 @@ const uploadSongFile = async (req, res) => {
       imageMimetype: req.files?.image?.[0]?.mimetype,
       songFileSize: req.files?.song?.[0]?.size,
       imageFileSize: req.files?.image?.[0]?.size,
-      body: req.body
+      bodyKeys: req.body ? Object.keys(req.body) : [],
     });
 
     if (!req.files?.song?.[0]) {

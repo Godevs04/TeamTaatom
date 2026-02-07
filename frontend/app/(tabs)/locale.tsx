@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -38,6 +39,8 @@ import { theme } from '../../constants/theme';
 import axios from 'axios';
 import { getGoogleMapsApiKey } from '../../utils/maps';
 import { localeCache } from '../../cache/localeCache';
+import { ErrorBoundary } from '../../utils/errorBoundary';
+import { trackFeatureUsage } from '../../services/analytics';
 
 const logger = createLogger('LocaleScreen');
 
@@ -426,6 +429,7 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
 };
 
 export default function LocaleScreen() {
+  const { showSuccess, showError, showInfo } = useAlert();
   const { handleScroll } = useScrollToHideNav();
   const [savedLocales, setSavedLocales] = useState<Locale[]>([]);
   const [adminLocales, setAdminLocales] = useState<Locale[]>([]);
@@ -2202,7 +2206,7 @@ export default function LocaleScreen() {
       // Deduplicate: Check if already saved
       if (locales.find(l => l && l._id === localeId)) {
         if (isMountedRef.current) {
-          Alert.alert('Already Saved', 'This locale is already in your saved list');
+          showInfo('This locale is already in your saved list', 'Already Saved');
         }
         return;
       }
@@ -2229,16 +2233,16 @@ export default function LocaleScreen() {
         setSavedLocales(sortedLocales);
         // Emit event to sync with detail page
         savedEvents.emitChanged();
-        Alert.alert('Saved', 'Locale saved successfully');
+        showSuccess('Locale saved successfully', 'Saved');
       }
     } catch (error) {
       if (!isMountedRef.current) return;
       logger.error('Error saving locale', error);
-      Alert.alert('Error', 'Failed to save locale');
+      showError('Failed to save locale');
     } finally {
       bookmarkingKeysRef.current.delete(localeId);
     }
-  }, [sortLocalesByDistance]);
+  }, [sortLocalesByDistance, showSuccess, showError, showInfo]);
   
   // Bookmark Stability: Atomic read-modify-write
   const unsaveLocale = useCallback(async (localeId: string) => {
@@ -2283,16 +2287,16 @@ export default function LocaleScreen() {
         setSavedLocales(sortedLocales);
         // Emit event to sync with detail page
         savedEvents.emitChanged();
-        Alert.alert('Removed', 'Locale removed from saved list');
+        showSuccess('Locale removed from saved list', 'Removed');
       }
     } catch (error) {
       if (!isMountedRef.current) return;
       logger.error('Error unsaving locale', error);
-      Alert.alert('Error', 'Failed to remove locale');
+      showError('Failed to remove locale');
     } finally {
       bookmarkingKeysRef.current.delete(localeId);
     }
-  }, [sortLocalesByDistance]);
+  }, [sortLocalesByDistance, showSuccess, showError]);
   
   const isLocaleSaved = (localeId: string): boolean => {
     return savedLocales.some(l => l._id === localeId);
@@ -3176,6 +3180,7 @@ export default function LocaleScreen() {
         onPress={() => {
           // Navigate to locale detail - Legacy flow
           try {
+            trackFeatureUsage('locale_open', { locale_id: locale._id });
             router.push({
               pathname: '/tripscore/countries/[country]/locations/[location]',
               params: {
@@ -3192,7 +3197,7 @@ export default function LocaleScreen() {
             });
           } catch (error) {
             logger.error('Error navigating to locale detail:', error);
-            Alert.alert('Error', 'Failed to open locale details');
+            showError('Failed to open locale details');
           }
         }}
       >
@@ -3344,6 +3349,7 @@ export default function LocaleScreen() {
         onPress={() => {
           // Navigate to locale detail - Legacy flow
           try {
+            trackFeatureUsage('locale_open', { locale_id: locale._id });
             router.push({
               pathname: '/tripscore/countries/[country]/locations/[location]',
               params: {
@@ -3360,7 +3366,7 @@ export default function LocaleScreen() {
             });
           } catch (error) {
             logger.error('Error navigating to locale detail:', error);
-            Alert.alert('Error', 'Failed to open locale details');
+            showError('Failed to open locale details');
           }
         }}
       >
@@ -3734,6 +3740,7 @@ export default function LocaleScreen() {
   }
 
   return (
+    <ErrorBoundary level="route">
     <SafeAreaView 
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
@@ -3924,6 +3931,7 @@ export default function LocaleScreen() {
       {renderFilterModal()}
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </ErrorBoundary>
   );
 }
 

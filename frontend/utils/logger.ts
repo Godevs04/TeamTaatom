@@ -137,7 +137,7 @@ const sanitizeData = (data: any, visited: WeakSet<object> = new WeakSet(), depth
 
     // Handle objects
     const sanitized: any = {};
-    const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization', 'cookie', 'authToken'];
+    const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'authorization', 'cookie', 'authToken', 'refreshToken', 'accessToken', 'csrfToken', 'jwt', 'founder_token'];
     
     // Get keys and limit processing
     let keys: string[] = [];
@@ -166,8 +166,9 @@ const sanitizeData = (data: any, visited: WeakSet<object> = new WeakSet(), depth
           continue;
         }
         
-        // Redact sensitive fields
-        if (sensitiveFields.includes(key)) {
+        // Redact sensitive fields (exact match or key contains token/password/secret)
+        const keyLower = key.toLowerCase();
+        if (sensitiveFields.includes(key) || keyLower.includes('token') || keyLower.includes('password') || keyLower.includes('secret')) {
           sanitized[key] = '[REDACTED]';
           continue;
         }
