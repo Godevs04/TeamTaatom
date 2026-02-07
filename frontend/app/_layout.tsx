@@ -25,7 +25,6 @@ import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
-import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
@@ -203,35 +202,6 @@ function RootLayoutInner() {
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     }).catch(err => logger.error('Error setting audio mode:', err));
-  }, []);
-
-  // App Tracking Transparency (ATT) - iOS 14.5+
-  useEffect(() => {
-    if (Platform.OS === 'ios') {
-      const requestTrackingPermission = async () => {
-        try {
-          const { status } = await TrackingTransparency.requestTrackingPermissionsAsync();
-          if (status === 'granted') {
-            logger.debug('Tracking permission granted');
-            // Initialize analytics or tracking services here if needed
-            // Example: analyticsService.enableTracking();
-          } else {
-            logger.debug('Tracking permission denied');
-            // App still functions normally, just without tracking
-          }
-        } catch (error) {
-          logger.error('Error requesting tracking permission:', error);
-        }
-      };
-      
-      // Request permission after a short delay to ensure app is ready
-      // Best practice: Request after user has used the app a bit (better acceptance rate)
-      const timer = setTimeout(() => {
-        requestTrackingPermission();
-      }, 2000);
-      
-      return () => clearTimeout(timer);
-    }
   }, []);
 
   useEffect(() => {
