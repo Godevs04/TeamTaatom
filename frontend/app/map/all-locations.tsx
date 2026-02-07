@@ -42,6 +42,9 @@ export default function AllLocationsMap() {
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
   const userId = params.userId as string;
+  const userNameParam = params.userName as string | undefined;
+  const displayName = userNameParam ? decodeURIComponent(userNameParam) : null;
+  const headerTitle = displayName ? `${displayName}'s locations` : 'My Travel Locations';
   const mapRef = useRef<any>(null);
   const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
 
@@ -530,13 +533,13 @@ export default function AllLocationsMap() {
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Travel Locations</Text>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
-            Loading your travel locations...
+            {displayName ? `Loading ${displayName}'s locations...` : 'Loading your travel locations...'}
           </Text>
         </View>
       </SafeAreaView>
@@ -551,7 +554,7 @@ export default function AllLocationsMap() {
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Travel Locations</Text>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.errorContainer}>
@@ -577,7 +580,7 @@ export default function AllLocationsMap() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Travel Locations</Text>
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
         <View style={styles.placeholder} />
       </View>
 
