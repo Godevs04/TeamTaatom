@@ -13,15 +13,18 @@ interface Location {
 interface RotatingGlobeProps {
   locations: Location[];
   size?: number;
+  onPress?: () => void;
   onLocationPress?: (location: Location) => void;
 }
 
-export default function RotatingGlobe({ locations, size = 24, onLocationPress }: RotatingGlobeProps) {
+export default function RotatingGlobe({ locations, size = 24, onPress, onLocationPress }: RotatingGlobeProps) {
   const { theme } = useTheme();
   const router = useRouter();
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const hasLocations = locations.length > 0;
 
   useEffect(() => {
+    if (!hasLocations) return;
     const startRotation = () => {
       Animated.loop(
         Animated.timing(rotateAnim, {
@@ -31,9 +34,8 @@ export default function RotatingGlobe({ locations, size = 24, onLocationPress }:
         })
       ).start();
     };
-
     startRotation();
-  }, [rotateAnim]);
+  }, [rotateAnim, hasLocations]);
 
   const rotation = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -50,27 +52,34 @@ export default function RotatingGlobe({ locations, size = 24, onLocationPress }:
   });
 
   const handlePress = () => {
-    if (locations.length > 0 && onLocationPress) {
-      // If user has posted locations, use the callback
-      onLocationPress(locations[0]);
-    } else {
-      // If no posted locations, navigate to current location map
-      router.push('/map/current-location');
+    if (!hasLocations) return;
+    if (onPress) {
+      onPress();
+      return;
     }
+    if (onLocationPress) {
+      onLocationPress(locations[0]);
+      return;
+    }
+    router.push('/map/current-location');
   };
 
+  if (!hasLocations) {
+    return (
+      <View style={styles.container}>
+        <Ionicons name="globe-outline" size={size} color={theme.colors.primary} />
+      </View>
+    );
+  }
+
   return (
-    <TouchableOpacity 
-      style={styles.container} 
+    <TouchableOpacity
+      style={styles.container}
       onPress={handlePress}
       activeOpacity={0.7}
     >
       <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-        <Ionicons 
-          name="earth" 
-          size={size} 
-          color={theme.colors.primary} 
-        />
+        <Ionicons name="earth" size={size} color={theme.colors.primary} />
       </Animated.View>
     </TouchableOpacity>
   );

@@ -123,6 +123,8 @@ export default function ShortsScreen() {
   // Guard to prevent duplicate navigation on rapid swipes
   const isNavigatingRef = useRef<boolean>(false);
   const lastNavigationUserIdRef = useRef<string | null>(null);
+  // When we blur with userId in params (e.g. tab switch), clear params on next focus so Shorts shows all users
+  const shouldClearParamsOnNextFocusRef = useRef<boolean>(false);
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
@@ -307,32 +309,32 @@ export default function ShortsScreen() {
   // CRITICAL: Refresh shorts feed when screen comes into focus (real-time updates after upload)
   useFocusEffect(
     useCallback(() => {
-      // Reset navigation guard when returning to screen
       isNavigatingRef.current = false;
       lastNavigationUserIdRef.current = null;
-      
-      // Refresh shorts feed when screen comes into focus (handles real-time updates after upload)
-      // Use a small delay to prevent unnecessary refreshes on every tab switch
-      // This ensures newly uploaded shorts appear immediately when user navigates to shorts tab
+
+      // If we left Shorts with userId (e.g. tab switch), clear params so we show all users' shorts
+      if (shouldClearParamsOnNextFocusRef.current) {
+        shouldClearParamsOnNextFocusRef.current = false;
+        router.replace('/(tabs)/shorts');
+      }
+
       const refreshTimer = setTimeout(() => {
-        // Only refresh if we're not filtering by a specific user (general feed)
         const userIdParam = params.userId;
         const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
         if (!shouldFilterByUser) {
           logger.debug('Shorts screen focused - refreshing feed for real-time updates');
-          // Use ref to avoid stale closure issues
           const loadFn = loadShortsRef.current;
-          if (loadFn) {
-            loadFn();
-          }
+          if (loadFn) loadFn();
         }
-      }, 300); // Small delay to prevent excessive refreshes on rapid tab switching
-      
+      }, 300);
+
       return () => {
         clearTimeout(refreshTimer);
-        // Cleanup on blur if needed
+        if (params.userId && typeof params.userId === 'string') {
+          shouldClearParamsOnNextFocusRef.current = true;
+        }
       };
-    }, [params.userId])
+    }, [params.userId, router])
   );
 
   useFocusEffect(
@@ -425,42 +427,21 @@ export default function ShortsScreen() {
   }, [pauseCurrentVideo]);
 
   // Handle back button press (UI or hardware)
-  // Pauses video then navigates back
-  // If userId is in params, navigate back to that profile page
-  // - If userId matches current user, go to own profile tab: /(tabs)/profile
-  // - If userId is different, go to other user's profile: /profile/${userId}
-  // Otherwise, use router.back() to go to previous screen
+  // When we came from a profile (userId in params): clear Shorts params then go back once.
+  // This pops Shorts and returns to that profile; back from profile then goes to previous screen (no loop).
+  // Clearing params ensures next time user opens Shorts tab they see all users' shorts.
   const handleBack = useCallback(async () => {
     pauseCurrentVideo();
-    
-    // If we came from a profile page (userId param exists), navigate back to that profile
+
     if (params.userId && typeof params.userId === 'string') {
-      // Check if this is the current user's own profile
-      let isOwnProfile = false;
-      try {
-        if (currentUser?._id) {
-          isOwnProfile = currentUser._id === params.userId;
-        } else {
-          // If currentUser not loaded yet, try to get it
-          const user = await getUserFromStorage();
-          isOwnProfile = user?._id === params.userId;
-        }
-      } catch (error) {
-        logger.debug('Error checking if own profile:', error);
-      }
-      
-      if (isOwnProfile) {
-        // Navigate to own profile tab
-        router.push('/(tabs)/profile');
-      } else {
-        // Navigate to other user's profile
-        router.push(`/profile/${params.userId}`);
-      }
-    } else {
-      // Otherwise, use normal back navigation
+      // Clear Shorts tab URL params so next time Shorts is opened it shows all users' shorts
+      router.replace('/(tabs)/shorts');
+      // One back: from Shorts -> Profile we came from (no extra push, so no loop)
       router.back();
+      return;
     }
-  }, [pauseCurrentVideo, router, params.userId, currentUser]);
+    router.back();
+  }, [pauseCurrentVideo, router, params.userId]);
 
   // Monitor network status for video quality adaptation
   // Wrapped with defensive error handling to prevent false quality downgrades

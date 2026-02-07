@@ -688,7 +688,8 @@ export default function UserProfileScreen() {
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => {
             if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-              router.push(`/map/all-locations?userId=${id}`);
+              const name = profile?.fullName || profile?.username || 'User';
+              router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
             } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
               setShowWorldMap(true);
             }
@@ -724,7 +725,16 @@ export default function UserProfileScreen() {
           </View>
           <View style={styles.locationGlobeContainer}>
             {globeLocations.length > 0 ? (
-              <RotatingGlobe locations={globeLocations} size={140} />
+              <RotatingGlobe
+                locations={globeLocations}
+                size={140}
+                onPress={() => {
+                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                    const name = profile?.fullName || profile?.username || 'User';
+                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                  }
+                }}
+              />
             ) : !profile.canViewLocations ? (
               <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
                 <Ionicons name="lock-closed-outline" size={32} color={profileTheme.textSecondary} />
