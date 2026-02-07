@@ -331,19 +331,18 @@ export const getTripScoreLocations = async (
 
 export interface TravelMapDataResponse {
   success: boolean;
-  data: {
-    locations: Array<{
-      number: number;
-      latitude: number;
-      longitude: number;
-      address: string;
-      date: string;
-    }>;
-    statistics: {
-      totalLocations: number;
-      totalDistance: number;
-      totalDays: number;
-    };
+  message?: string;
+  locations: Array<{
+    number: number;
+    latitude: number;
+    longitude: number;
+    address: string;
+    date: string;
+  }>;
+  statistics: {
+    totalLocations: number;
+    totalDistance: number;
+    totalDays: number;
   };
 }
 

@@ -485,7 +485,15 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // Check if song has required data - try s3Url first, then cloudinaryUrl as fallback
   const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
   if (!audioUrl) {
-    logger.warn('SongPlayer: Song missing audio URL', song);
+    // Only log in development - this is expected when a post has a song reference but no audio URL
+    // Don't send to Sentry as this is not an error condition
+    if (__DEV__) {
+      logger.debug('SongPlayer: Song missing audio URL (expected for posts without audio)', {
+        postId: post._id,
+        hasSong: !!song,
+        songId: song?._id
+      });
+    }
     return null;
   }
 

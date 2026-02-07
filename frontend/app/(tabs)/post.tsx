@@ -48,8 +48,10 @@ import { SongSelector } from '../../components/SongSelector';
 import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
+import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
 import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
+import { trackFeatureUsage } from '../../services/analytics';
 
 const logger = createLogger('PostScreen');
 
@@ -1638,6 +1640,7 @@ export default function PostScreen() {
       // Clear draft on successful post
       await clearDraft();
       
+      trackFeatureUsage('post_created', {});
       // Wait a moment to show 100% progress
       setTimeout(() => {
         clearUploadState();
@@ -2030,7 +2033,7 @@ export default function PostScreen() {
       
       // Clear draft on successful post
       await clearDraft();
-      
+      trackFeatureUsage('short_created', {});
       // Check if short requires verification (pending review)
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
@@ -2207,7 +2210,7 @@ export default function PostScreen() {
       
       // Clear draft on successful post
       await clearDraft();
-      
+      trackFeatureUsage('short_created', {});
       // Check if short requires verification (pending review)
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
       
@@ -2339,6 +2342,7 @@ export default function PostScreen() {
   };
 
   return (
+    <ErrorBoundary level="route">
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
       style={{ flex: 1 }}
@@ -4738,6 +4742,7 @@ export default function PostScreen() {
         />
       </View>
     </KeyboardAvoidingView>
+    </ErrorBoundary>
   );
 }
 

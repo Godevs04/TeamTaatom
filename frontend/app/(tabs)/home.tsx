@@ -36,6 +36,7 @@ import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
+import { ErrorBoundary } from '../../utils/errorBoundary';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -1008,6 +1009,7 @@ export default function HomeScreen() {
   }
 
   return (
+    <ErrorBoundary level="route">
     <View style={styles.container}>
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
@@ -1086,5 +1088,6 @@ export default function HomeScreen() {
       />
       </SafeAreaView>
     </View>
+    </ErrorBoundary>
   );
 }

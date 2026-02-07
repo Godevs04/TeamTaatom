@@ -42,6 +42,21 @@ import { theme } from '../../constants/theme';
 
 const logger = createLogger('ProfileScreen');
 
+const TRIP_GAP_DAYS = 7;
+
+function countTripsFromLocations(locations: Array<{ date?: string }>): number {
+  if (!locations?.length) return 0;
+  const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+  if (sorted.length === 0) return 0;
+  let trips = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].date!).getTime();
+    const curr = new Date(sorted[i].date!).getTime();
+    if ((curr - prev) / (24 * 60 * 60 * 1000) > TRIP_GAP_DAYS) trips += 1;
+  }
+  return trips;
+}
+
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -100,6 +115,7 @@ export default function ProfileScreen() {
   const [checkingUser, setCheckingUser] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
+  const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
@@ -151,6 +167,13 @@ export default function ProfileScreen() {
     }
   }, [isDark]);
 
+  const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
+  const countriesCount = useMemo(() => (profileData?.tripScore?.countries ? Object.keys(profileData.tripScore.countries).length : 0), [profileData?.tripScore?.countries]);
+  const globeLocations = useMemo(() => {
+    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+    return profileData?.locations || [];
+  }, [verifiedLocations, profileData?.locations]);
+
   const loadUnreadCount = useCallback(async () => {
     try {
       const response = await getUnreadCount();
@@ -170,6 +193,8 @@ export default function ProfileScreen() {
     
     isFetchingRef.current = true;
     setCheckingUser(true);
+    setVerifiedLocations([]);
+    setVerifiedLocationsCount(null);
     
     // Cancel previous request if any
     if (abortControllerRef.current) {
@@ -245,9 +270,19 @@ export default function ProfileScreen() {
       
       if (!isMountedRef.current) return;
 
-      // Handle verified locations count
-      if (travelMapResult.status === 'fulfilled' && travelMapResult.value?.data?.statistics) {
-        setVerifiedLocationsCount(travelMapResult.value.data.statistics.totalLocations);
+      // Handle verified locations (count + list for globe and trips) - backend returns { locations, statistics } at top level
+      if (travelMapResult.status === 'fulfilled' && travelMapResult.value) {
+        const raw = travelMapResult.value as { locations?: unknown[]; statistics?: { totalLocations?: number } };
+        const locs = Array.isArray(raw.locations) ? raw.locations : [];
+        const total = raw.statistics?.totalLocations ?? locs.length;
+        setVerifiedLocationsCount(total);
+        setVerifiedLocations(locs.map((l: unknown) => {
+          const item = l as { latitude: number; longitude: number; address?: string; date?: string };
+          return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
+        }));
+      } else {
+        setVerifiedLocationsCount(0);
+        setVerifiedLocations([]);
       }
       
       if (userPosts.status === 'fulfilled') {
@@ -1193,15 +1228,12 @@ export default function ProfileScreen() {
             {/* Divider */}
             <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
 
-            {/* My Location Section */}
+            {/* My Location Section - unified card */}
             <Pressable 
               style={styles.unifiedSection}
               onPress={() => {
                 const userId = user?._id || profileData?._id;
-                if (userId) {
-                  // Navigate to all verified locations map
-                  router.push(`/map/all-locations?userId=${userId}`);
-                }
+                if (userId) router.push(`/map/all-locations?userId=${userId}`);
               }}
             >
               <View style={styles.locationCardHeader}>
@@ -1211,21 +1243,30 @@ export default function ProfileScreen() {
                 <View style={styles.locationTextContainer}>
                   <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
                   <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                    {verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                      ? `${verifiedLocationsCount} verified locations visited`
-                      : profileData?.locations && profileData.locations.length > 0 
-                      ? `${profileData.locations.length} locations visited`
-                      : 'Add your home base'}
+                    Your verified travel
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
               </View>
+              <View style={styles.locationCardBody}>
+                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
+                  {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                    : verifiedLocationsCount === null
+                    ? 'Loading travel summary…'
+                    : (profileData?.tripScore?.totalScore ?? 0) > 0
+                    ? `TripScore ${profileData?.tripScore?.totalScore ?? 0} · Tap to view your travel map`
+                    : 'No verified locations yet. Post with locations to build your map.'}
+                </Text>
+                {countriesCount > 0 ? (
+                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
+                    {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
+                  </Text>
+                ) : null}
+              </View>
               <View style={styles.locationGlobeContainer}>
-                {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profileData?.locations && profileData.locations.length > 0) ? (
-                  <RotatingGlobe 
-                    locations={profileData?.locations || []} 
-                    size={140} 
-                  />
+                {globeLocations.length > 0 ? (
+                  <RotatingGlobe locations={globeLocations} size={140} />
                 ) : (
                   <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
                     <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
@@ -1889,7 +1930,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  locationCardBody: {
+    marginBottom: 4,
   },
   locationIconContainer: {
     width: 48,

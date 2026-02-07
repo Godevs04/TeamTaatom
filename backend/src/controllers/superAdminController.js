@@ -21,6 +21,24 @@ const verifySuperAdminToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid token or inactive account.' })
     }
     
+    // Ensure permissions object exists with defaults if missing
+    if (!superAdmin.permissions || typeof superAdmin.permissions !== 'object') {
+      logger.warn(`SuperAdmin ${superAdmin._id} missing permissions object, initializing defaults`)
+      superAdmin.permissions = {
+        canManageUsers: true,
+        canManageContent: true,
+        canManageReports: true,
+        canManageModerators: true,
+        canViewLogs: true,
+        canManageSettings: true,
+        canViewAnalytics: true
+      }
+      // Save to database in background (don't await to avoid blocking)
+      superAdmin.save().catch(err => {
+        logger.error('Failed to save initialized permissions:', err)
+      })
+    }
+    
     req.superAdmin = superAdmin
     next()
   } catch (error) {
@@ -42,23 +60,40 @@ const verifySuperAdminToken = async (req, res, next) => {
 const checkPermission = (permissionName) => {
   return (req, res, next) => {
     try {
+      // Ensure superAdmin exists
+      if (!req.superAdmin) {
+        logger.error('Permission check failed: req.superAdmin is missing')
+        return sendError(res, 'AUTH_1001', 'Authentication required.', { required: permissionName })
+      }
+      
       // Founders have all permissions
       if (req.superAdmin.role === 'founder') {
         return next()
       }
       
-      // Check specific permission
-      if (!req.superAdmin.permissions || !req.superAdmin.permissions[permissionName]) {
-        return res.status(403).json({ 
-          message: 'Access denied. Insufficient permissions.',
+      // Ensure permissions object exists
+      if (!req.superAdmin.permissions || typeof req.superAdmin.permissions !== 'object') {
+        logger.warn(`SuperAdmin ${req.superAdmin._id} missing permissions object in checkPermission`)
+        return sendError(res, 'BIZ_7002', 'Access denied. Permissions not configured.', { 
           required: permissionName 
+        })
+      }
+      
+      // Check specific permission
+      const hasPermission = req.superAdmin.permissions[permissionName] === true
+      
+      if (!hasPermission) {
+        logger.warn(`SuperAdmin ${req.superAdmin._id} (role: ${req.superAdmin.role}) denied access to ${permissionName}`)
+        return sendError(res, 'BIZ_7002', 'Access denied. Insufficient permissions.', { 
+          required: permissionName,
+          role: req.superAdmin.role
         })
       }
       
       next()
     } catch (error) {
       logger.error('Permission check error:', error)
-      res.status(500).json({ message: 'Permission check failed.' })
+      return sendError(res, 'SRV_6001', 'Permission check failed.')
     }
   }
 }
