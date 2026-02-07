@@ -3091,9 +3091,8 @@ const getShorts = async (req, res) => {
 const createShort = async (req, res) => {
   try {
     logger.debug('createShort called');
-    logger.debug('req.file:', req.file);
-    logger.debug('req.body:', req.body);
-    
+    logger.debug('req.file:', req.file ? { fieldname: req.file.fieldname, size: req.file.size } : null);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       logger.debug('Validation errors:', errors.array());
@@ -3121,15 +3120,8 @@ const createShort = async (req, res) => {
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo, audioSource, copyrightAccepted, copyrightAcceptedAt } = req.body;
     logger.info('createShort - Received data:', {
       hasSongId: !!songId,
-      songId: songId,
-      audioSource: audioSource,
-      songStartTime: songStartTime,
-      songEndTime: songEndTime,
-      songVolume: songVolume,
-      // Log raw req.body to see what's actually being sent
-      rawBodyKeys: Object.keys(req.body),
-      rawSongId: req.body.songId,
-      rawAudioSource: req.body.audioSource
+      hasAudioSource: !!audioSource,
+      hasCopyrightAccepted: !!copyrightAccepted,
     });
     
     // Copyright validation for shorts

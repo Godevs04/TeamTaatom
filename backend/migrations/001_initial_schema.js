@@ -94,6 +94,22 @@ module.exports = {
     await createIndexIfNotExists('errorlogs', { userId: 1, timestamp: -1 }, { name: 'userId_1_timestamp_-1' });
     await createIndexIfNotExists('errorlogs', { resolved: 1, timestamp: -1 }, { name: 'resolved_1_timestamp_-1' });
 
+    // Locales collection indexes (CRITICAL for performance with 1000+ documents)
+    // Compound index for most common query: isActive + countryCode + sorting
+    await createIndexIfNotExists('locales', { isActive: 1, countryCode: 1, displayOrder: 1, createdAt: -1 }, { name: 'isActive_1_countryCode_1_displayOrder_1_createdAt_-1' });
+    // Compound index for isActive + stateCode filtering
+    await createIndexIfNotExists('locales', { isActive: 1, stateCode: 1 }, { name: 'isActive_1_stateCode_1' });
+    // Compound index for isActive + spotTypes filtering
+    await createIndexIfNotExists('locales', { isActive: 1, spotTypes: 1 }, { name: 'isActive_1_spotTypes_1' });
+    // Index for default active locales query (most common)
+    await createIndexIfNotExists('locales', { isActive: 1, createdAt: -1 }, { name: 'isActive_1_createdAt_-1' });
+    // Single field indexes (for queries that don't filter by isActive)
+    await createIndexIfNotExists('locales', { countryCode: 1 }, { name: 'countryCode_1' });
+    await createIndexIfNotExists('locales', { name: 1 }, { name: 'name_1' });
+    await createIndexIfNotExists('locales', { displayOrder: 1 }, { name: 'displayOrder_1' });
+    // Geospatial index for location-based queries (will be skipped if data format incompatible)
+    await createIndexIfNotExists('locales', { latitude: 1, longitude: 1 }, { name: 'latitude_1_longitude_1' });
+
     console.log('Migration 001_initial_schema: up');
   },
 

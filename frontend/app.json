@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.4",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "5",
+      "buildNumber": "7",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
@@ -55,7 +55,7 @@
     },
     "android": {
       "package": "com.taatom.app",
-      "versionCode": 5,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"

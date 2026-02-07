@@ -168,6 +168,14 @@ app.use(cors({
 // Cookie parser (needed for CSRF tokens)
 app.use(cookieParser());
 
+// Request ID for tracing (X-Request-Id header; do not log tokens or full body)
+const crypto = require('crypto');
+app.use((req, res, next) => {
+  req.id = req.get('x-request-id') || crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
+
 // Response compression middleware (compress all responses)
 app.use(compression({
   filter: (req, res) => {
