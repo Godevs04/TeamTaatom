@@ -1,4 +1,5 @@
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import logger from '../utils/logger'
 import { parseError } from '../utils/errorCodes'
 import rateLimiter from '../utils/rateLimiter'
@@ -237,10 +238,12 @@ api.interceptors.response.use(
         localStorage.removeItem('founder_token')
         delete api.defaults.headers.common['Authorization']
         csrfToken = null // Clear CSRF token on auth failure
-        
+        // Show session expired message before redirect
+        try {
+          toast.error('Session expired. Please sign in again.')
+        } catch (_) {}
         // Only redirect if not already on login page to prevent infinite loops
         if (window.location.pathname !== '/login') {
-          // Use a small delay to ensure state is cleared
           setTimeout(() => {
             window.location.href = '/login'
           }, 100)

@@ -69,6 +69,9 @@ EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE=1.0
 # Environment
 # Options: development, staging, production
 EXPO_PUBLIC_ENV=development
+
+# Log level (optional): debug | info | warn | error. Default: debug in dev, info in prod.
+EXPO_PUBLIC_LOG_LEVEL=debug
 ```
 
 ### App Store Submission URLs (Required for Production)
