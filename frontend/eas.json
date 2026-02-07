@@ -33,18 +33,21 @@
         "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "staging"
       }
     },
-    "production": {
-      "distribution": "store",
-      "ios": {
-        "simulator": false,
-        "buildConfiguration": "Release"
-      },
-      "android": {
-        "buildType": "app-bundle"
-      },
-      "env": {
-        "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
+    "build": {
+      "production": {
+        "distribution": "store",
+        "ios": {
+          "simulator": false,
+          "buildConfiguration": "Release"
+        },
+        "android": {
+          "buildType": "app-bundle",
+          "autoIncrement": false
+        },
+        "env": {
+          "EXPO_PUBLIC_ENV": "production",
+          "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production"
+        }
       }
     }
   },
