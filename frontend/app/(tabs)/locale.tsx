@@ -440,6 +440,8 @@ export default function LocaleScreen() {
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [showStateDropdown, setShowStateDropdown] = useState(false);
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
+  const [stateSearchQuery, setStateSearchQuery] = useState('');
   const [countries, setCountries] = useState<Country[]>([]);
   const [states, setStates] = useState<State[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
@@ -1437,6 +1439,9 @@ export default function LocaleScreen() {
       isSearchingRef.current = false;
     }
   }, [searchQuery, filters.countryCode, filters.stateCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Safe dependencies - excludes adminLocales to prevent recreation loops
+
+  const loadAdminLocalesRef = useRef(loadAdminLocales);
+  loadAdminLocalesRef.current = loadAdminLocales;
   
   // Geocode locale if coordinates are missing
   const geocodeLocale = useCallback(async (locale: Locale): Promise<Locale> => {
@@ -2152,15 +2157,14 @@ export default function LocaleScreen() {
       });
       const shouldLoad = !hasLocales || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
       
-      // Guard: Prevent reload loop when search returns empty results or calculation is in progress
+      // Guard: Prevent reload when only filters changed (load only on Search button or initial/focus restore)
       if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
-        // Reset loadedOnce flag to allow reload if distances are missing
         if (hasLocales && !hasDistances) {
           loadedOnceRef.current = false;
         }
-        loadAdminLocales(true);
+        loadAdminLocalesRef.current(true);
       }
-    }, [loadSavedLocales, loadAdminLocales, adminLocales, userLocation, locationPermissionGranted, createLocationSnapshot, applyFilters]) // Include dependencies to check distance status
+    }, [loadSavedLocales, adminLocales, userLocation, locationPermissionGranted, createLocationSnapshot, applyFilters]) // Exclude loadAdminLocales so filter changes don't re-run effect
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -2390,36 +2394,17 @@ export default function LocaleScreen() {
     }
     
     try {
-      // Close dropdown first to prevent UI issues
       setShowCountryDropdown(false);
-      
-      // Clear states immediately to prevent showing old states
+      setCountrySearchQuery('');
       if (isMountedRef.current) {
         setStates([]);
         setShowStateDropdown(false);
+        setLoadingStates(false);
       }
-      
-      // Update filter state
+      // Only update filter state; do not trigger list load (load only on Search button)
       dispatchFilter({ type: 'SET_COUNTRY', payload: { country: country.name, countryCode: country.code } });
-      
-      // Load states for the selected country (with error handling)
-      // Use setTimeout to ensure UI updates first, preventing white screen
-      setTimeout(async () => {
-        if (isMountedRef.current) {
-          try {
-            await loadStatesForCountry(country.code);
-          } catch (error) {
-            logger.error('Error in delayed states load:', error);
-            if (isMountedRef.current) {
-              setStates([]);
-              setLoadingStates(false);
-            }
-          }
-        }
-      }, 50); // Small delay to ensure UI updates first
     } catch (error) {
       logger.error('Error selecting country:', error);
-      // Ensure UI doesn't break even if there's an error
       if (isMountedRef.current) {
         setShowCountryDropdown(false);
         setShowStateDropdown(false);
@@ -2434,6 +2419,7 @@ export default function LocaleScreen() {
     try {
       dispatchFilter({ type: 'SET_STATE', payload: { stateProvince: state.name, stateCode: state.code } });
       setShowStateDropdown(false);
+      setStateSearchQuery('');
     } catch (error) {
       logger.error('Error selecting state:', error);
       if (isMountedRef.current) {
@@ -2810,6 +2796,18 @@ export default function LocaleScreen() {
     };
   }, [searchQuery, loadAdminLocales]);
 
+  const filteredCountriesForFilter = useMemo(() => {
+    const q = countrySearchQuery.trim().toLowerCase();
+    if (!q) return countries;
+    return countries.filter(c => c.name.toLowerCase().includes(q));
+  }, [countries, countrySearchQuery]);
+
+  const filteredStatesForFilter = useMemo(() => {
+    const q = stateSearchQuery.trim().toLowerCase();
+    if (!q) return states;
+    return states.filter(s => s.name.toLowerCase().includes(q));
+  }, [states, stateSearchQuery]);
+
   const renderFilterModal = () => {
     if (!showFilterModal) return null;
     
@@ -2818,7 +2816,11 @@ export default function LocaleScreen() {
         visible={showFilterModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowFilterModal(false)}
+        onRequestClose={() => {
+          setCountrySearchQuery('');
+          setStateSearchQuery('');
+          setShowFilterModal(false);
+        }}
       >
         <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
           <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
@@ -2827,7 +2829,11 @@ export default function LocaleScreen() {
         <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
           <TouchableOpacity 
             style={styles.backButton}
-            onPress={() => setShowFilterModal(false)}
+            onPress={() => {
+              setCountrySearchQuery('');
+              setStateSearchQuery('');
+              setShowFilterModal(false);
+            }}
           >
             <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
@@ -2888,33 +2894,65 @@ export default function LocaleScreen() {
                 borderColor: theme.colors.border,
                 shadowColor: theme.colors.text,
               }]}>
-                <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
-                  {countries.map((country, index) => (
+                <View style={[styles.countrySearchContainer, { 
+                  backgroundColor: theme.colors.surface,
+                  borderBottomColor: theme.colors.border,
+                }]}>
+                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                  <TextInput
+                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                    placeholder="Search countries..."
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={countrySearchQuery}
+                    onChangeText={setCountrySearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {countrySearchQuery.length > 0 && (
                     <TouchableOpacity
-                      key={country.code || index}
-                      style={[styles.dropdownItem, { 
-                        backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
-                        borderBottomColor: theme.colors.border,
-                      }]}
-                      onPress={() => {
-                        if (country && country.code) {
-                          handleCountrySelect(country).catch(err => {
-                            logger.error('Error in country selection:', err);
-                          });
-                        }
-                      }}
+                      onPress={() => setCountrySearchQuery('')}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      style={styles.countrySearchClear}
                     >
-                      <Text style={[styles.dropdownItemText, { 
-                        color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
-                        fontWeight: filters.countryCode === country.code ? '600' : '400',
-                      }]}>
-                        {country.name}
-                      </Text>
-                      {filters.countryCode === country.code && (
-                        <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
-                      )}
+                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
-                  ))}
+                  )}
+                </View>
+                <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {filteredCountriesForFilter.length > 0 ? (
+                    filteredCountriesForFilter.map((country, index) => (
+                      <TouchableOpacity
+                        key={country.code || index}
+                        style={[styles.dropdownItem, { 
+                          backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
+                          borderBottomColor: theme.colors.border,
+                        }]}
+                        onPress={() => {
+                          if (country && country.code) {
+                            handleCountrySelect(country).catch(err => {
+                              logger.error('Error in country selection:', err);
+                            });
+                          }
+                        }}
+                      >
+                        <Text style={[styles.dropdownItemText, { 
+                          color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
+                          fontWeight: filters.countryCode === country.code ? '600' : '400',
+                        }]}>
+                          {country.name}
+                        </Text>
+                        {filters.countryCode === country.code && (
+                          <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                        )}
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
+                      <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
+                        No countries match "{countrySearchQuery}"
+                      </Text>
+                    </View>
+                  )}
                 </ScrollView>
               </View>
             )}
@@ -2929,7 +2967,14 @@ export default function LocaleScreen() {
                 borderColor: theme.colors.border,
                 opacity: !filters.countryCode ? 0.5 : 1,
               }]}
-              onPress={() => filters.countryCode && setShowStateDropdown(!showStateDropdown)}
+              onPress={() => {
+                if (!filters.countryCode) return;
+                // Load states only when opening dropdown (no loading on country select)
+                if (!showStateDropdown && states.length === 0) {
+                  loadStatesForCountry(filters.countryCode);
+                }
+                setShowStateDropdown(!showStateDropdown);
+              }}
               disabled={!filters.countryCode}
             >
               <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
@@ -2955,28 +3000,60 @@ export default function LocaleScreen() {
                 borderColor: theme.colors.border,
                 shadowColor: theme.colors.text,
               }]}>
+                <View style={[styles.countrySearchContainer, { 
+                  backgroundColor: theme.colors.surface,
+                  borderBottomColor: theme.colors.border,
+                }]}>
+                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                  <TextInput
+                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                    placeholder="Search states..."
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={stateSearchQuery}
+                    onChangeText={setStateSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {stateSearchQuery.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setStateSearchQuery('')}
+                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      style={styles.countrySearchClear}
+                    >
+                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                  )}
+                </View>
                 {states.length > 0 ? (
-                  <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
-                    {states.map((state, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={[styles.dropdownItem, { 
-                          backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
-                          borderBottomColor: theme.colors.border,
-                        }]}
-                        onPress={() => handleStateSelect(state)}
-                      >
-                        <Text style={[styles.dropdownItemText, { 
-                          color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
-                          fontWeight: filters.stateCode === state.code ? '600' : '400',
-                        }]}>
-                          {state.name}
+                  <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                    {filteredStatesForFilter.length > 0 ? (
+                      filteredStatesForFilter.map((state, index) => (
+                        <TouchableOpacity
+                          key={state.code || index}
+                          style={[styles.dropdownItem, { 
+                            backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                            borderBottomColor: theme.colors.border,
+                          }]}
+                          onPress={() => handleStateSelect(state)}
+                        >
+                          <Text style={[styles.dropdownItemText, { 
+                            color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
+                            fontWeight: filters.stateCode === state.code ? '600' : '400',
+                          }]}>
+                            {state.name}
+                          </Text>
+                          {filters.stateCode === state.code && (
+                            <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                          )}
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
+                        <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
+                          No states match "{stateSearchQuery}"
                         </Text>
-                        {filters.stateCode === state.code && (
-                          <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
-                        )}
-                      </TouchableOpacity>
-                    ))}
+                      </View>
+                    )}
                   </ScrollView>
                 ) : (
                   <View style={[styles.dropdownItem, { 
@@ -4443,7 +4520,7 @@ const createStyles = () => {
     right: 0,
     borderRadius: 12,
     borderWidth: 1,
-    maxHeight: 200,
+    maxHeight: 256,
     zIndex: 1000,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -4500,6 +4577,25 @@ const createStyles = () => {
     fontSize: 16,
     marginLeft: 8,
     fontWeight: '500',
+  },
+  countrySearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
+  countrySearchIcon: {
+    marginRight: 10,
+  },
+  countrySearchInput: {
+    fontSize: 16,
+    flex: 1,
+    paddingVertical: 8,
+    paddingRight: 8,
+  },
+  countrySearchClear: {
+    padding: 4,
   },
   filterFooter: {
     paddingHorizontal: 20,
