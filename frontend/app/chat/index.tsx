@@ -1743,6 +1743,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
             <TouchableOpacity 
               onPress={handleSend} 
               style={styles.sendButton}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+              accessibilityHint="Sends the message in the input field"
             >
               <Ionicons 
                 name="send" 

@@ -1,63 +1,52 @@
 /**
  * Brevo (formerly Sendinblue) Email Service
- * 
- * Uses Brevo API for email sending - perfect for serverless platforms
- * that block SMTP ports.
+ *
+ * Uses Brevo REST API (no SDK) for email sending - avoids deprecated
+ * request/form-data/qs/tough-cookie dependency chain.
+ * POST https://api.brevo.com/v3/smtp/email
  */
 
-const SibApiV3Sdk = require('@sendinblue/client');
 const logger = require('./logger');
 
-// Initialize Brevo API client
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+
 const brevoApiKey = process.env.BREVO_API_KEY;
 const smtpFrom = process.env.SMTP_FROM || 'contact@taatom.com';
 
-let apiInstance = null;
+let apiKeyTrimmed = null;
 let isConfigured = false;
 
 if (brevoApiKey) {
-  // Trim whitespace that might cause issues
-  const trimmedKey = brevoApiKey.trim();
-  
-  // Validate API key format (Brevo keys are typically long alphanumeric strings)
-  if (trimmedKey.length < 30) {
-    logger.warn(`⚠️  BREVO_API_KEY appears to be too short (${trimmedKey.length} chars).`);
+  apiKeyTrimmed = brevoApiKey.trim();
+
+  if (apiKeyTrimmed.length < 30) {
+    logger.warn(`⚠️  BREVO_API_KEY appears to be too short (${apiKeyTrimmed.length} chars).`);
     logger.warn('   Brevo API keys are typically 40+ characters long.');
-    logger.warn('   Please verify your API key is complete and correct.');
     logger.warn('   Get your full API key from: https://app.brevo.com/settings/keys/api');
   }
-  
-  try {
-    apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-    apiInstance.setApiKey(SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey, trimmedKey);
-    isConfigured = true;
-    // Log configuration status (mask API key for security)
-    const maskedKey = trimmedKey.length > 8 
-      ? `${trimmedKey.substring(0, 4)}...${trimmedKey.substring(trimmedKey.length - 4)}`
+
+  isConfigured = true;
+  const maskedKey =
+    apiKeyTrimmed.length > 8
+      ? `${apiKeyTrimmed.substring(0, 4)}...${apiKeyTrimmed.substring(apiKeyTrimmed.length - 4)}`
       : '***';
-    logger.info(`✅ Brevo email service configured (API Key: ${maskedKey}, From: ${smtpFrom})`);
-  } catch (error) {
-    logger.error('❌ Failed to initialize Brevo client:', error.message);
-    isConfigured = false;
-  }
+  logger.info(`✅ Brevo email service configured (API Key: ${maskedKey}, From: ${smtpFrom})`);
 } else {
   logger.warn('⚠️  BREVO_API_KEY not found. Email functionality disabled.');
-  logger.warn('   Please set BREVO_API_KEY in your environment variables.');
-  logger.warn('   Check your .env file in the backend directory.');
-  logger.warn('   Example: BREVO_API_KEY=d2K7bZEGX0mqagjA');
+  logger.warn('   Set BREVO_API_KEY in your environment (e.g. backend/.env).');
 }
 
 /**
- * Send email using Brevo API
+ * Send email via Brevo REST API
  * @param {string} to - Recipient email address
  * @param {string} subject - Email subject
  * @param {string} html - HTML email content
  * @param {string} text - Plain text email content (optional)
- * @param {string} fromName - Sender name (optional, defaults to "TeamTaatom")
+ * @param {string} fromName - Sender name (optional, defaults to "Taatom")
  * @returns {Promise<Object>} - Success response with messageId
  */
 const sendEmail = async (to, subject, html, text = null, fromName = 'Taatom') => {
-  if (!isConfigured || !apiInstance) {
+  if (!isConfigured || !apiKeyTrimmed) {
     throw new Error('Brevo email service not configured. Please set BREVO_API_KEY in environment variables.');
   }
 
@@ -65,100 +54,64 @@ const sendEmail = async (to, subject, html, text = null, fromName = 'Taatom') =>
     throw new Error('SMTP_FROM not configured. Please set SMTP_FROM in environment variables.');
   }
 
-  try {
-    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-    
-    sendSmtpEmail.subject = subject;
-    sendSmtpEmail.htmlContent = html;
-    if (text) {
-      sendSmtpEmail.textContent = text;
-    }
-    
-    sendSmtpEmail.sender = {
-      name: fromName,
-      email: smtpFrom
-    };
-    
-    sendSmtpEmail.to = [{
-      email: to
-    }];
+  const body = {
+    sender: { name: fromName, email: smtpFrom },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html
+  };
+  if (text) body.textContent = text;
 
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    
-    // Brevo API response structure varies - check both possible locations
-    // The response might be: result.body.messageId or result.messageId
-    const messageId = result?.body?.messageId || result?.messageId || null;
-    
+  const response = await fetch(BREVO_API_URL, {
+    method: 'POST',
+    headers: {
+      'api-key': apiKeyTrimmed,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  const responseData = await response.json().catch(() => ({}));
+
+  if (response.ok) {
+    const messageId = responseData.messageId || null;
     if (messageId) {
       logger.info(`✅ Email sent via Brevo to ${to}: ${messageId}`);
     } else {
-      // Log the full response structure in development for debugging
       if (process.env.NODE_ENV === 'development') {
-        logger.debug('Brevo response structure:', JSON.stringify(result, null, 2));
+        logger.debug('Brevo response:', JSON.stringify(responseData, null, 2));
       }
-      logger.info(`✅ Email sent via Brevo to ${to} (messageId not available in response)`);
+      logger.info(`✅ Email sent via Brevo to ${to} (messageId not in response)`);
     }
-    
-    return {
-      success: true,
-      messageId: messageId,
-      service: 'brevo'
-    };
-  } catch (error) {
-    // Extract detailed error message from Brevo API response
-    let errorMessage = error.message || 'Unknown error';
-    let errorCode = 'UNKNOWN';
-    
-    if (error.response && error.response.body) {
-      const errorBody = error.response.body;
-      errorMessage = errorBody.message || errorMessage;
-      errorCode = errorBody.code || errorCode;
-      
-      logger.error('❌ Brevo API error:', {
-        code: errorCode,
-        message: errorMessage,
-        status: error.response.status,
-        details: errorBody
-      });
-      
-      // Provide user-friendly error messages
-      if (errorCode === 'unauthorized' || errorMessage.includes('Key not found') || errorMessage.includes('Invalid')) {
-        errorMessage = 'Brevo API key is invalid or not found. Please check BREVO_API_KEY in your .env file.';
-        logger.error('💡 Troubleshooting:');
-        logger.error('   1. Verify BREVO_API_KEY is set in backend/.env file');
-        logger.error('   2. Check that the API key is correct and complete');
-        logger.error('   3. Ensure there are no extra spaces, quotes, or newlines around the key');
-        logger.error('   4. Verify the API key in your Brevo dashboard: https://app.brevo.com/settings/keys/api');
-        logger.error('   5. Make sure the API key has "Send emails" permission');
-        logger.error('   6. Restart the server after updating .env file');
-        
-        // Show current key status (masked)
-        const currentKey = process.env.BREVO_API_KEY;
-        if (currentKey) {
-          const trimmed = currentKey.trim();
-          const masked = trimmed.length > 8 
-            ? `${trimmed.substring(0, 4)}...${trimmed.substring(trimmed.length - 4)}`
-            : '***';
-          logger.error(`   Current key in env: ${masked} (length: ${trimmed.length})`);
-          if (trimmed.length < 30) {
-            logger.error('   ⚠️  WARNING: API key seems too short. Brevo keys are usually 40+ characters.');
-            logger.error('   💡 The key might be incomplete. Get the full key from Brevo dashboard.');
-          }
-        } else {
-          logger.error('   ⚠️  BREVO_API_KEY not found in process.env');
-          logger.error('   💡 Make sure .env file is in the backend/ directory');
-          logger.error('   💡 Restart the server after adding BREVO_API_KEY to .env');
-        }
-      }
-    } else {
-      logger.error('❌ Error sending email via Brevo:', errorMessage);
-      if (error.stack) {
-        logger.error('Stack trace:', error.stack);
-      }
-    }
-    
-    throw new Error(`Failed to send email: ${errorMessage}`);
+    return { success: true, messageId, service: 'brevo' };
   }
+
+  const errorMessage = responseData.message || response.message || 'Unknown error';
+  const errorCode = responseData.code || 'UNKNOWN';
+
+  logger.error('❌ Brevo API error:', {
+    code: errorCode,
+    message: errorMessage,
+    status: response.status,
+    details: responseData
+  });
+
+  if (
+    errorCode === 'unauthorized' ||
+    errorMessage.includes('Key not found') ||
+    errorMessage.includes('Invalid')
+  ) {
+    logger.error('💡 Check BREVO_API_KEY in backend/.env and Brevo dashboard: https://app.brevo.com/settings/keys/api');
+    const currentKey = process.env.BREVO_API_KEY;
+    if (currentKey) {
+      const trimmed = currentKey.trim();
+      const masked =
+        trimmed.length > 8 ? `${trimmed.substring(0, 4)}...${trimmed.substring(trimmed.length - 4)}` : '***';
+      logger.error(`   Current key: ${masked} (length: ${trimmed.length})`);
+    }
+  }
+
+  throw new Error(`Failed to send email: ${errorMessage}`);
 };
 
 module.exports = {
@@ -166,4 +119,3 @@ module.exports = {
   isConfigured,
   smtpFrom
 };
-

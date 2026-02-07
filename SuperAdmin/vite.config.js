@@ -14,7 +14,8 @@ export default defineConfig({
   },
   build: {
     assetsDir: 'assets',
-    // Ensure proper chunk splitting and naming
+    // Production: no sourcemaps to avoid exposing stack traces (sourcemap: false below).
+    // Do not enable verbose error overlay or dev-only features in production build.
     rollupOptions: {
       output: {
         assetFileNames: 'assets/[name]-[hash][extname]',

@@ -39,6 +39,7 @@ const validateEnvironment = () => {
   if (process.env.NODE_ENV === 'production') {
     const recommendedVars = [
       'FRONTEND_URL',
+      'SUPERADMIN_URL',
       'SENTRY_DSN',
     ];
     
@@ -48,6 +49,19 @@ const validateEnvironment = () => {
       missingRecommended.forEach(varName => {
         console.warn(`   - ${varName}`);
       });
+    }
+    
+    // CORS: If these are missing, web clients will be blocked
+    const corsVars = ['FRONTEND_URL', 'SUPERADMIN_URL'];
+    const missingCors = corsVars.filter(v => !process.env[v]);
+    if (missingCors.length > 0) {
+      console.warn('⚠️  CORS: The following env vars are required for web clients in production. Without them, browser requests will be blocked:');
+      missingCors.forEach(v => console.warn(`   - ${v}`));
+    }
+    
+    // Rate limiting: in-memory store is per process; multi-instance should use Redis
+    if (!process.env.REDIS_URL && !process.env.RATE_LIMIT_REDIS_URL) {
+      console.warn('⚠️  Rate limiting uses in-memory store. For multiple instances, set REDIS_URL or RATE_LIMIT_REDIS_URL and use a shared store.');
     }
     
     // CRITICAL: Check Brevo configuration for SuperAdmin 2FA
