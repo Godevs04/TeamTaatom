@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.6",
+    "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,17 +19,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "7",
+      "buildNumber": "10",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for video recording.",
-        "NSUserTrackingUsageDescription": "We use your data to personalize your experience and show you relevant content. This helps us improve the app and provide better features.",
         "UIBackgroundModes": [
-          "audio",
-          "location",
           "remote-notification"
         ],
         "CFBundleURLTypes": [
@@ -55,7 +52,7 @@
     },
     "android": {
       "package": "com.taatom.app",
-      "versionCode": 7,
+      "versionCode": 10,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
