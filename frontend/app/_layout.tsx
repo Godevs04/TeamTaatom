@@ -1,5 +1,6 @@
 import React, { useEffect, useState, Suspense, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -25,7 +26,6 @@ import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
-import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
@@ -96,7 +96,9 @@ function RootLayoutInner() {
   const pathname = usePathname();
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
-  
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'web' ? 0 : insets.top;
+
   // Apply web optimizations
   useWebOptimizations();
 
@@ -203,35 +205,6 @@ function RootLayoutInner() {
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     }).catch(err => logger.error('Error setting audio mode:', err));
-  }, []);
-
-  // App Tracking Transparency (ATT) - iOS 14.5+
-  useEffect(() => {
-    if (Platform.OS === 'ios') {
-      const requestTrackingPermission = async () => {
-        try {
-          const { status } = await TrackingTransparency.requestTrackingPermissionsAsync();
-          if (status === 'granted') {
-            logger.debug('Tracking permission granted');
-            // Initialize analytics or tracking services here if needed
-            // Example: analyticsService.enableTracking();
-          } else {
-            logger.debug('Tracking permission denied');
-            // App still functions normally, just without tracking
-          }
-        } catch (error) {
-          logger.error('Error requesting tracking permission:', error);
-        }
-      };
-      
-      // Request permission after a short delay to ensure app is ready
-      // Best practice: Request after user has used the app a bit (better acceptance rate)
-      const timer = setTimeout(() => {
-        requestTrackingPermission();
-      }, 2000);
-      
-      return () => clearTimeout(timer);
-    }
   }, []);
 
   useEffect(() => {
@@ -768,34 +741,39 @@ function RootLayoutInner() {
     <ResponsiveContainer maxWidth={Platform.OS === 'web' ? 600 : undefined}>
       {isOffline && (
         <View
-          style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100, flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap' }}
+          style={[
+            styles.offlineBanner,
+            { paddingTop: Math.max(10, topInset) },
+          ]}
           accessibilityRole="alert"
           accessibilityLabel="You are offline. Some features may not work."
         >
-          <Text style={{ color: '#222', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>You are offline. Some features may not work.</Text>
+          <Text style={styles.offlineBannerText} numberOfLines={2}>
+            You are offline. Some features may not work.
+          </Text>
           <TouchableOpacity
             onPress={async () => {
               const ok = await testAPIConnectivity();
               if (ok) setIsOffline(false);
             }}
-            style={{ marginLeft: 8, paddingVertical: 4, paddingHorizontal: 12, backgroundColor: '#222', borderRadius: 6 }}
+            style={styles.offlineRetryButton}
             accessibilityRole="button"
             accessibilityLabel="Retry connection"
           >
-            <Text style={{ color: '#ffb300', fontWeight: 'bold' }}>Retry</Text>
+            <Text style={styles.offlineRetryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
       )}
       {sessionExpired && showSessionBanner && (
-        <View style={{ backgroundColor: '#ff5252', padding: 8, alignItems: 'center', zIndex: 101, flexDirection: 'row', justifyContent: 'center' }} accessibilityRole="alert" accessibilityLabel="Session expired. Please sign in again.">
-          <Text style={{ color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>Session expired. Please sign in again.</Text>
+        <View style={[styles.sessionExpiredBanner, { paddingTop: Math.max(10, topInset) }]} accessibilityRole="alert" accessibilityLabel="Session expired. Please sign in again.">
+          <Text style={styles.sessionExpiredText} numberOfLines={1}>Session expired. Please sign in again.</Text>
           <TouchableOpacity
             onPress={() => setShowSessionBanner(false)}
-            style={{ marginLeft: 8 }}
+            style={styles.sessionExpiredDismiss}
             accessibilityRole="button"
             accessibilityLabel="Dismiss session expired banner"
           >
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>✕</Text>
+            <Text style={styles.sessionExpiredDismissText}>✕</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -883,5 +861,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     // backgroundColor is set dynamically from theme
+  },
+  // Offline banner: below status bar, clear alignment like real-time apps
+  offlineBanner: {
+    backgroundColor: '#ffb300',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  offlineBannerText: {
+    color: '#222',
+    fontWeight: '600',
+    fontSize: 14,
+    flex: 1,
+    marginRight: 12,
+  },
+  offlineRetryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#222',
+    borderRadius: 8,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  offlineRetryButtonText: {
+    color: '#ffb300',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  sessionExpiredBanner: {
+    backgroundColor: '#ff5252',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    zIndex: 101,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sessionExpiredText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    flex: 1,
+    marginRight: 12,
+  },
+  sessionExpiredDismiss: {
+    padding: 8,
+  },
+  sessionExpiredDismissText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });
