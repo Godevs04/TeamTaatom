@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -27,8 +27,6 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
         "NSMicrophoneUsageDescription": "This app needs access to your microphone for video recording.",
         "UIBackgroundModes": [
-          "audio",
-          "location",
           "remote-notification"
         ],
         "CFBundleURLTypes": [
@@ -156,11 +154,7 @@
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact",
-      "router": {},
-      "eas": {
-        "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
-      }
+      "SUPPORT_URL": "https://taatom.com/contact"
     },
     "owner": "taatom-technologies"
   }

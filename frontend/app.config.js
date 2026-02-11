@@ -55,9 +55,7 @@ const { expo: appJsonExpo } = require('./app.json');
 module.exports = () => ({
   expo: {
     ...appJsonExpo,
-    android: {
-      ...appJsonExpo.android,
-      versionCode: 9, // 🔥 FORCE IT HERE
-    },
+    // Any additional runtime config can go here
   },
 });
+
