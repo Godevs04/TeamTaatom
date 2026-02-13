@@ -997,12 +997,12 @@ export default function HomeScreen() {
         {renderHeader()}
         <EmptyState
           icon="camera-outline"
-          title="No Posts Yet"
-          description="Start following people to see their posts in your feed, or share your first photo!"
-          actionLabel="Create Your First Post"
-          onAction={() => router.push('/(tabs)/post')}
-          secondaryActionLabel="Explore Feed"
-          onSecondaryAction={() => fetchPosts(1, false)}
+          title="No Content Yet"
+          description="No content yet. Explore other users or share your first photo!"
+          actionLabel="Explore Users"
+          onAction={() => router.push('/search')}
+          secondaryActionLabel="Create Post"
+          onSecondaryAction={() => router.push('/(tabs)/post')}
         />
       </SafeAreaView>
     );

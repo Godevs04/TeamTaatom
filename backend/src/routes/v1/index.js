@@ -14,6 +14,7 @@ const collectionRoutes = require('../collectionRoutes');
 const mentionRoutes = require('../mentionRoutes');
 const searchRoutes = require('../searchRoutes');
 const activityRoutes = require('../activityRoutes');
+const reportRoutes = require('../reportRoutes');
 const healthRoutes = require('../healthRoutes');
 const userManagementRoutes = require('../userManagementRoutes');
 
@@ -38,6 +39,7 @@ router.use('/collections', collectionRoutes);
 router.use('/mentions', mentionRoutes);
 router.use('/search', searchRoutes);
 router.use('/activity', activityRoutes);
+router.use('/reports', reportRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/', userManagementRoutes.syncRoute); // For /sync route
 

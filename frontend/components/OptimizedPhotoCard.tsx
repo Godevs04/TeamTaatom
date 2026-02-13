@@ -38,6 +38,8 @@ import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
 import { createLogger } from '../utils/logger';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import { createReport } from '../services/report';
+import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 
 interface PhotoCardProps {
   post: PostType;
@@ -65,6 +67,7 @@ function PhotoCard({
   
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Handle case where user might be undefined (from fallback user object)
@@ -792,7 +795,12 @@ function PhotoCard({
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
       {/* Header - Must be above image to receive touches */}
       <View pointerEvents="box-none">
-        <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
+        <PostHeader
+          post={post}
+          onMenuPress={() => setShowMenu(true)}
+          showReportButton={!!currentUser && postUser._id !== currentUser._id}
+          onReportPress={() => setShowReportModal(true)}
+        />
       </View>
 
       {/* Image - Conditional rendering: only render Image component when visible */}
@@ -973,14 +981,7 @@ function PhotoCard({
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Report Post',
-                      'Are you sure you want to report this post? It will be reviewed by our moderation team.',
-                      'warning',
-                      () => {
-                        showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
-                      }
-                    );
+                    setShowReportModal(true);
                   }}
                   disabled={isMenuLoading}
                 >
@@ -1147,6 +1148,24 @@ function PhotoCard({
       />
 
       {/* Share Modal */}
+      <ReportReasonModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        title="Report Post"
+        onSelect={async (reason: ReportReasonType) => {
+          try {
+            await createReport({
+              type: reason,
+              reportedUserId: postUser._id,
+              postId: post._id,
+              reason,
+            });
+            showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
+          } catch (err: any) {
+            showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.report') || 'Failed to submit report', 'error');
+          }
+        }}
+      />
       <ShareModal
         visible={showShareModal}
         onClose={() => setShowShareModal(false)}

@@ -33,7 +33,11 @@ const signup = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const { fullName, username, email, password } = req.body;
+    const { fullName, username, email, password, termsAccepted } = req.body;
+
+    if (termsAccepted !== true && termsAccepted !== 'true') {
+      return sendError(res, 'VAL_2001', 'You must accept the Terms & Conditions to create an account');
+    }
 
     // Check if user already exists (email or username)
     const existingUser = await User.findOne({
@@ -62,12 +66,13 @@ const signup = async (req, res) => {
       }
     }
 
-    // Create new user
+    // Create new user (Apple Guideline 1.2 - store Terms acceptance)
     const user = new User({
       fullName,
       username,
       email,
-      password
+      password,
+      termsAcceptedAt: new Date()
     });
 
     // Generate OTP

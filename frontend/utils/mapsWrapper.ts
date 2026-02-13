@@ -2,6 +2,7 @@
 // Metro will automatically use mapsWrapper.web.ts for web builds
 
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import logger from './logger';
 
 let MapView: any = null;
@@ -9,7 +10,11 @@ let Marker: any = null;
 let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 
-if (Platform.OS !== 'web') {
+// Skip loading react-native-maps on Android in Expo Go - it's not included and causes crashes.
+// Map screens use WebView fallback instead.
+const isExpoGoOnAndroid = Platform.OS === 'android' && Constants.appOwnership === 'expo';
+
+if (Platform.OS !== 'web' && !isExpoGoOnAndroid) {
   try {
     const mapsModule = require('react-native-maps');
     MapView = mapsModule.default || mapsModule;
