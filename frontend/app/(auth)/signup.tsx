@@ -115,6 +115,7 @@ interface SignUpFormValues {
   email: string;
   password: string;
   confirmPassword: string;
+  termsAccepted: boolean;
 }
 
 // Travel-themed animated background component
@@ -393,6 +394,10 @@ export default function SignUpScreen() {
   }, []);
 
   const handleSignUp = async (values: SignUpFormValues) => {
+    if (!values.termsAccepted) {
+      showError('You must accept the Terms & Conditions to create an account');
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await signUp({
@@ -400,6 +405,7 @@ export default function SignUpScreen() {
         username: values.username,
         email: values.email,
         password: values.password,
+        termsAccepted: true,
       });
 
       // Ensure onboarding flag is not set for new users
@@ -534,6 +540,7 @@ export default function SignUpScreen() {
                 email: '',
                 password: '',
                 confirmPassword: '',
+                termsAccepted: false,
               }}
               validationSchema={signUpSchema}
               onSubmit={handleSignUp}
@@ -655,15 +662,37 @@ export default function SignUpScreen() {
                     }
                   />
 
-
+                  {/* Apple Guideline 1.2 - Mandatory T&C acceptance */}
+                  <View style={styles.termsRow}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}
+                      onPress={() => setFieldValue('termsAccepted', !values.termsAccepted)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.checkbox, values.termsAccepted && styles.checkboxChecked, { borderColor: theme.colors.primary }]}>
+                        {values.termsAccepted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <Text style={[styles.termsText, { color: theme.colors.text }]}>
+                        I accept the{' '}
+                        <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Terms & Conditions</Text>
+                        . No objectionable, abusive, sexual, violent, hateful, or illegal content is allowed. Violations will result in suspension.
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/terms')} style={{ marginTop: 4 }}>
+                      <Text style={[styles.termsLink, { color: theme.colors.primary }]}>View full Terms →</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {touched.termsAccepted && errors.termsAccepted && (
+                    <Text style={[styles.termsError, { color: theme.colors.error }]}>{errors.termsAccepted}</Text>
+                  )}
 
                   <TouchableOpacity
-                    style={[styles.signUpButton, isLoading && styles.signUpButtonDisabled]}
+                    style={[styles.signUpButton, (isLoading || !values.termsAccepted) && styles.signUpButtonDisabled]}
                     onPress={() => handleSubmit()}
-                    disabled={isLoading}
+                    disabled={isLoading || !values.termsAccepted}
                   >
                     <Text style={styles.signUpButtonText}>
-                      {isLoading ? 'Creating Account...' : 'Create Account'}
+                      {isLoading ? 'Creating Account...' : !values.termsAccepted ? 'Accept Terms to Continue' : 'Create Account'}
                     </Text>
                   </TouchableOpacity>
 
@@ -807,6 +836,38 @@ const styles = StyleSheet.create({
   },
   formFields: {
     width: '100%',
+  },
+  termsRow: {
+    marginTop: theme.spacing.lg,
+    paddingHorizontal: 4,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    marginRight: 12,
+    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  termsError: {
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 34,
   },
   signUpButton: {
     backgroundColor: theme.colors.primary,
