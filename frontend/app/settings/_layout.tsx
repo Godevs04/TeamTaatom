@@ -21,6 +21,9 @@ export default function SettingsLayout() {
       <Stack.Screen name="follow-requests" />
       <Stack.Screen name="account-activity" />
       <Stack.Screen name="blocked-users" />
+      <Stack.Screen name="content-policy" />
+      <Stack.Screen name="terms" />
+      <Stack.Screen name="contact-support" />
     </Stack>
   );
 }

@@ -183,7 +183,7 @@ const postSchema = new mongoose.Schema({
   // Post status for DMCA compliance
   status: {
     type: String,
-    enum: ['active', 'removed'],
+    enum: ['active', 'flagged', 'removed'],
     default: 'active'
   },
   removalReason: {
