@@ -106,6 +106,18 @@ const getProfile = async (req, res) => {
       logger.warn(`Profile not found for userId: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
     }
+
+    // Apple Guideline 1.2: Blocked users cannot view each other's profiles
+    if (req.user && req.user._id.toString() !== id) {
+      const currentUserId = req.user._id.toString();
+      const targetUserDoc = await User.findById(id).select('blockedUsers').lean();
+      const currentUserDoc = await User.findById(currentUserId).select('blockedUsers').lean();
+      const targetBlockedIds = (targetUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const currentBlockedIds = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (targetBlockedIds.includes(currentUserId) || currentBlockedIds.includes(id)) {
+        return sendError(res, 'AUTH_1006', 'You cannot view this profile');
+      }
+    }
     
     // Defensive: Ensure user has required fields
     if (!user._id || !user.fullName) {

@@ -13,6 +13,7 @@ export interface SignUpData {
   username: string;
   email: string;
   password: string;
+  termsAccepted?: boolean;
 }
 
 export interface SignInData {

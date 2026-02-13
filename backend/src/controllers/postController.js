@@ -36,13 +36,20 @@ const getPosts = async (req, res) => {
 
     // Use cache wrapper for performance
     const result = await cacheWrapper(cacheKey, async () => {
-      // Build match query
+      // Build match query - Apple Guideline 1.2: only show active content
       const matchQuery = {
         isActive: true,
         isArchived: { $ne: true },
         isHidden: { $ne: true },
-        type: 'photo'
+        type: 'photo',
+        $or: [{ status: 'active' }, { status: { $exists: false } }] // Exclude flagged and removed
       };
+
+      // Exclude posts from blocked users (Part 3 - Block)
+      if (req.user?.blockedUsers?.length) {
+        const blockedIds = req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id : b));
+        matchQuery.user = { $nin: blockedIds };
+      }
 
       // Add cursor-based filtering if cursor is provided
       if (useCursor && cursor) {
@@ -487,7 +494,8 @@ const getPostById = async (req, res) => {
         {
           $match: {
             _id: new mongoose.Types.ObjectId(id),
-            isActive: true
+            isActive: true,
+            $or: [{ status: 'active' }, { status: { $exists: false } }] // Hide flagged/removed
           }
         },
         {
@@ -1263,7 +1271,8 @@ const getUserShorts = async (req, res) => {
         $match: {
           user: userIdObj,
           isActive: true,
-          type: 'short' // Explicitly filter for shorts only
+          type: 'short',
+          $or: [{ status: 'active' }, { status: { $exists: false } }]
         }
       },
       { $sort: { createdAt: -1 } },
@@ -1777,7 +1786,8 @@ const getUserPosts = async (req, res) => {
           $match: {
             user: userIdObj,
             isActive: true,
-            type: 'photo'
+            type: 'photo',
+            $or: [{ status: 'active' }, { status: { $exists: false } }]
           }
         },
         { $sort: { createdAt: -1 } },
@@ -2743,14 +2753,18 @@ const getShorts = async (req, res) => {
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
     const safeSkip = Math.max(skip, 0);
 
-    // Use aggregation pipeline to populate song data efficiently
+    // Build match - exclude blocked users (Part 3)
+    const shortsMatch = {
+      isActive: true,
+      type: 'short',
+      $or: [{ status: 'active' }, { status: { $exists: false } }]
+    };
+    if (req.user?.blockedUsers?.length) {
+      const blockedIds = req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id : b));
+      shortsMatch.user = { $nin: blockedIds };
+    }
     const shorts = await Post.aggregate([
-      {
-        $match: {
-          isActive: true,
-          type: 'short' // Explicitly filter for shorts only
-        }
-      },
+      { $match: shortsMatch },
       { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limit },
