@@ -129,6 +129,17 @@ export async function getMapConfig(
 }
 
 /**
+ * Get API key for WebView/Google Maps JavaScript API
+ * Prefers extra.GOOGLE_MAPS_API_KEY (typically has Maps JavaScript API enabled)
+ * Falls back to platform-specific key
+ */
+export function getGoogleMapsApiKeyForWebView(): string | null {
+  const extraKey = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+  if (extraKey) return extraKey;
+  return getGoogleMapsApiKey();
+}
+
+/**
  * Check if Google Maps is available (has API key)
  * @returns true if API key is available, false otherwise
  */

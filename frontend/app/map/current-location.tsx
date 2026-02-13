@@ -18,9 +18,10 @@ import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
 import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
+import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import logger from '../../utils/logger';
 
-const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView() ?? Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -414,8 +415,9 @@ export default function CurrentLocationMap() {
       );
     }
 
-    if (Platform.OS === 'web') {
-      // WebView map for web platform
+    // Use WebView for web, and for Android in Expo Go (react-native-maps not available) or when MapView fails
+    const useAndroidWebViewFallback = Platform.OS === 'android' && (Constants.appOwnership === 'expo' || !MapView);
+    if (Platform.OS === 'web' || useAndroidWebViewFallback) {
       return (
         <WebView
           style={styles.map}
@@ -473,11 +475,12 @@ export default function CurrentLocationMap() {
     }
 
     // Native MapView for iOS/Android
+    // Note: customMapStyle disabled on Android - can cause blank map on some devices
     return (
       <MapView
-        style={styles.map}
+        style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
-        customMapStyle={satelliteTheme}
+        {...(Platform.OS === 'ios' ? { customMapStyle: satelliteTheme } : {})}
         initialRegion={{
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,

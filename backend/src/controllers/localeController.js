@@ -706,15 +706,13 @@ const updateLocale = async (req, res) => {
 // @access  Public
 const getUniqueCountries = async (req, res) => {
   try {
-    // OPTIMIZATION: Filter by isActive to use index and reduce dataset
-    // Only show countries that have active locales
-    const uniqueCountries = await Locale.aggregate([
-      {
-        $match: {
-          isActive: true, // Use index: isActive_1_countryCode_1_displayOrder_1_createdAt_-1
-          countryCode: { $exists: true, $ne: null, $ne: '' }
-        }
-      },
+    // Try aggregation first (no allowDiskUse - not supported on MongoDB Atlas M0/free tier)
+    const matchStage = {
+      isActive: true,
+      countryCode: { $exists: true, $ne: null, $ne: '' }
+    };
+    const aggregationPipeline = [
+      { $match: matchStage },
       {
         $group: {
           _id: '$countryCode',
@@ -736,10 +734,34 @@ const getUniqueCountries = async (req, res) => {
           localeCount: '$count'
         }
       },
-      {
-        $sort: { name: 1 }
-      }
-    ]).allowDiskUse(true).maxTimeMS(5000); // Allow disk use for large collections, timeout after 5s
+      { $sort: { name: 1 } }
+    ];
+
+    let uniqueCountries;
+    try {
+      uniqueCountries = await Locale.aggregate(aggregationPipeline).maxTimeMS(10000);
+    } catch (aggError) {
+      // Fallback: use distinct + find for compatibility (e.g. Atlas M0 without allowDiskUse)
+      logger.warn('Aggregation failed, using distinct fallback:', aggError.message);
+      const countryCodes = await Locale.distinct('countryCode', matchStage);
+      const countriesWithDetails = await Promise.all(
+        countryCodes.map(async (code) => {
+          const sample = await Locale.findOne(
+            { ...matchStage, countryCode: code },
+            { country: 1 }
+          ).lean();
+          const count = await Locale.countDocuments({ ...matchStage, countryCode: code });
+          return {
+            code,
+            name: sample?.country || code,
+            localeCount: count
+          };
+        })
+      );
+      uniqueCountries = countriesWithDetails.sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+      );
+    }
 
     return sendSuccess(res, 200, 'Countries fetched successfully', {
       countries: uniqueCountries
