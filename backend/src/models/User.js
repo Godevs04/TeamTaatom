@@ -39,6 +39,11 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters']
   },
+  // Apple Guideline 1.2 - UGC: Store Terms acceptance at signup
+  termsAcceptedAt: {
+    type: Date,
+    default: null
+  },
   googleId: {
     type: String,
     unique: true,

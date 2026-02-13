@@ -9,9 +9,11 @@ import PostLocation from './PostLocation';
 interface PostHeaderProps {
   post: PostType;
   onMenuPress: () => void;
+  onReportPress?: () => void;
+  showReportButton?: boolean;
 }
 
-export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
+export default function PostHeader({ post, onMenuPress, onReportPress, showReportButton }: PostHeaderProps) {
   const { theme } = useTheme();
   const router = useRouter();
 
@@ -63,12 +65,16 @@ export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
         </View>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.menuButton}
-        onPress={onMenuPress}
-      >
-        <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
-      </TouchableOpacity>
+      <View style={styles.headerActions}>
+        {showReportButton && onReportPress && (
+          <TouchableOpacity style={styles.menuButton} onPress={onReportPress}>
+            <Ionicons name="flag-outline" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
+          <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -111,6 +117,10 @@ const styles = StyleSheet.create({
   inlineSongText: {
     fontSize: 12,
     marginLeft: 6,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   menuButton: {
     padding: 4,

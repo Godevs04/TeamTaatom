@@ -4,12 +4,12 @@ const reportSchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['inappropriate_content', 'spam', 'harassment', 'fake_account', 'other']
+    enum: ['inappropriate_content', 'spam', 'harassment', 'abuse', 'fake_account', 'user', 'other']
   },
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'under_review', 'resolved', 'dismissed'],
+    enum: ['pending', 'under_review', 'resolved', 'dismissed', 'removed'],
     default: 'pending'
   },
   reportedBy: {
@@ -20,7 +20,7 @@ const reportSchema = new mongoose.Schema({
   reportedContent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post',
-    required: true
+    required: false // Optional for user-only reports
   },
   reportedUser: {
     type: mongoose.Schema.Types.ObjectId,

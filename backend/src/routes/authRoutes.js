@@ -48,7 +48,10 @@ const signupValidation = [
     .withMessage('Password must contain at least one number')
     .matches(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/)
     .withMessage('Password must contain at least one special character'),
-  passwordStrengthValidator // Additional strength validation
+  passwordStrengthValidator, // Additional strength validation
+  body('termsAccepted')
+    .custom((val) => val === true || val === 'true')
+    .withMessage('You must accept the Terms & Conditions to create an account')
 ];
 
 const verifyOTPValidation = [

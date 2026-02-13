@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { toggleFollow, getTravelMapData } from '../../services/profile';
+import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus } from '../../services/profile';
+import { createReport } from '../../services/report';
+import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
@@ -109,6 +111,9 @@ export default function UserProfileScreen() {
       });
     }
   }, [deriveFollowState]);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -404,9 +409,15 @@ export default function UserProfileScreen() {
       
       const loadTime = Date.now() - startTime;
       logger.debug(`[PERF] User profile loaded in ${loadTime}ms (optimized parallel fetch with cache)`);
-    } catch (e) {
+    } catch (e: any) {
       logger.error('Error fetching profile:', e);
-      showError('Failed to load user profile');
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (e?.response?.status === 403 || msg?.toLowerCase().includes('cannot view')) {
+        showError('You cannot view this profile');
+        router.back();
+      } else {
+        showError('Failed to load user profile');
+      }
     } finally {
       setLoading(false);
     }
@@ -421,6 +432,7 @@ export default function UserProfileScreen() {
     setShowWorldMap(false);
     setVerifiedLocationsCount(null);
     setVerifiedLocations([]);
+    setShowProfileMenu(false);
     // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
     // Fetch profile when ID changes
@@ -428,6 +440,15 @@ export default function UserProfileScreen() {
       fetchProfile();
     }
   }, [id, fetchProfile]);
+
+  // Fetch block status when viewing another user's profile
+  useEffect(() => {
+    if (currentUser && profile && currentUser._id !== profile._id) {
+      getBlockStatus(profile._id).then((r) => setIsBlocked(r.isBlocked)).catch(() => {});
+    } else {
+      setIsBlocked(false);
+    }
+  }, [currentUser?._id, profile?._id]);
 
   useEffect(() => {
     (async () => {
@@ -566,7 +587,24 @@ export default function UserProfileScreen() {
               >
                 <Ionicons name="arrow-back" size={20} color={profileTheme.textPrimary} />
               </Pressable>
-              <View style={styles.topActionsRight} />
+              <View style={styles.topActionsRight}>
+                {currentUser && currentUser._id !== profile._id && (
+                  <>
+                    <Pressable
+                      onPress={() => setShowReportModal(true)}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                    >
+                      <Ionicons name="flag-outline" size={20} color={profileTheme.textPrimary} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setShowProfileMenu(true)}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={20} color={profileTheme.textPrimary} />
+                    </Pressable>
+                  </>
+                )}
+              </View>
             </View>
 
             {/* Profile Card */}
@@ -955,6 +993,79 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* Profile menu - Report & Block (Apple Guideline 1.2) */}
+      <Modal
+        visible={showProfileMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProfileMenu(false)}
+      >
+        <Pressable style={styles.profileMenuOverlay} onPress={() => setShowProfileMenu(false)}>
+          <View style={[styles.profileMenuContainer, { backgroundColor: theme.colors.surface }]} onStartShouldSetResponder={() => true}>
+            <TouchableOpacity
+              style={[styles.profileMenuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+              onPress={() => {
+                setShowProfileMenu(false);
+                setShowReportModal(true);
+              }}
+            >
+              <Ionicons name="flag-outline" size={22} color={theme.colors.text} />
+              <Text style={[styles.profileMenuItemText, { color: theme.colors.text }]}>Report User</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuItem}
+              onPress={async () => {
+                setShowProfileMenu(false);
+                Alert.alert(
+                  isBlocked ? 'Unblock User' : 'Block User',
+                  isBlocked
+                    ? `Unblock ${profile?.fullName || 'this user'}? You will be able to message and interact again.`
+                    : `Block ${profile?.fullName || 'this user'}? You won't be able to message or interact with them.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: isBlocked ? 'Unblock' : 'Block',
+                      style: isBlocked ? 'default' : 'destructive',
+                      onPress: async () => {
+                        try {
+                          const result = await toggleBlockUser(profile!._id);
+                          setIsBlocked(result.isBlocked);
+                          showSuccess(result.isBlocked ? 'User blocked.' : 'User unblocked.');
+                          if (result.isBlocked) router.back();
+                        } catch (e: any) {
+                          showError(e?.message || 'Failed to update block status');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name={isBlocked ? 'person-add-outline' : 'person-remove-outline'} size={22} color={theme.colors.text} />
+              <Text style={[styles.profileMenuItemText, { color: theme.colors.text }]}>{isBlocked ? 'Unblock User' : 'Block User'}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <ReportReasonModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        title="Report User"
+        onSelect={async (reason: ReportReasonType) => {
+          try {
+            await createReport({
+              type: reason,
+              reportedUserId: profile!._id,
+              reason: reason,
+            });
+            showSuccess('User reported. Thank you for helping keep our community safe.');
+          } catch (e: any) {
+            showError(e?.message || 'Failed to submit report');
+          }
+        }}
+      />
       
       <CustomAlert
         visible={alertVisible}
@@ -995,6 +1106,29 @@ const styles = StyleSheet.create({
   },
   topActionsRight: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  profileMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  profileMenuContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  profileMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  profileMenuItemText: {
+    fontSize: 16,
   },
   backButton: {
     // Minimum touch target: 44x44 for iOS, 48x48 for Android

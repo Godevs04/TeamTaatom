@@ -14,9 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
+import Constants from 'expo-constants';
 import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
 import { getTravelMapData } from '../../services/profile';
-import { getGoogleMapsApiKey } from '../../utils/maps';
+import { getGoogleMapsApiKey, getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import logger from '../../utils/logger';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -47,6 +48,7 @@ export default function AllLocationsMap() {
   const headerTitle = displayName ? `${displayName}'s locations` : 'My Travel Locations';
   const mapRef = useRef<any>(null);
   const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
+  const WEB_VIEW_MAPS_KEY = getGoogleMapsApiKeyForWebView();
 
   useEffect(() => {
     if (userId) {
@@ -296,14 +298,16 @@ export default function AllLocationsMap() {
       </head>
       <body>
         <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&language=en&callback=initMap"></script>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEB_VIEW_MAPS_KEY || GOOGLE_MAPS_API_KEY || ''}&language=en&callback=initMap"></script>
       </body>
       </html>
     `;
   };
 
   const renderMap = () => {
-    if (!GOOGLE_MAPS_API_KEY) {
+    const useAndroidWebViewFallback = Platform.OS === 'android' && (Constants.appOwnership === 'expo' || !MapView);
+    const needsWebViewKey = Platform.OS === 'web' || useAndroidWebViewFallback;
+    if (needsWebViewKey && !WEB_VIEW_MAPS_KEY && !GOOGLE_MAPS_API_KEY) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
           <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
@@ -313,7 +317,7 @@ export default function AllLocationsMap() {
         </View>
       );
     }
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || useAndroidWebViewFallback) {
       return (
         <View style={styles.mapContainer}>
           <WebView
@@ -400,7 +404,7 @@ export default function AllLocationsMap() {
     return (
       <MapView
         ref={mapRef}
-        style={styles.map}
+        style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
         initialRegion={region}
         region={region} // Force region update to prevent defaulting to current location
