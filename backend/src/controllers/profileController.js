@@ -2607,7 +2607,7 @@ const getBlockStatus = async (req, res) => {
   }
 };
 
-// @desc    Get suggested users for onboarding
+// @desc    Get suggested users for onboarding (prioritize same interests, then verified/popular)
 // @route   GET /profile/suggested-users
 // @access  Private
 const getSuggestedUsers = async (req, res) => {
@@ -2615,85 +2615,88 @@ const getSuggestedUsers = async (req, res) => {
     const userId = req.user._id || req.user.id;
     const limit = parseInt(req.query.limit) || 6;
 
-    // Get users that:
-    // 1. Are not the current user
-    // 2. Are not already being followed
-    // 3. For onboarding, show verified users first, then others
-    const currentUser = await User.findById(userId).select('following');
-    const followingIds = currentUser.following.map(f => f.toString());
-    followingIds.push(userId);
+    const currentUser = await User.findById(userId).select('following interests').lean();
+    const followingIds = (currentUser.following || []).map(f => f.toString());
+    followingIds.push(userId.toString());
+    const userInterests = Array.isArray(currentUser.interests) ? currentUser.interests : [];
 
-    // For onboarding, show popular/active users even if they don't have posts yet
-    // Priority: verified users > users with posts > users with followers > new users
-    const suggestedUsers = await User.find({
-      _id: { $nin: followingIds },
-      isActive: true,
-      isVerified: true, // Show verified users first for better quality
-    })
-      .select('username fullName profilePic bio followers isVerified createdAt')
-      .limit(limit * 2) // Get more to filter later
-      .sort({ 
-        isVerified: -1, // Verified users first
-        followers: -1, // Then by follower count
-        createdAt: -1 // Then by newest
-      })
-      .lean();
+    let suggestedUsers = [];
+    const seenIds = new Set(followingIds);
 
-    // If we don't have enough verified users, get more (including unverified)
-    if (suggestedUsers.length < limit) {
-      const additionalUsers = await User.find({
-        _id: { $nin: [...followingIds, ...suggestedUsers.map(u => u._id.toString())] },
+    // 1. Same interests first (like real apps): users who share at least one interest
+    if (userInterests.length > 0) {
+      const sameInterestUsers = await User.find({
+        _id: { $nin: followingIds },
         isActive: true,
+        interests: { $in: userInterests },
       })
-        .select('username fullName profilePic bio followers isVerified createdAt')
-        .limit(limit * 2 - suggestedUsers.length)
-        .sort({ 
-          followers: -1,
-          createdAt: -1
-        })
+        .select('username fullName profilePic bio followers isVerified createdAt interests')
+        .limit(limit * 2)
         .lean();
-      
-      suggestedUsers.push(...additionalUsers);
+
+      // Sort by how many interests match (most first), then verified, then followers
+      const withMatchCount = sameInterestUsers.map((u) => {
+        const matchCount = (u.interests || []).filter((i) => userInterests.includes(i)).length;
+        return { ...u, _matchCount: matchCount };
+      });
+      withMatchCount.sort((a, b) => {
+        if (b._matchCount !== a._matchCount) return b._matchCount - a._matchCount;
+        if (a.isVerified !== b.isVerified) return b.isVerified ? 1 : -1;
+        return (b.followers?.length || 0) - (a.followers?.length || 0);
+      });
+      const chosen = withMatchCount.slice(0, limit).map(({ _matchCount, ...u }) => u);
+      suggestedUsers = chosen;
+      chosen.forEach((u) => seenIds.add(u._id.toString()));
     }
 
-    // Get post counts for each user
+    // 2. Fill remaining with verified then any active users (no interest filter)
+    if (suggestedUsers.length < limit) {
+      const excludeIds = [...seenIds];
+      const need = limit - suggestedUsers.length;
+
+      let fillUsers = await User.find({
+        _id: { $nin: excludeIds },
+        isActive: true,
+        isVerified: true,
+      })
+        .select('username fullName profilePic bio followers isVerified createdAt')
+        .limit(need * 2)
+        .sort({ followers: -1, createdAt: -1 })
+        .lean();
+
+      if (fillUsers.length < need) {
+        const more = await User.find({
+          _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
+          isActive: true,
+        })
+          .select('username fullName profilePic bio followers isVerified createdAt')
+          .limit(need * 2 - fillUsers.length)
+          .sort({ followers: -1, createdAt: -1 })
+          .lean();
+        fillUsers = fillUsers.concat(more);
+      }
+
+      suggestedUsers = suggestedUsers.concat(fillUsers.slice(0, need));
+    }
+
+    // Get post counts and final shape
     const usersWithPostCounts = await Promise.all(
-      suggestedUsers.map(async (user) => {
-        const postCount = await Post.countDocuments({ 
-          user: user._id, 
-          isActive: true 
+      suggestedUsers.slice(0, limit).map(async (user) => {
+        const postCount = await Post.countDocuments({
+          user: user._id,
+          isActive: true,
         });
+        const { interests: _i, ...rest } = user;
         return {
-          ...user,
+          ...rest,
           postsCount: postCount,
           followersCount: user.followers?.length || 0,
         };
       })
     );
 
-    // Sort by priority: verified > has posts > has followers > new
-    const sortedUsers = usersWithPostCounts.sort((a, b) => {
-      // Verified users first
-      if (a.isVerified !== b.isVerified) {
-        return b.isVerified ? 1 : -1;
-      }
-      // Then by posts
-      if (a.postsCount !== b.postsCount) {
-        return b.postsCount - a.postsCount;
-      }
-      // Then by followers
-      if (a.followersCount !== b.followersCount) {
-        return b.followersCount - a.followersCount;
-      }
-      // Then by newest
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-
-    // Take top users (don't filter by postsCount - show all for onboarding)
-    const filteredUsers = sortedUsers.slice(0, limit);
-
     return sendSuccess(res, 200, 'Suggested users fetched successfully', {
-      users: filteredUsers,
+      users: usersWithPostCounts,
     });
   } catch (error) {
     logger.error('Error getting suggested users:', error);
