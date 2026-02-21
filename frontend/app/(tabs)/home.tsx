@@ -45,6 +45,8 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const logger = createLogger('HomeScreen');
 
+const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
+
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
 const normalizeId = (id: any): string | null => {
@@ -197,6 +199,22 @@ export default function HomeScreen() {
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
+  // Persisted liked post IDs so likes survive app restart (same as Shorts)
+  const likedPostIdsRef = useRef<Set<string>>(new Set());
+
+  const mergeLikedIntoPosts = useCallback((list: PostType[]): PostType[] => {
+    if (list.length === 0) return list;
+    const set = likedPostIdsRef.current;
+    return list.map(p => {
+      const fromStorage = set.has(p._id);
+      const isLiked = p.isLiked || fromStorage;
+      const likesCount = isLiked && fromStorage && !p.isLiked
+        ? Math.max(p.likesCount ?? 0, 1)
+        : (p.likesCount ?? 0);
+      return { ...p, isLiked, likesCount };
+    });
+  }, []);
+
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
     // Request guards: prevent overlapping refresh and pagination
     if (shouldAppend) {
@@ -254,10 +272,10 @@ export default function HomeScreen() {
         setPosts(prev => {
           const existingIds = new Set(prev.map(p => p._id));
           const newPosts = response.posts.filter(p => !existingIds.has(p._id));
-          return [...prev, ...newPosts];
+          return mergeLikedIntoPosts([...prev, ...newPosts]);
         });
       } else {
-        setPosts(response.posts);
+        setPosts(mergeLikedIntoPosts(response.posts));
       }
       
       setHasMore(response.pagination?.hasNextPage ?? false);
@@ -373,7 +391,7 @@ export default function HomeScreen() {
               const cacheAge = Date.now() - (parsed.timestamp || 0);
               if (cacheAge < 24 * 60 * 60 * 1000) {
                 logger.debug('Loading cached posts due to network error');
-                setPosts(parsed.data);
+                setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false); // Can't paginate with cached data
                 setPage(1);
                 // Don't show error if we have cached data
@@ -591,6 +609,14 @@ export default function HomeScreen() {
       
       setLoading(true);
       try {
+        // Load persisted liked post IDs first so mergeLikedIntoPosts is correct
+        try {
+          const raw = await AsyncStorage.getItem(LIKED_POSTS_STORAGE_KEY);
+          const ids: string[] = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
+          likedPostIdsRef.current = new Set(Array.isArray(ids) ? ids : []);
+        } catch {
+          // ignore
+        }
         // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
@@ -605,7 +631,7 @@ export default function HomeScreen() {
               const cacheAge = Date.now() - (parsed.timestamp || 0);
               if (cacheAge < 24 * 60 * 60 * 1000) {
                 logger.debug('Loading cached posts for instant display');
-                setPosts(parsed.data);
+                setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false);
                 setPage(1);
                 setLoading(false); // Show cached data immediately
