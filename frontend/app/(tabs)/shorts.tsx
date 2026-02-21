@@ -49,6 +49,12 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const logger = createLogger('ShortsScreen');
 
+// Tab bar height from (tabs)/_layout - content must sit above it
+const TAB_BAR_HEIGHT = isWeb ? 70 : 88;
+const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT - TAB_BAR_HEIGHT;
+
+const LIKED_SHORTS_STORAGE_KEY = 'taatom_shorts_liked_ids';
+
 // Type for particle animation values
 type ParticleAnimations = {
   [particleId: string]: {
@@ -130,6 +136,8 @@ export default function ShortsScreen() {
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  // Persisted liked short IDs so likes survive app restart (server is source of truth; this merges when API omits isLiked)
+  const likedShortIdsRef = useRef<Set<string>>(new Set());
   // Refs for handlers to avoid recreating renderItem on every handler change
   const handlersRef = useRef({
     handleTouchStart: null as any,
@@ -815,7 +823,16 @@ export default function ShortsScreen() {
       
       // Clear video cache when loading new shorts (old URLs might be expired)
       videoCacheRef.current.clear();
-      setShorts(response.shorts);
+      // Merge with persisted liked IDs so likes survive app restart (server may omit isLiked if auth not yet attached)
+      const merged = (response.shorts || []).map((s: PostType) => {
+        const fromStorage = likedShortIdsRef.current.has(s._id);
+        const isLiked = s.isLiked || fromStorage;
+        const likesCount = isLiked && fromStorage && !s.isLiked
+          ? Math.max(s.likesCount ?? 0, 1)
+          : (s.likesCount ?? 0);
+        return { ...s, isLiked, likesCount };
+      });
+      setShorts(merged);
       
       // Scroll to specific short if shortId is provided in params
       if (params.shortId && typeof params.shortId === 'string' && response.shorts.length > 0) {
@@ -879,6 +896,34 @@ export default function ShortsScreen() {
   useEffect(() => {
     loadShortsRef.current = loadShorts;
   }, [loadShorts]);
+
+  // Load persisted liked short IDs on mount so likes survive app restart; merge into current shorts
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(LIKED_SHORTS_STORAGE_KEY);
+        if (cancelled) return;
+        const ids: string[] = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
+        likedShortIdsRef.current = new Set(Array.isArray(ids) ? ids : []);
+        setShorts(prev => {
+          if (prev.length === 0) return prev;
+          const set = likedShortIdsRef.current;
+          return prev.map(s => {
+            const fromStorage = set.has(s._id);
+            const isLiked = s.isLiked || fromStorage;
+            const likesCount = isLiked && fromStorage && !s.isLiked
+              ? Math.max(s.likesCount ?? 0, 1)
+              : (s.likesCount ?? 0);
+            return { ...s, isLiked, likesCount };
+          });
+        });
+      } catch (e) {
+        logger.debug('Load liked shorts from storage', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // CRITICAL: Subscribe to Socket.IO events for real-time feed updates after loadShorts is defined
   // Listen for 'short:created' and 'invalidate:feed' events to refresh feed immediately
@@ -1179,6 +1224,13 @@ export default function ShortsScreen() {
             ? (currentShort.likesCount || 0) + 1 
             : Math.max((currentShort.likesCount || 0) - 1, 0);
           
+          // Keep persisted liked IDs in sync (reverted on API error in catch)
+          const newSet = new Set(likedShortIdsRef.current);
+          if (newIsLiked) newSet.add(shortId);
+          else newSet.delete(shortId);
+          likedShortIdsRef.current = newSet;
+          AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...newSet])).catch(() => {});
+          
           // Update state immediately for instant feedback
           return prev.map(short => 
             short._id === shortId 
@@ -1190,6 +1242,17 @@ export default function ShortsScreen() {
       });
       
       const response = await toggleLike(shortId);
+      
+      // Persist liked state locally so it survives app restart (like real apps)
+      const newSet = new Set(likedShortIdsRef.current);
+      if (response.isLiked) newSet.add(shortId);
+      else newSet.delete(shortId);
+      likedShortIdsRef.current = newSet;
+      try {
+        await AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...newSet]));
+      } catch (e) {
+        logger.debug('Failed to persist liked shorts', e);
+      }
       
       // Update with actual response from server (in case of any discrepancy)
       setShorts(prev => prev.map(short => 
@@ -1207,11 +1270,17 @@ export default function ShortsScreen() {
     } catch (error) {
       logger.error('Error toggling like', error);
       
-      // Revert optimistic update on error using stored previous state
-      if (previousState) {
+      // Revert optimistic update and persisted liked IDs on error (previousState set in setShorts callback; TS can't see that)
+      const ps = previousState as { isLiked: boolean; likesCount: number } | null;
+      if (ps) {
+        const newSet = new Set(likedShortIdsRef.current);
+        if (ps.isLiked) newSet.add(shortId);
+        else newSet.delete(shortId);
+        likedShortIdsRef.current = newSet;
+        AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...newSet])).catch(() => {});
         setShorts(prev => prev.map(short => 
           short._id === shortId 
-            ? { ...short, isLiked: previousState!.isLiked, likesCount: previousState!.likesCount }
+            ? { ...short, isLiked: ps.isLiked, likesCount: ps.likesCount }
             : short
         ));
       }
@@ -2178,8 +2247,8 @@ export default function ShortsScreen() {
   const keyExtractor = useCallback((item: PostType) => item._id, []);
   
   const getItemLayout = useCallback((data: any, index: number) => ({
-    length: SCREEN_HEIGHT,
-    offset: SCREEN_HEIGHT * index,
+    length: SHORTS_ITEM_HEIGHT,
+    offset: SHORTS_ITEM_HEIGHT * index,
     index,
   }), []);
 
@@ -2322,7 +2391,7 @@ export default function ShortsScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        snapToInterval={SCREEN_HEIGHT}
+        snapToInterval={SHORTS_ITEM_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
         onScrollToIndexFailed={(info) => {
@@ -2494,7 +2563,7 @@ const styles = StyleSheet.create({
   },
   shortItem: {
     width: '100%',
-    height: SCREEN_HEIGHT,
+    height: SHORTS_ITEM_HEIGHT,
     position: 'relative',
     backgroundColor: 'black',
   },
@@ -2598,7 +2667,7 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 16,
-    bottom: isTablet ? 140 : 120,
+    bottom: isTablet ? 10 : 4,
     alignItems: 'center',
     zIndex: 5,
   },
@@ -2670,9 +2739,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 80,
     // Tab bar is frozen (visible) on shorts page (88px height on mobile, 70px on web)
-    // Add padding to ensure text content (name, location, caption, hashtags) is above the tab bar
-    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 102 : 122) : (isWeb ? 102 : 112), // Tab bar height (88/70) + safe area
-    paddingTop: 16,
+    // Padding so name/caption sit just above the tab bar
+    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 70 : 72) : (isWeb ? 70 : 70), // At tab bar top
+    paddingTop: 0,
     paddingHorizontal: 20,
     zIndex: 5,
   },
