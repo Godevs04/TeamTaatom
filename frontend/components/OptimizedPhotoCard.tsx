@@ -41,6 +41,8 @@ import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 import { createReport } from '../services/report';
 import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 
+const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
+
 interface PhotoCardProps {
   post: PostType;
   onRefresh?: () => void;
@@ -375,6 +377,18 @@ function PhotoCard({
       lastUpdateTimeRef.current = Date.now();
       
       const response = await toggleLike(post._id);
+      
+      // Persist liked state locally so it survives app restart (same as Shorts)
+      try {
+        const raw = await AsyncStorage.getItem(LIKED_POSTS_STORAGE_KEY);
+        const ids: string[] = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
+        const set = new Set(Array.isArray(ids) ? ids : []);
+        if (response.isLiked) set.add(post._id);
+        else set.delete(post._id);
+        await AsyncStorage.setItem(LIKED_POSTS_STORAGE_KEY, JSON.stringify([...set]));
+      } catch (e) {
+        logger.debug('Failed to persist liked posts', e);
+      }
       
       // Update with actual response (in case of errors or discrepancies)
       setIsLikedWithRef(response.isLiked);
