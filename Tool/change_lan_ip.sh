@@ -59,8 +59,20 @@ else
   echo "frontend/.env not found"
 fi
 
-# Update backend/environment.env (active and commented lines)
-BACKEND_ENV="$ROOT_DIR/../backend/environment.env"
+# Update backend/.env (primary backend configuration)
+BACKEND_DOT_ENV="$ROOT_DIR/../backend/.env"
+if [ -f "$BACKEND_DOT_ENV" ]; then
+  echo "Updating backend/.env FRONTEND_URL, WEB_FRONTEND_URL, API_BASE_URL and SUPERADMIN_URL..."
+  sed -i '' -E "s|^(FRONTEND_URL=http://)[0-9.]+(:8081)$|\1$NEW_IP\2|" "$BACKEND_DOT_ENV"
+  sed -i '' -E "s|^(WEB_FRONTEND_URL=http://)[0-9.]+(:3001)$|\1$NEW_IP\2|" "$BACKEND_DOT_ENV"
+  sed -i '' -E "s|^(API_BASE_URL=http://)[0-9.]+(:3000)$|\1$NEW_IP\2|" "$BACKEND_DOT_ENV"
+  sed -i '' -E "s|^(SUPERADMIN_URL=http://)[0-9.]+(:5001)$|\1$NEW_IP\2|" "$BACKEND_DOT_ENV"
+else
+  echo "backend/.env not found"
+fi
+
+# Update backend/environment.env (legacy / sample config, active and commented lines)
+BACKEND_ENV="$ROOT_DIR/../backend/.env"
 if [ -f "$BACKEND_ENV" ]; then
   echo "Updating backend/environment.env API_BASE_URL and FRONTEND_URL (active and comments)..."
   sed -i '' -E "s|^(API_BASE_URL=http://)[0-9.]+(:3000)$|\1$NEW_IP\2|" "$BACKEND_ENV"
@@ -72,7 +84,7 @@ else
 fi
 
 # Update backend/env.example FRONTEND_URL
-BACKEND_ENV_EX="$ROOT_DIR/../backend/env.example"
+BACKEND_ENV_EX="$ROOT_DIR/../backend/.env"
 if [ -f "$BACKEND_ENV_EX" ]; then
   echo "Updating backend/env.example FRONTEND_URL..."
   sed -i '' -E "s|^(FRONTEND_URL=http://)[^:]+(:8081)$|\1$NEW_IP\2|" "$BACKEND_ENV_EX"
@@ -95,4 +107,23 @@ else
   echo "backend/src/app.js not found"
 fi
 
-echo "LAN IP updated to $NEW_IP everywhere (frontend/app.json, frontend/.env, backend/environment.env, backend/env.example, backend/src/app.js)."
+# Update superAdmin/.env VITE_API_URL
+SUPERADMIN_ENV="$ROOT_DIR/../superAdmin/.env"
+if [ -f "$SUPERADMIN_ENV" ]; then
+  echo "Updating superAdmin/.env VITE_API_URL..."
+  sed -i '' -E "s|^(VITE_API_URL=http://)[0-9.]+(:3000)$|\1$NEW_IP\2|" "$SUPERADMIN_ENV"
+else
+  echo "superAdmin/.env not found"
+fi
+
+# Update web/.env.local BACKEND_ORIGIN and NEXT_PUBLIC_WEB_URL
+WEB_ENV_LOCAL="$ROOT_DIR/../web/.env.local"
+if [ -f "$WEB_ENV_LOCAL" ]; then
+  echo "Updating web/.env.local BACKEND_ORIGIN and NEXT_PUBLIC_WEB_URL..."
+  sed -i '' -E "s|^(BACKEND_ORIGIN=)http://[0-9.]+(:3000)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
+  sed -i '' -E "s|^(NEXT_PUBLIC_WEB_URL=)http://[0-9.]+(:3001)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
+else
+  echo "web/.env.local not found"
+fi
+
+echo "LAN IP updated to $NEW_IP across frontend, backend, superAdmin, and web configs."

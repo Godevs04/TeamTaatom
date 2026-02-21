@@ -375,6 +375,8 @@ export const signOut = async (): Promise<void> => {
     
     // Clear any other auth-related data
     await AsyncStorage.removeItem('onboarding_completed');
+    await AsyncStorage.removeItem('taatom_shorts_liked_ids');
+    await AsyncStorage.removeItem('taatom_posts_liked_ids');
     
     // Clear last auth error
     lastAuthError = null;
@@ -398,6 +400,8 @@ export const signOut = async (): Promise<void> => {
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('onboarding_completed');
+      await AsyncStorage.removeItem('taatom_shorts_liked_ids');
+      await AsyncStorage.removeItem('taatom_posts_liked_ids');
       lastAuthError = null;
     } catch (clearError) {
       logger.error('Failed to clear storage during signout:', clearError);

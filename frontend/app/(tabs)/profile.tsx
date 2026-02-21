@@ -1336,7 +1336,7 @@ export default function ProfileScreen() {
                         key={post._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(post._id, false)}
-                        onPress={() => router.push(`/(tabs)/home?postId=${post._id}`)} // Post detail page commented out - navigate to home with postId
+                        onPress={() => user?._id && router.push(`/user-posts/${user._id}?postId=${post._id}`)}
                       >
                         {validImageUrl ? (
                           <Image 
