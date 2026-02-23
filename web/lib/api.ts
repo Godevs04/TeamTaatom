@@ -62,9 +62,17 @@ export async function getFeed(params?: { limit?: number; cursor?: string; useCur
   };
 }
 
+function isValidPostId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-f0-9]{24}$/i.test(id);
+}
+
 export async function getPostById(id: string) {
+  if (!isValidPostId(id)) {
+    throw new Error("Invalid post ID");
+  }
   const res = await api.get(`/posts/${id}`);
-  return res.data as Post;
+  const data = res.data as { post?: Post };
+  return (data.post ?? res.data) as Post;
 }
 
 export async function toggleLike(postId: string) {
@@ -107,6 +115,48 @@ export async function createPost(form: FormData, onUploadProgress?: (pct: number
 export async function searchPosts(q: string, page = 1, limit = 20) {
   const res = await api.get(`/search/posts?query=${encodeURIComponent(q)}&page=${page}&limit=${limit}`);
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
+}
+
+// Locales (places)
+export async function getLocales(params?: { search?: string; countryCode?: string; stateCode?: string; page?: number; limit?: number }) {
+  const search = new URLSearchParams();
+  if (params?.search) search.set("search", params.search);
+  if (params?.countryCode) search.set("countryCode", params.countryCode);
+  if (params?.stateCode) search.set("stateCode", params.stateCode);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.limit) search.set("limit", String(params.limit));
+  const res = await api.get(`/locales?${search.toString()}`);
+  return res.data as { locales: Array<{ _id: string; name: string; countryCode: string; stateProvince?: string; stateCode?: string; imageUrl?: string }>; pagination?: { total: number; totalPages: number } };
+}
+
+// Shorts (short-form videos)
+export async function getShorts(params?: { page?: number; limit?: number }) {
+  const search = new URLSearchParams();
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.limit) search.set("limit", String(params.limit ?? 20));
+  const res = await api.get(`/shorts?${search.toString()}`);
+  return res.data as { shorts: Post[]; pagination?: PaginationOffset };
+}
+
+// Settings
+export async function getSettings() {
+  const res = await api.get("/settings");
+  return res.data as Record<string, unknown>;
+}
+
+export async function updateSettings(settings: Record<string, unknown>) {
+  const res = await api.put("/settings", { settings });
+  return res.data as { settings?: Record<string, unknown> };
+}
+
+export async function updateSettingCategory(category: string, data: Record<string, unknown>) {
+  const res = await api.put(`/settings/${category}`, data);
+  return res.data as Record<string, unknown>;
+}
+
+export async function resetSettings() {
+  const res = await api.post("/settings/reset");
+  return res.data as Record<string, unknown>;
 }
 
 

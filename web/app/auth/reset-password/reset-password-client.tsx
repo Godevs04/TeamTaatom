@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Input } from "../../../components/ui/input";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
-import { authResetPassword } from "../../../lib/api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { authResetPassword } from "@/lib/api";
 
 const schema = z.object({
   token: z.string().min(4, "Reset token is required"),
@@ -17,8 +17,10 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
-export default function ResetPasswordClient({ email }: { email?: string }) {
+export default function ResetPasswordClient({ email: emailProp }: { email?: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const email = emailProp ?? searchParams.get("email") ?? undefined;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -73,4 +75,3 @@ export default function ResetPasswordClient({ email }: { email?: string }) {
     </div>
   );
 }
-

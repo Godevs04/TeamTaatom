@@ -1,18 +1,29 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Protect key routes that require auth (cookie authToken in prod; dev fallback uses devAuth flag)
+// Protect routes that require auth; redirect to landing (login) when not authenticated
+const PROTECTED_PREFIXES = [
+  "/feed",
+  "/shorts",
+  "/locale",
+  "/search",
+  "/create",
+  "/profile",
+  "/trip",
+  "/settings",
+  "/collections",
+  "/activity",
+  "/chat",
+];
+
+function isProtected(pathname: string) {
+  return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
-  const isProtected =
-    pathname.startsWith("/create") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/collections") ||
-    pathname.startsWith("/activity") ||
-    pathname.startsWith("/chat");
-
-  if (!isProtected) return NextResponse.next();
+  if (!isProtected(pathname)) return NextResponse.next();
 
   const hasCookieToken = !!req.cookies.get("authToken")?.value;
   const hasDevAuth = !!req.cookies.get("devAuth")?.value;
@@ -22,12 +33,31 @@ export function middleware(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
-  url.pathname = "/auth/login";
+  url.pathname = "/";
   url.searchParams.set("next", `${pathname}${search || ""}`);
   return NextResponse.redirect(url);
 }
 
 export const config = {
-  matcher: ["/create/:path*", "/settings/:path*", "/collections/:path*", "/activity/:path*", "/chat/:path*"],
+  matcher: [
+    "/feed",
+    "/feed/:path*",
+    "/shorts",
+    "/shorts/:path*",
+    "/locale",
+    "/locale/:path*",
+    "/search",
+    "/search/:path*",
+    "/create",
+    "/create/:path*",
+    "/profile/:path*",
+    "/trip/:path*",
+    "/settings",
+    "/settings/:path*",
+    "/collections",
+    "/collections/:path*",
+    "/activity",
+    "/activity/:path*",
+    "/chat/:path*",
+  ],
 };
-
