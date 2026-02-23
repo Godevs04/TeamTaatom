@@ -6,10 +6,10 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Input } from "../../../components/ui/input";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
-import { authForgotPassword } from "../../../lib/api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { authForgotPassword } from "@/lib/api";
 
 const schema = z.object({
   email: z.string().email("Valid email required"),
@@ -38,7 +38,7 @@ export default function ForgotPage() {
       <Card>
         <CardHeader>
           <CardTitle>Reset your password</CardTitle>
-          <CardDescription>We’ll email you a reset token.</CardDescription>
+          <CardDescription>We&apos;ll email you a reset token.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
@@ -61,4 +61,3 @@ export default function ForgotPage() {
     </div>
   );
 }
-

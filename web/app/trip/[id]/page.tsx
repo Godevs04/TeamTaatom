@@ -7,14 +7,17 @@ import { fetchWithAuth } from "../../../lib/server-fetch";
 import { TripComments } from "../../../components/trip/comments";
 import { createMetadata } from "../../../lib/seo";
 
-async function fetchPost(id: string) {
+async function fetchPost(id: string): Promise<Post | null> {
   const res = await fetchWithAuth(`${API_V1_ABS}/posts/${id}`);
   if (!res.ok) return null;
-  return (await res.json()) as Post;
+  const data = (await res.json()) as { post?: Post };
+  return data.post ?? null;
 }
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const post = await fetchPost(params.id);
+export async function generateMetadata({ params }: { params: { id?: string } }): Promise<Metadata> {
+  const id = typeof params?.id === "string" ? params.id : "";
+  if (!id) return createMetadata({ title: "Trip", path: "/trip" });
+  const post = await fetchPost(id);
   const title = post?.caption ? post.caption.slice(0, 60) : "Trip";
   const description = post?.address || "Trip on Taatom";
   const image = post?.imageUrl || post?.thumbnailUrl || post?.mediaUrl;
@@ -22,12 +25,22 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     title,
     description,
     image: image ?? null,
-    path: `/trip/${params.id}`,
+    path: `/trip/${id}`,
   });
 }
 
 export default async function TripDetailPage({ params }: { params: { id: string } }) {
-  const post = await fetchPost(params.id);
+  const id = typeof params.id === "string" ? params.id : "";
+  if (!id) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <Card className="p-10 text-center">
+          <p className="text-sm text-muted-foreground">Invalid trip.</p>
+        </Card>
+      </div>
+    );
+  }
+  const post = await fetchPost(id);
   if (!post) {
     return (
       <div className="mx-auto max-w-3xl">
@@ -40,9 +53,13 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const user = post.user;
-  const images: string[] = (post.imageUrls && post.imageUrls.length > 0 ? post.imageUrls : [media]).filter(Boolean);
+  const imagesArray = post.images ?? post.imageUrls;
+  const images: string[] = (imagesArray?.length ? imagesArray : [media]).filter(
+    (src): src is string => typeof src === "string" && src.length > 0
+  );
   const hasCoords = typeof post.latitude === "number" && typeof post.longitude === "number";
   const audioUrl = post.song?.s3Url;
+  const primaryImageUrl = images[0] || "";
 
   return (
     <div className="mx-auto grid max-w-3xl gap-8">
@@ -71,8 +88,14 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
       <div className="overflow-hidden rounded-3xl border bg-card shadow-card">
         <div className="aspect-[16/10] w-full bg-muted">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={images[0]} alt={post.caption || "Trip"} className="h-full w-full object-cover" />
+          {primaryImageUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={primaryImageUrl} alt={post.caption || "Trip"} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+              <span className="text-sm">{post.caption || "Trip"}</span>
+            </div>
+          )}
         </div>
         {images.length > 1 ? (
           <div className="grid grid-cols-4 gap-2 p-3">
@@ -126,7 +149,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
       )}
 
       <section id="comments" className="space-y-3">
-        <TripComments postId={post._id} />
+        <TripComments postId={id} />
       </section>
     </div>
   );

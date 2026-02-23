@@ -22,7 +22,8 @@ export type Post = {
   type?: "post" | "short";
   caption?: string;
   imageUrl?: string;
-  imageUrls?: string[]; // some endpoints may return arrays
+  imageUrls?: string[];
+  images?: string[]; // backend getPostById returns this
   videoUrl?: string;
   mediaUrl?: string;
   thumbnailUrl?: string;

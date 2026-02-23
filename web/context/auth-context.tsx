@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authLogout, authMe, authSignIn } from "../lib/api";
 import type { User } from "../types/user";
@@ -18,11 +19,14 @@ const AuthContext = React.createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
+  const pathname = usePathname();
+  const isAuthPage = pathname?.startsWith("/auth");
 
   const meQuery = useQuery({
     queryKey: ["auth", "me"],
     queryFn: authMe,
     retry: false,
+    enabled: !isAuthPage,
   });
 
   const refresh = React.useCallback(async () => {
@@ -59,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthState = {
     user: meQuery.data?.user ?? null,
-    isLoading: meQuery.isLoading,
+    isLoading: isAuthPage ? false : meQuery.isLoading,
     refresh,
     signIn,
     signOut,
