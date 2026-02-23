@@ -135,7 +135,14 @@
           "username": "taatom"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-6362359854606661~0000000000",
+          "iosAppId": "ca-app-pub-6362359854606661~0000000000"
+        }
+      ]
     ],
     "updates": {
       "enabled": true,
@@ -143,8 +150,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "http://192.168.1.35:3000",
-      "WEB_SHARE_URL": "http://192.168.1.35:3000",
+      "API_BASE_URL": "https://taatombackend-prod-yf2tz.sevalla.app",
+      "WEB_SHARE_URL": "https://taatom.com",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",

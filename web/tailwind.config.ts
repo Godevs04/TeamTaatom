@@ -61,6 +61,9 @@ const config: Config = {
       boxShadow: {
         soft: "0 12px 32px rgba(0,0,0,0.08)",
         card: "0 10px 30px rgba(0,0,0,0.08)",
+        elevated: "0 20px 50px -12px rgba(0,0,0,0.12)",
+        "card-hover": "0 16px 40px rgba(0,0,0,0.1)",
+        "primary-glow": "0 4px 20px -2px hsl(var(--primary) / 0.35)",
       },
     },
   },
