@@ -26,12 +26,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased`}>
-        <AppProviders>
-          <SiteHeader />
-          <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-6xl px-4 py-8">{children}</main>
-        </AppProviders>
-        <Analytics />
+      <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
+        <div suppressHydrationWarning className="min-h-screen">
+          <AppProviders>
+            <SiteHeader />
+            <main className="min-h-[calc(100vh-4rem)] w-full">{children}</main>
+          </AppProviders>
+          <Analytics />
+        </div>
       </body>
     </html>
   );

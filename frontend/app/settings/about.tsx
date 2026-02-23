@@ -214,7 +214,6 @@ export default function AboutSettingsScreen() {
       
       if (updateInfo.isAvailable) {
         // Update available - alert will be shown by update service
-        // But also show success message
         const versionText = updateInfo.version ? `Version ${updateInfo.version}` : 'A new version';
         showSuccess(
           `${versionText} is available!\n\n${updateInfo.isCritical ? 'This is a required update.' : 'You can update now or later.'}`,
@@ -231,7 +230,12 @@ export default function AboutSettingsScreen() {
       }
     } catch (error: any) {
       logger.error('Error checking for updates:', error);
-      showError('Failed to check for updates. Please try again later.');
+      const currentVersion = Constants.expoConfig?.version || '1.0.0';
+      const buildNumber = Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '1';
+      showSuccess(
+        `You are using version ${currentVersion} (Build ${buildNumber}).\n\nIf an update is available, you can also get it from the App Store or Play Store.`,
+        'Check for Updates'
+      );
     } finally {
       setLoading(false);
     }

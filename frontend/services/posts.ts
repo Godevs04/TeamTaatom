@@ -561,16 +561,15 @@ export const updatePost = async (postId: string, caption: string): Promise<{ mes
   }
 };
 
-// Delete short
+// Delete short (shorts are posts; backend uses DELETE /posts/:id for both)
 export const deleteShort = async (shortId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.delete(`/api/v1/shorts/${shortId}`);
-    // Clear cache for this short
+    const response = await api.delete(`/api/v1/posts/${shortId}`);
     postByIdCache.delete(shortId);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    throw new Error(parsedError.userMessage ?? 'Failed to delete short. Please try again.');
   }
 };
 
