@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Library } from "lucide-react";
 
 export default function CollectionsPage() {
