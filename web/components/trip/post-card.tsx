@@ -54,37 +54,52 @@ export function PostCard({ post }: { post: Post }) {
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
 
   return (
-    <article className="overflow-hidden rounded-3xl border bg-card shadow-card">
-      <div className="flex items-center justify-between px-5 py-4">
-        <Link href={`/profile/${post.user?._id}`} className="group flex items-center gap-3">
-          <div className="h-10 w-10 overflow-hidden rounded-full bg-muted">
+    <article className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4">
+        <Link href={`/profile/${post.user?._id}`} className="group flex items-center gap-4">
+          <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={post.user?.profilePic || ""} alt={post.user?.fullName || "User"} className="h-full w-full object-cover" />
+            <img
+              src={post.user?.profilePic || ""}
+              alt={post.user?.fullName || "User"}
+              className="h-full w-full object-cover"
+            />
           </div>
           <div className="leading-tight">
-            <div className="text-sm font-semibold group-hover:underline">
+            <div className="text-[15px] font-semibold text-slate-900 group-hover:underline">
               {post.user?.fullName || post.user?.username || "Traveler"}
             </div>
-            <div className="text-xs text-muted-foreground">{post.address || "Unknown location"}</div>
+            <div className="text-xs font-medium text-slate-500">{post.address || "Unknown location"}</div>
           </div>
         </Link>
-        <Link href={`/trip/${post._id}`} className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+        <Link
+          href={`/trip/${post._id}`}
+          className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+        >
           View
         </Link>
       </div>
 
-      <Link href={`/trip/${post._id}`} className="block bg-muted">
-        <div className="relative aspect-[4/3] w-full">
+      {/* Media */}
+      <Link href={`/trip/${post._id}`} className="block bg-slate-100/50">
+        <div className="relative aspect-[4/3] w-full overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={media} alt={post.caption || "Trip"} className="h-full w-full object-cover" loading="lazy" />
+          <img
+            src={media}
+            alt={post.caption || "Trip"}
+            className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+            loading="lazy"
+          />
         </div>
       </Link>
 
-      <div className="space-y-3 px-5 py-4">
+      {/* Caption & actions */}
+      <div className="space-y-4 border-t border-slate-100 px-6 py-4">
         {post.caption ? (
-          <p className="text-sm leading-6">
+          <p className="text-[15px] leading-6 text-slate-700">
             <span className="font-semibold">{post.user?.username ? `@${post.user.username}` : ""}</span>{" "}
-            <span className="text-foreground/90">{post.caption}</span>
+            <span className="text-slate-600">{post.caption}</span>
           </p>
         ) : null}
 
@@ -92,27 +107,44 @@ export function PostCard({ post }: { post: Post }) {
           <Button
             variant="ghost"
             size="icon"
+            className="h-10 w-10 rounded-xl hover:bg-slate-100"
             onClick={() => likeMutation.mutate()}
             aria-label={post.isLiked ? "Unlike" : "Like"}
           >
             <motion.span whileTap={{ scale: 0.9 }}>
-              <Heart className={cn("h-5 w-5", post.isLiked ? "fill-red-500 text-red-500" : "text-foreground")} />
+              <Heart
+                className={cn(
+                  "h-5 w-5",
+                  post.isLiked ? "fill-red-500 text-red-500" : "text-slate-600"
+                )}
+              />
             </motion.span>
           </Button>
-          <span className="text-sm font-semibold">{post.likesCount ?? 0}</span>
+          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700">
+            {post.likesCount ?? 0}
+          </span>
 
-          <Button variant="ghost" size="icon" aria-label="Comments" asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 rounded-xl hover:bg-slate-100"
+            aria-label="Comments"
+            asChild
+          >
             <Link href={`/trip/${post._id}#comments`}>
-              <MessageCircle className="h-5 w-5" />
+              <MessageCircle className="h-5 w-5 text-slate-600" />
             </Link>
           </Button>
-          <span className="text-sm font-semibold">{post.commentsCount ?? 0}</span>
+          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700">
+            {post.commentsCount ?? 0}
+          </span>
 
           <div className="flex-1" />
 
           <Button
             variant="ghost"
             size="icon"
+            className="h-10 w-10 rounded-xl hover:bg-slate-100"
             aria-label="Share"
             onClick={async () => {
               try {
@@ -123,11 +155,10 @@ export function PostCard({ post }: { post: Post }) {
               }
             }}
           >
-            <Share2 className="h-5 w-5" />
+            <Share2 className="h-5 w-5 text-slate-600" />
           </Button>
         </div>
       </div>
     </article>
   );
 }
-
