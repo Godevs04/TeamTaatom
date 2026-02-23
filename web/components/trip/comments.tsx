@@ -14,14 +14,23 @@ export function TripComments({ postId }: { postId: string }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [text, setText] = React.useState("");
+  const validId =
+    typeof postId === "string" &&
+    postId.length > 0 &&
+    postId !== "undefined" &&
+    /^[a-f0-9]{24}$/i.test(postId);
 
   const q = useQuery({
     queryKey: ["post", postId],
     queryFn: () => getPostById(postId),
+    enabled: validId,
   });
 
   const m = useMutation({
-    mutationFn: async () => addComment(postId, text.trim()),
+    mutationFn: async () => {
+      if (!validId) throw new Error("Invalid post");
+      return addComment(postId, text.trim());
+    },
     onSuccess: async () => {
       setText("");
       toast.success("Comment added");
@@ -29,6 +38,10 @@ export function TripComments({ postId }: { postId: string }) {
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to add comment"),
   });
+
+  if (!validId) {
+    return <p className="text-sm text-muted-foreground">Comments unavailable.</p>;
+  }
 
   if (q.isLoading) {
     return (

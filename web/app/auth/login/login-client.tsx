@@ -6,10 +6,10 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Input } from "../../../components/ui/input";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
-import { useAuth } from "../../../context/auth-context";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useAuth } from "@/context/auth-context";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required"),
@@ -37,8 +37,18 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
     }
   };
 
+  const lottieEmbedUrl = "https://lottie.host/embed/de6e7dfe-658a-422c-9dbd-06d959550e52/Oh0ZqzklZE.lottie";
+
   return (
     <div className="mx-auto grid max-w-md gap-6 py-10">
+      <div className="overflow-hidden rounded-2xl border border-border bg-muted/30">
+        <iframe
+          title="Login animation"
+          src={lottieEmbedUrl}
+          className="h-44 w-full border-0 sm:h-52"
+          allowFullScreen
+        />
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
@@ -78,4 +88,3 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
     </div>
   );
 }
-

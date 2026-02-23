@@ -5,8 +5,9 @@ name: Frontend Build Pipeline
 #   2. build-and-test → Lint, build web, Sentry source maps, upload artifacts
 #   3. build-mobile → EAS iOS/Android (main or manual only)
 #
-# Commit message rule: First line must match ^TAATOM(-[0-9]+)?(\s|:)
-#   Examples: "TAATOM: Add login", "TAATOM-42: Fix crash", "TAATOM-123 Add feature"
+# Commit message rule: First line must match ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
+#   Examples: "TAATOM: Add login", "TAATOM-42: Fix crash", "TAATOM-111: Fixing web and Shorts"
+#   Also allows: "TAATOM-FixingwebandShorts Issues" (alphanumeric after TAATOM-).
 #   Bypass: Include [skip validation] in the message to skip (use sparingly).
 #
 # Note: "Context access might be invalid" warnings are expected until secrets exist.
@@ -77,16 +78,17 @@ jobs:
             exit 0
           fi
 
-          # Require first line to start with TAATOM (optional ticket: TAATOM-123) then space or colon
-          # Regex: ^TAATOM(-[0-9]+)?(\s|:)
-          if echo "$MSG" | grep -qE '^TAATOM(-[0-9]+)?(\s|:)'; then
+          # Require first line to start with TAATOM (optional: TAATOM-123 or TAATOM-Description) then space or colon
+          # Regex: ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
+          if echo "$MSG" | grep -qE '^TAATOM(-[0-9A-Za-z]+)?(\s|:)'; then
             echo "message_ok=true" >> "$GITHUB_OUTPUT"
             echo "✅ Commit message matches convention: TAATOM or TAATOM-<id> prefix."
           else
             echo "message_ok=false" >> "$GITHUB_OUTPUT"
-            echo "❌ Commit message must start with TAATOM or TAATOM-<number> followed by space or colon."
+            echo "❌ Commit message must start with TAATOM or TAATOM-<number> (or TAATOM-<word>) followed by space or colon."
             echo "   Example: TAATOM: Add feature"
             echo "   Example: TAATOM-42: Fix bug"
+            echo "   Example: TAATOM-111: Fixing web and Shorts issues"
             echo "   Got (first line): $MSG"
             exit 1
           fi

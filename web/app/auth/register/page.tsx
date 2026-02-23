@@ -6,10 +6,10 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Input } from "../../../components/ui/input";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
-import { authSignUp } from "../../../lib/api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { authSignUp } from "@/lib/api";
 
 const schema = z.object({
   fullName: z.string().min(2, "Full name is required"),
@@ -90,4 +90,3 @@ export default function RegisterPage() {
     </div>
   );
 }
-

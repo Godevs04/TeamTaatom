@@ -33,12 +33,18 @@ class UpdateService {
   private isChecking = false;
 
   /**
-   * Check if updates are enabled
+   * Check if updates are enabled.
+   * False in __DEV__ (Metro) to avoid crashes when expo-updates runs in dev context.
+   * True when: production build, expo-updates available, Updates.isEnabled, and EAS project ID set.
    */
   isEnabled(): boolean {
-    // Updates only work in production builds, not in Expo Go
+    if (__DEV__) return false;
     if (!Updates) return false;
-    return Updates.isEnabled && Constants.expoConfig?.extra?.eas?.projectId !== undefined;
+    const extra = Constants.expoConfig?.extra ?? {};
+    const hasEasProject =
+      extra.eas?.projectId !== undefined ||
+      (extra.EXPO_PROJECT_ID !== undefined && extra.EXPO_PROJECT_ID !== '');
+    return !!(Updates.isEnabled && hasEasProject);
   }
 
   /**
@@ -58,7 +64,7 @@ class UpdateService {
     this.isChecking = true;
 
     try {
-      if (!Updates) {
+      if (!Updates || typeof Updates.checkForUpdateAsync !== 'function') {
         logger.warn('Updates module not available');
         return { isAvailable: false, isCritical: false };
       }
