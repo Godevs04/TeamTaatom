@@ -38,7 +38,7 @@ export default function ForgotPage() {
       <Card>
         <CardHeader>
           <CardTitle>Reset your password</CardTitle>
-          <CardDescription>We'll email you a reset token.</CardDescription>
+          <CardDescription>We&apos;ll email you a reset token.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">

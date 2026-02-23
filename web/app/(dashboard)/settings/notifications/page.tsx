@@ -46,7 +46,7 @@ export default function NotificationsSettingsPage() {
     );
   }
 
-  const Toggle = ({ label, description, checked, onToggle, keyName }: { label: string; description: string; checked: boolean; onToggle: () => void; keyName: string }) => (
+  const Toggle = ({ label, description, checked, keyName }: { label: string; description: string; checked: boolean; keyName: string }) => (
     <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-3 dark:border-zinc-700/80 dark:bg-zinc-800/50">
       <div>
         <p className="font-medium text-slate-900 dark:text-white">{label}</p>
@@ -81,42 +81,36 @@ export default function NotificationsSettingsPage() {
             label="Push notifications"
             description="Receive push notifications"
             checked={pushNotifications}
-            onToggle={() => {}}
             keyName="pushNotifications"
           />
           <Toggle
             label="Email notifications"
             description="Receive email alerts"
             checked={emailNotifications}
-            onToggle={() => {}}
             keyName="emailNotifications"
           />
           <Toggle
             label="Likes"
             description="When someone likes your post"
             checked={likesNotifications}
-            onToggle={() => {}}
             keyName="likesNotifications"
           />
           <Toggle
             label="Comments"
             description="When someone comments"
             checked={commentsNotifications}
-            onToggle={() => {}}
             keyName="commentsNotifications"
           />
           <Toggle
             label="Follows"
             description="When someone follows you"
             checked={followsNotifications}
-            onToggle={() => {}}
             keyName="followsNotifications"
           />
           <Toggle
             label="Messages"
             description="New direct messages"
             checked={messagesNotifications}
-            onToggle={() => {}}
             keyName="messagesNotifications"
           />
         </div>
