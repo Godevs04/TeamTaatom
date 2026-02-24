@@ -37,6 +37,16 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
+import { NativeAdCard } from '../../components/ads/NativeAdCard';
+
+/** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
+export type FeedItem = PostType | { type: 'ad'; adIndex: number };
+
+function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
+  return 'type' in item && item.type === 'ad';
+}
+
+const ADS_AFTER_EVERY = 6;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -198,6 +208,15 @@ export default function HomeScreen() {
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
+
+  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
+  const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
+  const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
+  const hasSetScrollThresholdRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
@@ -702,48 +721,39 @@ export default function HomeScreen() {
   );
 
   // Scroll to specific post when postId parameter is provided and posts are loaded
+  // dataIndex accounts for ad slots only when feed is showing ads (frequency control).
   useEffect(() => {
     if (!params.postId || typeof params.postId !== 'string' || posts.length === 0 || !flatListRef.current) {
       return;
     }
-    
-    const targetIndex = posts.findIndex(p => p._id === params.postId);
-    if (targetIndex === -1) {
-      // Post not found in current posts, might need to load more or it's not in feed
+    const postIndex = posts.findIndex(p => p._id === params.postId);
+    if (postIndex === -1) {
       logger.debug(`Post ${params.postId} not found in current posts`);
       return;
     }
-    
-    // Use multiple attempts with increasing delays to ensure scroll works
+    const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
+    const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
     const attemptScroll = (attempt: number = 0) => {
       if (attempt > 5) {
         logger.warn(`Failed to scroll to post ${params.postId} after 5 attempts`);
         return;
       }
-      
       setTimeout(() => {
         if (flatListRef.current) {
           try {
-            flatListRef.current.scrollToIndex({ 
-              index: targetIndex, 
-              animated: true 
-            });
-            logger.debug(`Successfully scrolled to post at index ${targetIndex}`);
+            flatListRef.current.scrollToIndex({ index: dataIndex, animated: true });
+            logger.debug(`Successfully scrolled to post at index ${dataIndex}`);
           } catch (error) {
-            // If scroll fails, retry with longer delay
             logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
             attemptScroll(attempt + 1);
           }
         } else {
-          // FlatList not ready yet, retry
           attemptScroll(attempt + 1);
         }
-      }, 100 * (attempt + 1)); // Increasing delay: 100ms, 200ms, 300ms, etc.
+      }, 100 * (attempt + 1));
     };
-    
-    // Start scroll attempts
     attemptScroll();
-  }, [params.postId, posts]);
+  }, [params.postId, posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
 
   // Subscribe to socket events for real-time unread count updates
   useEffect(() => {
@@ -929,6 +939,22 @@ export default function HomeScreen() {
     },
   });
 
+  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control: only after scroll past 5 + session > 30s.
+  const feedData = useMemo((): FeedItem[] => {
+    if (isWeb || posts.length === 0) return posts as FeedItem[];
+    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s;
+    if (!showAds) return posts as FeedItem[];
+    const result: FeedItem[] = [];
+    let adIndex = 0;
+    posts.forEach((post, i) => {
+      result.push(post);
+      if ((i + 1) % ADS_AFTER_EVERY === 0 && i < posts.length - 1) {
+        result.push({ type: 'ad', adIndex: adIndex++ });
+      }
+    });
+    return result;
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
+
   const renderHeader = () => (
     <AnimatedHeader 
       unseenMessageCount={unseenMessageCount} 
@@ -938,39 +964,41 @@ export default function HomeScreen() {
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
   // MUST be defined before conditional returns to follow Rules of Hooks
-  const keyExtractor = useCallback((item: PostType) => item._id, []);
+  const keyExtractor = useCallback((item: FeedItem) => {
+    if (isAdItem(item)) return `ad-${item.adIndex}`;
+    return item._id;
+  }, []);
   
   // Track viewable items for conditional image rendering and analytics
-  // View tracking de-duplication: prevent duplicate view events within 2 seconds
+  // Frequency control: allow ads only after user has scrolled past 5th item (set once).
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
     if (viewableItems.length > 0) {
       const visibleItem = viewableItems[0];
       const newVisibleIndex = visibleItem.index;
+      const item = visibleItem.item as FeedItem;
       if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
         setVisibleIndex(newVisibleIndex);
-        
-        // Track visible post ID for music playback control
-        if (visibleItem.item) {
-          const postId = visibleItem.item._id;
+        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
+          hasSetScrollThresholdRef.current = true;
+          setHasScrolledPastFifthPost(true);
+        }
+        if (item && !isAdItem(item)) {
+          const postId = item._id;
           setVisiblePostId(postId);
-          
           const now = Date.now();
-          
           if (
             lastViewedPostIdRef.current !== postId ||
             (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
           ) {
-            trackPostView(postId, {
-              type: 'photo',
-              source: 'home_feed'
-            });
+            trackPostView(postId, { type: 'photo', source: 'home_feed' });
             lastViewedPostIdRef.current = postId;
             lastViewTimeRef.current = now;
           }
+        } else {
+          setVisiblePostId(null);
         }
       }
     } else {
-      // No items visible - clear visible post ID to pause music
       setVisiblePostId(null);
     }
   }, []);
@@ -981,15 +1009,17 @@ export default function HomeScreen() {
   }).current;
 
   // Conditional image rendering: only render images within 2 indices of visible
-  // This drastically reduces memory usage without changing UX
-  const renderItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
+  // Renders either a post card or a native ad card (one ad after every ADS_AFTER_EVERY posts)
+  const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
+    if (isAdItem(item)) {
+      return <NativeAdCard adIndex={item.adIndex} />;
+    }
     const distanceFromVisible = visibleIndex !== null ? Math.abs(index - visibleIndex) : 0;
     const shouldRenderImage = distanceFromVisible <= 2;
     const isCurrentlyVisible = visiblePostId === item._id;
-    
     return (
-      <OptimizedPhotoCard 
-        post={item} 
+      <OptimizedPhotoCard
+        post={item}
         onRefresh={handleRefresh}
         isVisible={shouldRenderImage}
         isCurrentlyVisible={isCurrentlyVisible}
@@ -1054,7 +1084,7 @@ export default function HomeScreen() {
         
         <FlatList
         ref={flatListRef}
-        data={posts}
+        data={feedData}
         keyExtractor={keyExtractor}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -1098,15 +1128,11 @@ export default function HomeScreen() {
         // View tracking de-duplication: prevent duplicate view events within 2 seconds
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        // Virtual scrolling optimizations for image feed performance
-        // removeClippedSubviews: Unmount off-screen items to free memory (critical for image-heavy feed)
-        // initialNumToRender: Only render 6 items initially for faster first paint
-        // maxToRenderPerBatch: Render 4 items per batch to prevent scroll jank
-        // windowSize: Keep 7 screen heights of items in memory (3.5 above + 3.5 below)
+        // Virtual scrolling: limit rendered items to avoid too many native ad mounts and keep scroll smooth
         removeClippedSubviews={true}
         initialNumToRender={6}
-        maxToRenderPerBatch={4}
-        windowSize={7}
+        maxToRenderPerBatch={5}
+        windowSize={5}
         getItemLayout={undefined} // Let FlatList calculate dynamically (variable height items)
         // Performance optimizations
         maintainVisibleContentPosition={undefined}
