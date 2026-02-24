@@ -78,6 +78,13 @@ jobs:
             exit 0
           fi
 
+          # Allow merge commits (GitHub default "Merge pull request #N from ..." or "Merge branch ...")
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Merge commit detected; convention check skipped."
+            exit 0
+          fi
+
           # Require first line to start with TAATOM (optional: TAATOM-123 or TAATOM-Description) then space or colon
           # Regex: ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
           if echo "$MSG" | grep -qE '^TAATOM(-[0-9A-Za-z]+)?(\s|:)'; then

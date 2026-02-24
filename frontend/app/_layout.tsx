@@ -30,6 +30,7 @@ import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
+import Constants from 'expo-constants';
 
 // Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
@@ -288,6 +289,34 @@ function RootLayoutInner() {
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Initialize Google Mobile Ads SDK once (native only). Skip in Expo Go — native module is not registered there.
+        // Use a development build (expo run:ios / expo run:android) for AdMob. App ID is in app.json plugin.
+        const isExpoGo = Constants.appOwnership === 'expo';
+        if (
+          (Platform.OS === 'ios' || Platform.OS === 'android') &&
+          !isExpoGo
+        ) {
+          try {
+            const MobileAds = require('react-native-google-mobile-ads').default;
+            const mobileAds = MobileAds();
+            if (__DEV__) {
+              // Protect against invalid traffic: request test ads on emulator (call before initialize).
+              // For physical device: check logs for device hash and add to array, e.g. ['EMULATOR', 'YOUR_DEVICE_HASH'].
+              await mobileAds.setRequestConfiguration({
+                testDeviceIdentifiers: ['EMULATOR'],
+              });
+            }
+            await mobileAds.initialize();
+            if (__DEV__) {
+              logger.debug('[RootLayout] Google Mobile Ads SDK initialized (test mode)');
+            } else {
+              logger.debug('[RootLayout] Google Mobile Ads SDK initialized');
+            }
+          } catch (adMobError: any) {
+            logger.warn('[RootLayout] Google Mobile Ads init failed (non-blocking):', adMobError?.message || adMobError);
+          }
+        }
 
         // Initialize update service and check for updates
         try {
