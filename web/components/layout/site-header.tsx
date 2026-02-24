@@ -19,6 +19,8 @@ export function SiteHeader() {
   const mounted = useMounted();
   const { user, isLoading, signOut } = useAuth();
   const isLanding = pathname === "/";
+  const isAuthPage = isLanding || (pathname?.startsWith("/auth") ?? false);
+  const showAppNav = mounted && user && !isAuthPage;
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200/60 bg-white/90 shadow-sm backdrop-blur-xl">
@@ -30,7 +32,7 @@ export function SiteHeader() {
             </span>
             <span className="text-sm sm:text-base">Taatom</span>
           </Link>
-          {!isLanding && (
+          {showAppNav && (
             <nav className="hidden items-center gap-1.5 md:flex">
               {nav.map((item) => {
                 const active = pathname?.startsWith(item.href);
@@ -43,7 +45,7 @@ export function SiteHeader() {
                       active && "text-foreground"
                     )}
                   >
-                    {active && mounted && (
+                    {active && (
                       <motion.span
                         layoutId="nav-pill"
                         className="absolute inset-0 -z-10 rounded-full bg-slate-100"
@@ -64,7 +66,7 @@ export function SiteHeader() {
         </div>
 
         <div className="flex items-center gap-2">
-          {!isLanding && (
+          {showAppNav ? (
             <>
               <Link href="/create" className="hidden sm:block">
                 <Button className="gap-2 rounded-xl bg-primary px-4 text-white shadow-lg shadow-primary/20 hover:opacity-95">
@@ -77,24 +79,34 @@ export function SiteHeader() {
                   <Search className="h-5 w-5" />
                 </Button>
               </Link>
-          <Link href={mounted && user?._id ? `/profile/${user._id}` : "/"}>
-            <Button variant="ghost" size="icon" aria-label="Profile">
-              <User2 className="h-5 w-5" />
-            </Button>
-          </Link>
-          {mounted && !isLoading && user && (
-            <Button variant="ghost" onClick={signOut} className="hidden md:inline-flex">
-              Sign out
-            </Button>
-          )}
+              <Link href={user?._id ? `/profile/${user._id}` : "/"}>
+                <Button variant="ghost" size="icon" aria-label="Profile">
+                  <User2 className="h-5 w-5" />
+                </Button>
+              </Link>
+              {!isLoading && (
+                <Button variant="ghost" onClick={signOut} className="hidden md:inline-flex">
+                  Sign out
+                </Button>
+              )}
             </>
-          )}
-          {isLanding && (!mounted || !user) && (
-            <Link href="/auth/register">
-              <Button variant="outline" className="rounded-full">
-                Create account
-              </Button>
-            </Link>
+          ) : (
+            <>
+              {(!mounted || !user) && (
+                <>
+                  <Link href="/auth/login">
+                    <Button variant="ghost" className="rounded-full">
+                      Sign in
+                    </Button>
+                  </Link>
+                  <Link href="/auth/register">
+                    <Button variant="outline" className="rounded-full">
+                      Create account
+                    </Button>
+                  </Link>
+                </>
+              )}
+            </>
           )}
         </div>
       </div>
