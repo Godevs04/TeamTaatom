@@ -13,13 +13,33 @@ export async function authSignIn(input: { email: string; password: string }) {
   return res.data as { success?: boolean; message?: string; user?: User; token?: string };
 }
 
+export async function checkUsernameAvailability(username: string): Promise<{ available?: boolean; error?: string }> {
+  try {
+    const res = await api.get("/auth/check-username", { params: { username } });
+    const data = res.data as { available?: boolean; success?: boolean; error?: string };
+    if (data && typeof data.available === "boolean") return { available: data.available };
+    if (data && data.success === false) return { available: false, error: data.error || "Username check failed" };
+    return { available: false, error: "Unable to determine username availability" };
+  } catch (err: unknown) {
+    const ax = err as { response?: { status: number; data?: { error?: string; message?: string } } };
+    if (ax.response?.status === 400) {
+      return { available: false, error: ax.response.data?.error || "Invalid username format" };
+    }
+    if (ax.response?.data && typeof (ax.response.data as { available?: boolean }).available === "boolean") {
+      return { available: (ax.response.data as { available: boolean }).available };
+    }
+    return { error: (ax.response?.data as { error?: string })?.error || "Unable to check username" };
+  }
+}
+
 export async function authSignUp(input: {
   fullName: string;
   username: string;
   email: string;
   password: string;
+  termsAccepted?: boolean;
 }) {
-  const res = await api.post("/auth/signup", input);
+  const res = await api.post("/auth/signup", { ...input, termsAccepted: input.termsAccepted ?? true });
   return res.data as { success?: boolean; message?: string };
 }
 
