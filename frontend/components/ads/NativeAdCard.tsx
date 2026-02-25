@@ -143,6 +143,7 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
 
   // AdMob validator: all advertiser assets (Sponsored, icon, headline, body, media, CTA) must be
   // strictly inside the NativeAdView. So AdView is the root; no wrapper outside it.
+  // Layout: column → Sponsored → Header row (icon + headline) → Media (full width) → CTA.
   return (
     <AdView
       nativeAd={nativeAd}
@@ -187,7 +188,7 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
         </View>
         {nativeAd.mediaContent ? (
           <View style={styles.mediaWrapper}>
-            <MediaView style={styles.media} />
+            <MediaView style={styles.mediaFill} />
           </View>
         ) : null}
         <Asset assetType={AssetType.CALL_TO_ACTION}>
@@ -211,6 +212,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   nativeAdViewRoot: {
+    flexDirection: 'column',
     marginHorizontal: 16,
     marginVertical: 8,
     borderRadius: 16,
@@ -229,6 +231,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   content: {
+    flexDirection: 'column',
+    width: '100%',
     gap: 12,
   },
   topRow: {
@@ -256,12 +260,14 @@ const styles = StyleSheet.create({
   },
   mediaWrapper: {
     width: '100%',
-    aspectRatio: 1.91,
+    alignSelf: 'stretch',
+    aspectRatio: 1.5,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
-  media: {
+  mediaFill: {
+    flex: 1,
     width: '100%',
     height: '100%',
   },
