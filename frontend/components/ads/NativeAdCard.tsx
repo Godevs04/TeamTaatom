@@ -141,62 +141,66 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
 
   const { NativeAdView: AdView, NativeAsset: Asset, NativeAssetType: AssetType, NativeMediaView: MediaView } = adsModule;
 
+  // AdMob validator: all advertiser assets (Sponsored, icon, headline, body, media, CTA) must be
+  // strictly inside the NativeAdView. So AdView is the root; no wrapper outside it.
+  // Layout: column → Sponsored → Header row (icon + headline) → Media (full width) → CTA.
   return (
-    <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
-      <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
-        <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>
-          Sponsored
-        </Text>
-      </View>
-      <AdView nativeAd={nativeAd} style={styles.nativeAdView}>
-        <View style={styles.content}>
-          <View style={styles.topRow}>
-            {nativeAd.icon && (
-              <Asset assetType={AssetType.ICON}>
-                <Image
-                  source={{ uri: nativeAd.icon.url }}
-                  style={[styles.icon, { backgroundColor: theme.colors.background }]}
-                  resizeMode="cover"
-                />
-              </Asset>
-            )}
-            <View style={styles.headlineBody}>
-              <Asset assetType={AssetType.HEADLINE}>
+    <AdView
+      nativeAd={nativeAd}
+      style={[styles.nativeAdViewRoot, { backgroundColor: theme.colors.surface }]}
+    >
+      <View style={styles.content} pointerEvents="box-none">
+        <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
+          <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>
+            Sponsored
+          </Text>
+        </View>
+        <View style={styles.topRow}>
+          {nativeAd.icon ? (
+            <Asset assetType={AssetType.ICON}>
+              <Image
+                source={{ uri: nativeAd.icon.url }}
+                style={[styles.icon, { backgroundColor: theme.colors.background }]}
+                resizeMode="cover"
+              />
+            </Asset>
+          ) : null}
+          <View style={styles.headlineBody}>
+            <Asset assetType={AssetType.HEADLINE}>
+              <Text
+                style={[styles.headline, { color: theme.colors.text }]}
+                numberOfLines={2}
+              >
+                {nativeAd.headline}
+              </Text>
+            </Asset>
+            {nativeAd.body ? (
+              <Asset assetType={AssetType.BODY}>
                 <Text
-                  style={[styles.headline, { color: theme.colors.text }]}
+                  style={[styles.body, { color: theme.colors.textSecondary }]}
                   numberOfLines={2}
                 >
-                  {nativeAd.headline}
+                  {nativeAd.body}
                 </Text>
               </Asset>
-              {nativeAd.body ? (
-                <Asset assetType={AssetType.BODY}>
-                  <Text
-                    style={[styles.body, { color: theme.colors.textSecondary }]}
-                    numberOfLines={2}
-                  >
-                    {nativeAd.body}
-                  </Text>
-                </Asset>
-              ) : null}
-            </View>
+            ) : null}
           </View>
-          {nativeAd.mediaContent ? (
-            <View style={styles.mediaWrapper}>
-              <MediaView style={styles.media} />
-            </View>
-          ) : null}
-          <Asset assetType={AssetType.CALL_TO_ACTION}>
-            <Text
-              style={[styles.cta, { color: theme.colors.primary }]}
-              numberOfLines={1}
-            >
-              {nativeAd.callToAction}
-            </Text>
-          </Asset>
         </View>
-      </AdView>
-    </View>
+        {nativeAd.mediaContent ? (
+          <View style={styles.mediaWrapper}>
+            <MediaView style={styles.mediaFill} />
+          </View>
+        ) : null}
+        <Asset assetType={AssetType.CALL_TO_ACTION}>
+          <Text
+            style={[styles.cta, { color: theme.colors.primary }]}
+            numberOfLines={1}
+          >
+            {nativeAd.callToAction}
+          </Text>
+        </Asset>
+      </View>
+    </AdView>
   );
 }
 
@@ -207,8 +211,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
   },
+  nativeAdViewRoot: {
+    flexDirection: 'column',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
+    padding: 12,
+    minHeight: 120,
+  },
   sponsoredRow: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
@@ -217,10 +230,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.5,
   },
-  nativeAdView: {
-    padding: 12,
-  },
   content: {
+    flexDirection: 'column',
+    width: '100%',
     gap: 12,
   },
   topRow: {
@@ -248,12 +260,14 @@ const styles = StyleSheet.create({
   },
   mediaWrapper: {
     width: '100%',
-    aspectRatio: 1.91,
+    alignSelf: 'stretch',
+    aspectRatio: 1.5,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: 'rgba(0,0,0,0.06)',
   },
-  media: {
+  mediaFill: {
+    flex: 1,
     width: '100%',
     height: '100%',
   },

@@ -37,6 +37,11 @@ export default function AboutPolicies({ onLinkPress }: AboutPoliciesProps) {
       icon: 'shield-outline' as const,
     },
     {
+      title: 'Community Guidelines',
+      pathname: '/settings/content-policy',
+      icon: 'flag-outline' as const,
+    },
+    {
       title: 'Terms of Service',
       pathname: '/policies/terms',
       icon: 'document-text-outline' as const,
