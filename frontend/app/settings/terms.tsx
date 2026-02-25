@@ -8,6 +8,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import NavBar from '../../components/NavBar';
 import { useTheme } from '../../context/ThemeContext';
+import Constants from 'expo-constants';
+
+const TERMS_URL = Constants.expoConfig?.extra?.TERMS_OF_SERVICE_URL || 'https://taatom.com/terms';
 
 export default function TermsScreen() {
   const { theme } = useTheme();
@@ -15,21 +18,14 @@ export default function TermsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <NavBar title="Terms & Conditions" showBack onBack={() => router.back()} />
+
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: theme.spacing.xxl }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.title, { color: theme.colors.text }]}>Terms & Conditions</Text>
-          <View style={styles.backBtn} />
-        </View>
-
         <View style={[styles.section, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Community Guidelines</Text>
           <Text style={[styles.zeroTolerance, { color: theme.colors.text }]}>
             We have zero tolerance for objectionable, abusive, hateful, sexual, violent, or illegal content.
           </Text>
@@ -45,21 +41,21 @@ export default function TermsScreen() {
           <Text style={[styles.bullet, { color: theme.colors.textSecondary }]}>
             • No content that promotes violence, hate, or discrimination
           </Text>
-          <Text style={[styles.enforcement, { color: theme.colors.text }]}>
+          <Text style={[styles.enforcement, { color: theme.colors.textSecondary }]}>
             Users violating this policy will be suspended. You can report users or content using the Report option. Block users from their profile to prevent further interaction.
           </Text>
         </View>
 
         <TouchableOpacity
           style={[styles.linkRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-          onPress={() => Linking.openURL('https://taatom.com/terms').catch(() => {})}
+          onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}
+          activeOpacity={0.7}
         >
           <Ionicons name="document-text-outline" size={22} color={theme.colors.primary} />
           <Text style={[styles.linkText, { color: theme.colors.primary }]}>Full Terms of Service</Text>
           <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
         </TouchableOpacity>
       </ScrollView>
-      <NavBar title="Terms & Conditions" />
     </View>
   );
 }
@@ -67,36 +63,50 @@ export default function TermsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  scrollContent: {
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
+    paddingTop: 20,
   },
-  backBtn: { width: 40, alignItems: 'flex-start' },
-  title: { fontSize: 18, fontWeight: '600' },
   section: {
-    margin: 16,
     padding: 20,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    marginBottom: 16,
   },
-  sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12 },
-  zeroTolerance: { fontSize: 16, fontWeight: '700', marginBottom: 12, lineHeight: 22 },
-  body: { fontSize: 15, lineHeight: 22 },
-  bullet: { fontSize: 15, lineHeight: 24, marginTop: 4 },
-  enforcement: { fontSize: 15, lineHeight: 22, marginTop: 16, fontWeight: '600' },
+  zeroTolerance: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 14,
+  },
+  body: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  bullet: {
+    fontSize: 15,
+    lineHeight: 24,
+    marginTop: 2,
+    marginLeft: 2,
+  },
+  enforcement: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 14,
+  },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 16,
     borderWidth: 1,
   },
-  linkText: { flex: 1, fontSize: 16, marginLeft: 12, fontWeight: '500' },
+  linkText: {
+    flex: 1,
+    fontSize: 16,
+    marginLeft: 14,
+    fontWeight: '500',
+  },
 });

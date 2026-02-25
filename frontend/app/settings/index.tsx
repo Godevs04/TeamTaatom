@@ -76,13 +76,6 @@ const settingsSections: SettingsSection[] = [
     route: '/settings/privacy'
   },
   {
-    id: 'content-policy',
-    title: 'Community Guidelines',
-    icon: 'flag-outline',
-    description: 'Safety policy, content rules, report & block',
-    route: '/settings/content-policy'
-  },
-  {
     id: 'notifications',
     title: 'Notifications',
     icon: 'notifications-outline',
@@ -118,25 +111,11 @@ const settingsSections: SettingsSection[] = [
     route: '/activity'
   },
   {
-    id: 'terms',
-    title: 'Terms & Conditions',
-    icon: 'document-text-outline',
-    description: 'User agreement and content policy',
-    route: '/settings/terms'
-  },
-  {
     id: 'manage-posts',
     title: 'Manage Posts',
     icon: 'library-outline',
     description: 'View and restore archived or hidden posts',
     route: '/settings/manage-posts'
-  },
-  {
-    id: 'contact-support',
-    title: 'Contact Support',
-    icon: 'mail-outline',
-    description: 'Get help from our team',
-    route: '/settings/contact-support'
   },
   {
     id: 'about',
