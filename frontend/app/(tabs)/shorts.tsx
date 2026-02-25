@@ -41,6 +41,18 @@ import { geocodeAddress } from '../../utils/locationUtils';
 import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
+import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
+
+/** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
+export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
+
+function isAdItem(item: ShortsItem): item is { type: 'ad'; adIndex: number } {
+  return 'type' in item && item.type === 'ad';
+}
+
+const SHORTS_ADS_AFTER_EVERY = 5;
+const MAX_SHORTS_ADS = 3;
+const SHORTS_ADS_SESSION_DELAY_MS = 20000;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -115,7 +127,19 @@ export default function ShortsScreen() {
   const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
-  
+
+  // Frequency control: no ad before 5 reels watched, no ad before 20s session, max 3 ads per Shorts session
+  const [hasWatchedFiveReels, setHasWatchedFiveReels] = useState(false);
+  const [adsAllowedAfter20s, setAdsAllowedAfter20s] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAdsAllowedAfter20s(true), SHORTS_ADS_SESSION_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Hard cap: track ads shown this session; never insert more than 3 ad slots total
+  const adsShownThisSessionRef = useRef(0);
+  const [adsShownThisSession, setAdsShownThisSession] = useState(0);
+
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
@@ -587,114 +611,6 @@ export default function ShortsScreen() {
   // Track previous visible index to detect actual scroll changes
   const previousVisibleIndexRef = useRef<number>(-1);
   
-  // Enhanced: Ensure video playback syncs with currentVisibleIndex changes
-  // This effect guarantees previous video pauses and new video plays when scrolling
-  // Runs after onViewableItemsChanged updates currentVisibleIndex
-  useEffect(() => {
-    // Only run if the visible index actually changed (not just shorts array content)
-    if (previousVisibleIndexRef.current === currentVisibleIndex) {
-      return;
-    }
-    
-    if (!shorts[currentVisibleIndex]) return;
-
-    // Update previous index
-    previousVisibleIndexRef.current = currentVisibleIndex;
-
-    // 🔥 Critical: Stop all previous Taatom library audio instantly on scroll
-    audioManager.stopAll().catch(() => {});
-
-    const currentShortId = shorts[currentVisibleIndex]._id.toString();
-    const currentVideo = videoRefs.current[currentShortId];
-
-    // Pause all other videos
-    Object.keys(videoRefs.current).forEach(id => {
-      if (id !== currentShortId) {
-        videoRefs.current[id]?.pauseAsync().catch(() => {});
-        setVideoStates(prev => ({ ...prev, [id]: false }));
-      }
-    });
-
-    // Play current video
-    if (currentVideo) {
-      activeVideoIdRef.current = currentShortId;
-      // Get current status and play if not already playing
-      currentVideo.getStatusAsync().then((status) => {
-        if (status.isLoaded) {
-          // If music exists, ensure video is muted
-          const hasMusic = !!(shorts[currentVisibleIndex]?.song?.songId?.s3Url);
-          if (hasMusic) {
-            currentVideo.setIsMutedAsync(true).catch(() => {});
-            currentVideo.setVolumeAsync(0.0).catch(() => {});
-          }
-          
-          // Play if not already playing
-          if (!status.isPlaying) {
-            currentVideo.playAsync().then(() => {
-              setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
-              logger.debug(`Video ${currentShortId} started playing via useEffect`);
-            }).catch((error) => {
-              logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
-              // Retry after short delay
-              setTimeout(() => {
-                currentVideo.playAsync().catch(() => {});
-              }, 500);
-            });
-          } else {
-            setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
-          }
-        } else {
-          // Video not loaded yet, wait for onLoad callback
-          logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
-        }
-      }).catch((error) => {
-        logger.error(`Failed to get status for video ${currentShortId}:`, error);
-        // Try to play anyway
-        currentVideo.playAsync().catch(() => {});
-      });
-    } else {
-      // Video ref not available yet, mark as active for when it mounts
-      activeVideoIdRef.current = currentShortId;
-      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
-      logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
-    }
-  }, [currentVisibleIndex, shorts]);
-
-  // Preload next video for smoother playback and track video views
-  // Includes de-duplication to prevent duplicate view events on fast swiping
-  // Uses currentVisibleIndex for accurate tracking
-  useEffect(() => {
-    if (shorts[currentVisibleIndex]) {
-      const currentShort = shorts[currentVisibleIndex];
-      const now = Date.now();
-      
-      // De-duplicate view tracking: only track if different short or enough time passed
-      if (
-        lastViewedShortIdRef.current !== currentShort._id ||
-        (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
-      ) {
-        trackPostView(currentShort._id, {
-          type: 'short',
-          source: 'shorts_feed'
-        });
-        lastViewedShortIdRef.current = currentShort._id;
-        lastViewTimeRef.current = now;
-      }
-    }
-    
-    if (currentVisibleIndex < shorts.length - 1) {
-      const nextShort = shorts[currentVisibleIndex + 1];
-      if (nextShort) {
-        const nextVideoUrl = getVideoUrl(nextShort);
-        // Preload video in background
-        setTimeout(() => {
-          // Video preloading happens automatically when Video component mounts
-          logger.debug('Preloading next video:', nextShort._id);
-        }, 1000);
-      }
-    }
-  }, [currentVisibleIndex, shorts, getVideoUrl]);
-
   const loadSavedShorts = async () => {
     try {
       const stored = await AsyncStorage.getItem('savedShorts');
@@ -833,50 +749,7 @@ export default function ShortsScreen() {
         return { ...s, isLiked, likesCount };
       });
       setShorts(merged);
-      
-      // Scroll to specific short if shortId is provided in params
-      if (params.shortId && typeof params.shortId === 'string' && response.shorts.length > 0) {
-        const targetIndex = response.shorts.findIndex(s => s._id === params.shortId);
-        if (targetIndex !== -1) {
-          // Set the index immediately so it's ready when FlatList renders
-          setCurrentIndex(targetIndex);
-          setCurrentVisibleIndex(targetIndex);
-          
-          // Use multiple attempts with increasing delays to ensure scroll works
-          // This handles cases where FlatList isn't ready immediately
-          const attemptScroll = (attempt: number = 0) => {
-            if (attempt > 5) {
-              logger.warn(`Failed to scroll to short ${params.shortId} after 5 attempts`);
-              return;
-            }
-            
-            setTimeout(() => {
-              if (flatListRef.current) {
-                try {
-                  flatListRef.current.scrollToIndex({ 
-                    index: targetIndex, 
-                    animated: false 
-                  });
-                  logger.debug(`Successfully scrolled to short at index ${targetIndex}`);
-                } catch (error) {
-                  // If scroll fails, retry with longer delay
-                  logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
-                  attemptScroll(attempt + 1);
-                }
-              } else {
-                // FlatList not ready yet, retry
-                attemptScroll(attempt + 1);
-              }
-            }, 100 * (attempt + 1)); // Increasing delay: 100ms, 200ms, 300ms, etc.
-          };
-          
-          // Start scroll attempts
-          attemptScroll();
-        } else {
-          logger.warn(`Short ${params.shortId} not found in loaded shorts`);
-        }
-      }
-      
+
       // Initialize follow states
       const followStatesMap: { [key: string]: boolean } = {};
       response.shorts.forEach((short: PostType) => {
@@ -1574,6 +1447,135 @@ export default function ShortsScreen() {
     setSwipeStartY(null);
   };
 
+  // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels. Hard cap: max 3 slots per session.
+  const showShortsAds = !isWeb && hasWatchedFiveReels && adsAllowedAfter20s;
+  const shortsData = useMemo((): ShortsItem[] => {
+    if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
+    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const result: ShortsItem[] = [];
+    let adCount = 0;
+    shorts.forEach((reel, i) => {
+      result.push(reel);
+      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
+        result.push({ type: 'ad', adIndex: adCount++ });
+      }
+    });
+    return result;
+  }, [shorts, showShortsAds, adsShownThisSession]);
+
+  // Deep link: scroll to specific short when params.shortId is set. dataIndex accounts for ad slots when showShortsAds.
+  useEffect(() => {
+    if (!params.shortId || typeof params.shortId !== 'string' || shorts.length === 0) return;
+    const reelIndex = shorts.findIndex(s => s._id === params.shortId);
+    if (reelIndex === -1) return;
+    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const dataIndex = showShortsAds
+      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
+      : reelIndex;
+    setCurrentIndex(dataIndex);
+    setCurrentVisibleIndex(dataIndex);
+    const attemptScroll = (attempt: number = 0) => {
+      if (attempt > 5) return;
+      setTimeout(() => {
+        if (flatListRef.current) {
+          try {
+            flatListRef.current.scrollToIndex({ index: dataIndex, animated: false });
+          } catch {
+            attemptScroll(attempt + 1);
+          }
+        } else {
+          attemptScroll(attempt + 1);
+        }
+      }, 100 * (attempt + 1));
+    };
+    attemptScroll();
+  }, [params.shortId, shorts, showShortsAds]);
+
+  // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
+  useEffect(() => {
+    if (previousVisibleIndexRef.current === currentVisibleIndex) return;
+    const visibleItem = shortsData[currentVisibleIndex] as ShortsItem | undefined;
+    const isReel = visibleItem && !isAdItem(visibleItem);
+    previousVisibleIndexRef.current = currentVisibleIndex;
+    audioManager.stopAll().catch(() => {});
+
+    if (!isReel) {
+      Object.keys(videoRefs.current).forEach(id => {
+        videoRefs.current[id]?.pauseAsync().catch(() => {});
+        setVideoStates(prev => ({ ...prev, [id]: false }));
+      });
+      activeVideoIdRef.current = null;
+      return;
+    }
+
+    const currentShortId = (visibleItem as PostType)._id.toString();
+    const currentVideo = videoRefs.current[currentShortId];
+    Object.keys(videoRefs.current).forEach(id => {
+      if (id !== currentShortId) {
+        videoRefs.current[id]?.pauseAsync().catch(() => {});
+        setVideoStates(prev => ({ ...prev, [id]: false }));
+      }
+    });
+
+    if (currentVideo) {
+      activeVideoIdRef.current = currentShortId;
+      currentVideo.getStatusAsync().then((status) => {
+        if (status.isLoaded) {
+          const hasMusic = !!((visibleItem as PostType)?.song?.songId?.s3Url);
+          if (hasMusic) {
+            currentVideo.setIsMutedAsync(true).catch(() => {});
+            currentVideo.setVolumeAsync(0.0).catch(() => {});
+          }
+          if (!status.isPlaying) {
+            currentVideo.playAsync().then(() => {
+              setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+              logger.debug(`Video ${currentShortId} started playing via useEffect`);
+            }).catch((error) => {
+              logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
+              setTimeout(() => { currentVideo.playAsync().catch(() => {}); }, 500);
+            });
+          } else {
+            setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+          }
+        } else {
+          logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
+        }
+      }).catch((error) => {
+        logger.error(`Failed to get status for video ${currentShortId}:`, error);
+        currentVideo.playAsync().catch(() => {});
+      });
+    } else {
+      activeVideoIdRef.current = currentShortId;
+      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+      logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
+    }
+  }, [currentVisibleIndex, shortsData]);
+
+  // Preload next reel and track video views (reels only; skip when visible item is ad)
+  useEffect(() => {
+    const visibleItem = shortsData[currentVisibleIndex] as ShortsItem | undefined;
+    if (visibleItem && !isAdItem(visibleItem)) {
+      const currentShort = visibleItem as PostType;
+      const now = Date.now();
+      if (
+        lastViewedShortIdRef.current !== currentShort._id ||
+        (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
+      ) {
+        trackPostView(currentShort._id, { type: 'short', source: 'shorts_feed' });
+        lastViewedShortIdRef.current = currentShort._id;
+        lastViewTimeRef.current = now;
+      }
+    }
+    for (let i = currentVisibleIndex + 1; i < shortsData.length; i++) {
+      const nextItem = shortsData[i] as ShortsItem;
+      if (nextItem && !isAdItem(nextItem)) {
+        const nextShort = nextItem as PostType;
+        setTimeout(() => logger.debug('Preloading next video:', nextShort._id), 1000);
+        break;
+      }
+    }
+  }, [currentVisibleIndex, shortsData, getVideoUrl]);
+
   // CRITICAL: Update handlers ref whenever handlers change (prevents stale closures in renderShortItem)
   // This MUST be after all handlers are defined
   useEffect(() => {
@@ -1596,17 +1598,28 @@ export default function ShortsScreen() {
   }, [handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad]);
 
   // Memoized video item component to prevent unnecessary re-renders
-  // Only re-renders when relevant props change (currentVisibleIndex, videoStates, etc.)
-  // CRITICAL: Conditionally renders Video component to prevent memory leaks
-  // Only videos within 1 index of currentVisibleIndex are mounted
-  const renderShortItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
-    // Calculate distance from currently visible item
+  // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
+  const renderShortItem = useCallback(({ item, index }: { item: ShortsItem; index: number }) => {
+    if (isAdItem(item)) {
+      return (
+        <View style={[styles.shortItem, styles.shortItemAdWrapper]}>
+          <ShortsNativeAd
+            adIndex={item.adIndex}
+            height={SHORTS_ITEM_HEIGHT}
+            fillParent
+            onImpression={() => {
+              adsShownThisSessionRef.current += 1;
+              setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+            }}
+          />
+        </View>
+      );
+    }
+
+    // Reel item
     const distanceFromVisible = Math.abs(index - currentVisibleIndex);
-    // Only render Video component if within 1 index (max 3 videos: prev, current, next)
-    // This ensures previous videos are fully unmounted, preventing memory leaks
     const shouldRenderVideo = distanceFromVisible <= 1;
-    
-    // Get actual video playing state - only current visible video should play
+
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
     const isFollowing = followStates[item.user._id] || false;
@@ -2243,71 +2256,67 @@ export default function ShortsScreen() {
     );
   }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation]);
 
-  // Memoize keyExtractor and getItemLayout at top level (before conditional returns)
-  const keyExtractor = useCallback((item: PostType) => item._id, []);
-  
-  const getItemLayout = useCallback((data: any, index: number) => ({
+  const keyExtractor = useCallback((item: ShortsItem) => {
+    if (isAdItem(item)) return `ad-${item.adIndex}`;
+    return item._id;
+  }, []);
+
+  const getItemLayout = useCallback((_data: any, index: number) => ({
     length: SHORTS_ITEM_HEIGHT,
     offset: SHORTS_ITEM_HEIGHT * index,
     index,
   }), []);
 
-  // Track viewable items to determine which video is actually visible
-  // Uses 80% coverage threshold to ensure accurate visibility detection
-  // MUST be defined before conditional returns to follow Rules of Hooks
+  // Track viewable items; handle ad vs reel. Frequency: set hasWatchedFiveReels when user has viewed reel at index >= 5.
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
-    if (viewableItems.length > 0) {
-      const visibleItem = viewableItems[0];
-      const newVisibleIndex = visibleItem.index;
-      
-      if (newVisibleIndex !== undefined && newVisibleIndex !== null && newVisibleIndex !== currentVisibleIndex) {
-        // Update state immediately
-        const previousIndex = currentVisibleIndex;
-        setCurrentVisibleIndex(newVisibleIndex);
-        setCurrentIndex(newVisibleIndex);
-        
-        // CRITICAL: Pause previous video FIRST before starting new one
-        // This ensures clean transition and prevents multiple videos playing
-        if (previousIndex !== newVisibleIndex && shorts[previousIndex]) {
-          const previousVideoId = shorts[previousIndex]._id;
-          const previousVideo = videoRefs.current[previousVideoId];
-          if (previousVideo) {
-            // Immediately pause previous video - don't wait for state updates
-            previousVideo.pauseAsync()
-              .then(() => {
-                setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
-                logger.debug(`Paused previous video: ${previousVideoId}`);
-              })
-              .catch((error) => {
-                logger.warn(`Error pausing previous video ${previousVideoId}:`, error);
-                // Still update state even if pause fails
-                setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
-              });
-            
-            // Unload video if it's far from viewport (more than 1 index away)
-            // This fully releases GPU/memory resources
-            if (Math.abs(previousIndex - newVisibleIndex) > 1) {
-              stopAndUnloadVideo(previousVideoId);
-            }
-          }
-        }
-        
-        // Clear active video ref before setting new one
-        if (activeVideoIdRef.current && activeVideoIdRef.current !== shorts[newVisibleIndex]?._id) {
-          activeVideoIdRef.current = null;
-        }
-        
-        // Mark new video as active - useEffect will handle actual playback
-        // This ensures state is updated immediately for shouldPlay prop
-        if (shorts[newVisibleIndex]) {
-          const newVideoId = shorts[newVisibleIndex]._id;
-          activeVideoIdRef.current = newVideoId;
-          // Update video state immediately so shouldPlay prop works
-          setVideoStates(prev => ({ ...prev, [newVideoId]: true }));
+    if (viewableItems.length === 0) return;
+    const visibleItem = viewableItems[0];
+    const newVisibleIndex = visibleItem.index;
+    const item = visibleItem.item as ShortsItem;
+
+    if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
+
+    const previousIndex = currentVisibleIndex;
+    const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+    setCurrentVisibleIndex(newVisibleIndex);
+    setCurrentIndex(newVisibleIndex);
+
+    // If visible item is a reel, track max reel index for frequency (hasWatchedFiveReels)
+    if (item && !isAdItem(item)) {
+      const reelIndex = shortsData.slice(0, newVisibleIndex).filter((x: ShortsItem) => !isAdItem(x)).length;
+      if (reelIndex >= 5) setHasWatchedFiveReels(true);
+    }
+
+    // Pause previous video if previous item was a reel
+    if (previousItem && !isAdItem(previousItem)) {
+      const previousVideoId = previousItem._id;
+      const previousVideo = videoRefs.current[previousVideoId];
+      if (previousVideo) {
+        previousVideo.pauseAsync()
+          .then(() => {
+            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+          })
+          .catch(() => {
+            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+          });
+        if (Math.abs(previousIndex - newVisibleIndex) > 1) {
+          stopAndUnloadVideo(previousVideoId);
         }
       }
     }
-  }, [shorts, stopAndUnloadVideo, currentVisibleIndex]);
+
+    if (activeVideoIdRef.current && item && !isAdItem(item) && item._id !== activeVideoIdRef.current) {
+      activeVideoIdRef.current = null;
+    }
+
+    // If new visible item is a reel, mark it active for playback; if ad, leave video paused
+    if (item && !isAdItem(item)) {
+      activeVideoIdRef.current = item._id;
+      setVideoStates(prev => ({ ...prev, [item._id]: true }));
+    } else {
+      activeVideoIdRef.current = null;
+    }
+  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 80, // Item is considered visible when 80% is on screen
@@ -2375,17 +2384,17 @@ export default function ShortsScreen() {
 
       <FlatList
         ref={flatListRef}
-        data={shorts}
+        data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
         getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
-          // Calculate initial scroll index from params if shortId is provided
-          if (params.shortId && typeof params.shortId === 'string' && shorts.length > 0) {
-            const index = shorts.findIndex(s => s._id === params.shortId);
-            return index !== -1 ? index : undefined;
-          }
-          return undefined;
+          if (!params.shortId || typeof params.shortId !== 'string' || shorts.length === 0) return undefined;
+          const reelIndex = shorts.findIndex(s => s._id === params.shortId);
+          if (reelIndex === -1) return undefined;
+          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
+          return dataIndex;
         })()}
         pagingEnabled
         showsVerticalScrollIndicator={false}
@@ -2395,21 +2404,15 @@ export default function ShortsScreen() {
         snapToAlignment="start"
         decelerationRate="fast"
         onScrollToIndexFailed={(info) => {
-          // Handle scroll to index failure gracefully
           const wait = new Promise(resolve => setTimeout(resolve, 500));
           wait.then(() => {
             flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
           });
         }}
-        // Performance optimizations for video-heavy feed:
-        // - removeClippedSubviews: Unmount off-screen items to free memory
-        // - initialNumToRender: Only render 3 items initially for faster first paint
-        // - maxToRenderPerBatch: Render 2 items per batch to prevent jank
-        // - windowSize: Keep 5 screen heights of items in memory (2.5 above + 2.5 below)
         removeClippedSubviews={true}
         initialNumToRender={3}
-        maxToRenderPerBatch={2}
-        windowSize={5}
+        maxToRenderPerBatch={3}
+        windowSize={3}
         updateCellsBatchingPeriod={50} // Batch updates every 50ms for better performance
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -2566,6 +2569,10 @@ const styles = StyleSheet.create({
     height: SHORTS_ITEM_HEIGHT,
     position: 'relative',
     backgroundColor: 'black',
+  },
+  shortItemAdWrapper: {
+    height: SHORTS_ITEM_HEIGHT,
+    overflow: 'hidden',
   },
   videoContainer: {
     width: '100%',
