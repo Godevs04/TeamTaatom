@@ -63,13 +63,35 @@ export const getErrorMessage = (errorCode: string, fallbackMessage: string = 'An
  * @returns {object} Parsed error with code and message
  */
 export const parseError = (error: any): { code: string; message: string; userMessage: string } => {
-  // Handle Axios errors
+  // Handle Axios errors with standardized error format (error.code)
   if (error?.response?.data?.error?.code) {
     const code = error.response.data.error.code;
     const message = error.response.data.error.message || ERROR_CODES[code as keyof typeof ERROR_CODES]?.message || 'An error occurred';
     const userMessage = getErrorMessage(code, message);
     
     return { code, message, userMessage };
+  }
+
+  // Handle validation errors (400 with errors array from express-validator)
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  if (status === 400 && data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+    const firstError = data.errors[0];
+    const msg = firstError?.msg || firstError?.message || data.message || 'Please check your input and try again';
+    return {
+      code: 'VAL_2001',
+      message: data.error || 'Validation failed',
+      userMessage: msg,
+    };
+  }
+
+  // Handle 400 with error message string (validation middleware fallback)
+  if (status === 400 && data?.message && typeof data.message === 'string') {
+    return {
+      code: 'VAL_2001',
+      message: data.error || 'Validation failed',
+      userMessage: data.message,
+    };
   }
 
   // Handle network errors

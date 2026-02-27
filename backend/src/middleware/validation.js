@@ -25,8 +25,9 @@ const commonValidations = {
     .matches(/[0-9]/).withMessage('Password must contain at least one number'),
   username: () => body('username')
     .trim()
-    .isLength({ min: 3, max: 30 }).withMessage('Username must be between 3 and 30 characters')
-    .matches(/^[a-zA-Z0-9_]+$/).withMessage('Username can only contain letters, numbers, and underscores'),
+    .toLowerCase()
+    .isLength({ min: 3, max: 20 }).withMessage('Username must be between 3 and 20 characters')
+    .matches(/^[a-z0-9_.]+$/).withMessage('Username can only contain lowercase letters, numbers, underscores, and dots'),
   fullName: () => body('fullName')
     .trim()
     .isLength({ min: 1, max: 100 }).withMessage('Full name must be between 1 and 100 characters'),
