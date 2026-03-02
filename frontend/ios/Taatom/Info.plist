@@ -49,7 +49,7 @@
     <key>GADApplicationIdentifier</key>
     <string>ca-app-pub-6362359854606661~9610954911</string>
     <key>GADDelayAppMeasurementInit</key>
-    <false/>
+    <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSApplicationQueriesSchemes</key>
