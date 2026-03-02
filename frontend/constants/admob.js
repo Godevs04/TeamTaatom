@@ -26,14 +26,14 @@ export const ADMOB = {
   android: {
     banner: __DEV__
       ? 'ca-app-pub-3940256099942544/6300978111'
-      : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
+      : 'ca-app-pub-6362359854686661/XXXXXXXXXX',
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/1033173712'
-      : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
-    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/3257756403 */
+      : 'ca-app-pub-6362359854686661/XXXXXXXXXX',
+    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854686661/2564972909 */
     native: __DEV__
       ? 'ca-app-pub-3940256099942544/2247696110'
-      : 'ca-app-pub-6362359854606661/3257756403',
+      : 'ca-app-pub-6362359854686661/2564972909',
   },
 
   /**

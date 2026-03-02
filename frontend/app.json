@@ -139,8 +139,9 @@
       [
         "react-native-google-mobile-ads",
         {
-          "androidAppId": "ca-app-pub-6362359854606661~9610954911",
-          "iosAppId": "ca-app-pub-6362359854606661~9610954911"
+          "androidAppId": "ca-app-pub-6362359854686661~6880786152",
+          "iosAppId": "ca-app-pub-6362359854606661~9610954911",
+          "delayAppMeasurementInit": true
         }
       ]
     ],
@@ -150,8 +151,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "https://taatombackend-prod-yf2tz.sevalla.app",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "API_BASE_URL": "http://192.168.1.37:3000",
+      "WEB_SHARE_URL": "http://192.168.1.37:3000",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -161,7 +162,11 @@
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact"
+      "SUPPORT_URL": "https://taatom.com/contact",
+      "router": {},
+      "eas": {
+        "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
+      }
     },
     "owner": "taatom-technologies"
   }
