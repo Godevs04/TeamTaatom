@@ -5,7 +5,7 @@ const { sendEmail } = require('./brevoService');
 const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate, scheduledTime, duration, reason) => {
   try {
     const subject = '🔧 Scheduled Maintenance - Taatom';
-      html: `
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -153,7 +153,7 @@ const sendDowntimeNotificationEmail = async (userEmail, userName, scheduledDate,
 const sendMaintenanceCompletedEmail = async (userEmail, userName) => {
   try {
     const subject = '✅ Maintenance Complete - Taatom is Back Online!';
-      html: `
+    const html = `
         <!DOCTYPE html>
         <html lang="en">
         <head>
