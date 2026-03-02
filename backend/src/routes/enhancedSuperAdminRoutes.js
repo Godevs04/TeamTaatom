@@ -66,6 +66,7 @@ const {
   createSupportConversation,
   markConversationAsRead
 } = require('../controllers/adminSupportChatController')
+const { getStorageUsage } = require('../controllers/storageUsageController')
 
 // Alias for clarity
 const authenticateSuperAdmin = verifySuperAdminToken
@@ -4380,6 +4381,20 @@ router.get('/system/cache', authenticateSuperAdmin, async (req, res) => {
     return sendError(res, 'SRV_6001', 'Failed to fetch cache statistics');
   }
 });
+
+/**
+ * @swagger
+ * /api/v1/superadmin/storage-usage:
+ *   get:
+ *     summary: Get R2/Sevalla storage bucket usage
+ *     tags: [SuperAdmin System]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Storage usage (totalObjects, totalSizeBytes, totalSizeFormatted)
+ */
+router.get('/storage-usage', authenticateSuperAdmin, getStorageUsage);
 
 router.delete('/system/cache', authenticateSuperAdmin, async (req, res) => {
   try {
