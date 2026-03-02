@@ -22,6 +22,7 @@ import CustomOptions, { CustomOption } from '../../components/CustomOptions';
 import { createLogger } from '../../utils/logger';
 import { getProfile } from '../../services/profile';
 import { theme } from '../../constants/theme';
+import { showConsentForm } from '../../services/admob';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -430,6 +431,32 @@ export default function PrivacySettingsScreen() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
           </TouchableOpacity>
+
+          {(isIOS || isAndroid) && (
+            <TouchableOpacity
+              style={styles.settingItem}
+              onPress={async () => {
+                try {
+                  await showConsentForm();
+                } catch {
+                  showError('Unable to open privacy settings. Please try again.');
+                }
+              }}
+            >
+              <View style={styles.settingContent}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={theme.colors.text} />
+                <View style={styles.settingText}>
+                  <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                    Manage Privacy Settings
+                  </Text>
+                  <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                    Update your ad personalization and consent choices
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Follow Requests */}
