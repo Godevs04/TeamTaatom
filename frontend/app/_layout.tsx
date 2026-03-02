@@ -290,31 +290,22 @@ function RootLayoutInner() {
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
 
-        // Initialize Google Mobile Ads SDK once (native only). Skip in Expo Go — native module is not registered there.
-        // Use a development build (expo run:ios / expo run:android) for AdMob. App ID is in app.json plugin.
+        // Initialize ads (AdMob + UMP) on native only. Skip in Expo Go & web.
         const isExpoGo = Constants.appOwnership === 'expo';
-        if (
-          (Platform.OS === 'ios' || Platform.OS === 'android') &&
-          !isExpoGo
-        ) {
+        if ((Platform.OS === 'ios' || Platform.OS === 'android') && !isExpoGo) {
           try {
-            const MobileAds = require('react-native-google-mobile-ads').default;
-            const mobileAds = MobileAds();
-            if (__DEV__) {
-              // Protect against invalid traffic: request test ads on emulator (call before initialize).
-              // For physical device: check logs for device hash and add to array, e.g. ['EMULATOR', 'YOUR_DEVICE_HASH'].
-              await mobileAds.setRequestConfiguration({
-                testDeviceIdentifiers: ['EMULATOR'],
-              });
-            }
-            await mobileAds.initialize();
-            if (__DEV__) {
-              logger.debug('[RootLayout] Google Mobile Ads SDK initialized (test mode)');
-            } else {
-              logger.debug('[RootLayout] Google Mobile Ads SDK initialized');
-            }
+            const { initializeAds } = await import('../services/admob');
+            initializeAds().catch((err: unknown) => {
+              logger.warn(
+                '[RootLayout] Ads init failed (non-blocking):',
+                err instanceof Error ? err.message : err
+              );
+            });
           } catch (adMobError: any) {
-            logger.warn('[RootLayout] Google Mobile Ads init failed (non-blocking):', adMobError?.message || adMobError);
+            logger.warn(
+              '[RootLayout] Ads module load failed (non-blocking):',
+              adMobError?.message || adMobError
+            );
           }
         }
 
