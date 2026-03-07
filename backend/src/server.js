@@ -51,12 +51,11 @@ const validateEnvironment = () => {
       });
     }
     
-    // CORS: If these are missing, web clients will be blocked
-    const corsVars = ['FRONTEND_URL', 'SUPERADMIN_URL'];
-    const missingCors = corsVars.filter(v => !process.env[v]);
-    if (missingCors.length > 0) {
-      console.warn('⚠️  CORS: The following env vars are required for web clients in production. Without them, browser requests will be blocked:');
-      missingCors.forEach(v => console.warn(`   - ${v}`));
+    // CORS: At least one of these should be set so web clients are allowed
+    const corsVars = ['FRONTEND_URL', 'WEB_FRONTEND_URL', 'SUPERADMIN_URL'];
+    const hasCorsOrigin = corsVars.some(v => process.env[v]);
+    if (!hasCorsOrigin) {
+      console.warn('⚠️  CORS: Set at least one of FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in production so web clients are not blocked.');
     }
     
     // Rate limiting: in-memory store is per process; multi-instance should use Redis
