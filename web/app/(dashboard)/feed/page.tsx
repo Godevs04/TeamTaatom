@@ -2,13 +2,17 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useFeed } from "../../../hooks/useFeed";
 import { PostCard } from "../../../components/trip/post-card";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
-import { PenLine, ImagePlus, MapPin, Send, Compass } from "lucide-react";
+import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw } from "lucide-react";
 import { useAuth } from "../../../context/auth-context";
 import { useMounted } from "../../../hooks/use-mounted";
+import { getLikedPostIds, mergeLikedIntoPosts } from "../../../lib/utils";
+import type { Post } from "../../../types/post";
+import { isAxiosError } from "axios";
 
 const feedTabs = [
   { id: "recents", label: "Recents" },
@@ -16,12 +20,29 @@ const feedTabs = [
   { id: "popular", label: "Popular" },
 ];
 
+function getFeedErrorMessage(error: unknown): string {
+  if (isAxiosError(error) && error.response?.status === 429) {
+    return "Too many requests. Please wait a moment and try again.";
+  }
+  if (error instanceof Error && (error.message.includes("Network") || error.message.includes("connection"))) {
+    return "Connection issue. Showing cached content if available.";
+  }
+  return "Failed to load posts. Pull down to refresh.";
+}
+
 export default function FeedPage() {
   const [activeTab, setActiveTab] = React.useState("recents");
+  const searchParams = useSearchParams();
+  const deepLinkPostId = searchParams.get("postId");
   const mounted = useMounted();
   const q = useFeed();
   const { user } = useAuth();
-  const posts = q.data?.pages.flatMap((p) => p.posts) ?? [];
+  const rawPosts = React.useMemo(
+    () => q.data?.pages.flatMap((p) => p.posts) ?? [],
+    [q.data?.pages]
+  );
+  const likedIds = React.useMemo(() => (mounted ? getLikedPostIds() : []), [mounted]);
+  const posts: Post[] = React.useMemo(() => mergeLikedIntoPosts(rawPosts, likedIds), [rawPosts, likedIds]);
 
   React.useEffect(() => {
     const onScroll = () => {
@@ -34,10 +55,24 @@ export default function FeedPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [q]);
 
+  React.useEffect(() => {
+    if (!deepLinkPostId || posts.length === 0) return;
+    const el = document.querySelector(`[data-post-id="${deepLinkPostId}"]`);
+    if (el) {
+      let attempts = 0;
+      const tryScroll = () => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        attempts += 1;
+        if (attempts < 5) setTimeout(tryScroll, 100 * attempts);
+      };
+      tryScroll();
+    }
+  }, [deepLinkPostId, posts.length]);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
       {/* Premium header with tabs */}
-      <header className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-premium border-premium md:p-8">
+      <header className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-premium border-premium sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
@@ -47,21 +82,33 @@ export default function FeedPage() {
               Stories and trips from people you follow
             </p>
           </div>
-          <div className="inline-flex rounded-2xl bg-slate-100/90 p-1.5">
-            {feedTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex rounded-2xl bg-slate-100/90 p-1.5">
+              {feedTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 ${
+                    activeTab === tab.id
+                      ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-slate-200/80"
+              onClick={() => q.refetch()}
+              disabled={q.isRefetching}
+              aria-label="Refresh feed"
+            >
+              <RefreshCw className={`h-4 w-4 ${q.isRefetching ? "animate-spin" : ""}`} />
+            </Button>
           </div>
         </div>
       </header>
@@ -69,12 +116,17 @@ export default function FeedPage() {
       {/* Share composer — premium CTA card */}
       <Link
         href="/create"
-        className="flex items-center gap-4 rounded-3xl border border-slate-200/80 bg-white px-6 py-5 shadow-premium transition-all duration-200 hover:shadow-premium-hover hover:border-slate-300/80 border-premium md:px-8 md:py-5"
+        className="flex items-center gap-3 rounded-3xl border border-slate-200/80 bg-white px-4 py-4 shadow-premium transition-all duration-200 hover:shadow-premium-hover hover:border-slate-300/80 border-premium sm:gap-4 sm:px-6 sm:py-5 md:px-8"
       >
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-primary/15 to-violet-500/15 ring-1 ring-slate-200/80">
           {mounted && user?.profilePic ? (
             /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={user.profilePic} alt="Your profile" className="h-full w-full object-cover" />
+            <img
+              src={user.profilePic}
+              alt="Your profile"
+              className="h-full w-full object-cover"
+              referrerPolicy="no-referrer"
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-primary">
               <PenLine className="h-6 w-6" />
@@ -102,14 +154,14 @@ export default function FeedPage() {
       </Link>
 
       {/* Feed posts */}
-      <div className="grid gap-8">
+      <div className="grid gap-4 sm:gap-6 lg:gap-8">
         {q.isLoading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
               className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium border-premium"
             >
-              <div className="flex items-center gap-4 px-6 py-5">
+              <div className="flex items-center gap-4 px-4 py-4 sm:px-6 sm:py-5">
                 <Skeleton className="h-12 w-12 rounded-2xl" />
                 <div className="grid gap-2">
                   <Skeleton className="h-4 w-36" />
@@ -117,7 +169,7 @@ export default function FeedPage() {
                 </div>
               </div>
               <Skeleton className="aspect-[4/3] w-full" />
-              <div className="space-y-3 px-6 py-5">
+              <div className="space-y-3 px-4 py-4 sm:px-6 sm:py-5">
                 <Skeleton className="h-3 w-2/3" />
                 <Skeleton className="h-10 w-full" />
               </div>
@@ -125,7 +177,7 @@ export default function FeedPage() {
           ))
         ) : q.isError ? (
           <div className="rounded-3xl border border-slate-200/80 bg-white p-12 text-center shadow-premium border-premium">
-            <p className="text-[15px] text-slate-600">Failed to load feed.</p>
+            <p className="text-[15px] text-slate-600">{getFeedErrorMessage(q.error)}</p>
             <Button
               className="mt-5 rounded-xl shadow-premium"
               onClick={() => q.refetch()}
@@ -148,9 +200,14 @@ export default function FeedPage() {
           </div>
         ) : (
           <>
-            {posts.map((p) => (
-              <PostCard key={p._id} post={p} />
-            ))}
+            {/* Desktop web: two-column grid on xl to use horizontal space */}
+            <div className="grid gap-8 xl:grid-cols-2">
+              {posts.map((p) => (
+                <div key={p._id} data-post-id={p._id}>
+                  <PostCard post={p} />
+                </div>
+              ))}
+            </div>
 
             {q.isFetchingNextPage ? (
               <div className="py-8 text-center text-sm text-slate-500">Loading more…</div>

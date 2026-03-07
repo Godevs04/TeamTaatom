@@ -2,20 +2,22 @@
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { getFeed } from "../lib/api";
+import type { PaginationOffset } from "../types/api";
+
+const POSTS_PER_PAGE_WEB = 15;
 
 export function useFeed() {
   return useInfiniteQuery({
     queryKey: ["feed"],
     queryFn: async ({ pageParam }) => {
-      // cursor-based pagination (preferred)
-      return getFeed({ limit: 10, useCursor: true, cursor: pageParam as string | undefined });
+      return getFeed({ page: pageParam as number, limit: POSTS_PER_PAGE_WEB });
     },
     getNextPageParam: (lastPage) => {
-      const p: any = lastPage.pagination;
-      if (p?.hasNextPage && p?.cursor) return p.cursor;
+      const p = lastPage.pagination as PaginationOffset | undefined;
+      if (p?.hasNextPage && typeof p.currentPage === "number") return p.currentPage + 1;
       return undefined;
     },
-    initialPageParam: undefined as unknown as string | undefined,
+    initialPageParam: 1,
   });
 }
 

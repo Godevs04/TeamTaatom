@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addComment, getPostById } from "../../lib/api";
+import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { useAuth } from "../../context/auth-context";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
@@ -36,7 +37,7 @@ export function TripComments({ postId }: { postId: string }) {
       toast.success("Comment added");
       await qc.invalidateQueries({ queryKey: ["post", postId] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to add comment"),
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
   if (!validId) {
