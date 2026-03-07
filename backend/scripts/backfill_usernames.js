@@ -73,7 +73,7 @@ async function backfill() {
 
 backfill().catch(async (err) => {
   console.error('Backfill error:', err);
-  try { await mongoose.disconnect(); } catch {}
+  try { await mongoose.disconnect(); } catch (_) { /* ignore */ }
   process.exit(1);
 });
 

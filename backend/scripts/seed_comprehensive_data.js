@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const path = require('path');
-const bcrypt = require('bcryptjs');
 
 // Load environment variables
 require('dotenv').config({ path: path.join(__dirname, '../environment.env') });
@@ -12,7 +11,6 @@ const Comment = require('../src/models/Comment');
 const Notification = require('../src/models/Notification');
 const Chat = require('../src/models/Chat');
 const Report = require('../src/models/Report');
-const SuperAdmin = require('../src/models/SuperAdmin');
 
 const seedComprehensiveData = async () => {
   try {
@@ -166,10 +164,7 @@ const seedComprehensiveData = async () => {
     // 5. Update User statistics
     console.log('📊 Updating user statistics...');
     for (const user of users) {
-      const userPosts = await Post.countDocuments({ user: user._id });
-      const userComments = await Comment.countDocuments({ user: user._id });
       const userLikes = await Comment.countDocuments({ likes: user._id });
-      
       user.totalLikes = userLikes;
       await user.save();
     }
