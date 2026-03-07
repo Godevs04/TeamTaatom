@@ -11,24 +11,14 @@ import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw } from "lucide-rea
 import { useAuth } from "../../../context/auth-context";
 import { useMounted } from "../../../hooks/use-mounted";
 import { getLikedPostIds, mergeLikedIntoPosts } from "../../../lib/utils";
+import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import type { Post } from "../../../types/post";
-import { isAxiosError } from "axios";
 
 const feedTabs = [
   { id: "recents", label: "Recents" },
   { id: "friends", label: "Friends" },
   { id: "popular", label: "Popular" },
 ];
-
-function getFeedErrorMessage(error: unknown): string {
-  if (isAxiosError(error) && error.response?.status === 429) {
-    return "Too many requests. Please wait a moment and try again.";
-  }
-  if (error instanceof Error && (error.message.includes("Network") || error.message.includes("connection"))) {
-    return "Connection issue. Showing cached content if available.";
-  }
-  return "Failed to load posts. Pull down to refresh.";
-}
 
 function FeedContent() {
   const [activeTab, setActiveTab] = React.useState("recents");
@@ -177,7 +167,7 @@ function FeedContent() {
           ))
         ) : q.isError ? (
           <div className="rounded-3xl border border-slate-200/80 bg-white p-12 text-center shadow-premium border-premium">
-            <p className="text-[15px] text-slate-600">{getFeedErrorMessage(q.error)}</p>
+            <p className="text-[15px] text-slate-600">{getFriendlyErrorMessage(q.error)}</p>
             <Button
               className="mt-5 rounded-xl shadow-premium"
               onClick={() => q.refetch()}

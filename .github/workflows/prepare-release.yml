@@ -9,7 +9,7 @@
 # WHAT IT DOES:
 #   1. Merge translations (placeholder — add your step if needed)
 #   2. Bump internal version from .github/release.properties (GitHub tag only)
-#   3. Build mobile (Android + iOS) via EAS
+#   3. Build mobile (Android + iOS) — SKIPPED for now; re-enable when EXPO_TOKEN is set
 #   4. Create GitHub tag + release; optionally update LAST_INTERNAL_VERSION
 #
 # NOTE: app.json is for App Store / Play Store only — change that manually.
@@ -147,6 +147,8 @@ jobs:
     name: 📱 Build mobile (${{ matrix.job_name }})
     runs-on: ubuntu-latest
     needs: bump_version
+    # Skip for now (workflow is for GitHub version update). Set EXPO_TOKEN and change to "true" to run.
+    if: false
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -205,7 +207,7 @@ jobs:
   prepare_release:
     name: 🏷️ Create GitHub tag & release
     runs-on: ubuntu-latest
-    needs: [bump_version, build_mobile]
+    needs: bump_version
     timeout-minutes: 10
     steps:
       - name: Checkout

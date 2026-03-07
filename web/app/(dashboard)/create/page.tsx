@@ -72,9 +72,28 @@ export default function CreateTripPage() {
   const [searchResult, setSearchResult] = React.useState<SearchPlaceResult | null>(null);
   const [showSpotTypeDropdown, setShowSpotTypeDropdown] = React.useState(false);
   const [showTravelInfoDropdown, setShowTravelInfoDropdown] = React.useState(false);
+  const [previewUrls, setPreviewUrls] = React.useState<string[]>([]);
+  const objectUrlsRef = React.useRef<string[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
   const thumbInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Create and revoke object URLs for file previews to avoid memory leaks
+  React.useEffect(() => {
+    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    objectUrlsRef.current = [];
+    if (files.length === 0) {
+      setPreviewUrls([]);
+      return;
+    }
+    const urls = files.map((f) => URL.createObjectURL(f));
+    objectUrlsRef.current = urls;
+    setPreviewUrls(urls);
+    return () => {
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      objectUrlsRef.current = [];
+    };
+  }, [files]);
 
   React.useEffect(() => {
     if (authLoading) return;
@@ -311,7 +330,7 @@ export default function CreateTripPage() {
                     {files.map((f, i) => (
                       <div key={`${f.name}-${i}`} className="relative overflow-hidden rounded-xl border bg-muted">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={URL.createObjectURL(f)} alt={f.name} className="aspect-square w-full object-cover" />
+                        <img src={previewUrls[i] ?? ""} alt={f.name} className="aspect-square w-full object-cover" />
                         <button
                           type="button"
                           onClick={() => removeFile(i)}

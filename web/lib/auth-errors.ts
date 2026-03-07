@@ -96,3 +96,6 @@ export function getFriendlyErrorMessage(error: unknown): string {
 
   return "Something went wrong. Please try again.";
 }
+
+/** Alias for getFriendlyErrorMessage — use for any API error (feed, settings, etc.). */
+export const getUserFacingErrorMessage = getFriendlyErrorMessage;
