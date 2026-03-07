@@ -1,6 +1,5 @@
 const TripVisit = require('../models/TripVisit');
 const User = require('../models/User');
-const Post = require('../models/Post');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
