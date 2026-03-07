@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { API_V1_ABS } from "../../../lib/constants";
-import { Card } from "../../../components/ui/card";
-import type { Post } from "../../../types/post";
-import { getPostDisplayLocation, getPostCoordinates } from "../../../lib/post-utils";
-import { fetchWithAuth } from "../../../lib/server-fetch";
-import { TripComments } from "../../../components/trip/comments";
-import { createMetadata } from "../../../lib/seo";
+import { API_V1_ABS } from "../../../../lib/constants";
+import { Card } from "../../../../components/ui/card";
+import type { Post } from "../../../../types/post";
+import { getPostDisplayLocation, getPostCoordinates } from "../../../../lib/post-utils";
+import { fetchWithAuth } from "../../../../lib/server-fetch";
+import { TripComments } from "../../../../components/trip/comments";
+import { createMetadata } from "../../../../lib/seo";
 
 async function fetchPost(id: string): Promise<Post | null> {
   const res = await fetchWithAuth(`${API_V1_ABS}/posts/${id}`);
@@ -167,4 +167,3 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     </div>
   );
 }
-

@@ -3,12 +3,12 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
-import { createPost, createShort, searchPlaceUser, type SearchPlaceResult } from "../../lib/api";
-import { getFriendlyErrorMessage } from "../../lib/auth-errors";
-import { useAuth } from "../../context/auth-context";
+import { Button } from "../../../components/ui/button";
+import { Input } from "../../../components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
+import { createPost, createShort, searchPlaceUser, type SearchPlaceResult } from "../../../lib/api";
+import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
+import { useAuth } from "../../../context/auth-context";
 import { ImagePlus, MapPin, X, Video, Film, Search, ChevronDown, Check } from "lucide-react";
 
 const CAPTION_MAX = 500;

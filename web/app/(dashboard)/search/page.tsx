@@ -3,13 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { searchPosts, searchUsers } from "../../lib/api";
-import { Input } from "../../components/ui/input";
-import { Card } from "../../components/ui/card";
-import { Skeleton } from "../../components/ui/skeleton";
-import { getPostDisplayLocation } from "../../lib/post-utils";
-import type { User } from "../../types/user";
-import type { Post } from "../../types/post";
+import { searchPosts, searchUsers } from "../../../lib/api";
+import { Input } from "../../../components/ui/input";
+import { Card } from "../../../components/ui/card";
+import { Skeleton } from "../../../components/ui/skeleton";
+import { getPostDisplayLocation } from "../../../lib/post-utils";
+import type { User } from "../../../types/user";
+import type { Post } from "../../../types/post";
 
 export default function SearchPage() {
   const [q, setQ] = React.useState("");
@@ -125,4 +125,3 @@ function useDebounce<T>(value: T, delayMs: number) {
   }, [value, delayMs]);
   return v;
 }
-
