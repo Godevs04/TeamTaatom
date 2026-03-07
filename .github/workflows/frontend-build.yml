@@ -1,17 +1,14 @@
 name: Frontend Build Pipeline
 
-# Build Pipeline Flow:
-#   1. validate     → Commit message & branch conventions (TAATOM prefix, branch regex)
-#   2. build-and-test → Lint, build web, Sentry source maps, upload artifacts
-#   3. build-mobile → EAS iOS/Android (main or manual only)
+# Frontend lint + build web runs ONCE in CI (see ci.yml). This workflow does NOT duplicate it.
+# Flow:
+#   1. validate     → Commit message & branch conventions (TAATOM prefix)
+#   2. build-mobile → EAS iOS/Android (main or manual only)
 #
 # Commit message rule: First line must match ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
-#   Examples: "TAATOM: Add login", "TAATOM-42: Fix crash", "TAATOM-111: Fixing web and Shorts"
-#   Also allows: "TAATOM-FixingwebandShorts Issues" (alphanumeric after TAATOM-).
 #   Bypass: Include [skip validation] in the message to skip (use sparingly).
 #
-# Note: "Context access might be invalid" warnings are expected until secrets exist.
-# Add secrets in: Repository Settings → Secrets and variables → Actions
+# Lint, build web, Sentry source maps, and web-build artifact are in CI / Lint & Build Frontend.
 
 on:
   push:
@@ -128,100 +125,10 @@ jobs:
           echo "  Message OK: ${{ steps.conventions.outputs.message_ok }}"
           echo "=============================================="
 
-  build-and-test:
-    name: Build & Test Frontend
-    runs-on: ubuntu-latest
-    needs: validate
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: |
-          # Try npm ci first (faster), fallback to npm install if lock file is out of sync
-          npm ci || npm install
-
-      - name: Validate code - Linting
-        working-directory: ./frontend
-        run: npm run lint || echo "Linting not configured"
-
-      - name: Build web
-        working-directory: ./frontend
-        env:
-          NODE_ENV: production
-          # Public values - can be in vars or secrets
-          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
-          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
-          EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
-          EXPO_PUBLIC_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
-        run: |
-          npm run build:web
-          # Source maps are automatically uploaded by Sentry CLI during build
-
-      - name: Upload source maps to Sentry
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        working-directory: ./frontend
-        env:
-          # Secrets required for Sentry source map uploads
-          # Note: "Context access might be invalid" warnings are expected until secrets are added to GitHub
-          # These warnings will disappear once secrets are configured in: Settings → Secrets and variables → Actions
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          RELEASE_VERSION: ${{ github.sha }}
-        run: |
-          # Skip if secrets are not configured
-          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
-            echo "⚠️  Sentry secrets not configured. Skipping source maps upload."
-            echo "   Add secrets in: Repository Settings → Secrets and variables → Actions"
-            exit 0
-          fi
-          
-          # Install Sentry CLI if not already installed
-          npm install -g @sentry/cli || true
-          
-          # Upload source maps (if build generated them)
-          if [ -d "dist" ]; then
-            sentry-cli sourcemaps upload \
-              --org "$SENTRY_ORG" \
-              --project "$SENTRY_PROJECT" \
-              --release "$RELEASE_VERSION" \
-              dist/ || echo "Source maps upload skipped (may not be needed for this build)"
-          fi
-
-      - name: Upload build artifacts
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-build
-          path: frontend/dist
-          retention-days: 7
-
-      - name: Pipeline summary
-        run: |
-          echo "=============================================="
-          echo "  Frontend Build & Test — Complete"
-          echo "=============================================="
-          echo "  Commit: ${{ github.sha }}"
-          echo "  Branch: ${GITHUB_REF#refs/heads/}"
-          echo "  Conventions: passed (validate job)"
-          echo "  Lint: ran | Build: web built"
-          echo "=============================================="
-
   build-mobile:
     name: Build Mobile Apps (EAS)
     runs-on: ubuntu-latest
-    needs: build-and-test  # Only run after web build and validation pass
+    needs: validate
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 35
 
