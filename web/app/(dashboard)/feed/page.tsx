@@ -30,7 +30,7 @@ function getFeedErrorMessage(error: unknown): string {
   return "Failed to load posts. Pull down to refresh.";
 }
 
-export default function FeedPage() {
+function FeedContent() {
   const [activeTab, setActiveTab] = React.useState("recents");
   const searchParams = useSearchParams();
   const deepLinkPostId = searchParams.get("postId");
@@ -228,5 +228,36 @@ export default function FeedPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function FeedPageFallback() {
+  return (
+    <div className="space-y-4 sm:space-y-6 lg:space-y-8">
+      <header className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-premium sm:p-6 md:p-8">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="mt-2 h-4 w-64" />
+        <div className="mt-4 flex gap-3">
+          <Skeleton className="h-10 w-24 rounded-xl" />
+          <Skeleton className="h-10 w-24 rounded-xl" />
+        </div>
+      </header>
+      <div className="rounded-3xl border border-slate-200/80 bg-white p-4 sm:p-6">
+        <Skeleton className="h-14 w-full rounded-xl" />
+      </div>
+      <div className="grid gap-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="aspect-[4/3] w-full rounded-3xl" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function FeedPage() {
+  return (
+    <React.Suspense fallback={<FeedPageFallback />}>
+      <FeedContent />
+    </React.Suspense>
   );
 }

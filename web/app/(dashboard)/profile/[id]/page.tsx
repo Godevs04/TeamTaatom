@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { API_V1_ABS } from "../../../lib/constants";
-import { fetchWithAuth } from "../../../lib/server-fetch";
-import { Card } from "../../../components/ui/card";
-import { ProfileActions } from "../../../components/profile/profile-actions";
-import { getPostDisplayLocation } from "../../../lib/post-utils";
-import type { User } from "../../../types/user";
-import type { Post } from "../../../types/post";
-import { createMetadata } from "../../../lib/seo";
+import { API_V1_ABS } from "../../../../lib/constants";
+import { fetchWithAuth } from "../../../../lib/server-fetch";
+import { Card } from "../../../../components/ui/card";
+import { ProfileActions } from "../../../../components/profile/profile-actions";
+import { getPostDisplayLocation } from "../../../../lib/post-utils";
+import type { User } from "../../../../types/user";
+import type { Post } from "../../../../types/post";
+import { createMetadata } from "../../../../lib/seo";
 
 async function getProfile(id: string) {
   const res = await fetchWithAuth(`${API_V1_ABS}/profile/${id}`);
@@ -119,4 +119,3 @@ export default async function ProfilePage({ params }: { params: { id: string } }
     </div>
   );
 }
-
