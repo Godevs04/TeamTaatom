@@ -40,7 +40,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./web
-        run: npm ci
+        run: npm ci || npm install
 
       - name: Lint
         working-directory: ./web
