@@ -36,7 +36,18 @@ npm run dev
 
 Open `http://localhost:3001`.
 
+### Troubleshooting: 404 on JS chunks (page blank or “Unable to load”)
+
+If the app shell loads but scripts fail with **404** on `_next/static/chunks/...` (e.g. `main-app.js`, `app/(dashboard)/feed/page.js`), the dev build cache is likely stale or corrupted.
+
+1. Stop the dev server (Ctrl+C).
+2. From the `web/` directory run: `rm -rf .next`
+3. Start again: `npm run dev`
+4. Hard-refresh the browser (Ctrl+Shift+R or Cmd+Shift+R) or open `http://localhost:3001` in a new tab.
+
 ### Environment variables
+
+**Vercel (production):** Set `BACKEND_ORIGIN` to your backend API URL (e.g. Sevalla). The **backend** must have `FRONTEND_URL=https://web-taatom.vercel.app` (or your Vercel web URL) set in its env; otherwise CORS will block sign-in and you’ll see 500 / “Something went wrong” on login.
 
 Copy `web/.env.example` to `web/.env.local` and adjust:
 
