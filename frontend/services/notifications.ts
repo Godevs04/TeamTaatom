@@ -52,7 +52,8 @@ export const handleNotificationClick = async (notification: any): Promise<{
   success: boolean; 
   message: string; 
   shouldNavigate: boolean; 
-  navigationPath?: string; 
+  navigationPath?: string;
+  contentUnavailable?: boolean;
 }> => {
   try {
     // Mark notification as read first
@@ -76,8 +77,9 @@ export const handleNotificationClick = async (notification: any): Promise<{
         // Post was deleted
         return {
           success: true,
-          message: 'The post you liked has been deleted by the user.',
-          shouldNavigate: false
+          message: 'This post is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true
         };
         
       case 'comment':
@@ -94,8 +96,9 @@ export const handleNotificationClick = async (notification: any): Promise<{
         // Post was deleted
         return {
           success: true,
-          message: 'The post you commented on has been deleted by the user.',
-          shouldNavigate: false
+          message: 'This post is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true
         };
         
       case 'follow':
@@ -110,6 +113,41 @@ export const handleNotificationClick = async (notification: any): Promise<{
           };
         }
         // User account was deleted
+        return {
+          success: true,
+          message: 'This user is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true
+        };
+
+      case 'follow_request':
+        // In-app list opens FollowRequestPopup; from handler (e.g. push) navigate to requester profile
+        if (notification.fromUserId || notification.fromUser?._id) {
+          const userId = notification.fromUserId || notification.fromUser?._id;
+          return {
+            success: true,
+            message: 'Navigating to profile...',
+            shouldNavigate: true,
+            navigationPath: `/profile/${userId}`
+          };
+        }
+        return {
+          success: true,
+          message: 'This user account is no longer available.',
+          shouldNavigate: false
+        };
+
+      case 'follow_approved':
+        // Navigate to approver's profile
+        if (notification.fromUserId || notification.fromUser?._id) {
+          const userId = notification.fromUserId || notification.fromUser?._id;
+          return {
+            success: true,
+            message: 'Navigating to profile...',
+            shouldNavigate: true,
+            navigationPath: `/profile/${userId}`
+          };
+        }
         return {
           success: true,
           message: 'This user account is no longer available.',

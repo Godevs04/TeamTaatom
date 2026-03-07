@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { showGlobalAlert } from '../utils/globalAlertHandler';
 import { sanitizeErrorForDisplay, sanitizeErrorMessage } from '../utils/errorSanitizer';
 
 export interface AlertConfig {
@@ -41,30 +41,24 @@ class AlertService {
 
     this.isShowingAlert = true;
 
-    const buttons = [];
-
-    if (config.showCancel) {
-      buttons.push({
-        text: config.cancelText || 'Cancel',
-        style: 'cancel' as const,
-        onPress: () => {
-          this.isShowingAlert = false;
-          if (config.onCancel) config.onCancel();
-          this.processQueue();
-        },
-      });
-    }
-
-    buttons.push({
-      text: config.confirmText || 'OK',
-      onPress: () => {
+    showGlobalAlert({
+      title: config.title,
+      message: config.message,
+      type: config.type,
+      showCancel: config.showCancel,
+      confirmText: config.confirmText,
+      cancelText: config.cancelText,
+      onConfirm: () => {
         this.isShowingAlert = false;
         if (config.onConfirm) config.onConfirm();
         this.processQueue();
       },
+      onCancel: () => {
+        this.isShowingAlert = false;
+        if (config.onCancel) config.onCancel();
+        this.processQueue();
+      },
     });
-
-    Alert.alert(config.title, config.message, buttons);
   }
 
   // Convenience methods

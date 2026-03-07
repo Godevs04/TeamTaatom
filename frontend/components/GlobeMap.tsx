@@ -31,12 +31,15 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
   const openNativeMaps = () => {
     if (locations.length === 0) return;
     const waypoints = locations.map(loc => `${loc.latitude},${loc.longitude}`).join('/');
+    // Use https for Android so map opens reliably (geo: can fail on Android 11+ without proper intent handling)
     const url = Platform.select({
       ios: `maps://?q=${waypoints}`,
-      android: `geo:0,0?q=${waypoints}`,
+      android: `https://www.google.com/maps/dir/${waypoints}`,
       default: `https://www.google.com/maps/dir/${waypoints}`
     });
-    Linking.openURL(url!);
+    Linking.openURL(url!).catch(() => {
+      Linking.openURL(`https://www.google.com/maps/dir/${waypoints}`);
+    });
   };
 
   // HTML for Google Maps 3D globe
