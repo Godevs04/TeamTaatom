@@ -13,8 +13,9 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   return (
     <html>
       <body>
-        <div className="mx-auto max-w-lg px-4 py-16">
-          <Card className="p-8 text-center">
+        <div className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-4 py-16">
+          <p className="text-lg font-semibold text-primary">Taatom</p>
+          <Card className="mt-6 w-full p-8 text-center">
             <h2 className="text-xl font-semibold">Something went wrong</h2>
             <p className="mt-2 text-sm text-muted-foreground">{error.message}</p>
             <div className="mt-6 flex justify-center gap-3">

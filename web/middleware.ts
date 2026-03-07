@@ -17,6 +17,7 @@ const PROTECTED_PREFIXES = [
   "/collections",
   "/activity",
   "/chat",
+  "/notifications",
 ];
 
 function isAuthRoute(pathname: string) {
@@ -55,6 +56,7 @@ export function middleware(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+// Keep in sync with PROTECTED_PREFIXES and AUTH_ROUTES (Next.js requires static matcher)
 export const config = {
   matcher: [
     "/auth/login",
@@ -80,5 +82,7 @@ export const config = {
     "/activity",
     "/activity/:path*",
     "/chat/:path*",
+    "/notifications",
+    "/notifications/:path*",
   ],
 };
