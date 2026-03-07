@@ -110,29 +110,31 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Production: Only allow specific domains
+    // Production: Only allow specific domains (FRONTEND_URL, WEB_FRONTEND_URL, SUPERADMIN_URL)
     if (isProduction) {
       const productionOrigins = [
         process.env.FRONTEND_URL,
+        process.env.WEB_FRONTEND_URL,
         process.env.SUPERADMIN_URL,
       ].filter(Boolean); // Remove undefined values
       
       if (productionOrigins.includes(origin)) {
         return callback(null, true);
       }
-      logger.warn(`CORS blocked origin in production: ${origin}`);
+      logger.warn('CORS blocked origin in production. Set FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in backend env to the allowed origin.');
       return callback(new Error('Not allowed by CORS'));
     }
     
     // Development: Allow localhost and local network (development-only fallbacks)
-    // In production, these should never be used - only FRONTEND_URL and SUPERADMIN_URL from env
     const devOrigins = [
       process.env.FRONTEND_URL,
+      process.env.WEB_FRONTEND_URL,
       process.env.SUPERADMIN_URL,
       // Development-only fallbacks (never used in production)
       ...(isDevelopment ? [
         'http://localhost:5003',
         'http://localhost:8081',
+        'http://localhost:3001',
         'http://x:8081',
         'http://x:3000',
         'file://',

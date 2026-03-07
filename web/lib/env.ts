@@ -77,6 +77,9 @@ export function getServerEnv(): ServerEnv {
     return _serverEnv;
   }
   _serverEnv = result.data;
+  if (process.env.NODE_ENV === "production" && !_serverEnv.BACKEND_ORIGIN) {
+    throw new Error("BACKEND_ORIGIN is required in production. Set it in your environment.");
+  }
   return _serverEnv;
 }
 

@@ -50,7 +50,7 @@ function log(level: LogLevel, messageOrPayload: string | LogPayload, payload?: L
   if (!shouldLog(level)) return;
   const p: LogPayload = typeof messageOrPayload === "string" ? { message: messageOrPayload, ...payload } : messageOrPayload;
   const out = formatPayload(level, p);
-  const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
+  const fn = level === "error" ? console.error : level === "warn" ? console.warn : console.log; // eslint-disable-line no-console -- logger is the designated console output
   if (typeof out === "object") {
     fn(JSON.stringify(out));
   } else {

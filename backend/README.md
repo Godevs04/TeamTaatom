@@ -53,6 +53,11 @@ Express.js backend for the Taatom mobile app - a photo sharing platform with loc
    ```
    **Production:** Set `FRONTEND_URL` and `SUPERADMIN_URL` to your deployed origins; otherwise CORS will block web clients. For multiple instances, consider `REDIS_URL` (or `RATE_LIMIT_REDIS_URL`) for shared rate limiting.
 
+   **Production CORS (required for web sign-in):** If your web app is on Vercel (e.g. `https://web-taatom.vercel.app`), set in your **backend** environment (e.g. Sevalla):
+   - `FRONTEND_URL=https://web-taatom.vercel.app` (no trailing slash; must match the browser origin exactly)
+   - `SUPERADMIN_URL=https://your-superadmin-domain.com` (if you use SuperAdmin)
+   Without `FRONTEND_URL`, the backend will block requests from the web app and sign-in will fail with CORS/500.
+
 5. **Start the server:**
    ```bash
    # Development
