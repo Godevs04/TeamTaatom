@@ -6,18 +6,17 @@
  */
 
 const mongoose = require('mongoose');
-const request = require('supertest');
 const TripVisit = require('../models/TripVisit');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
 
-// Import app for testing
-let app;
+// Import app for testing (reserved for future request(app) tests)
+let _app;
 
 describe('TripScore Controller Integration Tests', () => {
   let testUser;
-  let authToken;
+  let _authToken;
 
   beforeAll(async () => {
     // Connect to test database
@@ -68,7 +67,7 @@ describe('TripScore Controller Integration Tests', () => {
     }
 
     // Import app after DB connection
-    app = require('../app').app;
+    _app = require('../app').app;
   }, 60000); // Increase timeout to 60 seconds for database connection
 
   afterAll(async () => {
