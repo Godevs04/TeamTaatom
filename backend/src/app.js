@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const _rateLimit = require('express-rate-limit');
+// const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const Sentry = require('./instrument');
