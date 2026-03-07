@@ -120,6 +120,32 @@ jobs:
           EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
         run: npm run build:web
 
+      - name: Upload source maps to Sentry
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        working-directory: ./frontend
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          RELEASE_VERSION: ${{ github.sha }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "⚠️ Sentry secrets not set; skipping source maps upload."
+            exit 0
+          fi
+          npm install -g @sentry/cli || true
+          if [ -d "dist" ]; then
+            sentry-cli sourcemaps upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" --release "$RELEASE_VERSION" dist/ || true
+          fi
+
+      - name: Upload web-build artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: frontend/dist
+          retention-days: 7
+
       - name: ✅ Frontend CI result
         run: |
           echo "## ✅ Frontend CI passed" >> "$GITHUB_STEP_SUMMARY"
