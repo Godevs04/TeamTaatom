@@ -10,5 +10,10 @@
     <item name="windowSplashScreenAnimatedIcon">@drawable/splashscreen_logo</item>
     <item name="postSplashScreenTheme">@style/AppTheme</item>
     <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+    <!-- Full-screen splash: extend background into status and navigation bar area -->
+    <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    <item name="android:statusBarColor">@color/splashscreen_background</item>
+    <item name="android:navigationBarColor">@color/splashscreen_background</item>
+    <item name="android:windowContentOverlay">@null</item>
   </style>
 </resources>

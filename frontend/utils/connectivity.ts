@@ -1,6 +1,6 @@
-import { Alert } from 'react-native';
 import { createLogger } from './logger';
 import { getApiUrl } from './config';
+import { showGlobalAlert } from './globalAlertHandler';
 
 const logger = createLogger('Connectivity');
 
@@ -34,13 +34,12 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
 };
 
 export const showConnectivityAlert = () => {
-  // PRODUCTION-GRADE: Get API URL from config instead of hardcoded
   const apiUrl = getApiUrl('/api');
-  Alert.alert(
-    'Connection Issue',
-    `Unable to connect to the server. Please ensure:\n\n1. The backend server is running\n2. Your device is on the same network\n3. The server address is correct\n\nCurrent server: ${apiUrl}`,
-    [
-      { text: 'OK', style: 'default' }
-    ]
-  );
+  showGlobalAlert({
+    title: 'Connection Issue',
+    message: `Unable to connect to the server. Please ensure:\n\n1. The backend server is running\n2. Your device is on the same network\n3. The server address is correct\n\nCurrent server: ${apiUrl}`,
+    type: 'warning',
+    showCancel: false,
+    confirmText: 'OK',
+  });
 };

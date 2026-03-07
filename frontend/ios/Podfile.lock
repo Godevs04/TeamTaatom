@@ -222,6 +222,8 @@ PODS:
     - ZXingObjC/PDF417
   - ExpoCrypto (15.0.8):
     - ExpoModulesCore
+  - ExpoDevice (7.0.3):
+    - ExpoModulesCore
   - ExpoFileSystem (19.0.21):
     - ExpoModulesCore
   - ExpoFont (14.0.11):
@@ -1633,6 +1635,28 @@ PODS:
     - React-RCTFBReactNativeSpec
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
+  - react-native-color-matrix-image-filters (8.0.2):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-maps (1.20.1):
     - React-Core
   - react-native-safe-area-context (5.6.2):
@@ -1694,6 +1718,28 @@ PODS:
     - React-ImageManager
     - React-jsi
     - react-native-safe-area-context/common
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - react-native-view-shot (4.0.3):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
     - React-NativeModulesApple
     - React-RCTFabric
     - React-renderercss
@@ -2501,6 +2547,7 @@ DEPENDENCIES:
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
   - ExpoCamera (from `../node_modules/expo-camera/ios`)
   - ExpoCrypto (from `../node_modules/expo-crypto/ios`)
+  - ExpoDevice (from `../node_modules/expo-device/ios`)
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
   - ExpoFont (from `../node_modules/expo-font/ios`)
   - ExpoHead (from `../node_modules/expo-router/ios`)
@@ -2557,8 +2604,10 @@ DEPENDENCIES:
   - React-logger (from `../node_modules/react-native/ReactCommon/logger`)
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
+  - react-native-color-matrix-image-filters (from `../node_modules/react-native-color-matrix-image-filters`)
   - react-native-maps (from `../node_modules/react-native-maps`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - react-native-view-shot (from `../node_modules/react-native-view-shot`)
   - react-native-webview (from `../node_modules/react-native-webview`)
   - react-native-worklets-core (from `../node_modules/react-native-worklets-core`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -2651,6 +2700,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-camera/ios"
   ExpoCrypto:
     :path: "../node_modules/expo-crypto/ios"
+  ExpoDevice:
+    :path: "../node_modules/expo-device/ios"
   ExpoFileSystem:
     :path: "../node_modules/expo-file-system/ios"
   ExpoFont:
@@ -2762,10 +2813,14 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   React-microtasksnativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
+  react-native-color-matrix-image-filters:
+    :path: "../node_modules/react-native-color-matrix-image-filters"
   react-native-maps:
     :path: "../node_modules/react-native-maps"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-view-shot:
+    :path: "../node_modules/react-native-view-shot"
   react-native-webview:
     :path: "../node_modules/react-native-webview"
   react-native-worklets-core:
@@ -2873,6 +2928,7 @@ SPEC CHECKSUMS:
   ExpoBlur: b90747a3f22a8b6ceffd9cb0dc41a4184efdc656
   ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoCrypto: b6105ebaa15d6b38a811e71e43b52cd934945322
+  ExpoDevice: d36ab4186b6799a28fd449bb9a1c77455f23fd1a
   ExpoFileSystem: 858a44267a3e6e9057e0888ad7c7cfbf55d52063
   ExpoFont: f543ce20a228dd702813668b1a07b46f51878d47
   ExpoHead: 7e19b2272edf492262acf8afb391a295198a6b23
@@ -2933,8 +2989,10 @@ SPEC CHECKSUMS:
   React-logger: 50fdb9a8236da90c0b1072da5c32ee03aeb5bf28
   React-Mapbuffer: 9050ee10c19f4f7fca8963d0211b2854d624973e
   React-microtasksnativemodule: f775db9e991c6f3b8ccbc02bfcde22770f96e23b
+  react-native-color-matrix-image-filters: 9f8d6360a5335e64def60aa9d0f7e2bf169197cb
   react-native-maps: 9febd31278b35cd21e4fad2cf6fa708993be5dab
   react-native-safe-area-context: 37e680fc4cace3c0030ee46e8987d24f5d3bdab2
+  react-native-view-shot: fb3c0774edb448f42705491802a455beac1502a2
   react-native-webview: 3e303e80cadb5f17118c8c1502aa398e9287e415
   react-native-worklets-core: 3a098cd17188379c1a0ecbdea1f7d28f70dbb2a0
   React-NativeModulesApple: 8969913947d5b576de4ed371a939455a8daf28aa

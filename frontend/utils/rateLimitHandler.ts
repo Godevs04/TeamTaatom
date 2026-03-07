@@ -1,5 +1,5 @@
-import { Alert } from 'react-native';
 import logger from './logger';
+import { showGlobalAlert } from './globalAlertHandler';
 
 export interface RateLimitError extends Error {
   response?: {
@@ -44,17 +44,13 @@ export const createRateLimitAwareFunction = <T extends any[], R>(
       if (isRateLimitError(error)) {
         const rateLimitInfo = handleRateLimitError(error, context);
         
-        // Show user-friendly message
-        Alert.alert(
-          'Rate Limited',
-          rateLimitInfo.message,
-          [
-            {
-              text: 'OK',
-              style: 'default',
-            },
-          ]
-        );
+        showGlobalAlert({
+          title: 'Rate Limited',
+          message: rateLimitInfo.message,
+          type: 'warning',
+          showCancel: false,
+          confirmText: 'OK',
+        });
         
         throw new Error(rateLimitInfo.message);
       }

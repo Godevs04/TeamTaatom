@@ -154,7 +154,7 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
   }
 };
 
-// Update FCM push token
+// Update FCM push token (Android)
 export const updateFCMPushToken = async (userId: string, fcmToken: string): Promise<void> => {
   try {
     await api.put(`/api/v1/profile/${userId}/push-token`, { 
@@ -164,6 +164,17 @@ export const updateFCMPushToken = async (userId: string, fcmToken: string): Prom
     logger.error('updateFCMPushToken', error.response?.data || error.message || error);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
+  }
+};
+
+/** Save Expo push token (iOS / EAS builds). Uses POST /api/v1/user/save-push-token. Does not throw. */
+export const saveExpoPushToken = async (token: string): Promise<void> => {
+  try {
+    await api.post('/api/v1/user/save-push-token', { token });
+  } catch (error: any) {
+    const msg = error?.response?.data?.error ?? error?.message ?? 'Request failed';
+    logger.error('saveExpoPushToken', typeof msg === 'string' ? msg : JSON.stringify(msg));
+    // Do not throw - push registration failure is non-fatal
   }
 };
 

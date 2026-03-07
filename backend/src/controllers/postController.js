@@ -19,6 +19,38 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 
+/**
+ * Get user IDs whose posts the viewer is allowed to see in the feed.
+ * - Anonymous: only authors with profileVisibility === 'public'
+ * - Logged in: self + public authors + authors with 'followers'/'private' who have viewer in their followers
+ */
+async function getAllowedPostAuthorIds(viewerId) {
+  if (!viewerId) {
+    const users = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+    return users.map(u => u._id);
+  }
+  const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
+  if (!viewerObjId) return [];
+
+  const publicUsers = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+  const publicIds = publicUsers.map(u => u._id);
+
+  const restrictedAuthors = await User.find({
+    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] },
+    followers: viewerObjId
+  }).select('_id').lean();
+  const restrictedIds = restrictedAuthors.map(u => u._id);
+
+  const allowed = [viewerObjId, ...publicIds, ...restrictedIds];
+  const seen = new Set();
+  return allowed.filter(id => {
+    const key = id.toString();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
@@ -31,24 +63,29 @@ const getPosts = async (req, res) => {
     const cursor = req.query.cursor; // Cursor for cursor-based pagination
     const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
 
-    // Cache key with filters
-    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor });
+    const viewerId = req.user?._id?.toString();
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon' });
 
-    // Use cache wrapper for performance
     const result = await cacheWrapper(cacheKey, async () => {
-      // Build match query - Apple Guideline 1.2: only show active content
+      const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+      const blockedIds = req.user?.blockedUsers?.length
+        ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
+        : [];
+      const allowedFiltered = blockedIds.length
+        ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+        : allowedAuthorIds;
+
       const matchQuery = {
         isActive: true,
         isArchived: { $ne: true },
         isHidden: { $ne: true },
         type: 'photo',
-        $or: [{ status: 'active' }, { status: { $exists: false } }] // Exclude flagged and removed
+        $or: [{ status: 'active' }, { status: { $exists: false } }]
       };
-
-      // Exclude posts from blocked users (Part 3 - Block)
-      if (req.user?.blockedUsers?.length) {
-        const blockedIds = req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id : b));
-        matchQuery.user = { $nin: blockedIds };
+      if (allowedFiltered.length > 0) {
+        matchQuery.user = { $in: allowedFiltered };
+      } else {
+        matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
       }
 
       // Add cursor-based filtering if cursor is provided
@@ -2753,15 +2790,24 @@ const getShorts = async (req, res) => {
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
     const safeSkip = Math.max(skip, 0);
 
-    // Build match - exclude blocked users (Part 3)
+    const viewerId = req.user?._id?.toString();
+    const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+    const blockedIds = req.user?.blockedUsers?.length
+      ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
+      : [];
+    const allowedFiltered = blockedIds.length
+      ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+      : allowedAuthorIds;
+
     const shortsMatch = {
       isActive: true,
       type: 'short',
       $or: [{ status: 'active' }, { status: { $exists: false } }]
     };
-    if (req.user?.blockedUsers?.length) {
-      const blockedIds = req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id : b));
-      shortsMatch.user = { $nin: blockedIds };
+    if (allowedFiltered.length > 0) {
+      shortsMatch.user = { $in: allowedFiltered };
+    } else {
+      shortsMatch.user = { $in: [new mongoose.Types.ObjectId()] };
     }
     const shorts = await Post.aggregate([
       { $match: shortsMatch },

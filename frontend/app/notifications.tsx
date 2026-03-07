@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   TouchableOpacity,
   Image,
   ActivityIndicator,
@@ -17,6 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import NavBar from '../components/NavBar';
 import FollowRequestPopup from '../components/FollowRequestPopup';
+import CustomAlert from '../components/CustomAlert';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
@@ -59,6 +60,12 @@ export default function NotificationsScreen() {
     notification: null as Notification | null,
     loading: false,
   });
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
+  const [contentUnavailableAlert, setContentUnavailableAlert] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: '', message: '' });
   const router = useRouter();
   const { theme, mode } = useTheme();
   const { showSuccess, showError, showInfo, showWarning } = useAlert();
@@ -72,10 +79,16 @@ export default function NotificationsScreen() {
       }
 
       const response = await getNotifications(pageNum, 20);
-      
+      const rawList = response?.notifications ?? [];
+      if (!Array.isArray(rawList)) {
+        setNotifications([]);
+        setHasMore(false);
+        return;
+      }
+
       // Filter out duplicate follow_request notifications (client-side safety check)
       const seenFollowRequests = new Set<string>();
-      const filteredNotifications = response.notifications.filter(n => {
+      const filteredNotifications = rawList.filter((n: Notification) => {
         if (n.type === 'follow_request') {
           // If we've seen a follow_request from this user before, skip it
           const key = `${n.fromUser._id}-${n.type}`;
@@ -88,7 +101,7 @@ export default function NotificationsScreen() {
       });
       
       if (isRefresh || pageNum === 1) {
-        // For first page/refresh, just use filtered notifications
+        setFailedThumbnails(() => new Set());
         setNotifications(filteredNotifications);
       } else {
         // For pagination, filter new notifications and merge with existing (avoid duplicates)
@@ -111,10 +124,11 @@ export default function NotificationsScreen() {
         });
       }
       
-      setHasMore(response.pagination.hasNextPage);
+      setHasMore(response?.pagination?.hasNextPage ?? false);
       setPage(pageNum);
     } catch (error) {
       logger.error('Failed to load notifications:', error);
+      if (pageNum === 1) setNotifications([]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -167,9 +181,17 @@ export default function NotificationsScreen() {
           logger.debug('Navigating to:', result.navigationPath);
           router.push(result.navigationPath);
         } else {
-          // Show info message for non-navigable notifications
-          logger.debug('Showing info message:', result.message);
-          showInfo(result.message);
+          // Post/content no longer available — show popup
+          const isUnavailable = result.contentUnavailable === true || /deleted|no longer available|not available|unavailable/i.test(result.message || '');
+          if (isUnavailable) {
+            setContentUnavailableAlert({
+              visible: true,
+              title: 'Content not available',
+              message: result.message || 'This post or content is no longer available.',
+            });
+          } else {
+            showInfo(result.message);
+          }
         }
       } else {
         showError(result.message);
@@ -322,37 +344,35 @@ export default function NotificationsScreen() {
   };
 
   const groupNotificationsByTime = (notifications: Notification[]): NotificationSection[] => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (!notifications?.length) return [];
 
-    const todayNotifications = notifications.filter(n => new Date(n.createdAt) >= today);
-    const yesterdayNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= yesterday && new Date(n.createdAt) < today
-    );
-    const lastWeekNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= lastWeek && new Date(n.createdAt) < yesterday
-    );
-    const lastMonthNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= lastMonth && new Date(n.createdAt) < lastWeek
-    );
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    const lastWeekStart = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const lastMonthStart = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const todayNotifications = notifications.filter(n => new Date(n.createdAt).getTime() >= todayStart.getTime());
+    const yesterdayNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= yesterdayStart.getTime() && t < todayStart.getTime();
+    });
+    const lastWeekNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= lastWeekStart.getTime() && t < yesterdayStart.getTime();
+    });
+    const lastMonthNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= lastMonthStart.getTime() && t < lastWeekStart.getTime();
+    });
+    const olderNotifications = notifications.filter(n => new Date(n.createdAt).getTime() < lastMonthStart.getTime());
 
     const sections: NotificationSection[] = [];
-    
-    if (todayNotifications.length > 0) {
-      sections.push({ title: 'Today', data: todayNotifications });
-    }
-    if (yesterdayNotifications.length > 0) {
-      sections.push({ title: 'Yesterday', data: yesterdayNotifications });
-    }
-    if (lastWeekNotifications.length > 0) {
-      sections.push({ title: 'Last 7 days', data: lastWeekNotifications });
-    }
-    if (lastMonthNotifications.length > 0) {
-      sections.push({ title: 'Last 30 days', data: lastMonthNotifications });
-    }
+    if (todayNotifications.length > 0) sections.push({ title: 'Today', data: todayNotifications });
+    if (yesterdayNotifications.length > 0) sections.push({ title: 'Yesterday', data: yesterdayNotifications });
+    if (lastWeekNotifications.length > 0) sections.push({ title: 'Last 7 days', data: lastWeekNotifications });
+    if (lastMonthNotifications.length > 0) sections.push({ title: 'Last 30 days', data: lastMonthNotifications });
+    if (olderNotifications.length > 0) sections.push({ title: 'Older', data: olderNotifications });
 
     return sections;
   };
@@ -519,27 +539,30 @@ export default function NotificationsScreen() {
         </View>
 
         <View style={styles.notificationRight}>
-          {item.post?.imageUrl && (
+          {(item.post && (item.post.imageUrl || ['like', 'comment'].includes(item.type))) ? (
             <View style={[
               styles.postThumbnailContainer,
-              { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
+              { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSecondary }
             ]}>
-              <Image
-                source={{ uri: item.post.imageUrl }}
-                style={styles.postThumbnail}
-                resizeMode="cover"
-                onError={(error) => {
-                  if (__DEV__) {
-                    logger.warn('Post thumbnail failed to load:', {
-                      postId: item.post?._id,
-                      url: item.post?.imageUrl?.substring(0, 80),
-                      error: error?.nativeEvent?.error?.message || 'Unknown'
-                    });
-                  }
-                }}
-              />
+              {item.post?.imageUrl && !failedThumbnails.has(item._id) ? (
+                <Image
+                  source={{ uri: item.post.imageUrl }}
+                  style={styles.postThumbnail}
+                  resizeMode="cover"
+                  onError={() => {
+                    setFailedThumbnails(prev => new Set(prev).add(item._id));
+                    if (__DEV__) {
+                      logger.warn('Post thumbnail failed to load:', { postId: item.post?._id });
+                    }
+                  }}
+                />
+              ) : (
+                <View style={[styles.postThumbnailPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
+                  <Ionicons name="image-outline" size={isTablet ? 28 : 24} color={theme.colors.textSecondary} />
+                </View>
+              )}
             </View>
-          )}
+          ) : null}
           {!item.isRead && (
             <View style={[
               styles.unreadDot,
@@ -643,34 +666,35 @@ export default function NotificationsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={sections}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          renderItem={({ item }) => (
-            <View>
-              {renderSectionHeader({ section: item })}
-              {item.data.map((notification) => (
-                <View key={notification._id}>
-                  {renderNotificationItem({ item: notification })}
-                </View>
-              ))}
-            </View>
-          )}
-          keyExtractor={(item) => item.title}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[theme.colors.primary]}
-              tintColor={theme.colors.primary}
-            />
-          }
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.1}
-          ListFooterComponent={renderFooter}
-          showsVerticalScrollIndicator={false}
-        />
+        <View style={styles.listWrapper}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(item) => item._id}
+            renderItem={({ item }) => (
+              <View style={styles.notificationItemWrapper}>
+                {renderNotificationItem({ item })}
+              </View>
+            )}
+            renderSectionHeader={({ section }) => renderSectionHeader({ section })}
+            stickySectionHeadersEnabled={false}
+            style={styles.notificationList}
+            contentContainerStyle={styles.notificationListContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[theme.colors.primary]}
+                tintColor={theme.colors.primary}
+              />
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.2}
+            ListFooterComponent={renderFooter}
+            showsVerticalScrollIndicator={true}
+          />
+        </View>
       )}
       
       <FollowRequestPopup
@@ -681,6 +705,17 @@ export default function NotificationsScreen() {
         onReject={handleFollowRequestReject}
         onCancel={handleFollowRequestCancel}
         loading={followRequestPopup.loading}
+      />
+
+      <CustomAlert
+        visible={contentUnavailableAlert.visible}
+        title={contentUnavailableAlert.title}
+        message={contentUnavailableAlert.message}
+        type="info"
+        showCancel={false}
+        confirmText="OK"
+        onClose={() => setContentUnavailableAlert(prev => ({ ...prev, visible: false }))}
+        onConfirm={() => setContentUnavailableAlert(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );
@@ -742,6 +777,21 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  listWrapper: {
+    flex: 1,
+    minHeight: 200,
+  },
+  notificationList: {
+    flex: 1,
+    width: '100%',
+  },
+  notificationListContent: {
+    flexGrow: 1,
+    paddingBottom: isTablet ? theme.spacing.xl : 24,
+  },
+  notificationItemWrapper: {
+    width: '100%',
   },
   notificationItem: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
@@ -831,6 +881,12 @@ const styles = StyleSheet.create({
   postThumbnail: {
     width: isTablet ? 60 : 48,
     height: isTablet ? 60 : 48,
+  },
+  postThumbnailPlaceholder: {
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   unreadDot: {
     position: 'absolute',

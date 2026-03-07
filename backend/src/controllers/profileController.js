@@ -2624,10 +2624,10 @@ const getSuggestedUsers = async (req, res) => {
     const seenIds = new Set(followingIds);
 
     // 1. Same interests first (like real apps): users who share at least one interest
+    // Note: User model has no isActive; do not filter by it or no users would match
     if (userInterests.length > 0) {
       const sameInterestUsers = await User.find({
         _id: { $nin: followingIds },
-        isActive: true,
         interests: { $in: userInterests },
       })
         .select('username fullName profilePic bio followers isVerified createdAt interests')
@@ -2656,7 +2656,6 @@ const getSuggestedUsers = async (req, res) => {
 
       let fillUsers = await User.find({
         _id: { $nin: excludeIds },
-        isActive: true,
         isVerified: true,
       })
         .select('username fullName profilePic bio followers isVerified createdAt')
@@ -2667,7 +2666,6 @@ const getSuggestedUsers = async (req, res) => {
       if (fillUsers.length < need) {
         const more = await User.find({
           _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
-          isActive: true,
         })
           .select('username fullName profilePic bio followers isVerified createdAt')
           .limit(need * 2 - fillUsers.length)
