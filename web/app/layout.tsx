@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import AppProviders from "../providers/app-providers";
@@ -11,11 +11,22 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#2563eb",
+};
+
 export const metadata: Metadata = {
   ...createMetadata({}),
   title: {
     default: "Taatom — Travel stories that feel alive",
     template: "%s · Taatom",
+  },
+  icons: {
+    icon: "/icon.png?v=2",
+    apple: "/icon.png?v=2",
   },
 };
 
@@ -30,7 +41,7 @@ export default function RootLayout({
         <div suppressHydrationWarning className="min-h-screen">
           <AppProviders>
             <SiteHeader />
-            <main className="min-h-[calc(100vh-4rem)] w-full">{children}</main>
+            <main className="min-h-[calc(100vh-3.5rem)] w-full">{children}</main>
           </AppProviders>
           <Analytics />
         </div>

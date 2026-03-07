@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { authResendOtp, authVerifyOtp } from "@/lib/api";
 import { STORAGE_KEYS } from "@/lib/constants";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 
 const schema = z.object({
   otp: z.string().min(4, "OTP is required"),
@@ -37,7 +38,7 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
       toast.success("Account verified");
       router.replace("/feed");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Invalid OTP");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 
@@ -47,7 +48,7 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
       await authResendOtp({ email });
       toast.success("OTP resent");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to resend OTP");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 

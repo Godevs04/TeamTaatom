@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { authResetPassword } from "@/lib/api";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 
 const schema = z.object({
   token: z.string().min(4, "Reset token is required"),
@@ -34,7 +35,7 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
       toast.success("Password updated. Please sign in.");
       router.replace("/auth/login");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to reset password");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 

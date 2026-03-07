@@ -35,10 +35,24 @@ export type Post = {
   commentsCount?: number;
   viewsCount?: number;
 
-  // location
+  // location (backend stores in location + detectedPlace; some APIs may flatten to address/latitude/longitude)
   address?: string;
   latitude?: number;
   longitude?: number;
+  location?: {
+    address?: string;
+    coordinates?: { latitude?: number; longitude?: number };
+  };
+  detectedPlace?: {
+    name?: string;
+    formattedAddress?: string;
+    city?: string;
+    stateProvince?: string;
+    country?: string;
+    countryCode?: string;
+    latitude?: number;
+    longitude?: number;
+  };
   hasExifGps?: boolean;
   source?: string;
 

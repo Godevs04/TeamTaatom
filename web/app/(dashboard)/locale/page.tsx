@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { getLocales } from "../../../lib/api";
 import { Skeleton } from "../../../components/ui/skeleton";
@@ -58,7 +59,7 @@ export default function LocalePage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="aspect-[4/3] rounded-2xl" />
           ))}
@@ -80,10 +81,11 @@ export default function LocalePage() {
           <p className="mt-3 text-slate-500 dark:text-slate-400">No locales found.</p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {locales.map((locale) => (
-            <div
+            <Link
               key={locale._id}
+              href={`/locale/${locale._id}`}
               className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-soft transition-shadow hover:shadow-card dark:border-zinc-800 dark:bg-zinc-900/95"
             >
               <div className="aspect-[4/3] w-full bg-slate-100 dark:bg-zinc-800">
@@ -106,7 +108,7 @@ export default function LocalePage() {
                   {[locale.stateProvince, locale.stateCode, locale.countryCode].filter(Boolean).join(" · ") || locale.countryCode}
                 </p>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

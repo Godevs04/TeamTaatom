@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { authForgotPassword } from "@/lib/api";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 
 const schema = z.object({
   email: z.string().email("Valid email required"),
@@ -29,7 +30,7 @@ export default function ForgotPage() {
       toast.success("Reset token sent. Check your email.");
       router.replace(`/auth/reset-password?email=${encodeURIComponent(values.email)}`);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to request reset");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 

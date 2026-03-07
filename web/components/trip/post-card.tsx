@@ -5,9 +5,11 @@ import { Heart, MessageCircle, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toggleLike } from "../../lib/api";
+import { getFriendlyErrorMessage } from "../../lib/auth-errors";
+import { getPostDisplayLocation } from "../../lib/post-utils";
 import type { Post } from "../../types/post";
 import { Button } from "../ui/button";
-import { cn } from "../../lib/utils";
+import { cn, getLikedPostIds, setLikedPostIds } from "../../lib/utils";
 import { toast } from "sonner";
 
 type FeedData = {
@@ -42,9 +44,17 @@ export function PostCard({ post }: { post: Post }) {
       });
       return { prev };
     },
+    onSuccess: (data) => {
+      const nextLiked = data?.isLiked ?? !post.isLiked;
+      const ids = getLikedPostIds();
+      const set = new Set(ids);
+      if (nextLiked) set.add(post._id);
+      else set.delete(post._id);
+      setLikedPostIds(Array.from(set));
+    },
     onError: (e: unknown, _v, ctx) => {
       qc.setQueryData(["feed"], ctx?.prev);
-      toast.error(e instanceof Error ? e.message : "Failed to update like");
+      toast.error(getFriendlyErrorMessage(e));
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["feed"] });
@@ -56,7 +66,7 @@ export function PostCard({ post }: { post: Post }) {
   return (
     <article className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4">
+      <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
         <Link href={`/profile/${post.user?._id}`} className="group flex items-center gap-4">
           <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -70,7 +80,7 @@ export function PostCard({ post }: { post: Post }) {
             <div className="text-[15px] font-semibold text-slate-900 group-hover:underline">
               {post.user?.fullName || post.user?.username || "Traveler"}
             </div>
-            <div className="text-xs font-medium text-slate-500">{post.address || "Unknown location"}</div>
+            <div className="text-xs font-medium text-slate-500">{getPostDisplayLocation(post)}</div>
           </div>
         </Link>
         <Link
@@ -95,7 +105,7 @@ export function PostCard({ post }: { post: Post }) {
       </Link>
 
       {/* Caption & actions */}
-      <div className="space-y-4 border-t border-slate-100 px-6 py-4">
+      <div className="space-y-4 border-t border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
         {post.caption ? (
           <p className="text-[15px] leading-6 text-slate-700">
             <span className="font-semibold">{post.user?.username ? `@${post.user.username}` : ""}</span>{" "}
@@ -103,7 +113,7 @@ export function PostCard({ post }: { post: Post }) {
           </p>
         ) : null}
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="ghost"
             size="icon"

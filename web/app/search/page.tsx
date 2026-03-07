@@ -7,6 +7,7 @@ import { searchPosts, searchUsers } from "../../lib/api";
 import { Input } from "../../components/ui/input";
 import { Card } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
+import { getPostDisplayLocation } from "../../lib/post-utils";
 import type { User } from "../../types/user";
 import type { Post } from "../../types/post";
 
@@ -27,9 +28,9 @@ export default function SearchPage() {
   });
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto w-full max-w-4xl space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Search</h1>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Search</h1>
         <p className="mt-1 text-sm text-muted-foreground">Find travelers and trips.</p>
       </div>
 
@@ -103,7 +104,7 @@ export default function SearchPage() {
                     </div>
                     <div className="p-3">
                       <div className="line-clamp-1 text-sm font-semibold">{p.caption || "Trip"}</div>
-                      <div className="line-clamp-1 text-xs text-muted-foreground">{p.address || "Unknown location"}</div>
+                      <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(p)}</div>
                     </div>
                   </Link>
                 ))}

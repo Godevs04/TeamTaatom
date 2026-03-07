@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSettings, updateSettingCategory } from "../lib/api";
+import { getSettings, updateSettingCategory, resetSettings } from "../lib/api";
 
 type Settings = {
   privacy?: {
@@ -41,7 +41,13 @@ export function useSettings() {
   const updateCategory = useMutation({
     mutationFn: ({ category, data }: { category: "privacy" | "notifications" | "account"; data: Record<string, unknown> }) =>
       updateSettingCategory(category, data),
-    onSuccess: (_, { category }) => {
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+    },
+  });
+  const resetAll = useMutation({
+    mutationFn: resetSettings,
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     },
   });
@@ -53,5 +59,7 @@ export function useSettings() {
     updateCategory: (category: "privacy" | "notifications" | "account", data: Record<string, unknown>) =>
       updateCategory.mutateAsync({ category, data }),
     isUpdating: updateCategory.isPending,
+    resetAllSettings: () => resetAll.mutateAsync(),
+    isResetting: resetAll.isPending,
   };
 }

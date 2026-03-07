@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../context/auth-context";
+import { getFriendlyAuthErrorMessage } from "../../lib/auth-errors";
 import { MapPin, Sparkles } from "lucide-react";
 
 const schema = z.object({
@@ -39,7 +40,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
       toast.success("Welcome back");
       router.replace(nextUrl || "/feed");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to sign in");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 
@@ -60,7 +61,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
       <div className="pointer-events-none absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
       <div className="pointer-events-none absolute right-1/4 top-1/3 h-64 w-64 rounded-full bg-amber-500/5 blur-3xl" />
 
-      <div className="relative grid min-h-[calc(100vh-5rem)] gap-12 px-6 py-12 md:grid-cols-2 md:items-center md:gap-16 md:px-14 md:py-16 lg:px-20">
+      <div className="relative grid min-h-[calc(100vh-5rem)] gap-8 px-4 py-8 sm:gap-12 sm:px-6 sm:py-12 md:grid-cols-2 md:items-center md:gap-16 md:px-14 md:py-16 lg:px-20">
         {/* Left: Lottie animation + branding & copy */}
         <div className="flex flex-col justify-center space-y-6">
           <div className="mx-auto w-full max-w-sm overflow-hidden rounded-2xl bg-white/60 shadow-sm">
@@ -76,7 +77,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
               <Sparkles className="h-4 w-4 text-primary" />
               <span className="text-sm font-semibold text-primary">Premium travel social</span>
             </div>
-            <h1 className="text-4xl font-bold tracking-tight text-slate-900 md:text-5xl lg:text-[2.75rem]">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl md:text-5xl lg:text-[2.75rem]">
               Travel stories that feel alive.
             </h1>
             <p className="max-w-md text-lg leading-relaxed text-slate-600">
@@ -92,7 +93,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
 
         {/* Right: Login card */}
         <div className="flex items-center justify-center md:justify-end">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200/80 bg-white/95 p-8 shadow-xl shadow-slate-200/50 backdrop-blur">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200/80 bg-white/95 p-4 shadow-xl shadow-slate-200/50 backdrop-blur sm:p-6 md:p-8">
             <h2 className="text-2xl font-bold tracking-tight text-slate-900">Welcome back</h2>
             <p className="mt-1 text-sm text-slate-500">Sign in to continue to Taatom</p>
 
