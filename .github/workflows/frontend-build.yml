@@ -31,10 +31,20 @@ on:
 env:
   NODE_VERSION: '20.x'
 
+# Cancel in-progress runs for the same branch (saves minutes, avoids stale results)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions: read-only for repo (artifact upload does not need contents write)
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate Conventions
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       commit_sha: ${{ steps.meta.outputs.commit_sha }}
       branch: ${{ steps.meta.outputs.branch }}
@@ -122,6 +132,7 @@ jobs:
     name: Build & Test Frontend
     runs-on: ubuntu-latest
     needs: validate
+    timeout-minutes: 25
 
     steps:
       - name: Checkout code
@@ -212,7 +223,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test  # Only run after web build and validation pass
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    
+    timeout-minutes: 35
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -1,0 +1,78 @@
+# Web (Next.js) CI: lint, typecheck, build — catches deployment-blocking issues
+name: Web CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['web/**']
+  pull_request:
+    branches: [main, develop]
+    paths: ['web/**']
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+
+# Cancel in-progress runs for the same branch (saves minutes, avoids stale results)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions: read-only for repo (no write/push from job)
+permissions:
+  contents: read
+
+jobs:
+  web-ci:
+    name: Lint, Typecheck & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Lint
+        working-directory: ./web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: ./web
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: ./web
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Pipeline summary
+        run: |
+          echo "=============================================="
+          echo "  Web CI — Complete"
+          echo "=============================================="
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Branch: ${GITHUB_REF#refs/heads/}"
+          echo ""
+          echo "✅ Web pipeline passed successfully"
+          echo ""
+          echo "Web CI handles:"
+          echo "  ✅ ESLint (next lint)"
+          echo "  ✅ TypeScript (tsc --noEmit)"
+          echo "  ✅ Next.js production build"
+          echo "=============================================="
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Web CI — Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Lint, typecheck, and production build passed." >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** ${GITHUB_REF#refs/heads/}" >> "$GITHUB_STEP_SUMMARY"
