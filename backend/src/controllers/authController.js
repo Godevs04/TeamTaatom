@@ -2,11 +2,10 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
-const ForgotSignIn = require('../models/ForgotSignIn');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { generateSignedUrl } = require('../services/mediaService');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
