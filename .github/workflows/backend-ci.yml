@@ -1,0 +1,80 @@
+# Backend CI: lint + test — catches deployment-blocking issues
+name: Backend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**']
+  pull_request:
+    branches: [main, develop]
+    paths: ['backend/**']
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+
+# Cancel in-progress runs for the same branch (saves minutes, avoids stale results)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions: read-only for repo (no write/push from job)
+permissions:
+  contents: read
+
+jobs:
+  backend-ci:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Lint
+        working-directory: ./backend
+        run: npm run lint
+
+      - name: Test
+        working-directory: ./backend
+        env:
+          CI: true
+        run: npm test
+
+      - name: Test coverage (report)
+        working-directory: ./backend
+        env:
+          CI: true
+        run: npm run test:coverage -- --ci --coverageReporters=text-summary
+
+      - name: Pipeline summary
+        run: |
+          echo "=============================================="
+          echo "  Backend CI — Complete"
+          echo "=============================================="
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Branch: ${GITHUB_REF#refs/heads/}"
+          echo ""
+          echo "✅ Backend pipeline passed successfully"
+          echo ""
+          echo "Backend CI handles:"
+          echo "  ✅ ESLint"
+          echo "  ✅ Unit tests (Jest)"
+          echo "  ✅ Test coverage (text-summary)"
+          echo "=============================================="
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Backend CI — Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Lint and tests passed." >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** ${GITHUB_REF#refs/heads/}" >> "$GITHUB_STEP_SUMMARY"

@@ -14,7 +14,8 @@
     "migrate:down": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js down",
     "migrate:status": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js status",
     "migrate:create": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js create",
-    "copy-policies": "node scripts/copy-policies.js"
+    "copy-policies": "node scripts/copy-policies.js",
+    "lint": "eslint ."
   },
   "keywords": [
     "express",
@@ -62,6 +63,7 @@
     "xss": "^1.0.15"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
     "supertest": "^6.3.4"

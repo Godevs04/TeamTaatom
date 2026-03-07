@@ -1,0 +1,16 @@
+{
+  "env": { "node": true, "es2022": true, "jest": true },
+  "extends": ["eslint:recommended"],
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "script" },
+  "ignorePatterns": ["node_modules/", "coverage/", "*.min.js"],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-undef": "warn",
+    "no-empty": "warn",
+    "no-dupe-keys": "warn",
+    "no-useless-escape": "warn",
+    "no-unreachable": "warn",
+    "no-case-declarations": "warn",
+    "no-prototype-builtins": "warn"
+  }
+}

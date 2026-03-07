@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "prestart": "node -e \"var fs=require('fs'); if(!fs.existsSync('.next/BUILD_ID')){ require('child_process').execSync('npm run build', {stdio:'inherit'}); }\"",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
