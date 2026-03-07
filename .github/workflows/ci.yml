@@ -1,10 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# CI — Unified pipeline (Frontend + Backend + Web), like a single test suite
+# CI — Unified pipeline (Validate first, then Frontend + Backend + Web)
 # ─────────────────────────────────────────────────────────────────────────────
-# • Runs when you change files under frontend/, backend/, or web/ (push or PR to main/develop).
-# • Each job runs only if that folder changed (path-based = saves minutes).
-# • Manual "Run workflow" runs all jobs.
-# • Final "CI Success" job ties the graph together and shows what ran.
+# • Validate runs FIRST (commit message / branch conventions). If it fails, no other job runs (saves minutes).
+# • Then path detection and module jobs (frontend, web, backend) run only when their folder changed.
+# • Manual "Run workflow" runs validate then all module jobs.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
@@ -30,10 +29,61 @@ permissions:
   pull-requests: read
 
 jobs:
-  # ─── Pre-job: detect which modules changed (drives the rest of the graph)
+  # ─── Validate first: if this fails, no other jobs run (saves minutes)
+  validate:
+    name: Validate (PR / commit conventions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enforce commit message & branch conventions
+        id: conventions
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            MSG="${{ github.event.pull_request.title }}"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.head_commit.message }}" ]; then
+            MSG="${{ github.event.head_commit.message }}"
+            MSG=$(printf '%s\n' "$MSG" | head -n1)
+          else
+            MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
+          fi
+
+          if echo "$MSG" | grep -qi '\[skip validation\]'; then
+            echo "✅ Bypass marker found; validation skipped."
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "✅ Manual run; validation skipped."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "✅ Merge commit; validation skipped."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qE '^TAATOM(-[0-9A-Za-z]+)?(\s|:)'; then
+            echo "✅ Commit message OK: TAATOM or TAATOM-<id> prefix."
+            exit 0
+          fi
+          echo "❌ Commit message must start with TAATOM or TAATOM-<id> followed by space or colon."
+          echo "   Example: TAATOM: Add feature   or   TAATOM-42: Fix bug"
+          echo "   Got (first line): $MSG"
+          exit 1
+
+      - name: Summary
+        run: |
+          echo "## ✅ Validate (PR / commit conventions)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Passed. Other jobs (pre-job, frontend, web, backend) will run." >> "$GITHUB_STEP_SUMMARY"
+
+  # ─── Pre-job: detect which modules changed (runs only if validate passed)
   changes:
     name: pre-job
     runs-on: ubuntu-latest
+    needs: validate
     timeout-minutes: 2
     outputs:
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -79,11 +129,11 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "---" >> "$GITHUB_STEP_SUMMARY"
 
-  # ─── Frontend: lint & build web (path-based)
+  # ─── Frontend: lint & build web (path-based; runs only after validate + changes)
   frontend:
     name: Lint & Build Frontend
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [validate, changes]
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true'
     timeout-minutes: 25
     steps:
@@ -151,11 +201,11 @@ jobs:
           echo "## ✅ Frontend CI passed" >> "$GITHUB_STEP_SUMMARY"
           echo "Lint and build (web) completed successfully for \`frontend/\`." >> "$GITHUB_STEP_SUMMARY"
 
-  # ─── Web: lint, typecheck & build (path-based)
+  # ─── Web: lint, typecheck & build (path-based; runs only after validate + changes)
   web:
     name: Lint & Build Web
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [validate, changes]
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
     timeout-minutes: 20
     steps:
@@ -198,11 +248,11 @@ jobs:
           echo "## ✅ Web CI passed" >> "$GITHUB_STEP_SUMMARY"
           echo "Lint, typecheck, and build completed successfully for \`web/\`." >> "$GITHUB_STEP_SUMMARY"
 
-  # ─── Backend: lint & test (path-based)
+  # ─── Backend: lint & test (path-based; runs only after validate + changes)
   backend:
     name: Test & Lint Backend
     runs-on: ubuntu-latest
-    needs: changes
+    needs: [validate, changes]
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true'
     timeout-minutes: 15
     steps:
@@ -242,17 +292,26 @@ jobs:
           CI: true
         run: npm run test:coverage -- --ci --coverageReporters=text-summary
 
+      - name: Why some tests are skipped
+        run: |
+          echo "## 🧪 Backend tests in CI" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "• **Unit tests** (e.g. \`tripScoreConfig\`) run in CI — no database needed." >> "$GITHUB_STEP_SUMMARY"
+          echo "• **Integration tests** (TripScore controller, TripVisit service) need MongoDB. In CI we don't set \`MONGO_URL\`, so those suites are **skipped** to avoid failing the job." >> "$GITHUB_STEP_SUMMARY"
+          echo "• Run \`npm test\` locally with \`MONGO_URL\` in \`.env\` to execute all tests." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
       - name: ✅ Backend CI result
         run: |
           echo "## ✅ Backend CI passed" >> "$GITHUB_STEP_SUMMARY"
           echo "Lint, tests, and coverage completed successfully for \`backend/\`." >> "$GITHUB_STEP_SUMMARY"
 
-  # ─── Final job: ties the graph and shows overall success (like "End-to-End Tests Success")
+  # ─── Final job: ties the graph (runs only when validate + changes passed)
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [changes, frontend, web, backend]
-    if: always() && needs.changes.result == 'success'
+    needs: [validate, changes, frontend, web, backend]
+    if: always() && needs.validate.result == 'success' && needs.changes.result == 'success'
     timeout-minutes: 1
     steps:
       - name: Summary
