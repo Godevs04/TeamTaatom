@@ -18,7 +18,6 @@ const Song = require('../src/models/Song');
 const Post = require('../src/models/Post');
 const User = require('../src/models/User');
 const Locale = require('../src/models/Locale');
-const { extractStorageKeyFromUrl } = require('../src/services/mediaService');
 const logger = require('../src/utils/logger');
 
 const DRY_RUN = process.env.DRY_RUN !== 'false';
@@ -80,14 +79,20 @@ const migrateSongs = async () => {
   logger.info('📦 Migrating Songs...');
   
   const songs = await Song.find({
-    $or: [
-      { storageKey: { $exists: false } },
-      { storageKey: null },
-      { storageKey: '' }
-    ],
-    $or: [
-      { cloudinaryUrl: { $exists: true, $ne: null } },
-      { s3Url: { $exists: true, $ne: null } }
+    $and: [
+      {
+        $or: [
+          { storageKey: { $exists: false } },
+          { storageKey: null },
+          { storageKey: '' }
+        ]
+      },
+      {
+        $or: [
+          { cloudinaryUrl: { $exists: true, $ne: null } },
+          { s3Url: { $exists: true, $ne: null } }
+        ]
+      }
     ]
   }).lean();
 
@@ -226,12 +231,16 @@ const migrateUsers = async () => {
   logger.info('📦 Migrating Users (Profile Pictures)...');
   
   const users = await User.find({
-    $or: [
-      { profilePicStorageKey: { $exists: false } },
-      { profilePicStorageKey: null },
-      { profilePicStorageKey: '' }
-    ],
-    profilePic: { $exists: true, $ne: null, $ne: '' }
+    $and: [
+      {
+        $or: [
+          { profilePicStorageKey: { $exists: false } },
+          { profilePicStorageKey: null },
+          { profilePicStorageKey: '' }
+        ]
+      },
+      { profilePic: { $exists: true, $nin: [null, ''] } }
+    ]
   }).lean();
 
   logger.info(`Found ${users.length} users to migrate`);
@@ -279,14 +288,20 @@ const migrateLocales = async () => {
   logger.info('📦 Migrating Locales...');
   
   const locales = await Locale.find({
-    $or: [
-      { storageKey: { $exists: false } },
-      { storageKey: null },
-      { storageKey: '' }
-    ],
-    $or: [
-      { cloudinaryUrl: { $exists: true, $ne: null } },
-      { imageUrl: { $exists: true, $ne: null } }
+    $and: [
+      {
+        $or: [
+          { storageKey: { $exists: false } },
+          { storageKey: null },
+          { storageKey: '' }
+        ]
+      },
+      {
+        $or: [
+          { cloudinaryUrl: { $exists: true, $ne: null } },
+          { imageUrl: { $exists: true, $ne: null } }
+        ]
+      }
     ]
   }).lean();
 
