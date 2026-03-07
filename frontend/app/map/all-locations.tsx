@@ -19,8 +19,20 @@ import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
 import { getTravelMapData } from '../../services/profile';
 import { getGoogleMapsApiKey, getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import logger from '../../utils/logger';
+import { ErrorBoundary } from '../../utils/errorBoundary';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+function safeDecodeUriComponent(value: string | string[] | undefined): string | null {
+  if (value == null) return null;
+  const str = Array.isArray(value) ? value[0] : value;
+  if (typeof str !== 'string' || !str) return null;
+  try {
+    return decodeURIComponent(str);
+  } catch {
+    return str;
+  }
+}
 
 interface Location {
   number: number;
@@ -30,7 +42,7 @@ interface Location {
   date: string;
 }
 
-export default function AllLocationsMap() {
+function AllLocationsMapInner() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,16 +54,17 @@ export default function AllLocationsMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
-  const userId = params.userId as string;
-  const userNameParam = params.userName as string | undefined;
-  const displayName = userNameParam ? decodeURIComponent(userNameParam) : null;
+  const rawUserId = params.userId;
+  const userId = typeof rawUserId === 'string' ? rawUserId : Array.isArray(rawUserId) ? rawUserId[0] : undefined;
+  const displayName = safeDecodeUriComponent(params.userName as string | string[] | undefined);
   const headerTitle = displayName ? `${displayName}'s locations` : 'My Travel Locations';
   const mapRef = useRef<any>(null);
   const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
   const WEB_VIEW_MAPS_KEY = getGoogleMapsApiKeyForWebView();
 
   useEffect(() => {
-    if (userId) {
+    const id = userId && String(userId).trim();
+    if (id) {
       loadLocations();
     } else {
       setError('User ID is required');
@@ -110,10 +123,16 @@ export default function AllLocationsMap() {
   }, [locations, loading]);
 
   const loadLocations = async () => {
+    const id = userId && String(userId).trim();
+    if (!id) {
+      setError('User ID is required');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const response = await getTravelMapData(userId);
+      const response = await getTravelMapData(id);
       const locationsData = response?.locations ?? [];
       const statisticsData = response?.statistics ?? null;
       setError(null);
@@ -305,8 +324,9 @@ export default function AllLocationsMap() {
   };
 
   const renderMap = () => {
-    const useAndroidWebViewFallback = Platform.OS === 'android' && (Constants.appOwnership === 'expo' || !MapView);
-    const needsWebViewKey = Platform.OS === 'web' || useAndroidWebViewFallback;
+    // Use WebView on all platforms to avoid native MapView crashes on iOS/Android
+    const useWebView = true;
+    const needsWebViewKey = useWebView;
     if (needsWebViewKey && !WEB_VIEW_MAPS_KEY && !GOOGLE_MAPS_API_KEY) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
@@ -317,7 +337,7 @@ export default function AllLocationsMap() {
         </View>
       );
     }
-    if (Platform.OS === 'web' || useAndroidWebViewFallback) {
+    if (useWebView) {
       return (
         <View style={styles.mapContainer}>
           <WebView
@@ -326,6 +346,11 @@ export default function AllLocationsMap() {
             javaScriptEnabled={true}
             domStorageEnabled={true}
             startInLoadingState={true}
+            originWhitelist={['*']}
+            {...(Platform.OS === 'android' && {
+              mixedContentMode: 'compatibility',
+              setSupportMultipleWindows: false,
+            })}
             renderLoading={() => (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -616,6 +641,14 @@ export default function AllLocationsMap() {
         {renderMap()}
       </View>
     </SafeAreaView>
+  );
+}
+
+export default function AllLocationsMap() {
+  return (
+    <ErrorBoundary level="route">
+      <AllLocationsMapInner />
+    </ErrorBoundary>
   );
 }
 

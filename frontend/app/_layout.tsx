@@ -5,8 +5,9 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
-import { updateFCMPushToken } from '../services/profile';
+import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
 import { fcmService } from '../services/fcm';
+import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
 import { AlertProvider } from '../context/AlertContext';
@@ -14,7 +15,7 @@ import { ScrollProvider } from '../context/ScrollContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname, useSegments } from 'expo-router';
-// Removed expo-notifications - using native FCM instead
+import * as Notifications from 'expo-notifications';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
@@ -86,6 +87,19 @@ if (SENTRY_DSN) {
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+// Expo notification handler: show alert, sound, badge (iOS / native only)
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 function RootLayoutInner() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -628,55 +642,83 @@ function RootLayoutInner() {
   }, [isAuthenticated, sessionExpired, isInitializing, router, pathname, segments]);
 
   useEffect(() => {
-    // Skip push notifications on web (requires VAPID keys)
+    // Skip push notifications on web
     if (Platform.OS === 'web') return;
-    
-    // Initialize FCM and register push token
-    async function initializeFCM() {
+
+    async function registerPushToken() {
+      const user = await getUserFromStorage();
+      if (!user?._id) return;
+
       try {
-        // Skip FCM on web platform
-        if (Platform.OS === 'web') {
+        // iOS: use Expo Push Notifications (EAS build)
+        if (Platform.OS === 'ios') {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            await saveExpoPushToken(token);
+            if (process.env.NODE_ENV === 'development') {
+              logger.debug('Expo push token registered');
+            }
+          }
           return;
         }
 
-        // Initialize FCM service
+        // Android: FCM
         await fcmService.initialize();
-
-        // Get FCM token
         const fcmToken = await fcmService.getToken();
         if (fcmToken) {
-          const user = await getUserFromStorage();
-          if (user && user._id) {
-            await updateFCMPushToken(user._id, fcmToken);
-            if (process.env.NODE_ENV === 'development') {
-              logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
-            }
+          await updateFCMPushToken(user._id, fcmToken);
+          if (process.env.NODE_ENV === 'development') {
+            logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
           }
         }
-
-        // Set up notification opened handler
-        fcmService.setupNotificationOpenedHandler((data) => {
+        fcmService.setupNotificationOpenedHandler((data: any) => {
           if (process.env.NODE_ENV === 'development') {
             logger.debug('Notification opened with data:', data);
           }
-          // Handle navigation based on notification data
-          // You can use router.push(data.screen) here if needed
+          const screen = data?.screen;
+          if (screen && typeof screen === 'string') {
+            router.push(screen);
+          }
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         if (process.env.NODE_ENV === 'development') {
-          logger.error('Error initializing FCM:', err);
+          logger.debug('Push token registration skipped or failed:', msg);
         }
-        // FCM might not be available in Expo Go - that's okay
-        if (err.message?.includes('Native module') || err.message?.includes('not found')) {
-          logger.warn('FCM native module not available. Use a development build for full FCM support.');
+        if (typeof msg === 'string' && (msg.includes('Native module') || msg.includes('not found'))) {
+          logger.warn('Push native module not available. Use a development build for full support.');
         }
       }
     }
 
     if (isAuthenticated) {
-      initializeFCM();
+      registerPushToken();
     }
   }, [isAuthenticated]);
+
+  // When user taps a push notification (Expo, iOS): navigate to data.screen (aligned with backend getScreenForType)
+  useEffect(() => {
+    if (Platform.OS === 'web' || Platform.OS !== 'ios') return;
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+      const screen = data?.screen;
+      if (screen && typeof screen === 'string') {
+        router.push(screen);
+      }
+    });
+
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+      const screen = data?.screen;
+      if (screen && typeof screen === 'string') {
+        router.push(screen);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [router]);
 
   // Handle app state changes to maintain authentication (mobile only)
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// Auth routes that logged-in users should not see (redirect to feed)
+const AUTH_ROUTES = ["/auth/login", "/auth/register"];
+
 // Protect routes that require auth; redirect to landing (login) when not authenticated
 const PROTECTED_PREFIXES = [
   "/feed",
@@ -16,6 +19,10 @@ const PROTECTED_PREFIXES = [
   "/chat",
 ];
 
+function isAuthRoute(pathname: string) {
+  return AUTH_ROUTES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
@@ -23,12 +30,22 @@ function isProtected(pathname: string) {
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
-  if (!isProtected(pathname)) return NextResponse.next();
-
   const hasCookieToken = !!req.cookies.get("authToken")?.value;
   const hasDevAuth = !!req.cookies.get("devAuth")?.value;
+  const isLoggedIn = hasCookieToken || hasDevAuth;
 
-  if (hasCookieToken || hasDevAuth) {
+  // If already logged in and trying to access login/register, redirect to feed
+  if (isAuthRoute(pathname) && isLoggedIn) {
+    const url = req.nextUrl.clone();
+    const next = url.searchParams.get("next");
+    url.pathname = next && next.startsWith("/") && !next.startsWith("//") ? next : "/feed";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  if (!isProtected(pathname)) return NextResponse.next();
+
+  if (isLoggedIn) {
     return NextResponse.next();
   }
 
@@ -40,6 +57,10 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    "/auth/login",
+    "/auth/login/:path*",
+    "/auth/register",
+    "/auth/register/:path*",
     "/feed",
     "/feed/:path*",
     "/shorts",

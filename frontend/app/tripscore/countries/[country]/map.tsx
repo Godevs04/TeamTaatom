@@ -439,10 +439,9 @@ export default function CountryMapScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      {/* Map View */}
+      {/* Map View - use WebView for web and Android so maps open reliably on Android */}
       <View style={styles.mapContainer}>
-        {Platform.OS === 'web' ? (
-          // WebView map for web platform
+        {(Platform.OS === 'web' || Platform.OS === 'android') ? (
           <WebView
             style={styles.map}
             source={{ html: getWebMapHTML(displayCountryName || '') }}

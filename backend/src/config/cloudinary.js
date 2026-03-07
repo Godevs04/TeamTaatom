@@ -96,7 +96,7 @@ const getVideoThumbnailUrl = (publicId, options = {}) => {
 };
 
 // Upload song (audio file) to Cloudinary
-const uploadSong = async (buffer, filename, mimetype) => {
+const uploadSong = async (buffer, filename, _mimetype) => {
   try {
     return new Promise((resolve, reject) => {
       // Sanitize filename for public_id (remove extension)
@@ -149,7 +149,7 @@ const deleteSong = async (publicId) => {
 };
 
 // Upload locale image to Cloudinary
-const uploadLocaleImage = async (buffer, filename, mimetype) => {
+const uploadLocaleImage = async (buffer, filename, _mimetype) => {
   try {
     return new Promise((resolve, reject) => {
       // Sanitize filename for public_id (remove extension)

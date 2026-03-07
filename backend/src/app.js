@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+// const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const Sentry = require('./instrument');
@@ -913,7 +913,8 @@ if (enableSwagger) {
         
         // Request/Response interceptors
         requestInterceptor: (request) => {
-          // Add CSRF token if available (runs in browser)
+          // Add CSRF token if available (runs in browser when Swagger UI is loaded)
+          /* eslint-disable no-undef */
           if (typeof document !== 'undefined') {
             const csrfToken = document.cookie
               .split('; ')
@@ -930,6 +931,7 @@ if (enableSwagger) {
               request.url += `&_t=${Date.now()}`;
             }
           }
+          /* eslint-enable no-undef */
           return request;
         },
         responseInterceptor: (response) => {
@@ -948,10 +950,8 @@ if (enableSwagger) {
         // Callbacks
         onComplete: () => {
           if (typeof window !== 'undefined') {
-            // Add custom event listeners after Swagger UI loads
             console.log('✅ Swagger UI loaded successfully');
-            
-            // Add smooth scroll behavior
+            /* eslint-disable no-undef */
             document.querySelectorAll('a[href^="#"]').forEach(anchor => {
               anchor.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -961,6 +961,7 @@ if (enableSwagger) {
                 }
               });
             });
+            /* eslint-enable no-undef */
           }
         },
         

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 import {
   LayoutDashboard,
   Search,
@@ -16,6 +17,8 @@ import {
   MapPinned,
   PlayCircle,
   Sparkles,
+  MessageCircle,
+  Bell,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
@@ -24,6 +27,8 @@ import { useMounted } from "../../hooks/use-mounted";
 const leftNav = [
   { href: "/feed", label: "News Feed", icon: LayoutDashboard },
   { href: "/shorts", label: "Shorts", icon: PlayCircle },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
   { href: "/create", label: "Create", icon: PlusSquare },
@@ -44,7 +49,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const profileHref = mounted && user?._id ? `/profile/${user._id}` : "/feed";
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] w-full bg-[#f8fafc]">
+    <div className="flex min-h-[calc(100vh-3.5rem)] w-full bg-[#f8fafc]">
       {/* Left sidebar — premium card style */}
       <aside className="hidden w-[280px] shrink-0 flex-col lg:flex">
         <div className="sticky top-20 flex flex-col gap-6 p-5">
@@ -60,6 +65,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   src={user.profilePic}
                   alt={user?.fullName || "Profile"}
                   className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center">
@@ -107,8 +113,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
 
-          {/* Download app — premium CTA with iOS & Android */}
-          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-slate-50/80 p-5 shadow-premium border-premium">
+          {/* Download app — show on smaller viewports; hide on xl for desktop web-first feel */}
+          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-slate-50/80 p-5 shadow-premium border-premium xl:hidden">
             <div className="flex items-center gap-2.5">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                 <Smartphone className="h-5 w-5 text-primary" />
@@ -149,13 +155,24 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </a>
             </div>
           </div>
+          {/* Desktop: subtle "Also on mobile" link instead of full CTA */}
+          <p className="hidden text-xs text-slate-500 xl:block">
+            <a href="https://apps.apple.com/app/id6757185352" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">iOS</a>
+            {" · "}
+            <a href="https://play.google.com/store/apps/details?id=com.taatom.app" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">Android</a>
+          </p>
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* Main content — desktop-first: use horizontal space (YouTube-web style) */}
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-[640px] px-4 py-8 md:px-6 lg:px-10">{children}</div>
+        <div className="mx-auto w-full max-w-2xl px-3 py-6 pb-24 sm:px-4 sm:py-8 md:max-w-4xl md:px-6 lg:max-w-5xl lg:px-10 lg:pb-8 xl:max-w-6xl xl:px-12">
+          {children}
+        </div>
       </div>
+
+      {/* Mobile bottom nav — shown when left sidebar is hidden (< lg) */}
+      <MobileBottomNav />
 
       {/* Right sidebar — Suggestions & Recommendations */}
       <aside className="hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex">
