@@ -1,7 +1,21 @@
-# Prepare Release — GitHub internal release only (does NOT change app.json / App Store / Play Store).
-# Creates GitHub tag and release from .github/release.properties. app.json is for stores only.
+# ─────────────────────────────────────────────────────────────────────────────
+# Prepare Release — Internal GitHub release (does NOT change app.json / stores)
+# ─────────────────────────────────────────────────────────────────────────────
 #
-# Flow: merge_translations → bump_version → build_mobile (pre + Android/iOS) → prepare_release
+# WHEN DOES THIS RUN?
+#   • Only when you manually run it: Actions → "Prepare Release" → "Run workflow".
+#   • It does NOT run on push or pull request.
+#
+# WHAT IT DOES:
+#   1. Merge translations (placeholder — add your step if needed)
+#   2. Bump internal version from .github/release.properties (GitHub tag only)
+#   3. Build mobile (Android + iOS) via EAS
+#   4. Create GitHub tag + release; optionally update LAST_INTERNAL_VERSION
+#
+# NOTE: app.json is for App Store / Play Store only — change that manually.
+#       This workflow only creates/updates GitHub tag and release.
+#
+# ─────────────────────────────────────────────────────────────────────────────
 
 name: Prepare Release
 
@@ -33,7 +47,7 @@ permissions:
 
 jobs:
   merge_translations:
-    name: merge_translations / merge
+    name: 🌐 Merge translations
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -42,17 +56,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: When this workflow runs
+        run: |
+          echo "## 📌 When does Prepare Release run?" >> "$GITHUB_STEP_SUMMARY"
+          echo "This workflow **only runs when you manually trigger it** from:" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Actions** → **Prepare Release** → **Run workflow**." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "It does not run on push or pull request." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Merge translations (placeholder)
         run: |
+          echo "## 🌐 Merge translations" >> "$GITHUB_STEP_SUMMARY"
+          echo "Placeholder step. Add your translation merge here (e.g. Crowdin, merge keys). Skipping — no-op." >> "$GITHUB_STEP_SUMMARY"
           echo "=============================================="
-          echo "  Merge translations"
+          echo "  Merge translations (placeholder)"
           echo "=============================================="
           echo "  Add your translation merge step here (e.g. pull from Crowdin, merge keys)."
           echo "  Skipping for now — no-op."
           echo "=============================================="
 
   bump_version:
-    name: bump_version
+    name: 📦 Bump internal version
     runs-on: ubuntu-latest
     needs: merge_translations
     timeout-minutes: 5
@@ -64,20 +89,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply release.properties overrides (workflow inputs)
+      - name: Apply workflow inputs to release.properties
         run: |
           PROP=.github/release.properties
-          if [ -n "${{ inputs.release_type }}" ]; then
-            sed -i.bak "s/^RELEASE_TYPE=.*/RELEASE_TYPE=${{ inputs.release_type }}/" "$PROP" && rm -f "${PROP}.bak"
+          if [ -n "${{ github.event.inputs.release_type }}" ]; then
+            sed -i.bak "s/^RELEASE_TYPE=.*/RELEASE_TYPE=${{ github.event.inputs.release_type }}/" "$PROP" && rm -f "${PROP}.bak"
           fi
-          if [ -n "${{ inputs.patch_version }}" ]; then
+          if [ -n "${{ github.event.inputs.patch_version }}" ]; then
             if grep -q '^PATCH_VERSION=' "$PROP"; then
-              sed -i.bak "s/^PATCH_VERSION=.*/PATCH_VERSION=${{ inputs.patch_version }}/" "$PROP" && rm -f "${PROP}.bak"
+              sed -i.bak "s/^PATCH_VERSION=.*/PATCH_VERSION=${{ github.event.inputs.patch_version }}/" "$PROP" && rm -f "${PROP}.bak"
             else
-              echo "PATCH_VERSION=${{ inputs.patch_version }}" >> "$PROP"
+              echo "PATCH_VERSION=${{ github.event.inputs.patch_version }}" >> "$PROP"
             fi
           fi
-          if [ "${{ inputs.allow_repatch }}" = "true" ]; then
+          if [ "${{ github.event.inputs.allow_repatch }}" = "true" ]; then
             if grep -q '^ALLOW_REPATCH=' "$PROP"; then
               sed -i.bak "s/^ALLOW_REPATCH=.*/ALLOW_REPATCH=true/" "$PROP" && rm -f "${PROP}.bak"
             else
@@ -87,13 +112,17 @@ jobs:
           fi
           echo "Release config:"
           grep -E '^RELEASE_TYPE=|^PATCH_VERSION=|^ALLOW_REPATCH=|^YEAR=|^MONTH=' .github/release.properties 2>/dev/null || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 📦 Bump version (GitHub internal only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Using \`.github/release.properties\`. app.json is **not** modified." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Bump internal version (GitHub only; app.json unchanged)
+      - name: Compute next version and tag
         id: bump
         run: |
           node .github/scripts/bump-version.js
@@ -102,6 +131,7 @@ jobs:
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "✅ Internal version (GitHub): $NEW_VERSION → tag $RELEASE_TAG"
+          echo "**New version:** \`$NEW_VERSION\` → **tag:** \`$RELEASE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -114,7 +144,7 @@ jobs:
             .github/release.properties
 
   build_mobile:
-    name: build_mobile
+    name: 📱 Build mobile (${{ matrix.job_name }})
     runs-on: ubuntu-latest
     needs: bump_version
     timeout-minutes: 45
@@ -123,16 +153,22 @@ jobs:
       matrix:
         include:
           - platform: android
-            job_name: Build and sign Android
+            job_name: Android
           - platform: ios
-            job_name: Build and sign iOS
+            job_name: iOS
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Pre-job — Setup Node and EAS
+      - name: 📌 Build ${{ matrix.job_name }}
+        run: |
+          echo "## 📱 Build ${{ matrix.job_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "EAS build for **${{ matrix.platform }}** (production). Monitor builds at Expo." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node and EAS
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -159,13 +195,15 @@ jobs:
           echo "🚀 Building ${{ matrix.platform }} (production)..."
           eas build --platform ${{ matrix.platform }} --profile production --non-interactive --no-wait
 
-      - name: Summary
+      - name: ✅ ${{ matrix.job_name }} build triggered
         run: |
+          echo "## ✅ ${{ matrix.job_name }} build triggered" >> "$GITHUB_STEP_SUMMARY"
+          echo "Monitor: [Expo builds](https://expo.dev/accounts/taatom-technologies/projects/taatom/builds)" >> "$GITHUB_STEP_SUMMARY"
           echo "✅ ${{ matrix.job_name }} triggered"
           echo "📱 Monitor: https://expo.dev/accounts/taatom-technologies/projects/taatom/builds"
 
   prepare_release:
-    name: prepare_release
+    name: 🏷️ Create GitHub tag & release
     runs-on: ubuntu-latest
     needs: [bump_version, build_mobile]
     timeout-minutes: 10
@@ -175,21 +213,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download release artifacts
+      - name: Download version artifacts
         uses: actions/download-artifact@v4
         with:
           name: release-files
           path: ./release
 
-      - name: Set release tag (GitHub only; app.json not modified)
+      - name: Read release tag and version
         id: version
         run: |
           TAG=$(cat ./release/RELEASE_TAG.txt)
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$(cat ./release/NEW_VERSION.txt)" >> "$GITHUB_OUTPUT"
+          echo "## 🏷️ Create GitHub tag & release" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag: \`$TAG\` (internal only; app.json unchanged)." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit LAST_INTERNAL_VERSION update (release.properties only)
+      - name: Update LAST_INTERNAL_VERSION in release.properties
         run: |
           if [ -f ./release/.github/release.properties ]; then
             cp ./release/.github/release.properties .github/release.properties
@@ -204,17 +245,18 @@ jobs:
             fi
           fi
 
-      - name: Create GitHub tag and push
+      - name: Create and push GitHub tag
         run: |
           TAG="${{ env.TAG }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, skipping"
+            echo "Tag $TAG already exists, skipping push"
           else
             git tag -a "$TAG" -m "Release $TAG (internal)"
             git push origin "$TAG"
+            echo "✅ Pushed tag: $TAG"
           fi
 
-      - name: Build release body
+      - name: Build release notes body
         id: release_body
         run: |
           if [ -f ./release/RELEASE_LABEL.txt ]; then
@@ -235,11 +277,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Pipeline summary
+      - name: ✅ Prepare Release — complete
         run: |
           TAG="${{ env.TAG }}"
           echo "=============================================="
-          echo "  Prepare Release — Complete (GitHub only)"
+          echo "  ✅ Prepare Release — Complete (GitHub only)"
           echo "=============================================="
           echo "  Internal tag: ${TAG}"
           echo "  Branch:       ${{ github.ref_name }}"
@@ -248,8 +290,11 @@ jobs:
           echo "  GitHub release created/updated for internal reference."
           echo "=============================================="
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "## Prepare Release — Complete" >> "$GITHUB_STEP_SUMMARY"
-          echo "**GitHub tag:** ${{ env.TAG }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Branch:** ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ✅ Prepare Release — Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "app.json (store version) unchanged. GitHub release updated for internal reference only." >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **GitHub tag** | \`${{ env.TAG }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch** | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**app.json** (store version) was **not** changed. GitHub tag and release are for internal use only." >> "$GITHUB_STEP_SUMMARY"
