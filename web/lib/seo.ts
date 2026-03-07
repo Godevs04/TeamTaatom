@@ -2,7 +2,22 @@ import type { Metadata } from "next";
 import { config } from "./config";
 
 const APP_NAME = "Taatom";
-const DEFAULT_DESCRIPTION = "Discover trips, stories, and travelers around the world. Share your journey with photos, location, and music.";
+const DEFAULT_TITLE = "Taatom — Travel stories that feel alive";
+const DEFAULT_DESCRIPTION =
+  "Discover trips, stories, and travelers around the world. Share your journey with photos, location, and music. Join Taatom and bring your travel stories to life.";
+const KEYWORDS = [
+  "Taatom",
+  "travel",
+  "travel stories",
+  "travel app",
+  "trips",
+  "travelers",
+  "share trips",
+  "travel photos",
+  "travel community",
+  "adventure",
+  "explore",
+];
 
 export function createMetadata(overrides: {
   title?: string | null;
@@ -14,13 +29,17 @@ export function createMetadata(overrides: {
   const base = config.webUrl;
   const path = overrides.path ?? "";
   const canonical = path ? `${base}${path.startsWith("/") ? path : `/${path}`}` : base;
-  const title = overrides.title ? `${overrides.title} · ${APP_NAME}` : `${APP_NAME} — Travel stories that feel alive`;
+  const title = overrides.title ? `${overrides.title} · ${APP_NAME}` : DEFAULT_TITLE;
   const description = overrides.description ?? DEFAULT_DESCRIPTION;
-  const image = overrides.image ? (overrides.image.startsWith("http") ? overrides.image : `${base}${overrides.image}`) : undefined;
+  const image = overrides.image ? (overrides.image.startsWith("http") ? overrides.image : `${base}${overrides.image}`) : `${base}/icon.png`;
 
   return {
-    title: overrides.title ?? undefined,
+    title: overrides.title ? `${overrides.title} · ${APP_NAME}` : undefined,
     description,
+    keywords: KEYWORDS,
+    authors: [{ name: APP_NAME, url: base }],
+    creator: APP_NAME,
+    publisher: APP_NAME,
     metadataBase: new URL(base),
     alternates: { canonical },
     openGraph: {
@@ -29,15 +48,20 @@ export function createMetadata(overrides: {
       url: canonical,
       siteName: APP_NAME,
       type: "website",
-      ...(image && { images: [{ url: image }] }),
+      locale: "en_US",
+      images: [{ url: image, width: 512, height: 512, alt: APP_NAME }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      ...(image && { images: [image] }),
+      images: [image],
     },
-    ...(overrides.noIndex && { robots: { index: false, follow: false } }),
+    robots: overrides.noIndex ? { index: false, follow: false } : { index: true, follow: true, googleBot: { index: true, follow: true } },
+    verification: {
+      // Add when you have them: google: "google-site-verification-code", yandex: "yandex-verification-code"
+    },
+    category: "travel",
   };
 }
 
