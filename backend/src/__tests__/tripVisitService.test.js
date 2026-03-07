@@ -23,7 +23,11 @@ jest.mock('../utils/logger', () => ({
   error: jest.fn(),
 }));
 
-describe('TripVisit Service', () => {
+// Skip integration tests when no MongoDB (e.g. CI without MONGO_URL)
+const hasMongo = !!(process.env.MONGO_URL || process.env.MONGODB_TEST_URI);
+const describeIntegration = hasMongo ? describe : describe.skip;
+
+describeIntegration('TripVisit Service', () => {
   let testUser;
   let testPost;
 

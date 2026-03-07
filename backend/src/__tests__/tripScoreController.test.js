@@ -11,10 +11,14 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
 
+// Skip integration tests when no MongoDB (e.g. CI without MONGO_URL)
+const hasMongo = !!(process.env.MONGO_URL || process.env.MONGODB_TEST_URI);
+const describeIntegration = hasMongo ? describe : describe.skip;
+
 // Import app for testing (reserved for future request(app) tests)
 let _app; // eslint-disable-line no-unused-vars
 
-describe('TripScore Controller Integration Tests', () => {
+describeIntegration('TripScore Controller Integration Tests', () => {
   let testUser;
   let _authToken; // eslint-disable-line no-unused-vars
 

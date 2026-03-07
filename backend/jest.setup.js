@@ -13,12 +13,12 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 // Set test environment variables if not already set
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
-// Debug: Log MONGO_URL if available (without credentials)
+// Debug: Log MONGO_URL if available (without credentials). In CI, skip is normal when no DB.
 if (process.env.MONGO_URL) {
   const maskedUri = process.env.MONGO_URL.replace(/\/\/[^:]+:[^@]+@/, '//***:***@');
   console.log('📝 MONGO_URL found:', maskedUri);
-} else {
-  console.warn('⚠️  MONGO_URL not found in .env file');
+} else if (!process.env.CI) {
+  console.warn('⚠️  MONGO_URL not found in .env file (MongoDB tests will be skipped)');
 }
 
 // Suppress console logs during tests (optional - comment out if you want to see logs)
