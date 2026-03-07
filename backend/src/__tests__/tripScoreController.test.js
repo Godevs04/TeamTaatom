@@ -12,11 +12,11 @@ const Post = require('../models/Post');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
 
 // Import app for testing (reserved for future request(app) tests)
-let _app;
+let _app; // eslint-disable-line no-unused-vars
 
 describe('TripScore Controller Integration Tests', () => {
   let testUser;
-  let _authToken;
+  let _authToken; // eslint-disable-line no-unused-vars
 
   beforeAll(async () => {
     // Connect to test database
@@ -42,12 +42,12 @@ describe('TripScore Controller Integration Tests', () => {
           // MongoDB Atlas URI with query params but no explicit database
           // Insert database name before query params
           mongoUri = baseUri.replace(/\?retryWrites/, '/taatom_test?retryWrites');
-        } else if (baseUri.match(/mongodb(\+srv)?:\/\/[^\/]+$/)) {
+        } else if (baseUri.match(/mongodb(\+srv)?:\/\/[^/]+$/)) {
           // URI without database name, append test database
           mongoUri = baseUri + '/taatom_test';
         } else {
           // Fallback: try to append /taatom_test
-          mongoUri = baseUri.replace(/([^\/])(\?|$)/, '$1/taatom_test$2');
+          mongoUri = baseUri.replace(/([^/])(\?|$)/, '$1/taatom_test$2');
         }
       }
       
