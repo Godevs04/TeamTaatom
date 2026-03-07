@@ -2,11 +2,12 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
-const ForgotSignIn = require('../models/ForgotSignIn');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
+const { generateSignedUrl } = require('../services/mediaService');
+const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -311,11 +312,48 @@ const signin = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
+      .select('username fullName bio email profilePic profilePicStorageKey totalLikes isVerified createdAt lastLogin followers following')
       .populate('followers', 'fullName profilePic')
-      .populate('following', 'fullName profilePic');
+      .populate('following', 'fullName profilePic')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found', message: 'User does not exist' });
+    }
+
+    // Resolve profile picture URL (same logic as getProfile) so homepage/sidebar get a working image
+    let profilePicUrl = null;
+    const isTaatomOfficial = user._id.toString() === TAATOM_OFFICIAL_USER_ID;
+    if (isTaatomOfficial) {
+      profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
+    } else if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (err) {
+        logger.warn('getMe: failed to generate profile pic URL', { userId: user._id, error: err.message });
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      profilePicUrl = user.profilePic;
+    }
+
+    const publicProfile = {
+      _id: user._id,
+      username: user.username,
+      fullName: user.fullName,
+      bio: user.bio,
+      email: user.email,
+      profilePic: profilePicUrl,
+      followers: user.followers?.length ?? 0,
+      following: user.following?.length ?? 0,
+      totalLikes: user.totalLikes ?? 0,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin
+    };
 
     res.status(200).json({
-      user: user.getPublicProfile()
+      user: publicProfile
     });
   } catch (error) {
     logger.error('Get me error:', error);

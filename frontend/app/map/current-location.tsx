@@ -415,9 +415,9 @@ export default function CurrentLocationMap() {
       );
     }
 
-    // Use WebView for web, and for Android in Expo Go (react-native-maps not available) or when MapView fails
-    const useAndroidWebViewFallback = Platform.OS === 'android' && (Constants.appOwnership === 'expo' || !MapView);
-    if (Platform.OS === 'web' || useAndroidWebViewFallback) {
+    // Use WebView for web and Android so maps open reliably (native MapView can be blank on some Android devices)
+    const useWebView = Platform.OS === 'web' || Platform.OS === 'android';
+    if (useWebView) {
       return (
         <WebView
           style={styles.map}

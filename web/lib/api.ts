@@ -1,6 +1,8 @@
 import { api } from "./axios";
 import type { Post } from "../types/post";
 import type { User } from "../types/user";
+import type { Chat, ChatMessage } from "../types/chat";
+import type { Notification } from "../types/notification";
 import type { PaginationCursor, PaginationOffset } from "../types/api";
 
 export async function authMe(): Promise<{ user: User }> {
@@ -110,6 +112,43 @@ export async function getProfile(id: string) {
   return res.data as { profile: User };
 }
 
+export async function followProfile(userId: string) {
+  const res = await api.post(`/profile/${userId}/follow`);
+  return res.data as { isFollowing?: boolean; followRequestSent?: boolean; message?: string };
+}
+
+export async function getBlockStatus(userId: string) {
+  const res = await api.get(`/profile/${userId}/block-status`);
+  return res.data as { blocked: boolean };
+}
+
+export async function blockUser(userId: string) {
+  const res = await api.post(`/profile/${userId}/block`);
+  return res.data as { blocked: boolean; message?: string };
+}
+
+export async function getFollowRequests() {
+  const res = await api.get("/profile/follow-requests");
+  return res.data as { followRequests: import("../types/user").FollowRequest[] };
+}
+
+export async function approveFollowRequest(requestId: string) {
+  const res = await api.post(`/profile/follow-requests/${requestId}/approve`);
+  return res.data as { message?: string; followersCount?: number; alreadyProcessed?: boolean };
+}
+
+export async function rejectFollowRequest(requestId: string) {
+  const res = await api.post(`/profile/follow-requests/${requestId}/reject`);
+  return res.data as { message?: string };
+}
+
+export async function updateProfile(userId: string, form: FormData) {
+  const res = await api.put(`/profile/${userId}`, form, {
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+  });
+  return res.data as { profile?: User; message?: string };
+}
+
 export async function getUserPosts(userId: string, page = 1, limit = 20) {
   const res = await api.get(`/posts/user/${userId}?page=${page}&limit=${limit}`);
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
@@ -122,7 +161,7 @@ export async function searchUsers(q: string, limit = 20) {
 
 export async function createPost(form: FormData, onUploadProgress?: (pct: number) => void) {
   const res = await api.post("/posts", form, {
-    headers: { "Content-Type": "multipart/form-data" },
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
     onUploadProgress: (e) => {
       if (!onUploadProgress) return;
       if (!e.total) return;
@@ -130,6 +169,19 @@ export async function createPost(form: FormData, onUploadProgress?: (pct: number
     },
   });
   return res.data as { message?: string; post?: Post };
+}
+
+export async function createShort(form: FormData, onUploadProgress?: (pct: number) => void) {
+  const res = await api.post("/shorts", form, {
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+    timeout: 120_000,
+    onUploadProgress: (e) => {
+      if (!onUploadProgress) return;
+      if (!e.total) return;
+      onUploadProgress(Math.round((e.loaded / e.total) * 100));
+    },
+  });
+  return res.data as { message?: string; short?: Post };
 }
 
 export async function searchPosts(q: string, page = 1, limit = 20) {
@@ -147,6 +199,11 @@ export async function getLocales(params?: { search?: string; countryCode?: strin
   if (params?.limit) search.set("limit", String(params.limit));
   const res = await api.get(`/locales?${search.toString()}`);
   return res.data as { locales: Array<{ _id: string; name: string; countryCode: string; stateProvince?: string; stateCode?: string; imageUrl?: string }>; pagination?: { total: number; totalPages: number } };
+}
+
+export async function getLocaleById(id: string) {
+  const res = await api.get(`/locales/${id}`);
+  return res.data as { locale: { _id: string; name: string; countryCode: string; stateProvince?: string; stateCode?: string; imageUrl?: string; description?: string; city?: string; latitude?: number; longitude?: number } };
 }
 
 // Shorts (short-form videos)
@@ -177,6 +234,173 @@ export async function updateSettingCategory(category: string, data: Record<strin
 export async function resetSettings() {
   const res = await api.post("/settings/reset");
   return res.data as Record<string, unknown>;
+}
+
+// Chat
+export async function listChats() {
+  const res = await api.get("/chat");
+  return res.data as { chats: Chat[] };
+}
+
+export async function getChat(otherUserId: string) {
+  const res = await api.get(`/chat/${otherUserId}`);
+  return res.data as { chat: Chat };
+}
+
+export async function getChatMessages(otherUserId: string, page = 1, limit = 50) {
+  const res = await api.get(`/chat/${otherUserId}/messages`, { params: { page, limit } });
+  return res.data as { messages: ChatMessage[] };
+}
+
+export async function sendChatMessage(otherUserId: string, text: string) {
+  const res = await api.post(`/chat/${otherUserId}/messages`, { text });
+  return res.data as { message: ChatMessage };
+}
+
+export async function markChatMessagesSeen(otherUserId: string) {
+  const res = await api.post(`/chat/${otherUserId}/mark-all-seen`);
+  return res.data as { success?: boolean };
+}
+
+export async function clearChat(otherUserId: string) {
+  const res = await api.delete(`/chat/${otherUserId}/messages`);
+  return res.data as { success?: boolean };
+}
+
+export async function toggleChatMute(otherUserId: string) {
+  const res = await api.post(`/chat/${otherUserId}/mute`);
+  return res.data as { muted: boolean };
+}
+
+export async function getChatMuteStatus(otherUserId: string) {
+  const res = await api.get(`/chat/${otherUserId}/mute-status`);
+  return res.data as { muted: boolean };
+}
+
+// Notifications
+export async function getNotifications(page = 1, limit = 20) {
+  const res = await api.get("/notifications", { params: { page, limit } });
+  return res.data as { notifications: Notification[]; unreadCount?: number; pagination?: PaginationOffset };
+}
+
+export async function markNotificationAsRead(id: string) {
+  const res = await api.put(`/notifications/${id}/read`);
+  return res.data as { success?: boolean };
+}
+
+export async function markAllNotificationsAsRead() {
+  const res = await api.put("/notifications/read-all");
+  return res.data as { success?: boolean };
+}
+
+export async function getNotificationsUnreadCount() {
+  const res = await api.get("/notifications/unread-count");
+  return res.data as { unreadCount: number };
+}
+
+// Collections
+export type Collection = {
+  _id: string;
+  name: string;
+  description?: string;
+  user?: User;
+  posts?: Post[];
+  coverImage?: string;
+  isPublic?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getCollections(userId?: string) {
+  const params = userId ? { userId } : {};
+  const res = await api.get("/collections", { params });
+  return res.data as { collections: Collection[] };
+}
+
+export async function getCollection(id: string) {
+  const res = await api.get(`/collections/${id}`);
+  return res.data as { collection: Collection };
+}
+
+export async function createCollection(data: { name: string; description?: string; isPublic?: boolean }) {
+  const res = await api.post("/collections", data);
+  return res.data as { collection: Collection };
+}
+
+export async function updateCollection(id: string, data: { name?: string; description?: string; isPublic?: boolean }) {
+  const res = await api.put(`/collections/${id}`, data);
+  return res.data as { collection: Collection };
+}
+
+export async function deleteCollection(id: string) {
+  const res = await api.delete(`/collections/${id}`);
+  return res.data as { success?: boolean };
+}
+
+export async function addPostToCollection(collectionId: string, postId: string) {
+  const res = await api.post(`/collections/${collectionId}/posts`, { postId });
+  return res.data as { collection: Collection };
+}
+
+export async function removePostFromCollection(collectionId: string, postId: string) {
+  const res = await api.delete(`/collections/${collectionId}/posts/${postId}`);
+  return res.data as { collection: Collection };
+}
+
+export async function reorderCollectionPosts(collectionId: string, postIds: string[]) {
+  const res = await api.put(`/collections/${collectionId}/reorder`, { postIds });
+  return res.data as { collection: Collection };
+}
+
+// Activity
+export async function getActivity(page = 1, limit = 20) {
+  const res = await api.get("/activity", { params: { page, limit } });
+  return res.data as { activities: Array<{ _id: string; type: string; user?: User; post?: Post; createdAt?: string; [k: string]: unknown }>; pagination?: PaginationOffset };
+}
+
+/** Search for a place (Google Places) - for detect place on create post/short */
+export type SearchPlaceResult = {
+  lat: number;
+  lng: number;
+  name: string;
+  formattedAddress: string;
+  city: string;
+  country: string;
+  countryCode: string;
+  stateProvince: string;
+  placeId?: string;
+  continent?: string;
+};
+export async function searchPlaceUser(placeName: string): Promise<SearchPlaceResult | null> {
+  const res = await api.post<{ success?: boolean; data?: SearchPlaceResult }>("/maps/search-place-user", {
+    placeName: placeName.trim(),
+  });
+  const data = res.data as { success?: boolean; data?: SearchPlaceResult };
+  return data?.success && data?.data ? data.data : null;
+}
+
+// User management (account activity, sessions, blocked users)
+export async function getAccountActivity() {
+  const res = await api.get("/users/me/activity");
+  return res.data as { activities: import("../types/user").AccountActivity[]; totalCount?: number };
+}
+
+export async function getActiveSessions() {
+  const res = await api.get("/users/me/sessions");
+  return res.data as { sessions: import("../types/user").ActiveSession[]; totalCount?: number };
+}
+
+export async function logoutFromSession(sessionId: string) {
+  await api.delete(`/users/me/sessions/${sessionId}`);
+}
+
+export async function getBlockedUsers() {
+  const res = await api.get("/users/me/blocked");
+  return res.data as { blockedUsers: import("../types/user").BlockedUser[]; totalCount?: number };
+}
+
+export async function unblockUser(userId: string) {
+  await api.delete(`/users/me/blocked/${userId}`);
 }
 
 

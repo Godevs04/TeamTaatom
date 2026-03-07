@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { authSignUp, checkUsernameAvailability } from "@/lib/api";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 import { X } from "lucide-react";
 
 const TERMS_FULL_URL = "https://www.taatom.com/terms";
@@ -219,7 +220,7 @@ export default function RegisterClient() {
       toast.success("Verification code sent. Please check your inbox and spam folder.");
       router.replace(`/auth/verify-otp?email=${encodeURIComponent(values.email)}`);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to sign up");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 
@@ -227,7 +228,7 @@ export default function RegisterClient() {
   const canSubmit = termsAccepted && usernameAvailable !== false && !isCheckingUsername;
 
   return (
-    <div className="mx-auto grid max-w-md gap-6 py-10">
+    <div className="mx-auto grid w-full max-w-md gap-4 px-3 py-8 sm:gap-6 sm:px-4 sm:py-10">
       <div className="overflow-hidden rounded-2xl border border-border bg-muted/30">
         <iframe
           title="Register animation"

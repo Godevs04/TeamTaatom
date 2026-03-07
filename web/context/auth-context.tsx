@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { authLogout, authMe, authSignIn } from "../lib/api";
+import { authLogout, authMe, authSignIn, getProfile } from "../lib/api";
 import type { User } from "../types/user";
 import { STORAGE_KEYS } from "../lib/constants";
 
@@ -19,6 +19,7 @@ const AuthContext = React.createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const pathname = usePathname();
   const isAuthPage = pathname?.startsWith("/auth");
 
@@ -29,9 +30,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     enabled: !isAuthPage,
   });
 
+  const authUser = meQuery.data?.user ?? null;
+  const needsProfilePicFallback = !!authUser?._id && !authUser?.profilePic;
+
+  const profileFallbackQuery = useQuery({
+    queryKey: ["profile", authUser?._id],
+    queryFn: () => getProfile(authUser!._id),
+    enabled: needsProfilePicFallback,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const user: User | null = React.useMemo(() => {
+    if (!authUser) return null;
+    const profilePic =
+      authUser.profilePic ??
+      profileFallbackQuery.data?.profile?.profilePic ??
+      undefined;
+    return profilePic ? { ...authUser, profilePic } : authUser;
+  }, [authUser, profileFallbackQuery.data?.profile?.profilePic]);
+
   const refresh = React.useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ["auth", "me"] });
-  }, [qc]);
+    if (authUser?._id) {
+      await qc.invalidateQueries({ queryKey: ["profile", authUser._id] });
+    }
+  }, [qc, authUser?._id]);
 
   const signIn = React.useCallback(
     async (input: { email: string; password: string }) => {
@@ -52,17 +75,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = React.useCallback(async () => {
     try {
       await authLogout();
+    } catch {
+      // Still sign out locally if backend fails (e.g. session already expired, network error)
     } finally {
       if (typeof window !== "undefined") {
         sessionStorage.removeItem(STORAGE_KEYS.webFallbackToken);
         document.cookie = "devAuth=; path=/; max-age=0; samesite=lax";
+        document.cookie = "authToken=; path=/; max-age=0; samesite=lax";
       }
       await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      router.replace("/auth/login");
     }
-  }, [qc]);
+  }, [qc, router]);
 
   const value: AuthState = {
-    user: meQuery.data?.user ?? null,
+    user,
     isLoading: isAuthPage ? false : meQuery.isLoading,
     refresh,
     signIn,

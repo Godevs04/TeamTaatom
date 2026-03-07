@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, PlusSquare, User2 } from "lucide-react";
+import { Search, PlusSquare, User2, Bell } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
@@ -24,16 +24,15 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200/60 bg-white/90 shadow-sm backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <div className="flex items-center gap-6">
+      <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
+        <div className="flex min-w-0 flex-shrink items-center gap-3 sm:gap-6">
           <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-xs font-bold text-white shadow-sm">
-              T
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png?v=2" alt="Taatom" className="h-8 w-8 rounded-xl object-contain" />
             <span className="text-sm sm:text-base">Taatom</span>
           </Link>
           {showAppNav && (
-            <nav className="hidden items-center gap-1.5 md:flex">
+            <nav className="hidden items-center gap-1 sm:flex sm:gap-1.5">
               {nav.map((item) => {
                 const active = pathname?.startsWith(item.href);
                 return (
@@ -65,13 +64,18 @@ export function SiteHeader() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
           {showAppNav ? (
             <>
-              <Link href="/create" className="hidden sm:block">
-                <Button className="gap-2 rounded-xl bg-primary px-4 text-white shadow-lg shadow-primary/20 hover:opacity-95">
-                  <PlusSquare className="h-4 w-4" />
-                  Create
+              <Link href="/create">
+                <Button className="gap-2 rounded-xl bg-primary px-3 text-white shadow-lg shadow-primary/20 hover:opacity-95 sm:px-4">
+                  <PlusSquare className="h-4 w-4 shrink-0" />
+                  <span className="hidden sm:inline">Create</span>
+                </Button>
+              </Link>
+              <Link href="/notifications">
+                <Button variant="ghost" size="icon" aria-label="Notifications">
+                  <Bell className="h-5 w-5" />
                 </Button>
               </Link>
               <Link href="/search">

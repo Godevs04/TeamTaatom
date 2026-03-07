@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/auth-context";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required"),
@@ -20,7 +22,15 @@ type FormValues = z.infer<typeof schema>;
 export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
   const router = useRouter();
   const next = nextUrl || "/feed";
-  const { signIn } = useAuth();
+  const { user, isLoading: authLoading, signIn } = useAuth();
+
+  // If already logged in, redirect to feed (or intended destination) — backup to middleware
+  useEffect(() => {
+    if (authLoading) return;
+    if (user) {
+      router.replace(next);
+    }
+  }, [user, authLoading, next, router]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -33,14 +43,16 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
       toast.success("Welcome back");
       router.replace(next);
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Failed to sign in");
+      toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 
   const lottieEmbedUrl = "https://lottie.host/embed/de6e7dfe-658a-422c-9dbd-06d959550e52/Oh0ZqzklZE.lottie";
 
+  if (user) return null;
+
   return (
-    <div className="mx-auto grid max-w-md gap-6 py-10">
+    <div className="mx-auto grid w-full max-w-md gap-4 px-3 py-8 sm:gap-6 sm:px-4 sm:py-10">
       <div className="overflow-hidden rounded-2xl border border-border bg-muted/30">
         <iframe
           title="Login animation"
