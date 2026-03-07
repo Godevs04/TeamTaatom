@@ -52,6 +52,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
 import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
 import { trackFeatureUsage } from '../../services/analytics';
+import ImageEditModal, { ImageFilterType } from '../../components/ImageEditModal';
 
 const logger = createLogger('PostScreen');
 
@@ -120,6 +121,8 @@ export default function PostScreen() {
   const songJustSelectedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
+  const [showImageEditModal, setShowImageEditModal] = useState(false);
+  const [selectedFilter, setSelectedFilter] = useState<ImageFilterType>('original');
   const [showSpotTypePicker, setShowSpotTypePicker] = useState(false);
   const [showTravelInfoPicker, setShowTravelInfoPicker] = useState(false);
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
@@ -2360,61 +2363,14 @@ export default function PostScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
-        {/* User Profile Section */}
-        {user && (
-          <View style={{ 
-            flexDirection: 'row', 
-            alignItems: 'center', 
-            backgroundColor: theme.colors.surface, 
-            borderRadius: theme.borderRadius.xl, 
-            padding: theme.spacing.md, 
-            marginBottom: theme.spacing.md,
-            ...theme.shadows.medium,
-            borderWidth: 1,
-            borderColor: theme.colors.border + '40'
-          }}>
-            <View style={{
-              width: 48, 
-              height: 48, 
-              borderRadius: 24, 
-              marginRight: theme.spacing.md,
-              borderWidth: 2.5,
-              borderColor: theme.colors.primary + '30',
-              padding: 2,
-              backgroundColor: theme.colors.background
-          }}>
-            <Image
-              source={user.profilePic ? { uri: user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-              style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                borderRadius: 20, 
-              }}
-              resizeMode="cover"
-              defaultSource={require('../../assets/avatars/male_avatar.png')}
-              onError={(error) => {
-                logger.warn('Profile picture load error:', error);
-              }}
-            />
-            </View>
-            <View style={{ flex: 1 }}>
-            <Text style={{ 
-                fontSize: theme.typography.h3.fontSize, 
-                fontWeight: '700', 
-                color: theme.colors.text,
-                marginBottom: 2
-            }}>
-              {user.fullName}
-            </Text>
-              <Text style={{ 
-                fontSize: theme.typography.small.fontSize, 
-                color: theme.colors.textSecondary 
-              }}>
-                Creating new {postType === 'photo' ? 'photo' : 'short'}
-              </Text>
-            </View>
-          </View>
-        )}
+        {/* Travel illustration banner - elegant post page header */}
+        <View style={{ borderRadius: 20, overflow: 'hidden', height: isTablet ? 120 : 100, marginBottom: theme.spacing.md, width: '100%' }}>
+          <Image
+            source={require('../../assets/post_image.png')}
+            style={{ width: '100%', height: '100%' }}
+            resizeMode="cover"
+          />
+        </View>
         {/* Post Type Selector */}
         <View style={{ 
           flexDirection: 'row', 
@@ -2787,6 +2743,27 @@ export default function PostScreen() {
                   </View>
                 )}
                 
+                {/* Edit photos: crop & filter */}
+                <TouchableOpacity
+                  onPress={() => setShowImageEditModal(true)}
+                  activeOpacity={0.8}
+                  style={{ 
+                    position: 'absolute', 
+                    bottom: theme.spacing.md, 
+                    left: theme.spacing.md, 
+                    backgroundColor: 'rgba(0,0,0,0.75)', 
+                    paddingHorizontal: theme.spacing.lg, 
+                    paddingVertical: theme.spacing.md, 
+                    borderRadius: theme.borderRadius.full,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    ...theme.shadows.medium
+                  }}
+                >
+                  <Ionicons name="create" size={18} color="white" />
+                  <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Edit</Text>
+                </TouchableOpacity>
                 {/* Add more photos button */}
                 {selectedImages.length < 10 && (
                   <TouchableOpacity
@@ -3109,32 +3086,30 @@ export default function PostScreen() {
                         )}
                       </View>
                       <View style={{ marginBottom: theme.spacing.lg }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: theme.spacing.sm }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                            <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                            <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
-                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setShowDetectPlaceModal(true);
-                            }}
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              backgroundColor: theme.colors.primary,
-                              paddingHorizontal: theme.spacing.md,
-                              paddingVertical: theme.spacing.xs,
-                              borderRadius: theme.borderRadius.md,
-                              gap: theme.spacing.xs,
-                            }}
-                          >
-                            <Ionicons name="search" size={16} color="#FFFFFF" />
-                            <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
-                              Detect Place
-                            </Text>
-                          </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
+                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
+                        <TouchableOpacity
+                          onPress={() => setShowDetectPlaceModal(true)}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            alignSelf: 'flex-start',
+                            backgroundColor: theme.colors.primary,
+                            paddingHorizontal: theme.spacing.md,
+                            paddingVertical: theme.spacing.xs,
+                            borderRadius: theme.borderRadius.md,
+                            gap: theme.spacing.xs,
+                            marginBottom: theme.spacing.sm,
+                          }}
+                        >
+                          <Ionicons name="search" size={16} color="#FFFFFF" />
+                          <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
+                            Detect Place
+                          </Text>
+                        </TouchableOpacity>
                       <TextInput
                         style={{ 
                           backgroundColor: theme.colors.surfaceSecondary, 
@@ -3653,11 +3628,30 @@ export default function PostScreen() {
                       )}
                     </View>
                     <View style={{ marginBottom: theme.spacing.lg }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
                         <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Location</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
+                      <TouchableOpacity
+                        onPress={() => setShowDetectPlaceModal(true)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          alignSelf: 'flex-start',
+                          backgroundColor: theme.colors.primary,
+                          paddingHorizontal: theme.spacing.md,
+                          paddingVertical: theme.spacing.xs,
+                          borderRadius: theme.borderRadius.md,
+                          gap: theme.spacing.xs,
+                          marginBottom: theme.spacing.sm,
+                        }}
+                      >
+                        <Ionicons name="search" size={16} color="#FFFFFF" />
+                        <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
+                          Detect Place
+                        </Text>
+                      </TouchableOpacity>
                       <TextInput
                         style={{ 
                           backgroundColor: theme.colors.surfaceSecondary, 
@@ -3669,14 +3663,54 @@ export default function PostScreen() {
                           borderWidth: 1.5, 
                           borderColor: theme.colors.border
                         }}
-                        placeholder="Add a location"
+                        placeholder="Add a place name"
                         placeholderTextColor={theme.colors.textSecondary}
-                        value={values.placeName}
-                        onChangeText={handleChange("placeName")}
+                        value={values.placeName || (detectedPlaceData?.name || '')}
+                        onChangeText={(text) => {
+                          handleChange("placeName")(text);
+                          if (text !== detectedPlaceData?.name) {
+                            setDetectedPlaceData(null);
+                          }
+                        }}
                         onBlur={handleBlur("placeName")}
                       />
                       {errors.placeName && touched.placeName && (
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.small.fontSize, marginTop: theme.spacing.xs }}>{errors.placeName}</Text>
+                      )}
+                      {detectedPlaceData && (
+                        <View style={{
+                          marginTop: theme.spacing.sm,
+                          padding: theme.spacing.md,
+                          backgroundColor: theme.colors.primary + '10',
+                          borderRadius: theme.borderRadius.md,
+                          borderWidth: 1,
+                          borderColor: theme.colors.primary + '30',
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
+                            <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                            <Text style={{ fontSize: theme.typography.small.fontSize, fontWeight: '600', color: theme.colors.text }}>
+                              Detected Place Details (Will be sent for admin review)
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                            Name: {detectedPlaceData.name || 'N/A'}
+                          </Text>
+                          {detectedPlaceData.city && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                              City: {detectedPlaceData.city}
+                            </Text>
+                          )}
+                          {detectedPlaceData.stateProvince && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginBottom: 2 }}>
+                              State: {detectedPlaceData.stateProvince}
+                            </Text>
+                          )}
+                          {detectedPlaceData.country && (
+                            <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary }}>
+                              Country: {detectedPlaceData.country} {detectedPlaceData.countryCode ? `(${detectedPlaceData.countryCode})` : ''}
+                            </Text>
+                          )}
+                        </View>
                       )}
                     </View>
                     {address && (
@@ -4739,6 +4773,16 @@ export default function PostScreen() {
           visible={showCopyrightModal}
           onCancel={handleCopyrightCancel}
           onAgree={handleCopyrightAgree}
+        />
+
+        {/* Image edit: crop & filter */}
+        <ImageEditModal
+          visible={showImageEditModal}
+          onClose={() => setShowImageEditModal(false)}
+          images={selectedImages.map((img) => ({ uri: img.uri, type: img.type, name: img.name }))}
+          onImagesChange={(next) => setSelectedImages(next)}
+          selectedFilter={selectedFilter}
+          onFilterChange={setSelectedFilter}
         />
       </View>
     </KeyboardAvoidingView>

@@ -33,7 +33,6 @@ import RotatingGlobe from '../../components/RotatingGlobe';
 import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
-import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
@@ -1102,9 +1101,20 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* Travel banner image - elegant full-width banner above profile card */}
+        <View style={styles.travelBannerWrapper}>
+          <Image
+            source={require('../../assets/banner1.png')}
+            style={styles.travelBannerImage}
+            resizeMode="cover"
+          />
+        </View>
+
         {/* Unified Profile Content Card - Everything in one container */}
         {profileData && (
           <View style={[styles.unifiedCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+            {/* Subtle travel accent line at top of card */}
+            <View style={[styles.travelAccentStrip, { backgroundColor: profileTheme.accent + (isDark ? '25' : '15') }]} />
             {/* Profile Header Section */}
             <View style={styles.profileHeaderSection}>
               {/* Avatar with Ring */}
@@ -1232,8 +1242,9 @@ export default function ProfileScreen() {
             <Pressable 
               style={styles.unifiedSection}
               onPress={() => {
-                const userId = user?._id || profileData?._id;
-                if (userId) router.push(`/map/all-locations?userId=${userId}`);
+                const id = user?._id ?? profileData?._id;
+                const userId = id != null ? String(id) : undefined;
+                if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
               }}
             >
               <View style={styles.locationCardHeader}>
@@ -1605,6 +1616,17 @@ const styles = StyleSheet.create({
   topActionsLeft: {
     flex: 1,
   },
+  travelBannerWrapper: {
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: 0,
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: isTablet ? 140 : 120,
+  },
+  travelBannerImage: {
+    width: '100%',
+    height: '100%',
+  },
   topActionsRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1755,18 +1777,28 @@ const styles = StyleSheet.create({
     } as any),
   },
   
-  // Unified Profile Content Card
+  // Unified Profile Content Card - elegant, soft shadow
   unifiedCard: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: 0,
+    marginTop: isTablet ? 14 : 12,
     marginBottom: isTablet ? theme.spacing.md : 12,
-    padding: isTablet ? theme.spacing.xl : 20,
-    borderRadius: theme.borderRadius.lg,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    padding: isTablet ? theme.spacing.xl : 22,
+    borderRadius: 24,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  travelAccentStrip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   divider: {
     height: 1,
