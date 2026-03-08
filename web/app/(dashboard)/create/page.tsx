@@ -98,7 +98,7 @@ export default function CreateTripPage() {
   React.useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      router.replace("/auth/login?redirect=/create");
+      router.replace("/auth/login?next=/create");
       return;
     }
   }, [user, authLoading, router]);

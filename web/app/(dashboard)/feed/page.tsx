@@ -14,18 +14,20 @@ import { getLikedPostIds, getSavedPostIds, mergeLikedIntoPosts, mergeSavedIntoPo
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import type { Post } from "../../../types/post";
 
-const feedTabs = [
+type FeedTabId = "recents" | "friends" | "popular";
+
+const feedTabs: { id: FeedTabId; label: string }[] = [
   { id: "recents", label: "Recents" },
   { id: "friends", label: "Friends" },
   { id: "popular", label: "Popular" },
 ];
 
 function FeedContent() {
-  const [activeTab, setActiveTab] = React.useState("recents");
+  const [activeTab, setActiveTab] = React.useState<FeedTabId>("recents");
   const searchParams = useSearchParams();
   const deepLinkPostId = searchParams.get("postId");
   const mounted = useMounted();
-  const q = useFeed();
+  const q = useFeed(activeTab);
   const { user } = useAuth();
   const rawPosts = React.useMemo(
     () => q.data?.pages.flatMap((p) => p.posts) ?? [],
@@ -184,12 +186,18 @@ function FeedContent() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
               <Compass className="h-8 w-8 text-slate-400" />
             </div>
-            <h3 className="mt-6 text-lg font-semibold text-slate-900">No posts yet</h3>
+            <h3 className="mt-6 text-lg font-semibold text-slate-900">
+              {activeTab === "friends" ? "No posts from people you follow" : activeTab === "popular" ? "No posts yet" : "No posts yet"}
+            </h3>
             <p className="mt-2 text-[15px] text-slate-500">
-              Be the first to share a trip or follow travelers to see their stories.
+              {activeTab === "friends"
+                ? "Follow travelers to see their trips here, or switch to Recents to see all posts."
+                : "Be the first to share a trip or follow travelers to see their stories."}
             </p>
             <Button className="mt-6 rounded-xl shadow-premium" asChild>
-              <Link href="/create">Create post</Link>
+              <Link href={activeTab === "friends" ? "/search" : "/create"}>
+                {activeTab === "friends" ? "Find travelers" : "Create post"}
+              </Link>
             </Button>
           </div>
         ) : (

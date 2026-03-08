@@ -54,6 +54,7 @@ async function getAllowedPostAuthorIds(viewerId) {
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
+// @query   feed=recents|friends|popular (optional; recents = newest first, friends = from people you follow, popular = by likes)
 const getPosts = async (req, res) => {
   try {
     // Defensive guards: validate and cap pagination params
@@ -62,18 +63,34 @@ const getPosts = async (req, res) => {
     const skip = Math.max(0, (page - 1) * limit);
     const cursor = req.query.cursor; // Cursor for cursor-based pagination
     const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
+    const feedMode = ['recents', 'friends', 'popular'].includes(req.query.feed) ? req.query.feed : 'recents';
 
     const viewerId = req.user?._id?.toString();
-    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon' });
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon', feed: feedMode });
 
     const result = await cacheWrapper(cacheKey, async () => {
-      const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+      let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
       const blockedIds = req.user?.blockedUsers?.length
         ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
         : [];
-      const allowedFiltered = blockedIds.length
+      let allowedFiltered = blockedIds.length
         ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
         : allowedAuthorIds;
+
+      // Friends feed: only posts from users the viewer follows
+      if (feedMode === 'friends' && viewerId) {
+        const viewer = await User.findById(viewerId).select('following').lean();
+        const followingIds = (viewer?.following || []).map(id => (id && (id._id || id)).toString()).filter(Boolean);
+        const followingObjIds = followingIds
+          .filter(id => mongoose.Types.ObjectId.isValid(id))
+          .map(id => new mongoose.Types.ObjectId(id));
+        if (followingObjIds.length > 0) {
+          const allowedSet = new Set(allowedFiltered.map(id => id.toString()));
+          allowedFiltered = followingObjIds.filter(id => allowedSet.has(id.toString()));
+        } else {
+          allowedFiltered = [];
+        }
+      }
 
       const matchQuery = {
         isActive: true,
@@ -98,12 +115,17 @@ const getPosts = async (req, res) => {
         }
       }
 
+      // For popular sort we need likesCount before $sort
+      const addLikesCountStage = { $addFields: { likesCount: { $size: { $ifNull: ['$likes', []] } } } };
+      const sortStage = feedMode === 'popular'
+        ? { $sort: { likesCount: -1, createdAt: -1 } }
+        : { $sort: { createdAt: -1 } };
+
       // Use aggregation pipeline for better performance (single query instead of populate)
       const posts = await Post.aggregate([
-        {
-          $match: matchQuery
-        },
-        { $sort: { createdAt: -1 } },
+        { $match: matchQuery },
+        ...(feedMode === 'popular' ? [addLikesCountStage] : []),
+        sortStage,
         ...(useCursor && cursor ? [] : [{ $skip: skip }]), // Skip only for offset pagination
         { $limit: limit },
         {

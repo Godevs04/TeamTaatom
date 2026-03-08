@@ -22,6 +22,8 @@ const clientEnvSchema = z.object({
   NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().optional(),
   NEXT_PUBLIC_GTM_ID: z.string().optional(),
   NEXT_PUBLIC_CDN_IMAGE_BASE: z.string().url().optional(),
+  /** Google Maps API key for map embeds, geocode, etc. (optional) */
+  NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: z.string().optional(),
 });
 
 function parseServerEnv() {
@@ -45,6 +47,7 @@ function parseClientEnv() {
     NEXT_PUBLIC_GA_MEASUREMENT_ID: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID,
     NEXT_PUBLIC_GTM_ID: process.env.NEXT_PUBLIC_GTM_ID,
     NEXT_PUBLIC_CDN_IMAGE_BASE: process.env.NEXT_PUBLIC_CDN_IMAGE_BASE,
+    NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
   };
   return clientEnvSchema.safeParse(raw);
 }
