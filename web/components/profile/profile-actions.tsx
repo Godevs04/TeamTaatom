@@ -20,9 +20,25 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
   const { user: me } = useAuth();
   const isSelf = !!me && me._id === profile._id;
 
+  const [isFollowing, setIsFollowing] = React.useState(profile.isFollowing ?? false);
+  const [followRequestSent, setFollowRequestSent] = React.useState(
+    profile.followRequestSent ?? false
+  );
+
+  React.useEffect(() => {
+    setIsFollowing(profile.isFollowing ?? false);
+    setFollowRequestSent(profile.followRequestSent ?? false);
+  }, [profile._id, profile.isFollowing, profile.followRequestSent]);
+
   const followMutation = useMutation({
     mutationFn: () => followProfile(profile._id),
     onSuccess: (data) => {
+      if (data?.followRequestSent !== undefined) {
+        setFollowRequestSent(data.followRequestSent);
+      }
+      if (data?.isFollowing !== undefined) {
+        setIsFollowing(data.isFollowing);
+      }
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
       if (data?.followRequestSent) {
         toast.success("Follow request sent");
@@ -53,9 +69,6 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
       </div>
     );
   }
-
-  const isFollowing = profile.isFollowing ?? false;
-  const followRequestSent = profile.followRequestSent ?? false;
 
   return (
     <div className="flex items-center gap-3">
