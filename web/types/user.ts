@@ -1,3 +1,11 @@
+/** TripScore summary returned with profile (unique places visited) */
+export type TripScore = {
+  totalScore: number;
+  continents: Record<string, number>;
+  countries: Record<string, number>;
+  areas?: Array<{ name?: string; country?: string; continent?: string; count?: number }>;
+};
+
 export type User = {
   _id: string;
   username?: string;
@@ -14,6 +22,10 @@ export type User = {
   isFollowing?: boolean;
   followRequestSent?: boolean;
   requiresFollowApproval?: boolean;
+  /** TripScore (unique places visited). Only present when canViewProfile/canViewLocations */
+  tripScore?: TripScore | null;
+  /** Whether the viewer can see this user's locations/trip score */
+  canViewLocations?: boolean;
 };
 
 export type FollowRequest = {

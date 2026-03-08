@@ -48,3 +48,37 @@ export function mergeLikedIntoPosts<T extends { _id: string; isLiked?: boolean; 
   });
 }
 
+/** Saved (bookmarked) post IDs persisted for feed (mirrors app savedPosts). */
+export function getSavedPostIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.savedPostIds);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setSavedPostIds(ids: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.savedPostIds, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
+
+/** Merge persisted saved IDs into posts so UI shows correct bookmark state. */
+export function mergeSavedIntoPosts<T extends { _id: string; isSaved?: boolean }>(
+  posts: T[],
+  savedIds: string[]
+): T[] {
+  const set = new Set(savedIds);
+  return posts.map((p) => {
+    const isSaved = p.isSaved ?? set.has(p._id);
+    return { ...p, isSaved };
+  });
+}
+

@@ -2,8 +2,8 @@
 # CI — Unified pipeline (Validate first, then Frontend + Backend + Web)
 # ─────────────────────────────────────────────────────────────────────────────
 # • Validate runs FIRST (commit message / branch conventions). If it fails, no other job runs (saves minutes).
-# • Then path detection and module jobs (frontend, web, backend) run only when their folder changed.
-# • Manual "Run workflow" runs validate then all module jobs.
+# • On merge commits (push with "Merge pull request" / "Merge branch"), only validate + pre-job run; frontend/web/backend are skipped to save minutes (CI already passed on the PR).
+# • Otherwise path-based: frontend, web, backend run only when their folder changed. Manual "Run workflow" runs all.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
@@ -34,6 +34,8 @@ jobs:
     name: Validate (PR / commit conventions)
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    outputs:
+      is_merge_commit: ${{ steps.merge_check.outputs.is_merge_commit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,12 +44,15 @@ jobs:
 
       - name: Enforce commit message & branch conventions
         id: conventions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          BRANCH="${GITHUB_REF#refs/heads/}"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            MSG="${{ github.event.pull_request.title }}"
-          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.head_commit.message }}" ]; then
-            MSG="${{ github.event.head_commit.message }}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            MSG="$PR_TITLE"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$HEAD_COMMIT_MESSAGE" ]; then
+            MSG="$HEAD_COMMIT_MESSAGE"
             MSG=$(printf '%s\n' "$MSG" | head -n1)
           else
             MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
@@ -57,7 +62,7 @@ jobs:
             echo "✅ Bypass marker found; validation skipped."
             exit 0
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "✅ Manual run; validation skipped."
             exit 0
           fi
@@ -73,6 +78,25 @@ jobs:
           echo "   Example: TAATOM: Add feature   or   TAATOM-42: Fix bug"
           echo "   Got (first line): $MSG"
           exit 1
+
+      - name: Set merge-commit flag (skip heavy jobs on merge to save minutes)
+        id: merge_check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$EVENT_NAME" != "push" ]; then
+            echo "is_merge_commit=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MSG="$HEAD_COMMIT_MESSAGE"
+          MSG=$(echo "$MSG" | head -n1)
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "is_merge_commit=true" >> "$GITHUB_OUTPUT"
+            echo "Merge commit detected — frontend, web, backend jobs will be skipped."
+          else
+            echo "is_merge_commit=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Summary
         run: |
@@ -112,6 +136,10 @@ jobs:
         run: |
           echo "## 📋 CI plan (path-based)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.validate.outputs.is_merge_commit }}" = "true" ]; then
+            echo "🔄 **Merge commit detected** — frontend, web, backend jobs skipped to save minutes (CI already passed on the PR)." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
             echo "• **Frontend** — Will run (lint, build web)" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -135,7 +163,7 @@ jobs:
     name: Lint & Build Frontend
     runs-on: ubuntu-latest
     needs: [validate, changes]
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true'
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true') && needs.validate.outputs.is_merge_commit != 'true'
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -143,9 +171,11 @@ jobs:
 
       - name: 📌 Why this job ran
         run: |
-          echo "## 📱 Frontend CI" >> "$GITHUB_STEP_SUMMARY"
-          echo "Running because there are changes in \`frontend/\` (or you triggered the workflow manually)." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## 📱 Frontend CI"
+            echo "Running because there are changes in \`frontend/\` (or you triggered the workflow manually)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -199,8 +229,10 @@ jobs:
 
       - name: ✅ Frontend CI result
         run: |
-          echo "## ✅ Frontend CI passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "Lint and build (web) completed successfully for \`frontend/\`." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## ✅ Frontend CI passed"
+            echo "Lint and build (web) completed successfully for \`frontend/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "✅ Frontend CI passed — lint and build completed for frontend/"
 
   # ─── Web: lint, typecheck & build (path-based; runs only after validate + changes)
@@ -208,7 +240,7 @@ jobs:
     name: Lint & Build Web
     runs-on: ubuntu-latest
     needs: [validate, changes]
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true'
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') && needs.validate.outputs.is_merge_commit != 'true'
     timeout-minutes: 20
     env:
       # Required at build time (Vercel has the real value; CI needs a placeholder so build does not throw)
@@ -219,9 +251,11 @@ jobs:
 
       - name: 📌 Why this job ran
         run: |
-          echo "## 🌐 Web CI" >> "$GITHUB_STEP_SUMMARY"
-          echo "Running because there are changes in \`web/\` (or manual run)." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## 🌐 Web CI"
+            echo "Running because there are changes in \`web/\` (or manual run)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -259,7 +293,7 @@ jobs:
     name: Test & Lint Backend
     runs-on: ubuntu-latest
     needs: [validate, changes]
-    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true'
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true') && needs.validate.outputs.is_merge_commit != 'true'
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -267,9 +301,11 @@ jobs:
 
       - name: 📌 Why this job ran
         run: |
-          echo "## ⚙️ Backend CI" >> "$GITHUB_STEP_SUMMARY"
-          echo "Running because there are changes in \`backend/\` (or manual run)." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## ⚙️ Backend CI"
+            echo "Running because there are changes in \`backend/\` (or manual run)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -300,17 +336,21 @@ jobs:
 
       - name: Why some tests are skipped
         run: |
-          echo "## 🧪 Backend tests in CI" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "• **Unit tests** (e.g. \`tripScoreConfig\`) run in CI — no database needed." >> "$GITHUB_STEP_SUMMARY"
-          echo "• **Integration tests** (TripScore controller, TripVisit service) need MongoDB. In CI we don't set \`MONGO_URL\`, so those suites are **skipped** to avoid failing the job." >> "$GITHUB_STEP_SUMMARY"
-          echo "• Run \`npm test\` locally with \`MONGO_URL\` in \`.env\` to execute all tests." >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## 🧪 Backend tests in CI"
+            echo ""
+            echo "• **Unit tests** (e.g. \`tripScoreConfig\`) run in CI — no database needed."
+            echo "• **Integration tests** (TripScore controller, TripVisit service) need MongoDB. In CI we don't set \`MONGO_URL\`, so those suites are **skipped** to avoid failing the job."
+            echo "• Run \`npm test\` locally with \`MONGO_URL\` in \`.env\` to execute all tests."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: ✅ Backend CI result
         run: |
-          echo "## ✅ Backend CI passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "Lint, tests, and coverage completed successfully for \`backend/\`." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## ✅ Backend CI passed"
+            echo "Lint, tests, and coverage completed successfully for \`backend/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "✅ Backend CI passed — lint, tests, and coverage completed for backend/"
 
   # ─── Final job: ties the graph (runs only when validate + changes passed)
@@ -323,13 +363,15 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## ✅ CI Success" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Module   | Status |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|----------|--------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Frontend | ${{ needs.frontend.result == 'success' && '✅ Passed' || (needs.frontend.result == 'skipped' && '⏭️ Skipped (no changes)') || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Web      | ${{ needs.web.result == 'success' && '✅ Passed' || (needs.web.result == 'skipped' && '⏭️ Skipped (no changes)') || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Backend  | ${{ needs.backend.result == 'success' && '✅ Passed' || (needs.backend.result == 'skipped' && '⏭️ Skipped (no changes)') || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Unified CI (frontend + web + backend) finished. Only changed modules ran." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## ✅ CI Success"
+            echo ""
+            echo "| Module   | Status |"
+            echo "|----------|--------|"
+            echo "| Frontend | ${{ needs.frontend.result == 'success' && '✅ Passed' || (needs.frontend.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo "| Web      | ${{ needs.web.result == 'success' && '✅ Passed' || (needs.web.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo "| Backend  | ${{ needs.backend.result == 'success' && '✅ Passed' || (needs.backend.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo ""
+            echo "Unified CI (frontend + web + backend) finished. Only changed modules ran."
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "✅ CI Success — see Step summary (above) for module status."
