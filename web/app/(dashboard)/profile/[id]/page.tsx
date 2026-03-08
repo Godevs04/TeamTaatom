@@ -68,17 +68,50 @@ export default async function ProfilePage({ params }: { params: { id: string } }
               <div className="text-xs text-slate-500">Trips</div>
             </div>
             <div>
-              <div className="text-xl font-semibold text-slate-900">{u.followersCount ?? 0}</div>
+              <Link
+                href={`/profile/${params.id}/followers?type=followers`}
+                className="text-xl font-semibold text-slate-900 hover:underline"
+              >
+                {u.followersCount ?? 0}
+              </Link>
               <div className="text-xs text-slate-500">Followers</div>
             </div>
             <div>
-              <div className="text-xl font-semibold text-slate-900">{u.followingCount ?? 0}</div>
+              <Link
+                href={`/profile/${params.id}/followers?type=following`}
+                className="text-xl font-semibold text-slate-900 hover:underline"
+              >
+                {u.followingCount ?? 0}
+              </Link>
               <div className="text-xs text-slate-500">Following</div>
             </div>
           </div>
           <ProfileActions profile={u} />
         </div>
       </div>
+
+      {u.tripScore != null && (
+        <Link
+          href={`/profile/${params.id}/tripscore`}
+          className="block rounded-2xl border border-slate-200/80 bg-white p-5 shadow-premium transition-shadow hover:shadow-premium-hover"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-sky-50 text-2xl font-bold text-sky-600">
+                {u.tripScore.totalScore ?? 0}
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">TripScore</h2>
+                <p className="text-sm text-slate-500">
+                  {u.tripScore.countries ? Object.keys(u.tripScore.countries).length : 0} countries
+                  {u.tripScore.totalScore ? ` · ${u.tripScore.totalScore} places` : ""}
+                </p>
+              </div>
+            </div>
+            <span className="text-sm font-medium text-sky-600">View travel map →</span>
+          </div>
+        </Link>
+      )}
 
       <section className="space-y-4">
         <div className="flex items-end justify-between">

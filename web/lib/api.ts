@@ -107,9 +107,67 @@ export async function addComment(postId: string, text: string) {
   return res.data;
 }
 
+export async function deletePost(postId: string) {
+  const res = await api.delete(`/posts/${postId}`);
+  return res.data as { message?: string };
+}
+
+export async function archivePost(postId: string) {
+  const res = await api.patch(`/posts/${postId}/archive`);
+  return res.data as { message?: string; post?: Post };
+}
+
+export async function hidePost(postId: string) {
+  const res = await api.patch(`/posts/${postId}/hide`);
+  return res.data as { message?: string };
+}
+
+export type ReportReason =
+  | "spam"
+  | "abuse"
+  | "inappropriate_content"
+  | "harassment"
+  | "other";
+
+export async function createReport(params: {
+  type: ReportReason;
+  reportedUserId: string;
+  postId?: string;
+  reason: string;
+}) {
+  const res = await api.post("/reports", params);
+  return res.data as { reportId?: string; message?: string };
+}
+
 export async function getProfile(id: string) {
   const res = await api.get(`/profile/${id}`);
   return res.data as { profile: User };
+}
+
+export type ProfileListUser = User & { isFollowing?: boolean };
+
+export async function getProfileFollowers(
+  userId: string,
+  page = 1,
+  limit = 20
+) {
+  const res = await api.get(`/profile/${userId}/followers`, { params: { page, limit } });
+  return res.data as {
+    users: ProfileListUser[];
+    pagination?: { currentPage: number; totalPages: number; totalUsers: number; hasNextPage: boolean; limit: number };
+  };
+}
+
+export async function getProfileFollowing(
+  userId: string,
+  page = 1,
+  limit = 20
+) {
+  const res = await api.get(`/profile/${userId}/following`, { params: { page, limit } });
+  return res.data as {
+    users: ProfileListUser[];
+    pagination?: { currentPage: number; totalPages: number; totalUsers: number; hasNextPage: boolean; limit: number };
+  };
 }
 
 export async function followProfile(userId: string) {

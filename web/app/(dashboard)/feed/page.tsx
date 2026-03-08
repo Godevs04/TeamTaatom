@@ -10,7 +10,7 @@ import { Button } from "../../../components/ui/button";
 import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw } from "lucide-react";
 import { useAuth } from "../../../context/auth-context";
 import { useMounted } from "../../../hooks/use-mounted";
-import { getLikedPostIds, mergeLikedIntoPosts } from "../../../lib/utils";
+import { getLikedPostIds, getSavedPostIds, mergeLikedIntoPosts, mergeSavedIntoPosts } from "../../../lib/utils";
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import type { Post } from "../../../types/post";
 
@@ -32,7 +32,11 @@ function FeedContent() {
     [q.data?.pages]
   );
   const likedIds = React.useMemo(() => (mounted ? getLikedPostIds() : []), [mounted]);
-  const posts: Post[] = React.useMemo(() => mergeLikedIntoPosts(rawPosts, likedIds), [rawPosts, likedIds]);
+  const savedIds = React.useMemo(() => (mounted ? getSavedPostIds() : []), [mounted]);
+  const posts: Post[] = React.useMemo(
+    () => mergeSavedIntoPosts(mergeLikedIntoPosts(rawPosts, likedIds), savedIds),
+    [rawPosts, likedIds, savedIds]
+  );
 
   React.useEffect(() => {
     const onScroll = () => {

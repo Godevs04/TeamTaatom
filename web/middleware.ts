@@ -8,6 +8,7 @@ const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 const PROTECTED_PREFIXES = [
   "/feed",
   "/shorts",
+  "/saved",
   "/locale",
   "/search",
   "/create",
@@ -67,6 +68,8 @@ export const config = {
     "/feed/:path*",
     "/shorts",
     "/shorts/:path*",
+    "/saved",
+    "/saved/:path*",
     "/locale",
     "/locale/:path*",
     "/search",

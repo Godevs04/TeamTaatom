@@ -19,6 +19,7 @@ import {
   Sparkles,
   MessageCircle,
   Bell,
+  Bookmark,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
@@ -32,6 +33,7 @@ const leftNav = [
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
   { href: "/create", label: "Create", icon: PlusSquare },
+  { href: "/saved", label: "Saved", icon: Bookmark },
   { href: "/profile", label: "Profile", icon: User2 },
 ];
 

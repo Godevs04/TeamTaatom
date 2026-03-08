@@ -14,5 +14,6 @@ export const API_V1_ABS = `${BACKEND_ORIGIN.replace(/\/$/, "")}/api/v1`;
 export const STORAGE_KEYS = {
   webFallbackToken: "taatom_web_token", // only used if backend returns token for cross-origin dev fallback
   likedPostIds: "taatom_posts_liked_ids",
+  savedPostIds: "taatom_posts_saved_ids",
 } as const;
 
