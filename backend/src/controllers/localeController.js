@@ -772,6 +772,61 @@ const getUniqueCountries = async (req, res) => {
   }
 };
 
+// @desc    Get unique states/regions for a country (from active locales)
+// @route   GET /api/v1/locales/states?countryCode=IN
+// @access  Public
+const getUniqueStates = async (req, res) => {
+  try {
+    const { countryCode } = req.query;
+    if (!countryCode || typeof countryCode !== 'string' || countryCode.trim() === '') {
+      return sendError(res, 'VAL_4001', 'countryCode is required');
+    }
+    const code = countryCode.trim().toUpperCase();
+    const states = await Locale.aggregate([
+      { $match: { isActive: true, countryCode: code } },
+      {
+        $project: {
+          stateCode: { $ifNull: ['$stateCode', ''] },
+          stateProvince: { $ifNull: ['$stateProvince', ''] }
+        }
+      },
+      { $group: { _id: { stateCode: '$stateCode', stateProvince: '$stateProvince' } } },
+      {
+        $project: {
+          _id: 0,
+          stateCode: '$_id.stateCode',
+          stateProvince: '$_id.stateProvince'
+        }
+      },
+      { $sort: { stateProvince: 1, stateCode: 1 } }
+    ]).maxTimeMS(10000);
+    return sendSuccess(res, 200, 'States fetched successfully', { states });
+  } catch (error) {
+    logger.error('Get unique states error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching states');
+  }
+};
+
+// @desc    Get all distinct spot types from active locales
+// @route   GET /api/v1/locales/spot-types
+// @access  Public
+const getSpotTypes = async (req, res) => {
+  try {
+    const result = await Locale.aggregate([
+      { $match: { isActive: true, spotTypes: { $exists: true, $ne: [] } } },
+      { $unwind: '$spotTypes' },
+      { $group: { _id: '$spotTypes' } },
+      { $sort: { _id: 1 } },
+      { $project: { _id: 0, name: '$_id' } }
+    ]).maxTimeMS(10000);
+    const spotTypes = result.map((r) => r.name).filter(Boolean);
+    return sendSuccess(res, 200, 'Spot types fetched successfully', { spotTypes });
+  } catch (error) {
+    logger.error('Get spot types error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching spot types');
+  }
+};
+
 module.exports = {
   getLocales,
   getLocaleById,
@@ -779,6 +834,8 @@ module.exports = {
   deleteLocaleById,
   toggleLocaleStatus,
   updateLocale,
-  getUniqueCountries
+  getUniqueCountries,
+  getUniqueStates,
+  getSpotTypes
 };
 

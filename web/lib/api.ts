@@ -70,12 +70,23 @@ export async function authLogout() {
   return res.data;
 }
 
-export async function getFeed(params?: { limit?: number; cursor?: string; useCursor?: boolean; page?: number }) {
+export type FeedMode = "recents" | "friends" | "popular";
+
+export async function getFeed(params?: {
+  limit?: number;
+  cursor?: string;
+  useCursor?: boolean;
+  page?: number;
+  feed?: FeedMode;
+}) {
   const search = new URLSearchParams();
   if (params?.limit) search.set("limit", String(params.limit));
   if (params?.cursor) search.set("cursor", params.cursor);
   if (params?.useCursor) search.set("useCursor", "true");
   if (params?.page) search.set("page", String(params.page));
+  if (params?.feed && ["recents", "friends", "popular"].includes(params.feed)) {
+    search.set("feed", params.feed);
+  }
 
   const res = await api.get(`/posts?${search.toString()}`);
   return res.data as {
@@ -247,21 +258,55 @@ export async function searchPosts(q: string, page = 1, limit = 20) {
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
 }
 
-// Locales (places)
-export async function getLocales(params?: { search?: string; countryCode?: string; stateCode?: string; page?: number; limit?: number }) {
+// Locale type (places) - aligned with app/backend
+export type Locale = {
+  _id: string;
+  name: string;
+  countryCode: string;
+  stateProvince?: string;
+  stateCode?: string;
+  city?: string;
+  imageUrl?: string;
+  description?: string;
+  spotTypes?: string[];
+  latitude?: number;
+  longitude?: number;
+};
+
+// Locales (places) - params aligned with app/backend: search, countryCode, stateCode, spotTypes, page, limit
+export async function getLocales(params?: { search?: string; countryCode?: string; stateCode?: string; spotTypes?: string[]; page?: number; limit?: number }) {
   const search = new URLSearchParams();
   if (params?.search) search.set("search", params.search);
   if (params?.countryCode) search.set("countryCode", params.countryCode);
   if (params?.stateCode) search.set("stateCode", params.stateCode);
+  if (params?.spotTypes?.length) search.set("spotTypes", params.spotTypes.join(","));
   if (params?.page) search.set("page", String(params.page));
   if (params?.limit) search.set("limit", String(params.limit));
   const res = await api.get(`/locales?${search.toString()}`);
-  return res.data as { locales: Array<{ _id: string; name: string; countryCode: string; stateProvince?: string; stateCode?: string; imageUrl?: string }>; pagination?: { total: number; totalPages: number } };
+  return res.data as { locales: Locale[]; pagination?: { total: number; totalPages: number } };
+}
+
+export async function getLocaleCountries() {
+  const res = await api.get("/locales/countries");
+  const data = res.data as { countries?: Array<{ code: string; name?: string; localeCount?: number }> };
+  return { countries: data?.countries ?? [] };
+}
+
+export async function getLocaleStates(countryCode: string) {
+  const res = await api.get("/locales/states", { params: { countryCode } });
+  const data = res.data as { states?: Array<{ stateCode: string; stateProvince: string }> };
+  return { states: data?.states ?? [] };
+}
+
+export async function getLocaleSpotTypes() {
+  const res = await api.get("/locales/spot-types");
+  const data = res.data as { spotTypes?: string[] };
+  return { spotTypes: data?.spotTypes ?? [] };
 }
 
 export async function getLocaleById(id: string) {
   const res = await api.get(`/locales/${id}`);
-  return res.data as { locale: { _id: string; name: string; countryCode: string; stateProvince?: string; stateCode?: string; imageUrl?: string; description?: string; city?: string; latitude?: number; longitude?: number } };
+  return res.data as { locale: Locale };
 }
 
 // Shorts (short-form videos)

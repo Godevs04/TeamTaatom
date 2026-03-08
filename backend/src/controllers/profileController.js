@@ -778,13 +778,16 @@ const toggleFollow = async (req, res) => {
 // @access  Public
 const searchUsers = async (req, res) => {
   try {
-    const { q, page = 1, limit = 20 } = req.query;
+    // Accept both 'q' and 'query' for compatibility with web and API docs
+    const q = (req.query.q || req.query.query || '').trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
 
-    if (!q || q.trim().length < 2) {
+    if (!q || q.length < 2) {
       return sendError(res, 'VAL_2001', 'Search query must be at least 2 characters long');
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (page - 1) * limit;
 
     // Cache search results
     const cacheKey = CacheKeys.search(q, 'users');
@@ -913,7 +916,7 @@ const searchUsers = async (req, res) => {
           $skip: skip
         },
         {
-          $limit: parseInt(limit)
+          $limit: limit
         }
       ]);
 
@@ -1014,11 +1017,11 @@ const searchUsers = async (req, res) => {
     return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalUsers / parseInt(limit)),
+        currentPage: page,
+        totalPages: Math.ceil(totalUsers / limit),
         totalUsers,
-        hasNextPage: skip + parseInt(limit) < totalUsers,
-        limit: parseInt(limit)
+        hasNextPage: skip + limit < totalUsers,
+        limit
       }
     });
 

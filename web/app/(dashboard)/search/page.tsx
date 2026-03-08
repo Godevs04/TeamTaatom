@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { searchPosts, searchUsers } from "../../../lib/api";
 import { Input } from "../../../components/ui/input";
@@ -12,7 +13,15 @@ import type { User } from "../../../types/user";
 import type { Post } from "../../../types/post";
 
 export default function SearchPage() {
-  const [q, setQ] = React.useState("");
+  const searchParams = useSearchParams();
+  const qFromUrl = searchParams.get("q") ?? "";
+  const [q, setQ] = React.useState(qFromUrl);
+
+  // Sync state from URL when navigating to /search?q=...
+  React.useEffect(() => {
+    setQ(qFromUrl);
+  }, [qFromUrl]);
+
   const debounced = useDebounce(q, 250);
 
   const usersQ = useQuery({
@@ -96,18 +105,32 @@ export default function SearchPage() {
               <Card className="p-6 text-sm text-muted-foreground">No matching trips.</Card>
             ) : (
               <div className="space-y-3">
-                {(postsQ.data?.posts || []).map((p: Post) => (
-                  <Link key={p._id} href={`/trip/${p._id}`} className="group block overflow-hidden rounded-2xl border bg-card shadow-card hover:bg-accent">
-                    <div className="aspect-[16/9] bg-muted">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.imageUrl || p.thumbnailUrl || p.mediaUrl || ""} alt={p.caption || "Trip"} className="h-full w-full object-cover" />
-                    </div>
-                    <div className="p-3">
-                      <div className="line-clamp-1 text-sm font-semibold">{p.caption || "Trip"}</div>
-                      <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(p)}</div>
-                    </div>
-                  </Link>
-                ))}
+                {(postsQ.data?.posts || []).map((p: Post) => {
+                  const imageSrc =
+                    p.imageUrl ||
+                    p.thumbnailUrl ||
+                    p.mediaUrl ||
+                    (Array.isArray(p.images) && p.images[0]) ||
+                    "";
+                  return (
+                    <Link key={p._id} href={`/trip/${p._id}`} className="group block overflow-hidden rounded-2xl border bg-card shadow-card hover:bg-accent">
+                      <div className="aspect-[16/9] bg-muted">
+                        {imageSrc ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={imageSrc} alt={p.caption || "Trip"} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <span className="text-4xl" aria-hidden>🖼</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-3">
+                        <div className="line-clamp-1 text-sm font-semibold">{p.caption || "Trip"}</div>
+                        <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(p)}</div>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </section>

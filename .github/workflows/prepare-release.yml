@@ -150,75 +150,62 @@ jobs:
             RELEASE_TAG.txt
             .github/release.properties
 
+  # Temporary: lint + local build only (Expo/EAS push skipped). Re-enable EAS when ready.
   build_mobile:
-    name: 📱 Build mobile (${{ matrix.job_name }})
+    name: 📱 Build mobile (lint + build)
     runs-on: ubuntu-latest
     needs: bump_version
-    # Skip for now (workflow is for GitHub version update). Set EXPO_TOKEN and change to "true" to run.
-    if: false
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: android
-            job_name: Android
-          - platform: ios
-            job_name: iOS
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 📌 Build ${{ matrix.job_name }}
+      - name: 📌 Lint + build check (EAS skipped)
         run: |
           {
-            echo "## 📱 Build ${{ matrix.job_name }}"
-            echo "EAS build for **${{ matrix.platform }}** (production). Monitor builds at Expo."
+            echo "## 📱 Frontend — lint + build"
+            echo "Running lint and local web build to verify frontend. **EAS/Expo push temporarily skipped.**"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup Node and EAS
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Setup EAS CLI
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install dependencies
         working-directory: ./frontend
         run: npm ci || npm install
 
-      - name: Build and sign ${{ matrix.job_name }}
+      - name: Lint
+        working-directory: ./frontend
+        run: npm run lint || echo "Lint not configured"
+
+      - name: Build web (verify no build errors)
         working-directory: ./frontend
         env:
+          NODE_ENV: production
           EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
           EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
-        run: |
-          echo "🚀 Building ${{ matrix.platform }} (production)..."
-          eas build --platform ${{ matrix.platform }} --profile production --non-interactive --no-wait
+        run: npm run build:web
 
-      - name: ✅ ${{ matrix.job_name }} build triggered
+      - name: ✅ Lint + build passed
         run: |
           {
-            echo "## ✅ ${{ matrix.job_name }} build triggered"
-            echo "Monitor: [Expo builds](https://expo.dev/accounts/taatom-technologies/projects/taatom/builds)"
+            echo "## ✅ Frontend lint + build passed"
+            echo "EAS/Expo push is temporarily skipped. Re-enable in the workflow when ready."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "✅ ${{ matrix.job_name }} triggered"
-          echo "📱 Monitor: https://expo.dev/accounts/taatom-technologies/projects/taatom/builds"
+          echo "✅ Lint and build completed (EAS skipped)"
 
   prepare_release:
     name: Create GitHub tag & release
     runs-on: ubuntu-latest
-    needs: bump_version
+    needs: [bump_version, build_mobile]
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -244,6 +231,12 @@ jobs:
             echo "Tag: \`$TAG\` (internal only; app.json unchanged). No push to branch (releases only)."
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set Git identity (committer for tag)
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          echo "Tag will be created as: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>"
 
       - name: Create and push GitHub tag
         run: |

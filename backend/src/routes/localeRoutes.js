@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { body, validationResult } = require('express-validator');
-const { getLocales, getLocaleById, uploadLocale, deleteLocaleById, toggleLocaleStatus, updateLocale, getUniqueCountries } = require('../controllers/localeController');
+const { getLocales, getLocaleById, uploadLocale, deleteLocaleById, toggleLocaleStatus, updateLocale, getUniqueCountries, getUniqueStates, getSpotTypes } = require('../controllers/localeController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { sendError } = require('../utils/errorCodes');
 
@@ -113,6 +113,36 @@ router.get('/', getLocales);
  *         description: List of unique countries with locale counts
  */
 router.get('/countries', getUniqueCountries);
+
+/**
+ * @swagger
+ * /api/v1/locales/states:
+ *   get:
+ *     summary: Get unique states for a country (from active locales)
+ *     tags: [Locales]
+ *     parameters:
+ *       - in: query
+ *         name: countryCode
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of states with stateCode and stateProvince
+ */
+router.get('/states', getUniqueStates);
+
+/**
+ * @swagger
+ * /api/v1/locales/spot-types:
+ *   get:
+ *     summary: Get distinct spot types from active locales
+ *     tags: [Locales]
+ *     responses:
+ *       200:
+ *         description: List of spot type strings
+ */
+router.get('/spot-types', getSpotTypes);
 
 /**
  * @swagger

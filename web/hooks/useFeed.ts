@@ -1,16 +1,20 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { getFeed } from "../lib/api";
+import { getFeed, type FeedMode } from "../lib/api";
 import type { PaginationOffset } from "../types/api";
 
 const POSTS_PER_PAGE_WEB = 15;
 
-export function useFeed() {
+export function useFeed(feedMode: FeedMode = "recents") {
   return useInfiniteQuery({
-    queryKey: ["feed"],
+    queryKey: ["feed", feedMode],
     queryFn: async ({ pageParam }) => {
-      return getFeed({ page: pageParam as number, limit: POSTS_PER_PAGE_WEB });
+      return getFeed({
+        page: pageParam as number,
+        limit: POSTS_PER_PAGE_WEB,
+        feed: feedMode,
+      });
     },
     getNextPageParam: (lastPage) => {
       const p = lastPage.pagination as PaginationOffset | undefined;
