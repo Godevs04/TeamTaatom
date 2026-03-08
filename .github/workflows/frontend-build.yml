@@ -60,12 +60,16 @@ jobs:
 
       - name: Enforce commit message & branch conventions
         id: conventions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           BRANCH="${GITHUB_REF#refs/heads/}"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            MSG="${{ github.event.pull_request.title }}"
-          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.head_commit.message }}" ]; then
-            MSG="${{ github.event.head_commit.message }}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            MSG="$PR_TITLE"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$HEAD_COMMIT_MESSAGE" ]; then
+            MSG="$HEAD_COMMIT_MESSAGE"
             MSG=$(printf '%s\n' "$MSG" | head -n1)
           else
             MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
@@ -79,7 +83,7 @@ jobs:
           fi
 
           # workflow_dispatch: skip strict convention so manual runs always pass
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "message_ok=true" >> "$GITHUB_OUTPUT"
             echo "✅ Manual run: convention check skipped."
             exit 0
