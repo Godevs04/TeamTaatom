@@ -31,6 +31,7 @@ export type Post = {
 
   // social
   isLiked?: boolean;
+  isSaved?: boolean;
   likesCount?: number;
   commentsCount?: number;
   viewsCount?: number;
