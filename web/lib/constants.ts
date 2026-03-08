@@ -11,9 +11,17 @@ export const BACKEND_ORIGIN =
 export const API_V1_PROXY = "/api/v1";
 export const API_V1_ABS = `${BACKEND_ORIGIN.replace(/\/$/, "")}/api/v1`;
 
+/** Google Maps API key from env (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY). Use for map embeds, geocode, etc. */
+export function getGoogleMapsApiKey(): string | undefined {
+  if (typeof process === "undefined" || !process.env) return undefined;
+  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  return key && String(key).trim() ? String(key).trim() : undefined;
+}
+
 export const STORAGE_KEYS = {
   webFallbackToken: "taatom_web_token", // only used if backend returns token for cross-origin dev fallback
   likedPostIds: "taatom_posts_liked_ids",
   savedPostIds: "taatom_posts_saved_ids",
+  savedLocaleIds: "taatom_saved_locales", // JSON array of full locale objects (mirrors app savedLocales)
 } as const;
 

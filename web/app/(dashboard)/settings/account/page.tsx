@@ -160,7 +160,7 @@ export default function AccountSettingsPage() {
             </div>
           </section>
 
-          {/* Language */}
+          {/* Language – mirrored with app: same source (settings.account.language) and same coming-soon copy */}
           <section className="px-6 py-6 md:px-8 md:py-7">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
@@ -169,12 +169,25 @@ export default function AccountSettingsPage() {
                 </span>
                 <div>
                   <h3 className="text-base font-semibold text-foreground">Language</h3>
-                  <p className="text-sm text-muted-foreground">English only · more coming soon</p>
+                  <p className="text-sm text-muted-foreground">Multiple languages coming soon</p>
                 </div>
               </div>
-              <span className="inline-flex rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                English
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  Coming soon
+                </span>
+                <span className="text-sm font-medium text-muted-foreground">
+                  {account.language === "es"
+                    ? "Spanish"
+                    : account.language === "fr"
+                      ? "French"
+                      : account.language === "de"
+                        ? "German"
+                        : account.language === "zh"
+                          ? "Chinese"
+                          : "English"}
+                </span>
+              </div>
             </div>
           </section>
         </div>
