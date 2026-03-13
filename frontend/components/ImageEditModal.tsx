@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
@@ -60,19 +61,34 @@ export default function ImageEditModal({
     setCroppingIndex(index);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        aspect: [4, 5],
-        quality: 0.9,
+        // No fixed aspect ratio: user can freely drag the crop box.
+        quality: 1,
       });
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
         const ext = asset.fileName?.split('.').pop()?.toLowerCase();
+        const isPng = ext === 'png';
+        const isWebp = ext === 'webp';
+        // Re-encode the cropped image so the output file exactly matches the selected crop.
+        const saved = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [],
+          {
+            compress: 0.95,
+            format: isPng
+              ? ImageManipulator.SaveFormat.PNG
+              : isWebp
+                ? ImageManipulator.SaveFormat.WEBP
+                : ImageManipulator.SaveFormat.JPEG,
+          }
+        );
         let mimeType = 'image/jpeg';
-        if (ext === 'png') mimeType = 'image/png';
-        if (ext === 'webp') mimeType = 'image/webp';
+        if (isPng) mimeType = 'image/png';
+        if (isWebp) mimeType = 'image/webp';
         const newImage: SelectedImageItem = {
-          uri: asset.uri,
+          uri: saved.uri,
           type: mimeType,
           name: asset.fileName || `image_${Date.now()}.jpg`,
         };
@@ -80,7 +96,7 @@ export default function ImageEditModal({
         next[index] = newImage;
         onImagesChange(next);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Failed to crop image. Please try again.');
     } finally {
       setCroppingIndex(null);
@@ -90,12 +106,7 @@ export default function ImageEditModal({
   const isFilterSupported = (id: ImageFilterType) => id === 'original';
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
         <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
           <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
