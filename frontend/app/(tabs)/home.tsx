@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
-import { getPosts } from '../../services/posts';
+import { getPosts, getPostById, toggleLike } from '../../services/posts';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
@@ -38,6 +38,7 @@ import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
+import { flushPendingLikes } from '../../utils/likePersistence';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
 export type FeedItem = PostType | { type: 'ad'; adIndex: number };
@@ -56,6 +57,7 @@ const isAndroid = Platform.OS === 'android';
 const logger = createLogger('HomeScreen');
 
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
+const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
@@ -636,6 +638,17 @@ export default function HomeScreen() {
         } catch {
           // ignore
         }
+
+        // Best-effort flush of pending like intents (handles app kill before request completes)
+        flushPendingLikes({
+          pendingStorageKey: PENDING_LIKES_STORAGE_KEY,
+          likedIdsStorageKey: LIKED_POSTS_STORAGE_KEY,
+          getPostById,
+          toggleLike,
+        }).catch(() => {
+          // ignore
+        });
+
         // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
@@ -720,17 +733,23 @@ export default function HomeScreen() {
     }, [fetchUnseenMessageCount])
   );
 
-  // Scroll to specific post when postId parameter is provided and posts are loaded
+  // Scroll to specific post when postId parameter is provided — only once when post first appears.
+  // Prevents scroll jump when loading more (effect would re-run on append and scroll back to post).
+  const hasScrolledToPostIdRef = useRef<string | null>(null);
   // dataIndex accounts for ad slots only when feed is showing ads (frequency control).
   useEffect(() => {
     if (!params.postId || typeof params.postId !== 'string' || posts.length === 0 || !flatListRef.current) {
       return;
+    }
+    if (hasScrolledToPostIdRef.current === params.postId) {
+      return; // Already scrolled to this post (e.g. on initial load); do not scroll again on append.
     }
     const postIndex = posts.findIndex(p => p._id === params.postId);
     if (postIndex === -1) {
       logger.debug(`Post ${params.postId} not found in current posts`);
       return;
     }
+    hasScrolledToPostIdRef.current = params.postId;
     const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
     const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
     const attemptScroll = (attempt: number = 0) => {
@@ -790,6 +809,9 @@ export default function HomeScreen() {
       logger.debug('Refresh blocked: already in progress');
       return;
     }
+    
+    // Allow scroll-to-post effect to run again after refresh if postId in URL
+    hasScrolledToPostIdRef.current = null;
     
     // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
@@ -1107,17 +1129,14 @@ export default function HomeScreen() {
         onEndReachedThreshold={0.1}
         ListFooterComponent={
           hasMore ? (
-            <View style={styles.loadMoreContainer}>
+            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
               <ActivityIndicator color={theme.colors.primary} />
             </View>
           ) : posts.length > 0 ? (
-            <View style={{ 
-              paddingVertical: theme.spacing.xl,
-              alignItems: 'center' 
-            }}>
-              <Text style={{ 
+            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+              <Text style={{
                 color: theme.colors.textSecondary,
-                fontSize: theme.typography.small.fontSize 
+                fontSize: theme.typography.small.fontSize,
               }}>
                 You're all caught up!
               </Text>

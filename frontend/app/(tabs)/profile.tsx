@@ -134,6 +134,8 @@ export default function ProfileScreen() {
   // Scroll position persistence: Store scroll position when navigating away
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollPositionRef = useRef<number>(0);
+  // Remember where the posts/shorts/saved tabs sit, so tab switches don't feel like a jump
+  const tabsOffsetRef = useRef<number>(0);
   
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
@@ -1127,19 +1129,26 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              {/* Username */}
+              {/* Username / handle */}
               {profileData.username && (
-                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>{profileData.username}</Text>
+                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>@{profileData.username}</Text>
               )}
               
               {/* Full Name */}
               <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
               
-              {/* Member Since */}
+              {/* Join date (no \"Member since\" label text) */}
               {profileData.createdAt && (
                 <Text style={[styles.memberSince, { color: profileTheme.textSecondary }]}>
-                  Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </Text>
+              )}
+
+              {/* Bio */}
+              {profileData.bio && (
+                <View style={{ marginTop: 8, width: '100%', alignItems: 'center' }}>
+                  <BioDisplay bio={profileData.bio} />
+                </View>
               )}
 
               {/* Badge */}
@@ -1290,7 +1299,13 @@ export default function ProfileScreen() {
             <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
 
             {/* Posts/Shorts/Saved Tabs - Pill Style */}
-            <View style={styles.postsTabsSection}>
+            <View
+              style={styles.postsTabsSection}
+              onLayout={(event) => {
+                // Capture the vertical position of the tabs section once it's laid out
+                tabsOffsetRef.current = event.nativeEvent.layout.y;
+              }}
+            >
               <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
                 {(['posts','shorts','saved'] as const).map(tab => (
                   <Pressable 
@@ -1302,6 +1317,15 @@ export default function ProfileScreen() {
                         : { backgroundColor: 'transparent' }
                     ]} 
                     onPress={() => {
+                      // When switching tabs, keep the tabs row in a stable position instead of
+                      // snapping the whole profile to the very top. This avoids the "jump to top"
+                      // feeling when tapping "Shorts" on own profile.
+                      if (scrollViewRef.current && tabsOffsetRef.current >= 0) {
+                        scrollViewRef.current.scrollTo({
+                          y: Math.max(tabsOffsetRef.current - 16, 0),
+                          animated: true,
+                        });
+                      }
                       // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
                       if (isFetchingRef.current && activeTab !== tab) {
                         logger.debug('Tab switch blocked - fetch in progress');
@@ -1414,6 +1438,7 @@ export default function ProfileScreen() {
                           key={s._id} 
                           style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
+                          onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
                             <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
@@ -1426,7 +1451,7 @@ export default function ProfileScreen() {
                         key={s._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
-                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}&userId=${user?._id || ''}`)}
+                        onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                       >
                         <Image source={{ uri }} style={styles.thumbnailImage} />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>

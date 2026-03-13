@@ -186,19 +186,44 @@ function FeedContent() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
               <Compass className="h-8 w-8 text-slate-400" />
             </div>
-            <h3 className="mt-6 text-lg font-semibold text-slate-900">
-              {activeTab === "friends" ? "No posts from people you follow" : activeTab === "popular" ? "No posts yet" : "No posts yet"}
-            </h3>
-            <p className="mt-2 text-[15px] text-slate-500">
-              {activeTab === "friends"
-                ? "Follow travelers to see their trips here, or switch to Recents to see all posts."
-                : "Be the first to share a trip or follow travelers to see their stories."}
-            </p>
-            <Button className="mt-6 rounded-xl shadow-premium" asChild>
-              <Link href={activeTab === "friends" ? "/search" : "/create"}>
-                {activeTab === "friends" ? "Find travelers" : "Create post"}
-              </Link>
-            </Button>
+            {activeTab === "friends" && !user ? (
+              <>
+                <h3 className="mt-6 text-lg font-semibold text-slate-900">
+                  Sign in to see posts from people you follow
+                </h3>
+                <p className="mt-2 text-[15px] text-slate-500">
+                  The Friends feed shows trips from travelers you follow. Create an account or sign in to start building your circle.
+                </p>
+                <div className="mt-6 flex justify-center gap-3">
+                  <Button variant="outline" className="rounded-xl border-slate-200/80" asChild>
+                    <Link href="/auth/login">Sign in</Link>
+                  </Button>
+                  <Button className="rounded-xl shadow-premium" asChild>
+                    <Link href="/auth/register">Create account</Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="mt-6 text-lg font-semibold text-slate-900">
+                  {activeTab === "friends"
+                    ? "No posts from people you follow"
+                    : activeTab === "popular"
+                    ? "No posts yet"
+                    : "No posts yet"}
+                </h3>
+                <p className="mt-2 text-[15px] text-slate-500">
+                  {activeTab === "friends"
+                    ? "Follow travelers to see their trips here, or switch to Recents to see all posts."
+                    : "Be the first to share a trip or follow travelers to see their stories."}
+                </p>
+                <Button className="mt-6 rounded-xl shadow-premium" asChild>
+                  <Link href={activeTab === "friends" ? "/search" : "/create"}>
+                    {activeTab === "friends" ? "Find travelers" : "Create post"}
+                  </Link>
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <>

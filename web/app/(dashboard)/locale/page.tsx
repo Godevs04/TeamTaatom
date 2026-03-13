@@ -94,7 +94,18 @@ export default function LocalePage() {
 
   const { data: statesData } = useQuery({
     queryKey: ["locale-states", countryCode],
-    queryFn: () => getLocaleStates(countryCode),
+    // Be defensive: only call API when we have a non-empty countryCode.
+    // If the backend still returns 400 (e.g. race conditions), swallow it and fall back to manual text input.
+    queryFn: async () => {
+      if (!countryCode || !countryCode.trim()) {
+        return { states: [] };
+      }
+      try {
+        return await getLocaleStates(countryCode);
+      } catch {
+        return { states: [] };
+      }
+    },
     enabled: Boolean(countryCode?.trim()),
   });
   const stateOptions = statesData?.states ?? [];

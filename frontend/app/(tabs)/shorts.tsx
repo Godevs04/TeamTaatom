@@ -466,14 +466,24 @@ export default function ShortsScreen() {
   const handleBack = useCallback(async () => {
     pauseCurrentVideo();
 
+    // When opened from a profile (`userId` present), prefer going back once if possible.
     if (params.userId && typeof params.userId === 'string') {
-      // Clear Shorts tab URL params so next time Shorts is opened it shows all users' shorts
-      router.replace('/(tabs)/shorts');
-      // One back: from Shorts -> Profile we came from (no extra push, so no loop)
-      router.back();
+      // If navigator has a previous screen, pop back to it (profile or previous route)
+      if (router.canGoBack?.()) {
+        router.back();
+        return;
+      }
+      // Fallback: clear Shorts params and go to profile screen explicitly
+      router.replace(`/profile/${params.userId}`);
       return;
     }
-    router.back();
+
+    // Generic back: only call back if navigator can handle it, otherwise go home
+    if (router.canGoBack?.()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/home');
+    }
   }, [pauseCurrentVideo, router, params.userId]);
 
   // Monitor network status for video quality adaptation
@@ -2016,7 +2026,7 @@ export default function ShortsScreen() {
           )}
 
           {/* Swipe Hint */}
-          {showSwipeHint && index === currentVisibleIndex && (
+          {showSwipeHint && !params.userId && index === currentVisibleIndex && (
             <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
               <View style={styles.swipeHintBlur}>
                 <Ionicons name="arrow-back" size={24} color="white" />
@@ -2374,13 +2384,15 @@ export default function ShortsScreen() {
         translucent={true}
       />
 
-      {/* Back Button UI - Visible at top-left */}
-      {/* Pauses video before navigation to ensure clean state */}
-      <View style={styles.header}>
-        <Pressable onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </Pressable>
-      </View>
+      {/* Back Button UI - only for global Shorts tab (no userId in params) */}
+      {/* In user-specific Shorts screens, the parent header provides back navigation */}
+      {!params.userId && (
+        <View style={styles.header}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+        </View>
+      )}
 
       <FlatList
         ref={flatListRef}
@@ -2674,7 +2686,11 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 16,
-    bottom: isTablet ? 10 : 4,
+    // Align action stack vertically with bottom text block across devices,
+    // keeping it just above the tab bar / safe area instead of hugging the edge.
+    bottom: Platform.OS === 'ios'
+      ? (isTablet ? TAB_BAR_HEIGHT - 20 : TAB_BAR_HEIGHT - 24)
+      : (isTablet ? TAB_BAR_HEIGHT - 24 : TAB_BAR_HEIGHT - 28),
     alignItems: 'center',
     zIndex: 5,
   },

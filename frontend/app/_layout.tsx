@@ -537,6 +537,7 @@ function RootLayoutInner() {
                               segments[0] === 'collections' ||
                               segments[0] === 'hashtag' ||
                               segments[0] === 'user-posts' ||
+                              segments[0] === 'user-shorts' ||
                               segments[0] === 'saved-posts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
@@ -558,6 +559,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/help') ||
                               normalizedPath.startsWith('/hashtag/') ||
                               normalizedPath.startsWith('/user-posts/') ||
+                              normalizedPath.startsWith('/user-shorts/') ||
                               normalizedPath.startsWith('/saved-posts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
@@ -881,6 +883,8 @@ function RootLayoutInner() {
           <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card' }} />
           {/* User posts dynamic route */}
           <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
+          {/* User shorts dynamic route */}
+          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
