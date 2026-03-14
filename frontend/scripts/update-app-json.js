@@ -16,8 +16,8 @@ const envProdPath = path.join(__dirname, '../.env.prod');
 require('dotenv').config({ path: envPath });
 require('dotenv').config({ path: envProdPath, override: true });
 
-const appJsonPath = path.join(__dirname, '../app.json');
-const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
+const appConfigPath = path.join(__dirname, '../app.config.base.json');
+const appJson = JSON.parse(fs.readFileSync(appConfigPath, 'utf8'));
 
 // Determine environment (production, staging, or development)
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
@@ -133,16 +133,15 @@ appJson.expo.extra = {
   SUPPORT_URL: getSupportUrl(),
 };
 
-// Update iOS Google Maps API key from environment variable (ALWAYS from .env, no hardcoded fallback)
+// Update iOS Google Maps API key from environment variable (stored in extra; ios.googleMapsApiKey is not in Expo schema)
 const iosMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || '';
-if (!appJson.expo.ios) {
-  appJson.expo.ios = {};
+if (!appJson.expo.extra) {
+  appJson.expo.extra = {};
 }
 if (iosMapsApiKey) {
-  appJson.expo.ios.googleMapsApiKey = iosMapsApiKey;
+  appJson.expo.extra.GOOGLE_MAPS_IOS_KEY = iosMapsApiKey;
 } else {
-  // Remove hardcoded value - require from .env
-  delete appJson.expo.ios.googleMapsApiKey;
+  delete appJson.expo.extra.GOOGLE_MAPS_IOS_KEY;
   if (isProduction) {
     console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY not set. Google Maps may not work on iOS in production.');
   }
@@ -215,7 +214,7 @@ if (googleServicesJson) {
   }
 }
 
-// Write updated app.json
-fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2), 'utf8');
-console.log('✅ app.json updated with environment variables');
+// Write updated app.config.base.json
+fs.writeFileSync(appConfigPath, JSON.stringify(appJson, null, 2), 'utf8');
+console.log('✅ app.config.base.json updated with environment variables');
 

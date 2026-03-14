@@ -8,7 +8,7 @@
  * 
  * Fallback order:
  * 1. Platform-specific env var (EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY / EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY)
- * 2. app.json configuration (ios.googleMapsApiKey / android.config.googleMaps.apiKey)
+ * 2. app.json / extra (extra.GOOGLE_MAPS_IOS_KEY / android.config.googleMaps.apiKey)
  * 3. Legacy EXPO_PUBLIC_GOOGLE_MAPS_API_KEY (for backward compatibility)
  * 4. null (will trigger fallback behavior in components)
  */
@@ -24,12 +24,10 @@ import logger from './logger';
 export function getGoogleMapsApiKey(): string | null {
   try {
     if (Platform.OS === 'ios') {
-      // iOS: Try iOS-specific key first
-      // Note: googleMapsApiKey is not in the ExpoConfig type but is supported by Expo
-      const iosConfig = Constants.expoConfig?.ios as any;
+      // iOS: Try env, then extra (Expo schema uses extra; ios.googleMapsApiKey is invalid)
       const iosKey = 
         process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY ||
-        iosConfig?.googleMapsApiKey ||
+        Constants.expoConfig?.extra?.GOOGLE_MAPS_IOS_KEY ||
         null;
       
       if (iosKey) {
