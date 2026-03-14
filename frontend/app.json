@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.13",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -157,6 +157,7 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
       "API_BASE_URL": "https://taatombackend-prod-yf2tz.sevalla.app",
       "WEB_SHARE_URL": "https://taatom.com",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
@@ -168,8 +169,7 @@
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact",
-      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      "SUPPORT_URL": "https://taatom.com/contact"
     },
     "owner": "taatom-technologies"
   }
