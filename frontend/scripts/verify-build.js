@@ -12,8 +12,8 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 require('dotenv').config({ path: path.join(__dirname, '../.env.production') });
 
-const appConfigPath = path.join(__dirname, '../app.config.base.json');
-const appJson = JSON.parse(fs.readFileSync(appConfigPath, 'utf8'));
+const appJsonPath = path.join(__dirname, '../app.json');
+const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
 
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
 

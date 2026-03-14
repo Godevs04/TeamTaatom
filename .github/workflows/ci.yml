@@ -48,6 +48,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             MSG="$PR_TITLE"
@@ -58,6 +59,10 @@ jobs:
             MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
           fi
 
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "✅ Dependabot PR; commit message validation skipped."
+            exit 0
+          fi
           if echo "$MSG" | grep -qi '\[skip validation\]'; then
             echo "✅ Bypass marker found; validation skipped."
             exit 0

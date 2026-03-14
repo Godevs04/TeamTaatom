@@ -16,8 +16,8 @@ const envProdPath = path.join(__dirname, '../.env.prod');
 require('dotenv').config({ path: envPath });
 require('dotenv').config({ path: envProdPath, override: true });
 
-const appConfigPath = path.join(__dirname, '../app.config.base.json');
-const appJson = JSON.parse(fs.readFileSync(appConfigPath, 'utf8'));
+const appJsonPath = path.join(__dirname, '../app.json');
+const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
 
 // Determine environment (production, staging, or development)
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
@@ -133,7 +133,7 @@ appJson.expo.extra = {
   SUPPORT_URL: getSupportUrl(),
 };
 
-// Update iOS Google Maps API key from environment variable (stored in extra; ios.googleMapsApiKey is not in Expo schema)
+// Update iOS Google Maps API key in extra (ios.googleMapsApiKey is not in Expo schema)
 const iosMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_KEY || '';
 if (!appJson.expo.extra) {
   appJson.expo.extra = {};
@@ -214,7 +214,7 @@ if (googleServicesJson) {
   }
 }
 
-// Write updated app.config.base.json
-fs.writeFileSync(appConfigPath, JSON.stringify(appJson, null, 2), 'utf8');
-console.log('✅ app.config.base.json updated with environment variables');
+// Write updated app.json
+fs.writeFileSync(appJsonPath, JSON.stringify(appJson, null, 2), 'utf8');
+console.log('✅ app.json updated with environment variables');
 
