@@ -33,6 +33,13 @@ class AudioManager {
   }
 
   /**
+   * Get currently playing sound instance (for external pause when tab/focus changes)
+   */
+  getCurrentSound(): Audio.Sound | null {
+    return this.currentSound;
+  }
+
+  /**
    * Get currently playing post ID
    */
   getCurrentPostId(): string | null {

@@ -149,8 +149,14 @@ function main() {
     }
   }
 
+  // Support both legacy TAG_SUFFIX and new TAG_PREFIX for backwards compatibility.
+  const tagPrefix = (props.TAG_PREFIX || '').trim();
   const tagSuffix = (props.TAG_SUFFIX || '').trim();
-  const releaseTag = tagSuffix ? `${newVersion}${tagSuffix}` : newVersion;
+  const releaseTag = tagPrefix
+    ? `${tagPrefix}${newVersion}`
+    : tagSuffix
+    ? `${newVersion}${tagSuffix}`
+    : newVersion;
 
   fs.writeFileSync(path.join(ROOT, 'NEW_VERSION.txt'), newVersion, 'utf8');
   fs.writeFileSync(path.join(ROOT, 'RELEASE_LABEL.txt'), releaseLabel, 'utf8');

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,20 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+
+/** MIME type from normalized URI so upload extension matches (avoids Android upload failures). */
+const getMimeFromUri = (uri: string): string => {
+  const ext = uri.split('.').pop()?.toLowerCase();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  return 'image/jpeg';
+};
+
+/** Validate cropped image has valid dimensions. */
+const getSize = (uri: string): Promise<{ width: number; height: number }> =>
+  new Promise((resolve, reject) => {
+    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
 
 export type ImageFilterType = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
 
@@ -51,6 +65,15 @@ export default function ImageEditModal({
 }: ImageEditModalProps) {
   const { theme } = useTheme();
   const [croppingIndex, setCroppingIndex] = useState<number | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (searchAbortControllerRef.current) {
+        searchAbortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleCropImage = async (index: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -63,41 +86,41 @@ export default function ImageEditModal({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
-        // No fixed aspect ratio: user can freely drag the crop box.
         quality: 1,
+        exif: false,
+        base64: false,
       });
-      if (result && !result.canceled && result.assets?.[0]) {
-        const asset = result.assets[0];
-        const ext = asset.fileName?.split('.').pop()?.toLowerCase();
-        const isPng = ext === 'png';
-        const isWebp = ext === 'webp';
-        // Re-encode the cropped image so the output file exactly matches the selected crop.
-        const saved = await ImageManipulator.manipulateAsync(
-          asset.uri,
-          [],
-          {
-            compress: 0.95,
-            format: isPng
-              ? ImageManipulator.SaveFormat.PNG
-              : isWebp
-                ? ImageManipulator.SaveFormat.WEBP
-                : ImageManipulator.SaveFormat.JPEG,
-          }
-        );
-        let mimeType = 'image/jpeg';
-        if (isPng) mimeType = 'image/png';
-        if (isWebp) mimeType = 'image/webp';
-        const newImage: SelectedImageItem = {
-          uri: saved.uri,
-          type: mimeType,
-          name: asset.fileName || `image_${Date.now()}.jpg`,
-        };
-        const next = [...images];
-        next[index] = newImage;
-        onImagesChange(next);
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset?.uri) {
+        if (__DEV__) console.warn('Image picker returned invalid asset');
+        return;
       }
-    } catch {
+      // Android may still be writing the crop file when we run; short wait avoids partial crop.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const normalized = await ImageManipulator.manipulateAsync(asset.uri, [], {
+        compress: 0.92,
+        format: ImageManipulator.SaveFormat.JPEG,
+      });
+      const size = await getSize(normalized.uri);
+      if (!size.width || !size.height) {
+        throw new Error('Invalid cropped image size');
+      }
+      if (__DEV__) {
+        console.log('Cropped Image URI:', asset.uri);
+        console.log('Normalized Image URI:', normalized.uri);
+      }
+      const finalImage: SelectedImageItem = {
+        uri: normalized.uri,
+        type: getMimeFromUri(normalized.uri),
+        name: `post_${Date.now()}.jpg`,
+      };
+      const next = [...images];
+      next[index] = finalImage;
+      onImagesChange(next);
+    } catch (e) {
       Alert.alert('Error', 'Failed to crop image. Please try again.');
+      if (__DEV__) console.warn('Crop error', e);
     } finally {
       setCroppingIndex(null);
     }

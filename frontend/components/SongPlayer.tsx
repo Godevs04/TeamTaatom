@@ -12,9 +12,11 @@ interface SongPlayerProps {
   isVisible?: boolean;
   autoPlay?: boolean;
   showPlayPause?: boolean; // Show play/pause button (for home page)
+  /** Called when this instance becomes the active player or stops (for Shorts to pause on tab/focus change) */
+  onPlayingChange?: (sound: Audio.Sound | null) => void;
 }
 
-export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false }: SongPlayerProps) {
+export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false, onPlayingChange }: SongPlayerProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -59,6 +61,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   useEffect(() => {
     return () => {
       isMountedRef.current = false; // Mark as unmounted
+      onPlayingChange?.(null);
       if (soundRef.current) {
         // Silently cleanup - cancellations are expected on unmount
         soundRef.current.stopAsync().catch(() => {});
@@ -72,7 +75,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       // Audio manager handles cleanup automatically via stopAll()
       isInitializedRef.current = false;
     };
-  }, [post._id]);
+  }, [post._id, onPlayingChange]);
 
   // Helper function to fetch fresh signed URL if needed
   const fetchFreshSignedUrl = useCallback(async (): Promise<string | null> => {
@@ -161,6 +164,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       // Use audioManager.playSound to ensure previous audio stops (only if we're going to play)
       if (shouldPlayNow && post._id) {
         await audioManager.playSound(newSound, post._id.toString());
+        onPlayingChange?.(newSound);
       }
       
       // Set up playback status listener
@@ -257,7 +261,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       
       throw error;
     }
-  }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime]);
+  }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
 
   // Auto-play when component becomes visible and autoPlay is true (for shorts and home page)
   // For home page (showPlayPause=true), don't auto-play
@@ -365,6 +369,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
     // Stop and unload when component becomes invisible (only for auto-play mode)
     if (!isVisible && !showPlayPause && soundRef.current) {
+      onPlayingChange?.(null);
       // Stop + unload instantly to prevent audio bleeding
       soundRef.current.stopAsync().catch(() => {});
       soundRef.current.unloadAsync().catch(() => {});
@@ -372,7 +377,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       setSound(null);
       setIsPlaying(false);
     }
-  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong, post._id]);
+  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong, post._id, onPlayingChange]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
