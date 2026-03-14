@@ -46,12 +46,23 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
-// Base config lives in app.config.base.json (no app.json so expo-doctor passes).
-// When Expo injects config (e.g. from plugins), we merge it.
-module.exports = ({ config } = {}) => ({
-  expo: {
+// All values from app.json are used. EAS needs extra.eas.projectId.
+const appJson = require('./app.json');
+const base = appJson.expo;
+const withIosCxxPodfile = require('./plugins/withIosCxxPodfile');
+
+module.exports = ({ config } = {}) => {
+  const expoConfig = {
     ...(config?.expo ?? {}),
-    ...require('./app.config.base.json').expo,
-  },
-});
+    ...base,
+    extra: {
+      ...base.extra,
+      eas: {
+        projectId: base.extra?.EXPO_PROJECT_ID || 'c3b80b3d-23d8-4948-abfa-80963e4192d0',
+      },
+    },
+    plugins: [...(base.plugins || []), withIosCxxPodfile],
+  };
+  return { expo: expoConfig };
+};
 
