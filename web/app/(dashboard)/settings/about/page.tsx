@@ -16,6 +16,8 @@ import {
   Share2,
   RefreshCw,
   Copy,
+  ShieldAlert,
+  PhoneCall,
 } from "lucide-react";
 import { useAuth } from "../../../../context/auth-context";
 import { toast } from "sonner";
@@ -65,10 +67,12 @@ function formatLastLogin(dateStr?: string) {
 }
 
 const policyLinks = [
-  { title: "Privacy Policy", href: "/settings/terms", icon: Shield },
+  { title: "Privacy Policy", href: "/privacy", icon: Shield },
+  { title: "Terms of Service", href: "/terms", icon: FileText },
+  { title: "Copyright Consent", href: "/copyrights", icon: Lock },
+  { title: "Child Safety", href: "/child-safety", icon: ShieldAlert },
   { title: "Community Guidelines", href: "/settings/content-policy", icon: Flag },
-  { title: "Terms of Service", href: "/settings/terms", icon: FileText },
-  { title: "Copyright Consent", href: "/settings/terms", icon: Lock },
+  { title: "Contact Us", href: "/contact", icon: PhoneCall },
 ];
 
 export default function AboutSettingsPage() {
@@ -190,18 +194,16 @@ export default function AboutSettingsPage() {
             </span>
             <ChevronRight className="h-5 w-5 text-slate-400" />
           </Link>
-          <a
-            href={`${WEBSITE_URL}/support`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/contact"
             className="flex items-center justify-between py-3 text-primary hover:underline"
           >
             <span className="inline-flex items-center gap-3">
               <BookOpen className="h-5 w-5" />
-              Help Center
+              Contact Us (Web)
             </span>
             <ChevronRight className="h-5 w-5 text-slate-400" />
-          </a>
+          </Link>
         </div>
       </div>
 

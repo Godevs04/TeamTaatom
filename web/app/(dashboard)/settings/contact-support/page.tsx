@@ -10,13 +10,21 @@ export default function ContactSupportSettingsPage() {
         <ArrowLeft className="h-4 w-4" /> Back to Settings
       </Link>
       <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white md:text-2xl">Contact Support</h2>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Get help from our team.</p>
+        <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white md:text-2xl">
+          Contact Support
+        </h2>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+          For quick questions, you can reach us directly at{" "}
+          <a href="mailto:contact@taatom.com" className="font-medium text-primary hover:underline">
+            contact@taatom.com
+          </a>
+          .
+        </p>
         <a
-          href="mailto:support@example.com"
+          href="mailto:contact@taatom.com"
           className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/50 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-300 dark:hover:bg-zinc-700"
         >
-          <Mail className="h-4 w-4" /> support@example.com
+          <Mail className="h-4 w-4" /> contact@taatom.com
         </a>
       </div>
     </div>

@@ -22,12 +22,18 @@ const { searchPosts, searchByLocation } = require('../controllers/searchControll
  *       - cookieAuth: []
  *     parameters:
  *       - in: query
- *         name: q
+ *         name: query
  *         schema:
  *           type: string
  *         required: true
- *         description: Search query text
+ *         description: Search query text (canonical param; `q` is still accepted for backward compatibility)
  *         example: "sunset beach"
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Deprecated alias for `query` (will be removed in a future version)
  *       - in: query
  *         name: tags
  *         schema:
