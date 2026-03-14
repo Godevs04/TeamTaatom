@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -47,8 +47,7 @@
       "config": {
         "usesNonExemptEncryption": false
       },
-      "googleServicesFile": "./GoogleService-Info.plist",
-      "googleMapsApiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.taatom.app",
@@ -158,8 +157,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "http://192.168.1.33:3000",
-      "WEB_SHARE_URL": "http://192.168.1.33:3000",
+      "API_BASE_URL": "https://taatombackend-prod-yf2tz.sevalla.app",
+      "WEB_SHARE_URL": "https://taatom.com",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -169,7 +168,8 @@
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact"
+      "SUPPORT_URL": "https://taatom.com/contact",
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
     },
     "owner": "taatom-technologies"
   }

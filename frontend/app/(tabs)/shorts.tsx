@@ -26,7 +26,7 @@ import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteSh
 import { toggleFollow } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
-import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams, useSegments } from 'expo-router';
 import { useAlert } from '../../context/AlertContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
@@ -149,6 +149,8 @@ export default function ShortsScreen() {
   const fadeAnimation = useRef(new Animated.Value(1)).current;
   // Track currently active video to ensure only one plays at a time
   const activeVideoIdRef = useRef<string | null>(null);
+  // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
+  const currentPlayerRef = useRef<Audio.Sound | null>(null);
   // Track last viewed short ID for analytics de-duplication
   const lastViewedShortIdRef = useRef<string | null>(null);
   // Guard to prevent duplicate navigation on rapid swipes
@@ -183,6 +185,7 @@ export default function ShortsScreen() {
   const { theme, mode } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
+  const segments = useSegments();
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
   const { handleScroll } = useScrollToHideNav();
 
@@ -211,6 +214,22 @@ export default function ShortsScreen() {
       }
       activeVideoIdRef.current = null;
     }
+  }, []);
+
+  /**
+   * Pause current audio (Shorts song) when tab/focus/scroll/background.
+   * Uses currentPlayerRef (set by SongPlayer via onPlayingChange) and audioManager.
+   */
+  const pauseCurrentAudio = useCallback(() => {
+    if (currentPlayerRef.current) {
+      try {
+        currentPlayerRef.current.pauseAsync?.();
+      } catch (e) {
+        logger.warn('Failed to pause audio', e);
+      }
+      currentPlayerRef.current = null;
+    }
+    audioManager.stopAll().catch(() => {});
   }, []);
 
   /**
@@ -331,6 +350,17 @@ export default function ShortsScreen() {
       // Reset active video tracking
       activeVideoIdRef.current = null;
       lastViewedShortIdRef.current = null;
+
+      // Pause current audio on unmount
+      if (currentPlayerRef.current) {
+        try {
+          currentPlayerRef.current.pauseAsync?.();
+        } catch (e) {
+          logger.warn('Failed to pause audio on unmount', e);
+        }
+        currentPlayerRef.current = null;
+      }
+      audioManager.stopAll().catch(() => {});
     };
   }, [params.userId]);
 
@@ -398,10 +428,16 @@ export default function ShortsScreen() {
       }
       
       return () => {
-        // Screen blurred (tab switch OR back press) - pause current video and stop all audio
-        // This ensures video pauses immediately when user leaves Shorts screen
+        // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
-        // Also stop any background audio from posts
+        if (currentPlayerRef.current) {
+          try {
+            currentPlayerRef.current.pauseAsync?.();
+          } catch (e) {
+            logger.warn('Failed to pause audio', e);
+          }
+          currentPlayerRef.current = null;
+        }
         logger.debug('[Shorts] Stopping all audio - leaving shorts page');
         audioManager.stopAll().catch((error) => {
           logger.error('[Shorts] Error stopping audio:', error);
@@ -410,6 +446,22 @@ export default function ShortsScreen() {
     }, [currentVisibleIndex, shorts, pauseCurrentVideo])
   );
 
+  // Pause when user navigates away from Shorts tab (e.g. switch to Home/Profile)
+  useEffect(() => {
+    if (!segments.includes('shorts')) {
+      pauseCurrentVideo();
+      if (currentPlayerRef.current) {
+        try {
+          currentPlayerRef.current.pauseAsync?.();
+        } catch (e) {
+          logger.warn('Failed to pause audio', e);
+        }
+        currentPlayerRef.current = null;
+      }
+      audioManager.stopAll().catch(() => {});
+    }
+  }, [segments, pauseCurrentVideo]);
+
   // Handle app state changes (background/foreground)
   // Uses centralized pauseCurrentVideo helper
   useEffect(() => {
@@ -417,9 +469,18 @@ export default function ShortsScreen() {
     
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // App going to background - pause current video and release resources
+        // App going to background - pause current video and audio
         pauseCurrentVideo();
-        logger.debug('App backgrounded, paused current video');
+        if (currentPlayerRef.current) {
+          try {
+            currentPlayerRef.current.pauseAsync?.();
+          } catch (e) {
+            logger.warn('Failed to pause audio', e);
+          }
+          currentPlayerRef.current = null;
+        }
+        audioManager.stopAll().catch(() => {});
+        logger.debug('App backgrounded, paused current video and audio');
       } else if (nextAppState === 'active') {
         // App coming to foreground - resume current video if screen is focused
         if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
@@ -466,14 +527,24 @@ export default function ShortsScreen() {
   const handleBack = useCallback(async () => {
     pauseCurrentVideo();
 
+    // When opened from a profile (`userId` present), prefer going back once if possible.
     if (params.userId && typeof params.userId === 'string') {
-      // Clear Shorts tab URL params so next time Shorts is opened it shows all users' shorts
-      router.replace('/(tabs)/shorts');
-      // One back: from Shorts -> Profile we came from (no extra push, so no loop)
-      router.back();
+      // If navigator has a previous screen, pop back to it (profile or previous route)
+      if (router.canGoBack?.()) {
+        router.back();
+        return;
+      }
+      // Fallback: clear Shorts params and go to profile screen explicitly
+      router.replace(`/profile/${params.userId}`);
       return;
     }
-    router.back();
+
+    // Generic back: only call back if navigator can handle it, otherwise go home
+    if (router.canGoBack?.()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/home');
+    }
   }, [pauseCurrentVideo, router, params.userId]);
 
   // Monitor network status for video quality adaptation
@@ -2016,7 +2087,7 @@ export default function ShortsScreen() {
           )}
 
           {/* Swipe Hint */}
-          {showSwipeHint && index === currentVisibleIndex && (
+          {showSwipeHint && !params.userId && index === currentVisibleIndex && (
             <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
               <View style={styles.swipeHintBlur}>
                 <Ionicons name="arrow-back" size={24} color="white" />
@@ -2242,10 +2313,13 @@ export default function ShortsScreen() {
                 
                 return shouldRender ? (
                   <View style={styles.hiddenSongPlayer} pointerEvents="none">
-                    <SongPlayer 
-                      post={item} 
-                      isVisible={index === currentVisibleIndex} 
-                      autoPlay={isVideoPlaying} 
+                    <SongPlayer
+                      post={item}
+                      isVisible={index === currentVisibleIndex}
+                      autoPlay={isVideoPlaying}
+                      onPlayingChange={(s) => {
+                        currentPlayerRef.current = s;
+                      }}
                     />
                   </View>
                 ) : null;
@@ -2275,6 +2349,17 @@ export default function ShortsScreen() {
     const item = visibleItem.item as ShortsItem;
 
     if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
+
+    // Pause previous short's audio when user scrolls to another video
+    if (currentPlayerRef.current) {
+      try {
+        currentPlayerRef.current.pauseAsync?.();
+      } catch (e) {
+        logger.warn('Failed to pause audio on scroll', e);
+      }
+      currentPlayerRef.current = null;
+    }
+    audioManager.stopAll().catch(() => {});
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
@@ -2374,13 +2459,15 @@ export default function ShortsScreen() {
         translucent={true}
       />
 
-      {/* Back Button UI - Visible at top-left */}
-      {/* Pauses video before navigation to ensure clean state */}
-      <View style={styles.header}>
-        <Pressable onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </Pressable>
-      </View>
+      {/* Back Button UI - only for global Shorts tab (no userId in params) */}
+      {/* In user-specific Shorts screens, the parent header provides back navigation */}
+      {!params.userId && (
+        <View style={styles.header}>
+          <Pressable onPress={handleBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+        </View>
+      )}
 
       <FlatList
         ref={flatListRef}
@@ -2674,7 +2761,11 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 16,
-    bottom: isTablet ? 10 : 4,
+    // Align action stack vertically with bottom text block across devices,
+    // keeping it just above the tab bar / safe area instead of hugging the edge.
+    bottom: Platform.OS === 'ios'
+      ? (isTablet ? TAB_BAR_HEIGHT - 20 : TAB_BAR_HEIGHT - 24)
+      : (isTablet ? TAB_BAR_HEIGHT - 24 : TAB_BAR_HEIGHT - 28),
     alignItems: 'center',
     zIndex: 5,
   },

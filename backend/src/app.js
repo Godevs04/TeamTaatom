@@ -28,6 +28,7 @@ const localeRoutes = require('./routes/localeRoutes');
 const mapsRoutes = require('./routes/mapsRoutes');
 const policyRoutes = require('./routes/policyRoutes');
 const shortUrlRoutes = require('./routes/shortUrlRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -327,6 +328,7 @@ app.use('/analytics', analyticsRoutes);
 app.use('/feature-flags', featureFlagsRoutes);
 app.use('/hashtags', hashtagRoutes);
 app.use('/collections', collectionRoutes);
+app.use('/api/v1/support', supportRoutes);
 app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
 app.use('/api/v1/maps', mapsRoutes);

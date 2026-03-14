@@ -5,13 +5,10 @@ import { usePathname } from "next/navigation";
 import {
   UserCircle,
   ShieldCheck,
-  Flag,
   Bell,
   Palette,
   Cloud,
   Library,
-  FileText,
-  Mail,
   Info,
   UserPlus,
   Activity,
@@ -36,9 +33,6 @@ const sections: { id: string; title: string; href: string; icon: React.ElementTy
   { id: "follow-requests", title: "Follow Requests", href: "/settings/follow-requests", icon: UserPlus },
   { id: "account-activity", title: "Account Activity", href: "/settings/account-activity", icon: Monitor },
   { id: "blocked-users", title: "Blocked Users", href: "/settings/blocked-users", icon: UserX },
-  { id: "content-policy", title: "Community Guidelines", href: "/settings/content-policy", icon: Flag },
-  { id: "terms", title: "Terms & Conditions", href: "/settings/terms", icon: FileText },
-  { id: "contact-support", title: "Contact Support", href: "/settings/contact-support", icon: Mail },
   { id: "about", title: "About", href: "/settings/about", icon: Info },
 ];
 

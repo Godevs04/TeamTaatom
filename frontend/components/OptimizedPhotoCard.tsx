@@ -40,8 +40,10 @@ import { createLogger } from '../utils/logger';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 import { createReport } from '../services/report';
 import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
+import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
 
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
+const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
 
 interface PhotoCardProps {
   post: PostType;
@@ -372,6 +374,14 @@ function PhotoCard({
     setLikesCountWithRef(newCount);
 
     try {
+      // Persist optimistic intent immediately so it survives app kill / RAM clear
+      try {
+        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, newLiked);
+        await enqueuePendingLike(PENDING_LIKES_STORAGE_KEY, post._id, newLiked);
+      } catch (e) {
+        logger.debug('Failed to persist optimistic like intent', e);
+      }
+
       // Mark as updating to prevent WebSocket listener from processing
       isUpdatingRef.current = true;
       lastUpdateTimeRef.current = Date.now();
@@ -380,12 +390,8 @@ function PhotoCard({
       
       // Persist liked state locally so it survives app restart (same as Shorts)
       try {
-        const raw = await AsyncStorage.getItem(LIKED_POSTS_STORAGE_KEY);
-        const ids: string[] = raw ? (() => { try { return JSON.parse(raw); } catch { return []; } })() : [];
-        const set = new Set(Array.isArray(ids) ? ids : []);
-        if (response.isLiked) set.add(post._id);
-        else set.delete(post._id);
-        await AsyncStorage.setItem(LIKED_POSTS_STORAGE_KEY, JSON.stringify([...set]));
+        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, response.isLiked);
+        await clearPendingLike(PENDING_LIKES_STORAGE_KEY, post._id);
       } catch (e) {
         logger.debug('Failed to persist liked posts', e);
       }
