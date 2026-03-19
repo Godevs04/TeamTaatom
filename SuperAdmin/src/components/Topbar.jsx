@@ -161,7 +161,7 @@ const Topbar = ({ onToggleSidebar = () => {}, isDesktop = true }) => {
             <h2 className="text-2xl font-bold">
               Welcome back, {capitalizedName}
             </h2>
-            <p className="text-blue-100">Manage your TeamTaatom platform</p>
+            <p className="text-blue-100">Manage your Taatom platform</p>
           </div>
         </div>
         

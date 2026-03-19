@@ -19,11 +19,23 @@ export function SiteHeader() {
   const mounted = useMounted();
   const { user, isLoading, signOut } = useAuth();
   const isLanding = pathname === "/";
+  const isAuthMarketing =
+    pathname === "/auth/login" ||
+    pathname === "/auth/register" ||
+    pathname === "/auth/forgot";
+  const softHeader = isLanding || isAuthMarketing;
   const isAuthPage = isLanding || (pathname?.startsWith("/auth") ?? false);
   const showAppNav = mounted && user && !isAuthPage;
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-200/60 bg-white/90 shadow-sm backdrop-blur-xl">
+    <header
+      className={cn(
+        "sticky top-0 z-40 w-full backdrop-blur-xl",
+        softHeader
+          ? "border-b border-slate-200/35 bg-white/70 shadow-none"
+          : "border-b border-slate-200/60 bg-white/90 shadow-sm"
+      )}
+    >
       <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
         <div className="flex min-w-0 flex-shrink items-center gap-3 sm:gap-6">
           <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900">

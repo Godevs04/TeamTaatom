@@ -739,7 +739,7 @@ const getUniqueCountries = async (req, res) => {
 
     let uniqueCountries;
     try {
-      uniqueCountries = await Locale.aggregate(aggregationPipeline).maxTimeMS(10000);
+      uniqueCountries = await Locale.aggregate(aggregationPipeline).option({ maxTimeMS: 10000 });
     } catch (aggError) {
       // Fallback: use distinct + find for compatibility (e.g. Atlas M0 without allowDiskUse)
       logger.warn('Aggregation failed, using distinct fallback:', aggError.message);
@@ -799,7 +799,7 @@ const getUniqueStates = async (req, res) => {
         }
       },
       { $sort: { stateProvince: 1, stateCode: 1 } }
-    ]).maxTimeMS(10000);
+    ]).option({ maxTimeMS: 10000 });
     return sendSuccess(res, 200, 'States fetched successfully', { states });
   } catch (error) {
     logger.error('Get unique states error:', error);
@@ -818,7 +818,7 @@ const getSpotTypes = async (req, res) => {
       { $group: { _id: '$spotTypes' } },
       { $sort: { _id: 1 } },
       { $project: { _id: 0, name: '$_id' } }
-    ]).maxTimeMS(10000);
+    ]).option({ maxTimeMS: 10000 });
     const spotTypes = result.map((r) => r.name).filter(Boolean);
     return sendSuccess(res, 200, 'Spot types fetched successfully', { spotTypes });
   } catch (error) {

@@ -902,7 +902,7 @@ export default function UserProfileScreen() {
                           { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
                           (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
                         ]}
-                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}&userId=${id}`)}
+                        onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                       >
                         <Image 
                           source={{ uri }} 
