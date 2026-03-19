@@ -122,7 +122,11 @@ app.use(cors({
       if (productionOrigins.includes(origin)) {
         return callback(null, true);
       }
-      logger.warn('CORS blocked origin in production. Set FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in backend env to the allowed origin.');
+      logger.warn('CORS blocked origin in production', {
+        blockedOrigin: origin,
+        allowedOrigins: productionOrigins,
+        hint: 'Set FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in backend env to the allowed origin (no trailing slash).'
+      });
       return callback(new Error('Not allowed by CORS'));
     }
     
