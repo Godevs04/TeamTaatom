@@ -6,6 +6,7 @@ import {
   StatusBar,
   FlatList,
   Image,
+  ImageStyle,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -3204,7 +3205,7 @@ export default function LocaleScreen() {
         {locale.imageUrl ? (
           <Image 
             source={{ uri: locale.imageUrl }} 
-            style={styles.cardImage}
+            style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
         ) : (
@@ -3373,7 +3374,7 @@ export default function LocaleScreen() {
         {locale.imageUrl ? (
           <Image 
             source={{ uri: locale.imageUrl }} 
-            style={styles.cardImage}
+            style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
         ) : (

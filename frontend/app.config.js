@@ -46,12 +46,9 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
-// Base config lives in app.config.base.json (no app.json so expo-doctor passes).
-// When Expo injects config (e.g. from plugins), we merge it.
-module.exports = ({ config } = {}) => ({
-  expo: {
-    ...(config?.expo ?? {}),
-    ...require('./app.config.base.json').expo,
-  },
-});
-
+/**
+ * Return the config object Expo builds from app.json (plus defaults).
+ * Reusing the same reference satisfies expo-doctor: static app.json is the base.
+ * @see https://docs.expo.dev/workflow/configuration/
+ */
+module.exports = ({ config }) => config;
