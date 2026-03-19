@@ -6,6 +6,7 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Image, 
+  ImageStyle,
   ActivityIndicator,
   RefreshControl,
   Pressable,
@@ -1107,7 +1108,7 @@ export default function ProfileScreen() {
         <View style={styles.travelBannerWrapper}>
           <Image
             source={require('../../assets/banner1.png')}
-            style={styles.travelBannerImage}
+            style={styles.travelBannerImage as ImageStyle}
             resizeMode="cover"
           />
         </View>
@@ -1124,7 +1125,7 @@ export default function ProfileScreen() {
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
                   <Image
                     source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                    style={[styles.avatar as ImageStyle, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                   />
                 </View>
               </View>
@@ -1376,7 +1377,7 @@ export default function ProfileScreen() {
                         {validImageUrl ? (
                           <Image 
                             source={{ uri: validImageUrl }} 
-                            style={styles.thumbnailImage}
+                            style={styles.thumbnailImage as ImageStyle}
                             resizeMode="cover"
                             onError={(error) => {
                               // Don't log 403 Forbidden errors - they're expected for expired signed URLs
@@ -1453,7 +1454,7 @@ export default function ProfileScreen() {
                         onLongPress={() => handleDeletePost(s._id, true)}
                         onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                       >
-                        <Image source={{ uri }} style={styles.thumbnailImage} />
+                        <Image source={{ uri }} style={styles.thumbnailImage as ImageStyle} />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                           <Ionicons name="play" size={24} color="#FFFFFF" />
                         </View>
@@ -1506,7 +1507,7 @@ export default function ProfileScreen() {
                         {validImageUrl ? (
                           <Image 
                             source={{ uri: validImageUrl }} 
-                            style={styles.thumbnailImage}
+                            style={styles.thumbnailImage as ImageStyle}
                             resizeMode="cover"
                             onError={(error) => {
                               // Don't log 403 Forbidden errors - they're expected for expired signed URLs
