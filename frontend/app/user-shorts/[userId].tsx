@@ -1,21 +1,10 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  FlatList,
-  TouchableOpacity,
-  RefreshControl,
-  Platform,
-  Dimensions,
-} from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import type { PostType } from '../../types/post';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import Shorts from '../(tabs)/shorts';
@@ -24,46 +13,37 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 
+function normalizeParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * Dedicated full-screen shorts viewer for any user (same UX as opening from your own profile).
+ * Uses Shorts with scopedUserId so the feed is that user’s shorts only.
+ */
 export default function UserShortsScreen() {
   const { userId, shortId } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
-  const [shorts, setShorts] = useState<PostType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const hasInitializedRef = useRef(false);
+  const [user, setUser] = useState<{ fullName?: string } | null>(null);
 
-  const fetchUserShorts = useCallback(async () => {
-    if (!userId || typeof userId !== 'string') return;
+  const uid = normalizeParam(userId as string | string[] | undefined);
+  const sid = normalizeParam(shortId as string | string[] | undefined);
+
+  const fetchProfileForTitle = useCallback(async () => {
+    if (!uid) return;
     try {
-      setLoading(true);
-
-      // Fetch user profile (for header title)
-      const userResponse = await api.get(`/profile/${userId}`);
+      const userResponse = await api.get(`/profile/${uid}`);
       setUser(userResponse.data.profile);
-
-      // Fetch user's shorts
-      const shortsResponse = await api.get(`/shorts/user/${userId}`);
-      setShorts(shortsResponse.data.shorts || shortsResponse.data.posts || []);
     } catch (error) {
-      logger.error('Error fetching user shorts:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      logger.error('Error fetching user for shorts header:', error);
     }
-  }, [userId]);
+  }, [uid]);
 
   useEffect(() => {
-    if (hasInitializedRef.current) return;
-    hasInitializedRef.current = true;
-    fetchUserShorts();
-  }, [fetchUserShorts]);
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchUserShorts();
-  }, [fetchUserShorts]);
+    fetchProfileForTitle();
+  }, [fetchProfileForTitle]);
 
   const styles = StyleSheet.create({
     container: {
@@ -73,7 +53,7 @@ export default function UserShortsScreen() {
         maxWidth: isTablet ? 600 : 500,
         alignSelf: 'center',
         width: '100%',
-      } as any),
+      } as object),
     },
     header: {
       flexDirection: 'row',
@@ -83,6 +63,7 @@ export default function UserShortsScreen() {
       backgroundColor: theme.colors.surface,
       borderBottomWidth: 1,
       borderBottomColor: theme.colors.border,
+      zIndex: 10,
     },
     backButton: {
       padding: theme.spacing.xs,
@@ -94,42 +75,12 @@ export default function UserShortsScreen() {
       color: theme.colors.text,
       flex: 1,
     },
-    loadingContainer: {
+    shortsFlex: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      backgroundColor: theme.colors.background,
-    },
-    loadingText: {
-      marginTop: theme.spacing.md,
-      fontSize: theme.typography.body.fontSize,
-      color: theme.colors.textSecondary,
-    },
-    emptyContainer: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: theme.spacing.lg,
-    },
-    emptyIcon: {
-      marginBottom: theme.spacing.md,
-    },
-    emptyTitle: {
-      fontSize: theme.typography.h3.fontSize,
-      fontWeight: '600',
-      color: theme.colors.text,
-      marginBottom: theme.spacing.sm,
-      textAlign: 'center',
-    },
-    emptyMessage: {
-      fontSize: theme.typography.body.fontSize,
-      color: theme.colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: 20,
     },
   });
 
-  if (loading) {
+  if (!uid) {
     return (
       <ErrorBoundary level="route">
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -138,42 +89,14 @@ export default function UserShortsScreen() {
               style={styles.backButton}
               onPress={() => router.back()}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              activeOpacity={0.7}
             >
               <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>
-              {user?.fullName ? `${user.fullName}'s Shorts` : 'Shorts'}
-            </Text>
+            <Text style={styles.headerTitle}>Shorts</Text>
           </View>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.loadingText}>Loading shorts...</Text>
-          </View>
-        </SafeAreaView>
-      </ErrorBoundary>
-    );
-  }
-
-  if (!shorts.length) {
-    return (
-      <ErrorBoundary level="route">
-        <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>
-              {user?.fullName ? `${user.fullName}'s Shorts` : 'Shorts'}
-            </Text>
-          </View>
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="videocam-outline" size={64} color={theme.colors.textSecondary} />
-            </View>
-            <Text style={styles.emptyTitle}>No Shorts Yet</Text>
-            <Text style={styles.emptyMessage}>
-              {user?.fullName ? `${user.fullName} hasn't created any shorts yet.` : "This user hasn't created any shorts yet."}
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+            <Text style={{ color: theme.colors.textSecondary, textAlign: 'center' }}>
+              Missing user. Go back and try again.
             </Text>
           </View>
         </SafeAreaView>
@@ -181,24 +104,26 @@ export default function UserShortsScreen() {
     );
   }
 
-  // Reuse the Shorts tab screen but scoped to this user's shorts list
   return (
     <ErrorBoundary level="route">
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
+          >
             <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
             {user?.fullName ? `${user.fullName}'s Shorts` : 'Shorts'}
           </Text>
         </View>
-        {/* We pass initial data via props by wrapping Shorts in a provider-like pattern.
-            For now, we simply render Shorts and let it deep-link using shortId; it will fetch its own data.
-            This keeps behaviour consistent with global Shorts UI while giving it a dedicated layout and header. */}
-        <Shorts />
+        <View style={styles.shortsFlex}>
+          <Shorts scopedUserId={uid} initialShortId={sid} />
+        </View>
       </SafeAreaView>
     </ErrorBoundary>
   );
 }
-

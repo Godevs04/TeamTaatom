@@ -7,11 +7,12 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/context/auth-context";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
+import { AuthPageShell } from "@/components/auth/auth-page-shell";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required"),
@@ -24,7 +25,6 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
   const next = nextUrl || "/feed";
   const { user, isLoading: authLoading, signIn } = useAuth();
 
-  // If already logged in, redirect to feed (or intended destination) — backup to middleware
   useEffect(() => {
     if (authLoading) return;
     if (user) {
@@ -47,56 +47,68 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
     }
   };
 
-  const lottieEmbedUrl = "https://lottie.host/embed/de6e7dfe-658a-422c-9dbd-06d959550e52/Oh0ZqzklZE.lottie";
+  if (authLoading) {
+    return (
+      <div className="landing-bg flex min-h-[calc(100vh-3.5rem)] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (user) return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-md gap-4 px-3 py-8 sm:gap-6 sm:px-4 sm:py-10">
-      <div className="overflow-hidden rounded-2xl border border-border bg-muted/30">
-        <iframe
-          title="Login animation"
-          src={lottieEmbedUrl}
-          className="h-44 w-full border-0 sm:h-52"
-          allowFullScreen
-        />
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Sign in</CardTitle>
-          <CardDescription>Use your Taatom account to continue.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
-            <div className="grid gap-1.5">
-              <label className="text-sm font-semibold">Email or username</label>
-              <Input {...form.register("email")} placeholder="you@example.com" autoComplete="email" />
-              {form.formState.errors.email && (
-                <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
-              )}
-            </div>
-            <div className="grid gap-1.5">
-              <label className="text-sm font-semibold">Password</label>
-              <Input {...form.register("password")} type="password" autoComplete="current-password" />
-              {form.formState.errors.password && (
-                <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
-              )}
-            </div>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
-            </Button>
-
-            <div className="flex items-center justify-between text-sm">
-              <Link href="/auth/forgot" className="font-semibold text-muted-foreground hover:text-foreground">
-                Forgot password?
-              </Link>
-              <Link href="/auth/register" className="font-semibold hover:underline">
-                Create account
-              </Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthPageShell
+      cardEyebrow="Welcome back"
+      cardTitle="Sign in to Taatom"
+      cardSubtitle="Pick up where you left off on web."
+    >
+      <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-5">
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-slate-700">Email or username</label>
+          <Input
+            {...form.register("email")}
+            placeholder="you@example.com"
+            autoComplete="email"
+            className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
+          />
+          {form.formState.errors.email && (
+            <p className="text-xs text-red-600">{form.formState.errors.email.message}</p>
+          )}
+        </div>
+        <div className="grid gap-2">
+          <label className="text-sm font-semibold text-slate-700">Password</label>
+          <Input
+            {...form.register("password")}
+            type="password"
+            autoComplete="current-password"
+            className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
+          />
+          {form.formState.errors.password && (
+            <p className="text-xs text-red-600">{form.formState.errors.password.message}</p>
+          )}
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <Link href="/auth/forgot" className="font-medium text-slate-500 hover:text-primary">
+            Forgot password?
+          </Link>
+        </div>
+        <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} transition={{ duration: 0.2 }}>
+          <Button
+            type="submit"
+            disabled={form.formState.isSubmitting}
+            className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-white shadow-lg shadow-primary/25 hover:opacity-95"
+          >
+            {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        </motion.div>
+        <p className="text-center text-sm text-slate-500">
+          Don&apos;t have an account?{" "}
+          <Link href="/auth/register" className="font-semibold text-primary hover:underline">
+            Create account
+          </Link>
+        </p>
+      </form>
+    </AuthPageShell>
   );
 }

@@ -18,6 +18,10 @@ const config: Config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
