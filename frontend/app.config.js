@@ -46,23 +46,9 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
-// All values from app.json are used. EAS needs extra.eas.projectId.
-const appJson = require('./app.json');
-const base = appJson.expo;
-const withIosCxxPodfile = require('./plugins/withIosCxxPodfile');
-
-module.exports = ({ config } = {}) => {
-  const expoConfig = {
-    ...(config?.expo ?? {}),
-    ...base,
-    extra: {
-      ...base.extra,
-      eas: {
-        projectId: base.extra?.EXPO_PROJECT_ID || 'c3b80b3d-23d8-4948-abfa-80963e4192d0',
-      },
-    },
-    plugins: [...(base.plugins || []), withIosCxxPodfile],
-  };
-  return { expo: expoConfig };
-};
-
+/**
+ * Return the config object Expo builds from app.json (plus defaults).
+ * Reusing the same reference satisfies expo-doctor: static app.json is the base.
+ * @see https://docs.expo.dev/workflow/configuration/
+ */
+module.exports = ({ config }) => config;

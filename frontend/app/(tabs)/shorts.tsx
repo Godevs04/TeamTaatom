@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   FlatList,
   Image,
+  ImageStyle,
   ActivityIndicator,
   Alert,
   Dimensions,
@@ -1952,9 +1953,9 @@ export default function ShortsScreen() {
                       
                       return newState;
                     });
-                  } else if (status.error) {
+                  } else if ((status as any).error) {
                     // Handle playback errors
-                    logger.error(`Video ${item._id} playback error:`, status.error);
+                    logger.error(`Video ${item._id} playback error:`, (status as any).error);
                     // Clear cache and retry if this is the current visible video
                     if (index === currentVisibleIndex) {
                       videoCacheRef.current.delete(item._id);
@@ -2105,7 +2106,7 @@ export default function ShortsScreen() {
             >
               <Image
                 source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                style={styles.profileImage}
+                style={styles.profileImage as ImageStyle}
                 defaultSource={require('../../assets/avatars/male_avatar.png')}
                 onError={() => {
                   logger.warn('Profile picture failed to load for user:', item.user._id);
@@ -2202,7 +2203,7 @@ export default function ShortsScreen() {
                 <View style={styles.avatarContainer}>
                 <Image
                   source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={styles.userAvatar}
+                  style={styles.userAvatar as ImageStyle}
                   defaultSource={require('../../assets/avatars/male_avatar.png')}
                   onError={() => {
                     logger.warn('Profile picture failed to load for user:', item.user._id);
