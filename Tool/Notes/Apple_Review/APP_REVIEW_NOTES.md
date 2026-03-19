@@ -12,9 +12,9 @@ To test UGC features immediately without email verification:
 **Password:** `Password1!`
 
 Alternative accounts: `jane@example.com`, `mike@example.com` (same password).
-
+ 
 ---
-
+ 
 ## Where to Find UGC Safeguards
 
 ### Report Content
