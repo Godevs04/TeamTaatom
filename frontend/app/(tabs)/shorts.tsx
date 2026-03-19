@@ -104,7 +104,19 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
  * 
  * @component
  */
-export default function ShortsScreen() {
+
+function normalizeSearchParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
+
+export type ShortsScreenProps = {
+  /** When embedded from `/user-shorts/[userId]` — load this user's shorts (params may not reach hooks reliably). */
+  scopedUserId?: string;
+  initialShortId?: string;
+};
+
+export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -187,6 +199,15 @@ export default function ShortsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const segments = useSegments();
+
+  const effectiveUserId =
+    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
+  const effectiveShortId =
+    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
+
+  const isOnTabShorts = segments.includes('(tabs)') && segments.includes('shorts');
+  const isUserShortsStack = segments.includes('user-shorts');
+  const shortsPlaybackSurfaceActive = isOnTabShorts || isUserShortsStack;
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
   const { handleScroll } = useScrollToHideNav();
 
@@ -363,7 +384,7 @@ export default function ShortsScreen() {
       }
       audioManager.stopAll().catch(() => {});
     };
-  }, [params.userId]);
+  }, [effectiveUserId]);
 
 
   // Handle app backgrounding/foregrounding and screen focus/blur
@@ -376,15 +397,14 @@ export default function ShortsScreen() {
       isNavigatingRef.current = false;
       lastNavigationUserIdRef.current = null;
 
-      // If we left Shorts with userId (e.g. tab switch), clear params so we show all users' shorts
-      if (shouldClearParamsOnNextFocusRef.current) {
+      // Only on Shorts *tab*: if we left with ?userId= in URL, clear on next focus so feed is global again
+      if (shouldClearParamsOnNextFocusRef.current && isOnTabShorts) {
         shouldClearParamsOnNextFocusRef.current = false;
         router.replace('/(tabs)/shorts');
       }
 
       const refreshTimer = setTimeout(() => {
-        const userIdParam = params.userId;
-        const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+        const shouldFilterByUser = !!effectiveUserId;
         if (!shouldFilterByUser) {
           logger.debug('Shorts screen focused - refreshing feed for real-time updates');
           const loadFn = loadShortsRef.current;
@@ -394,11 +414,11 @@ export default function ShortsScreen() {
 
       return () => {
         clearTimeout(refreshTimer);
-        if (params.userId && typeof params.userId === 'string') {
+        if (isOnTabShorts && effectiveUserId) {
           shouldClearParamsOnNextFocusRef.current = true;
         }
       };
-    }, [params.userId, router])
+    }, [effectiveUserId, router, isOnTabShorts])
   );
 
   useFocusEffect(
@@ -447,9 +467,9 @@ export default function ShortsScreen() {
     }, [currentVisibleIndex, shorts, pauseCurrentVideo])
   );
 
-  // Pause when user navigates away from Shorts tab (e.g. switch to Home/Profile)
+  // Pause when user navigates away from Shorts (tab or /user-shorts stack)
   useEffect(() => {
-    if (!segments.includes('shorts')) {
+    if (!shortsPlaybackSurfaceActive) {
       pauseCurrentVideo();
       if (currentPlayerRef.current) {
         try {
@@ -461,7 +481,7 @@ export default function ShortsScreen() {
       }
       audioManager.stopAll().catch(() => {});
     }
-  }, [segments, pauseCurrentVideo]);
+  }, [shortsPlaybackSurfaceActive, pauseCurrentVideo]);
 
   // Handle app state changes (background/foreground)
   // Uses centralized pauseCurrentVideo helper
@@ -529,14 +549,14 @@ export default function ShortsScreen() {
     pauseCurrentVideo();
 
     // When opened from a profile (`userId` present), prefer going back once if possible.
-    if (params.userId && typeof params.userId === 'string') {
+    if (effectiveUserId) {
       // If navigator has a previous screen, pop back to it (profile or previous route)
       if (router.canGoBack?.()) {
         router.back();
         return;
       }
       // Fallback: clear Shorts params and go to profile screen explicitly
-      router.replace(`/profile/${params.userId}`);
+      router.replace(`/profile/${effectiveUserId}`);
       return;
     }
 
@@ -546,7 +566,7 @@ export default function ShortsScreen() {
     } else {
       router.replace('/(tabs)/home');
     }
-  }, [pauseCurrentVideo, router, params.userId]);
+  }, [pauseCurrentVideo, router, effectiveUserId]);
 
   // Monitor network status for video quality adaptation
   // Wrapped with defensive error handling to prevent false quality downgrades
@@ -796,14 +816,13 @@ export default function ShortsScreen() {
       
       // CRITICAL: If userId is provided in params, filter to show only that user's shorts
       // This ensures when clicking from another user's profile, only their shorts are shown
-      const userIdParam = params.userId;
-      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      const shouldFilterByUser = !!effectiveUserId;
       
       let response;
       if (shouldFilterByUser) {
         // Load only the specified user's shorts (from profile page)
-        logger.debug(`Loading shorts for specific user: ${userIdParam}`);
-        response = await getUserShorts(userIdParam, 1, 100); // Get more shorts for user-specific view
+        logger.debug(`Loading shorts for specific user: ${effectiveUserId}`);
+        response = await getUserShorts(effectiveUserId, 1, 100); // Get more shorts for user-specific view
       } else {
         // Load all shorts (general feed)
         response = await getShorts(1, 20);
@@ -835,7 +854,7 @@ export default function ShortsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [params.userId, params.shortId, showError]);
+  }, [effectiveUserId, effectiveShortId, showError]);
 
   // Update ref whenever loadShorts changes (for socket handlers)
   useEffect(() => {
@@ -876,8 +895,7 @@ export default function ShortsScreen() {
     const handleShortCreated = (payload: { shortId?: string }) => {
       logger.debug('Short created event received, refreshing feed:', payload);
       // Only refresh if we're not filtering by a specific user (general feed)
-      const userIdParam = params.userId;
-      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      const shouldFilterByUser = !!effectiveUserId;
       if (!shouldFilterByUser) {
         // Refresh feed to show new short immediately using ref to avoid stale closure
         const loadFn = loadShortsRef.current;
@@ -890,8 +908,7 @@ export default function ShortsScreen() {
     const handleInvalidateFeed = () => {
       logger.debug('Feed invalidation event received, refreshing shorts feed');
       // Only refresh if we're not filtering by a specific user (general feed)
-      const userIdParam = params.userId;
-      const shouldFilterByUser = userIdParam && typeof userIdParam === 'string';
+      const shouldFilterByUser = !!effectiveUserId;
       if (!shouldFilterByUser) {
         // Refresh feed to show updated content using ref to avoid stale closure
         const loadFn = loadShortsRef.current;
@@ -915,7 +932,7 @@ export default function ShortsScreen() {
       socketService.unsubscribe('short:created', handleShortCreated);
       socketService.unsubscribe('invalidate:feed', handleInvalidateFeed);
     };
-  }, [params.userId]); // Only depend on params.userId, not loadShorts (use ref instead)
+  }, [effectiveUserId]); // Only depend on scoped user, not loadShorts (use ref instead)
 
   // Pause all videos except the specified one to ensure only one plays at a time
   const pauseAllVideosExcept = useCallback(async (activeVideoId: string | null) => {
@@ -1535,10 +1552,10 @@ export default function ShortsScreen() {
     return result;
   }, [shorts, showShortsAds, adsShownThisSession]);
 
-  // Deep link: scroll to specific short when params.shortId is set. dataIndex accounts for ad slots when showShortsAds.
+  // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
-    if (!params.shortId || typeof params.shortId !== 'string' || shorts.length === 0) return;
-    const reelIndex = shorts.findIndex(s => s._id === params.shortId);
+    if (!effectiveShortId || shorts.length === 0) return;
+    const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
     const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
     const dataIndex = showShortsAds
@@ -1561,7 +1578,7 @@ export default function ShortsScreen() {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [params.shortId, shorts, showShortsAds]);
+  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -2088,7 +2105,7 @@ export default function ShortsScreen() {
           )}
 
           {/* Swipe Hint */}
-          {showSwipeHint && !params.userId && index === currentVisibleIndex && (
+          {showSwipeHint && !effectiveUserId && index === currentVisibleIndex && (
             <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
               <View style={styles.swipeHintBlur}>
                 <Ionicons name="arrow-back" size={24} color="white" />
@@ -2417,7 +2434,9 @@ export default function ShortsScreen() {
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#FF3040" style={styles.loadingSpinner} />
             <Text style={styles.loadingTitle}>Loading Shorts</Text>
-            <Text style={styles.loadingSubtitle}>Discover amazing content</Text>
+            <Text style={styles.loadingSubtitle}>
+              {effectiveUserId ? 'Loading this user’s shorts…' : 'Discover amazing content'}
+            </Text>
           </View>
         </View>
       </View>
@@ -2430,22 +2449,28 @@ export default function ShortsScreen() {
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.emptyContainer}>
           <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.emptyTitle}>No Shorts Available</Text>
-          <Text style={styles.emptyDescription}>
-            Be the first to create amazing short videos and share your stories with the world.
+          <Text style={styles.emptyTitle}>
+            {effectiveUserId ? 'No Shorts Yet' : 'No Shorts Available'}
           </Text>
-          <TouchableOpacity 
-            style={styles.createShortButton}
-            onPress={() => router.push('/(tabs)/post')}
-          >
-            <LinearGradient
-              colors={['#FF3040', '#FF6B6B']}
-              style={styles.createShortGradient}
+          <Text style={styles.emptyDescription}>
+            {effectiveUserId
+              ? 'This user hasn’t posted any shorts yet.'
+              : 'Be the first to create amazing short videos and share your stories with the world.'}
+          </Text>
+          {!effectiveUserId && (
+            <TouchableOpacity
+              style={styles.createShortButton}
+              onPress={() => router.push('/(tabs)/post')}
             >
-              <Ionicons name="add" size={20} color="white" />
-              <Text style={styles.createShortButtonText}>Create Short</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#FF3040', '#FF6B6B']}
+                style={styles.createShortGradient}
+              >
+                <Ionicons name="add" size={20} color="white" />
+                <Text style={styles.createShortButtonText}>Create Short</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -2462,7 +2487,7 @@ export default function ShortsScreen() {
 
       {/* Back Button UI - only for global Shorts tab (no userId in params) */}
       {/* In user-specific Shorts screens, the parent header provides back navigation */}
-      {!params.userId && (
+      {!effectiveUserId && (
         <View style={styles.header}>
           <Pressable onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -2477,8 +2502,8 @@ export default function ShortsScreen() {
         keyExtractor={keyExtractor}
         getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
-          if (!params.shortId || typeof params.shortId !== 'string' || shorts.length === 0) return undefined;
-          const reelIndex = shorts.findIndex(s => s._id === params.shortId);
+          if (!effectiveShortId || shorts.length === 0) return undefined;
+          const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
           if (reelIndex === -1) return undefined;
           const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
           const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
