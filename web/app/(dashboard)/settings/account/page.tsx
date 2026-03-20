@@ -81,7 +81,7 @@ export default function AccountSettingsPage() {
         Back to Settings
       </Link>
 
-      <div className="overflow-hidden rounded-3xl border border-border/80 bg-card shadow-soft dark:shadow-card">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70">
         {/* Header with subtle gradient accent */}
         <div className="border-b border-border/60 bg-gradient-to-b from-muted/30 to-transparent px-6 py-6 md:px-8 md:py-7">
           <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">Account</h1>

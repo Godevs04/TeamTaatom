@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { authResetPassword } from "@/lib/api";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
+import { Eye, EyeOff } from "lucide-react";
 
 const schema = z.object({
   token: z.string().min(4, "Reset token is required"),
@@ -22,6 +24,7 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = emailProp ?? searchParams.get("email") ?? undefined;
+  const [showPassword, setShowPassword] = React.useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -57,7 +60,22 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
             </div>
             <div className="grid gap-1.5">
               <label className="text-sm font-semibold">New password</label>
-              <Input {...form.register("newPassword")} type="password" autoComplete="new-password" />
+              <div className="relative">
+                <Input
+                  {...form.register("newPassword")}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                </button>
+              </div>
               {form.formState.errors.newPassword && (
                 <p className="text-xs text-destructive">{form.formState.errors.newPassword.message}</p>
               )}

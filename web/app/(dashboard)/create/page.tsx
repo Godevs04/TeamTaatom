@@ -9,11 +9,46 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { createPost, createShort, searchPlaceUser, type SearchPlaceResult } from "../../../lib/api";
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import { useAuth } from "../../../context/auth-context";
-import { ImagePlus, MapPin, X, Video, Film, Search, ChevronDown, Check } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  ImagePlus,
+  MapPin,
+  MapPinned,
+  X,
+  Video,
+  Film,
+  Search,
+  ChevronDown,
+  Check,
+  Crop,
+  Upload,
+  Sparkles,
+  GripVertical,
+} from "lucide-react";
+import { ImageCropModal } from "../../../components/create/image-crop-modal";
 
 const CAPTION_MAX = 500;
 const PLACE_NAME_MAX = 100;
 const MAX_IMAGES = 10;
+const CREATE_DRAFT_STORAGE_KEY = "taatom:web:create-draft:v1";
+
+const easeOut = [0.22, 1, 0.36, 1] as const;
+
+type CropSession =
+  | { kind: "post"; index: number; src: string; baseName: string }
+  | { kind: "thumb"; src: string; baseName: string };
+
+type CreateDraft = {
+  mode: CreateMode;
+  caption: string;
+  placeName: string;
+  spotType: string;
+  travelInfo: string;
+  detectPlaceQuery: string;
+  copyrightAccepted: boolean;
+};
+
+type ExifHint = { lat: number; lng: number; fileName: string };
 
 // Must match backend Post model enum: Beach, Mountain, City, Natural spots, Religious, Cultural, General
 const SPOT_TYPE_OPTIONS = [
@@ -39,6 +74,8 @@ const TRAVEL_INFO_OPTIONS = [
 
 type CreateMode = "post" | "short";
 
+type PhotoSlot = { id: string; file: File };
+
 function appendDetectedPlace(fd: FormData, place: SearchPlaceResult) {
   fd.append("detectedPlaceName", place.name || "");
   fd.append("detectedPlaceCountry", place.country || "");
@@ -57,7 +94,9 @@ export default function CreateTripPage() {
   const [mode, setMode] = React.useState<CreateMode>("post");
   const [caption, setCaption] = React.useState("");
   const [placeName, setPlaceName] = React.useState("");
-  const [files, setFiles] = React.useState<File[]>([]);
+  const [photoSlots, setPhotoSlots] = React.useState<PhotoSlot[]>([]);
+  /** Order matches carousel / FormData upload (W-01). */
+  const files = React.useMemo(() => photoSlots.map((s) => s.file), [photoSlots]);
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = React.useState<File | null>(null);
   const [copyrightAccepted, setCopyrightAccepted] = React.useState(false);
@@ -77,6 +116,15 @@ export default function CreateTripPage() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const videoInputRef = React.useRef<HTMLInputElement>(null);
   const thumbInputRef = React.useRef<HTMLInputElement>(null);
+  const thumbCropObjectUrlRef = React.useRef<string | null>(null);
+  const [cropSession, setCropSession] = React.useState<CropSession | null>(null);
+  const [isDragOver, setIsDragOver] = React.useState(false);
+  const [thumbPreviewUrl, setThumbPreviewUrl] = React.useState<string | null>(null);
+  const [dragPhotoIndex, setDragPhotoIndex] = React.useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = React.useState<number | null>(null);
+  const draftHydratedRef = React.useRef(false);
+  const [exifHint, setExifHint] = React.useState<ExifHint | null>(null);
+  const [isReadingExif, setIsReadingExif] = React.useState(false);
 
   // Create and revoke object URLs for file previews to avoid memory leaks
   React.useEffect(() => {
@@ -96,12 +144,105 @@ export default function CreateTripPage() {
   }, [files]);
 
   React.useEffect(() => {
+    if (!thumbnailFile) {
+      setThumbPreviewUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(thumbnailFile);
+    setThumbPreviewUrl(u);
+    return () => {
+      URL.revokeObjectURL(u);
+    };
+  }, [thumbnailFile]);
+
+  // W-17: detect GPS from the first JPEG and offer "Use photo location".
+  React.useEffect(() => {
+    if (mode !== "post" || files.length === 0) {
+      setExifHint(null);
+      setIsReadingExif(false);
+      return;
+    }
+
+    const first = files[0];
+    const isJpeg = /image\/jpe?g/i.test(first.type) || /\.jpe?g$/i.test(first.name);
+    if (!isJpeg) {
+      setExifHint(null);
+      setIsReadingExif(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsReadingExif(true);
+    (async () => {
+      try {
+        const exifr = await import("exifr");
+        const gps = (await exifr.gps(first)) as
+          | { latitude?: number; longitude?: number; lat?: number; lng?: number; lon?: number }
+          | undefined;
+        if (cancelled) return;
+        const lat = Number(gps?.latitude ?? gps?.lat);
+        const lng = Number(gps?.longitude ?? gps?.lng ?? gps?.lon);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setExifHint({ lat, lng, fileName: first.name });
+        } else {
+          setExifHint(null);
+        }
+      } catch {
+        if (!cancelled) setExifHint(null);
+      } finally {
+        if (!cancelled) setIsReadingExif(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files, mode]);
+
+  React.useEffect(() => {
     if (authLoading) return;
     if (!user) {
       router.replace("/auth/login?next=/create");
       return;
     }
   }, [user, authLoading, router]);
+
+  // W-16: restore text-based draft fields on mount. Media files are intentionally not persisted.
+  React.useEffect(() => {
+    if (draftHydratedRef.current) return;
+    draftHydratedRef.current = true;
+    try {
+      const raw = localStorage.getItem(CREATE_DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<CreateDraft>;
+      if (draft.mode === "post" || draft.mode === "short") setMode(draft.mode);
+      if (typeof draft.caption === "string") setCaption(draft.caption.slice(0, CAPTION_MAX));
+      if (typeof draft.placeName === "string") setPlaceName(draft.placeName.slice(0, PLACE_NAME_MAX));
+      if (typeof draft.spotType === "string") setSpotType(draft.spotType);
+      if (typeof draft.travelInfo === "string") setTravelInfo(draft.travelInfo);
+      if (typeof draft.detectPlaceQuery === "string") setDetectPlaceQuery(draft.detectPlaceQuery);
+      if (typeof draft.copyrightAccepted === "boolean") setCopyrightAccepted(draft.copyrightAccepted);
+    } catch {
+      // Ignore corrupted local draft and continue.
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const draft: CreateDraft = {
+      mode,
+      caption,
+      placeName,
+      spotType,
+      travelInfo,
+      detectPlaceQuery,
+      copyrightAccepted,
+    };
+    try {
+      localStorage.setItem(CREATE_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+      // Ignore storage errors (private mode / quota).
+    }
+  }, [mode, caption, placeName, spotType, travelInfo, detectPlaceQuery, copyrightAccepted]);
 
   const captionError =
     caption.length > CAPTION_MAX ? `Caption must be less than ${CAPTION_MAX} characters` : null;
@@ -142,6 +283,7 @@ export default function CreateTripPage() {
     try {
       const fd = new FormData();
       fd.append("caption", caption);
+      const usingExifGps = detectedPlace?.placeId === "exif";
       const address = placeName.trim() || (detectedPlace?.formattedAddress ?? "");
       if (address) fd.append("address", address);
       if (detectedPlace) {
@@ -151,13 +293,14 @@ export default function CreateTripPage() {
       }
       if (spotType) fd.append("spotType", spotType);
       if (travelInfo) fd.append("travelInfo", travelInfo);
-      fd.append("source", "manual_only");
+      fd.append("source", usingExifGps ? "exif_only" : "manual_only");
       fd.append("fromCamera", "false");
-      fd.append("hasExifGps", "false");
+      fd.append("hasExifGps", usingExifGps ? "true" : "false");
       files.forEach((f) => fd.append("images", f));
 
       const res = await createPost(fd, setProgress);
       toast.success(res?.message || "Your post has been shared.");
+      localStorage.removeItem(CREATE_DRAFT_STORAGE_KEY);
       const id = res?.post?._id;
       router.replace(id ? `/trip/${id}` : "/feed");
     } catch (e: unknown) {
@@ -195,6 +338,7 @@ export default function CreateTripPage() {
       fd.append("audioSource", "user_original");
       fd.append("copyrightAccepted", "true");
       fd.append("copyrightAcceptedAt", new Date().toISOString());
+      const usingExifGps = detectedPlace?.placeId === "exif";
       const address = placeName.trim() || (detectedPlace?.formattedAddress ?? "");
       if (address) fd.append("address", address);
       if (detectedPlace) {
@@ -204,12 +348,13 @@ export default function CreateTripPage() {
       }
       if (spotType) fd.append("spotType", spotType);
       if (travelInfo) fd.append("travelInfo", travelInfo);
-      fd.append("source", "manual_only");
+      fd.append("source", usingExifGps ? "exif_only" : "manual_only");
       fd.append("fromCamera", "false");
-      fd.append("hasExifGps", "false");
+      fd.append("hasExifGps", usingExifGps ? "true" : "false");
 
       const res = await createShort(fd, setProgress);
       toast.success(res?.message || "Your short has been uploaded.");
+      localStorage.removeItem(CREATE_DRAFT_STORAGE_KEY);
       const id = res?.short?._id;
       router.replace(id ? `/trip/${id}` : "/shorts");
     } catch (e: unknown) {
@@ -223,11 +368,104 @@ export default function CreateTripPage() {
   const addFiles = (newFiles: FileList | null) => {
     if (!newFiles?.length) return;
     const list = Array.from(newFiles).filter((f) => f.type.startsWith("image/"));
-    setFiles((prev) => [...prev, ...list].slice(0, MAX_IMAGES));
+    setPhotoSlots((prev) =>
+      [...prev, ...list.map((file) => ({ id: crypto.randomUUID(), file }))].slice(0, MAX_IMAGES)
+    );
   };
 
   const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPhotoSlots((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const reorderPhotos = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    setPhotoSlots((prev) => {
+      if (fromIndex >= prev.length || toIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [removed] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, removed);
+      return next;
+    });
+  };
+
+  const openPostCrop = (index: number) => {
+    const f = files[index];
+    const src = previewUrls[index];
+    if (!f || !src) return;
+    setCropSession({ kind: "post", index, src, baseName: f.name });
+  };
+
+  const openThumbCrop = () => {
+    if (!thumbnailFile) {
+      toast.error("Choose a thumbnail image first.");
+      return;
+    }
+    if (thumbCropObjectUrlRef.current) {
+      URL.revokeObjectURL(thumbCropObjectUrlRef.current);
+      thumbCropObjectUrlRef.current = null;
+    }
+    const url = URL.createObjectURL(thumbnailFile);
+    thumbCropObjectUrlRef.current = url;
+    setCropSession({ kind: "thumb", src: url, baseName: thumbnailFile.name });
+  };
+
+  const closeCropModal = () => {
+    if (cropSession?.kind === "thumb" && thumbCropObjectUrlRef.current) {
+      URL.revokeObjectURL(thumbCropObjectUrlRef.current);
+      thumbCropObjectUrlRef.current = null;
+    }
+    setCropSession(null);
+  };
+
+  const onCroppedFile = (file: File) => {
+    if (!cropSession) return;
+    if (cropSession.kind === "post") {
+      const i = cropSession.index;
+      setPhotoSlots((prev) => prev.map((slot, idx) => (idx === i ? { ...slot, file } : slot)));
+      toast.success("Photo cropped");
+    } else {
+      setThumbnailFile(file);
+      toast.success("Thumbnail cropped");
+    }
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (mode !== "post") return;
+    setIsDragOver(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (mode !== "post") return;
+    addFiles(e.dataTransfer.files);
+  };
+
+  const handleUseExifLocation = () => {
+    if (!exifHint) return;
+    const pretty = `GPS ${exifHint.lat.toFixed(5)}, ${exifHint.lng.toFixed(5)}`;
+    setDetectedPlace({
+      lat: exifHint.lat,
+      lng: exifHint.lng,
+      name: "Photo location",
+      formattedAddress: pretty,
+      city: "",
+      country: "",
+      countryCode: "",
+      stateProvince: "",
+      placeId: "exif",
+    });
+    setPlaceName(pretty);
+    toast.success("Using photo GPS location");
   };
 
   const handleSearchPlace = React.useCallback(async () => {
@@ -258,39 +496,73 @@ export default function CreateTripPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Create</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Share a photo post or a short video — same as the app.
-        </p>
+    <div className="relative mx-auto w-full max-w-3xl space-y-6 sm:space-y-8">
+      <div className="pointer-events-none absolute inset-x-0 -top-8 h-72 overflow-hidden opacity-90" aria-hidden>
+        <div className="absolute -left-24 top-0 h-64 w-64 rounded-full bg-primary/[0.08] blur-3xl" />
+        <div className="absolute right-0 top-20 h-72 w-72 rounded-full bg-violet-500/[0.07] blur-3xl" />
+        <div className="absolute left-1/3 top-40 h-48 w-48 rounded-full bg-sky-400/[0.06] blur-3xl" />
       </div>
 
+      <motion.header
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: easeOut }}
+        className="relative z-10"
+      >
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          New story
+        </p>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-slate-950 sm:text-[2rem]">Create</h1>
+        <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-600">
+          Compose a photo trip with framing and crop, or upload a short. Add a place and details when you&apos;re ready.
+        </p>
+      </motion.header>
+
       {/* Mode tabs */}
-      <div className="inline-flex flex-wrap gap-2 rounded-2xl bg-slate-100/90 p-1.5">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: easeOut, delay: 0.04 }}
+        className="relative z-10 inline-flex flex-wrap gap-2 rounded-[1.25rem] bg-slate-100/90 p-1.5 ring-1 ring-slate-200/70"
+      >
         <button
           type="button"
           onClick={() => setMode("post")}
-          className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
-            mode === "post" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80" : "text-slate-600 hover:text-slate-900"
+          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${
+            mode === "post" ? "text-slate-900" : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          <ImagePlus className="h-4 w-4" />
+          {mode === "post" && (
+            <motion.span
+              layoutId="create-mode-pill"
+              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80"
+              transition={{ type: "spring", stiffness: 400, damping: 32 }}
+            />
+          )}
+          <ImagePlus className="h-4 w-4 shrink-0" />
           Photo post
         </button>
         <button
           type="button"
           onClick={() => setMode("short")}
-          className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
-            mode === "short" ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80" : "text-slate-600 hover:text-slate-900"
+          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${
+            mode === "short" ? "text-slate-900" : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          <Film className="h-4 w-4" />
+          {mode === "short" && (
+            <motion.span
+              layoutId="create-mode-pill"
+              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80"
+              transition={{ type: "spring", stiffness: 400, damping: 32 }}
+            />
+          )}
+          <Film className="h-4 w-4 shrink-0" />
           Short
         </button>
-      </div>
+      </motion.div>
 
-      <Card className="rounded-3xl border border-slate-200/80 shadow-premium overflow-visible">
+      <Card className="relative z-10 rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm overflow-visible">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {mode === "post" ? <ImagePlus className="h-5 w-5 text-primary" /> : <Video className="h-5 w-5 text-primary" />}
@@ -305,11 +577,13 @@ export default function CreateTripPage() {
         <CardContent className="space-y-6 overflow-visible">
           {mode === "post" ? (
             <>
-              <div className="grid gap-2">
-                <div className="flex items-center gap-2">
+              <div className="grid gap-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <ImagePlus className="h-4 w-4 text-primary" />
                   <label className="text-sm font-semibold">Photos</label>
-                  <span className="text-xs text-muted-foreground">(Required, up to {MAX_IMAGES})</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                    Up to {MAX_IMAGES} · drag to reorder · crop optional
+                  </span>
                 </div>
                 <input
                   ref={fileInputRef}
@@ -319,32 +593,138 @@ export default function CreateTripPage() {
                   className="hidden"
                   onChange={(e) => addFiles(e.target.files)}
                 />
-                {files.length < MAX_IMAGES && (
-                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="gap-2 rounded-xl">
-                    <ImagePlus className="h-4 w-4" />
-                    {files.length === 0 ? "Add photos" : "Add more"}
-                  </Button>
+                <div
+                  onDragOver={onDragOver}
+                  onDragLeave={onDragLeave}
+                  onDrop={onDrop}
+                  className={`rounded-2xl border-2 border-dashed transition-all ${
+                    isDragOver
+                      ? "border-primary bg-primary/[0.06] ring-2 ring-primary/20"
+                      : "border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white hover:border-slate-300"
+                  } p-6 sm:p-8`}
+                >
+                  <div className="flex flex-col items-center justify-center gap-4 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                      <Upload className="h-7 w-7" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">Drop images here</p>
+                      <p className="mt-1 text-xs text-slate-500">or browse — JPG, PNG, WebP</p>
+                    </div>
+                    {files.length < MAX_IMAGES && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="gap-2 rounded-xl border-slate-200 bg-white shadow-sm"
+                      >
+                        <ImagePlus className="h-4 w-4" />
+                        {files.length === 0 ? "Choose photos" : "Add more"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {isReadingExif && (
+                  <p className="text-xs text-slate-500">Reading GPS metadata from first photo…</p>
+                )}
+                {!isReadingExif && exifHint && (
+                  <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-800">
+                        GPS found in <span className="font-semibold">{exifHint.fileName}</span>
+                      </p>
+                      <Button type="button" variant="outline" size="sm" onClick={handleUseExifLocation} className="rounded-xl gap-1.5">
+                        <MapPinned className="h-4 w-4" />
+                        Use photo location
+                      </Button>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {exifHint.lat.toFixed(5)}, {exifHint.lng.toFixed(5)}
+                    </p>
+                  </div>
                 )}
                 {files.length > 0 && (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {files.map((f, i) => (
-                      <div key={`${f.name}-${i}`} className="relative overflow-hidden rounded-xl border bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={previewUrls[i] ?? ""} alt={f.name} className="aspect-square w-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeFile(i)}
-                          className="absolute right-2 top-2 rounded-full bg-black/60 p-1.5 text-white hover:bg-black/80"
-                          aria-label="Remove photo"
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {photoSlots.map((slot, i) => (
+                      <motion.div
+                        key={slot.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.25, ease: easeOut }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDropTargetIndex(i);
+                        }}
+                        onDragLeave={() => {
+                          setDropTargetIndex((t) => (t === i ? null : t));
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const raw = e.dataTransfer.getData("text/plain");
+                          const from = dragPhotoIndex ?? parseInt(raw, 10);
+                          setDragPhotoIndex(null);
+                          setDropTargetIndex(null);
+                          if (!Number.isFinite(from)) return;
+                          reorderPhotos(from, i);
+                        }}
+                        className={`group relative overflow-hidden rounded-2xl border bg-slate-100 shadow-sm ring-1 ring-black/[0.03] ${
+                          dropTargetIndex === i ? "border-primary ring-2 ring-primary/30" : "border-slate-200/80"
+                        }`}
+                      >
+                        <div
+                          className="absolute left-2 top-2 z-20 flex cursor-grab touch-none items-center justify-center rounded-lg bg-black/55 p-1.5 text-white shadow-md backdrop-blur-sm active:cursor-grabbing"
+                          draggable
+                          title="Drag to reorder"
+                          aria-label={`Reorder image ${i + 1}`}
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            setDragPhotoIndex(i);
+                            e.dataTransfer.setData("text/plain", String(i));
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragEnd={() => {
+                            setDragPhotoIndex(null);
+                            setDropTargetIndex(null);
+                          }}
                         >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
+                          <GripVertical className="h-4 w-4" aria-hidden />
+                        </div>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={previewUrls[i] ?? ""} alt="" className="aspect-square w-full object-cover" />
+                        <div className="absolute inset-x-0 bottom-0 flex gap-1.5 bg-gradient-to-t from-black/70 via-black/40 to-transparent p-2 pt-8 opacity-0 transition-opacity group-hover:opacity-100 sm:opacity-100">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 flex-1 rounded-lg text-xs font-semibold shadow-sm"
+                            onClick={() => openPostCrop(i)}
+                          >
+                            <Crop className="mr-1 h-3.5 w-3.5" />
+                            Crop
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="secondary"
+                            className="h-8 w-8 shrink-0 rounded-lg shadow-sm"
+                            onClick={() => removeFile(i)}
+                            aria-label="Remove photo"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </motion.div>
                     ))}
                   </div>
                 )}
                 {files.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{files.length} photo{files.length !== 1 ? "s" : ""} selected</p>
+                  <p className="text-xs text-slate-500">
+                    <span className="font-medium text-slate-700">{files.length}</span> photo{files.length !== 1 ? "s" : ""} ·
+                    Drag the <span className="font-medium">grip</span> to reorder ·{" "}
+                    <span className="font-medium">Crop</span> is optional.
+                  </p>
                 )}
               </div>
             </>
@@ -370,12 +750,27 @@ export default function CreateTripPage() {
                   className="hidden"
                   onChange={(e) => setThumbnailFile(e.target.files?.[0] ?? null)}
                 />
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => thumbInputRef.current?.click()} className="rounded-xl">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => thumbInputRef.current?.click()} className="rounded-xl gap-1.5">
+                    <ImagePlus className="h-4 w-4" />
                     Thumbnail (optional)
                   </Button>
-                  {thumbnailFile && <span className="text-xs text-muted-foreground">{thumbnailFile.name}</span>}
+                  {thumbnailFile && (
+                    <>
+                      <Button type="button" variant="secondary" size="sm" onClick={openThumbCrop} className="rounded-xl gap-1.5">
+                        <Crop className="h-4 w-4" />
+                        Crop cover
+                      </Button>
+                      <span className="text-xs text-muted-foreground">{thumbnailFile.name}</span>
+                    </>
+                  )}
                 </div>
+                {thumbnailFile && thumbPreviewUrl && (
+                  <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200/80 bg-muted">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={thumbPreviewUrl} alt="Thumbnail preview" className="aspect-video max-h-48 w-full object-cover" />
+                  </div>
+                )}
               </div>
               <div className="flex items-start gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-4">
                 <input
@@ -587,6 +982,15 @@ export default function CreateTripPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ImageCropModal
+        open={!!cropSession}
+        imageSrc={cropSession?.src ?? null}
+        baseFileName={cropSession?.baseName ?? "photo"}
+        title={cropSession?.kind === "thumb" ? "Crop thumbnail" : "Crop photo"}
+        onClose={closeCropModal}
+        onApply={onCroppedFile}
+      />
 
       {/* Detect place modal (matches Admin: Place Found! section, details, map, Cancel / Use This Place) */}
       {showDetectPlaceModal && (

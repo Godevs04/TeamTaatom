@@ -8,6 +8,7 @@ import { getPostDisplayLocation } from "../../../../lib/post-utils";
 import type { User } from "../../../../types/user";
 import type { Post } from "../../../../types/post";
 import { createMetadata } from "../../../../lib/seo";
+import { Compass, MapPin } from "lucide-react";
 
 async function getProfile(id: string) {
   const res = await fetchWithAuth(`${API_V1_ABS}/profile/${id}`);
@@ -45,14 +46,22 @@ export default async function ProfilePage({ params }: { params: { id: string } }
   const u = profileRes.profile;
   const postsRes = await getPosts(params.id);
   const posts: Post[] = postsRes.posts || [];
+  const avatarName = u.fullName || u.username || "Traveler";
+  const avatarInitial = avatarName.trim().charAt(0).toUpperCase();
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 sm:space-y-8">
       <div className="flex flex-col gap-6 rounded-3xl border border-slate-200/80 bg-white p-4 shadow-premium sm:p-6 md:flex-row md:items-center md:justify-between md:p-8">
         <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={u.profilePic || ""} alt={u.fullName || "User"} className="h-full w-full object-cover" />
+          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
+            {u.profilePic ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={u.profilePic} alt={avatarName} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-violet-500/10">
+                <span className="text-xl font-semibold text-primary/70">{avatarInitial}</span>
+              </div>
+            )}
           </div>
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-900">{u.fullName || u.username || "Traveler"}</h1>
@@ -121,7 +130,18 @@ export default async function ProfilePage({ params }: { params: { id: string } }
 
         {posts.length === 0 ? (
           <Card className="rounded-2xl border border-slate-200/80 p-10 text-center shadow-premium">
-            <p className="text-sm text-slate-500">No trips yet.</p>
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-violet-500/10 ring-1 ring-slate-200/80">
+              <Compass className="h-7 w-7 text-primary/75" />
+            </div>
+            <p className="mt-4 text-sm font-semibold text-slate-900">No trips yet</p>
+            <p className="mt-1 text-sm text-slate-500">When this traveler shares a place, it will appear here.</p>
+            <Link
+              href="/feed"
+              className="mx-auto mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <MapPin className="h-4 w-4" />
+              Browse recent trips
+            </Link>
           </Card>
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
@@ -129,7 +149,7 @@ export default async function ProfilePage({ params }: { params: { id: string } }
               <Link
                 key={p._id}
                 href={`/trip/${p._id}`}
-                className="group overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium transition-shadow hover:shadow-premium-hover"
+                className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium transition-shadow hover:shadow-premium-hover"
               >
                 <div className="aspect-square bg-muted">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -140,9 +160,13 @@ export default async function ProfilePage({ params }: { params: { id: string } }
                     loading="lazy"
                   />
                 </div>
-                <div className="p-3">
-                  <div className="line-clamp-1 text-sm font-semibold">{p.caption || "Trip"}</div>
-                  <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(p)}</div>
+                <div className="flex flex-1 flex-col justify-center p-3">
+                  <div className="min-h-[20px] line-clamp-1 text-sm font-semibold">
+                    {p.caption || "Trip"}
+                  </div>
+                  <div className="min-h-[18px] line-clamp-1 text-xs text-muted-foreground">
+                    {getPostDisplayLocation(p)}
+                  </div>
                 </div>
               </Link>
             ))}

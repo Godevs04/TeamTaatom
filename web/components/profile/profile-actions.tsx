@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import { followProfile } from "../../lib/api";
@@ -17,6 +18,7 @@ type ProfileActionsProps = {
 
 export function ProfileActions({ profile }: ProfileActionsProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { user: me } = useAuth();
   const isSelf = !!me && me._id === profile._id;
 
@@ -40,6 +42,7 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
         setIsFollowing(data.isFollowing);
       }
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
+      router.refresh();
       if (data?.followRequestSent) {
         toast.success("Follow request sent");
       } else {

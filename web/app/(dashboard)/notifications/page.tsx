@@ -105,6 +105,11 @@ export default function NotificationsPage() {
           </div>
           <h3 className="mt-6 text-lg font-semibold text-slate-900">No notifications yet</h3>
           <p className="mt-2 text-[15px] text-slate-500">When you get likes, comments or new followers, they&apos;ll show here.</p>
+          <div className="mt-6">
+            <Button className="rounded-xl" asChild>
+              <Link href="/feed">Explore feed</Link>
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-6">

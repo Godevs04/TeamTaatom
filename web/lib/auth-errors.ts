@@ -97,5 +97,10 @@ export function getFriendlyErrorMessage(error: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+/** Useful for feed/session UX: show sign-in CTA when the API returns 401. */
+export function isUnauthorizedError(error: unknown): boolean {
+  return isAxiosError(error) && error.response?.status === 401;
+}
+
 /** Alias for getFriendlyErrorMessage — use for any API error (feed, settings, etc.). */
 export const getUserFacingErrorMessage = getFriendlyErrorMessage;

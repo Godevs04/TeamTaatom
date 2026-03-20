@@ -14,7 +14,7 @@ export default function ContactSupportSettingsPage() {
       >
         <Link
           href="/settings"
-          className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+          className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Settings
         </Link>

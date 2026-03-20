@@ -27,6 +27,9 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
     description,
     image: image ?? null,
     path: `/trip/${id}`,
+    openGraphType: "article",
+    ogImageSize: { width: 1200, height: 630 },
+    ogImageAlt: title,
   });
 }
 

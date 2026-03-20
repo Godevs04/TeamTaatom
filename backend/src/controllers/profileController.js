@@ -575,7 +575,28 @@ const toggleFollow = async (req, res) => {
       logger.error(`Current user not found in toggleFollow: ${currentUserId}`);
       return sendError(res, 'AUTH_1001', 'Authentication error');
     }
-    const isFollowing = currentUser.following.includes(id);
+    // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
+    const targetIdStr = id.toString();
+    const isFollowing = currentUser.following.some(
+      (fid) => fid.toString() === targetIdStr
+    );
+
+    const notifyFollowUpdated = () => {
+      void (async () => {
+        try {
+          const io = getIO();
+          if (!io) return;
+          const nsp = io.of('/app');
+          const followers = await getFollowers(id);
+          const audience = [targetIdStr, ...followers, currentUserId.toString()];
+          nsp.emitInvalidateProfile(id);
+          nsp.emitInvalidateFeed(audience);
+          nsp.emitEvent('follow:updated', audience, { userId: id });
+        } catch (e) {
+          logger.error('Follow socket notify error:', e);
+        }
+      })();
+    };
 
     if (isFollowing) {
       // Unfollow - remove from both users
@@ -591,6 +612,8 @@ const toggleFollow = async (req, res) => {
       );
 
       await Promise.all([currentUser.save(), targetUser.save()]);
+
+      notifyFollowUpdated();
 
       return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
@@ -684,6 +707,8 @@ const toggleFollow = async (req, res) => {
           }
         }).catch(err => logger.error('Error sending push notification for follow request:', err));
 
+        notifyFollowUpdated();
+
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -748,6 +773,8 @@ const toggleFollow = async (req, res) => {
           }
         }).catch(err => logger.error('Error sending push notification for follow:', err));
 
+        notifyFollowUpdated();
+
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -755,17 +782,6 @@ const toggleFollow = async (req, res) => {
           followRequestSent: false
         });
       }
-    }
-
-    // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(id);
-      const audience = [id, ...followers, currentUserId.toString()];
-      nsp.emitInvalidateProfile(id);
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitEvent('follow:updated', audience, { userId: id });
     }
   } catch (error) {
     logger.error('Toggle follow error:', error);

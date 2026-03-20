@@ -5,6 +5,7 @@ import "./globals.css";
 import AppProviders from "../providers/app-providers";
 import { SiteHeader } from "../components/layout/site-header";
 import { Analytics } from "../components/analytics";
+import { PwaRegister } from "../components/pwa/pwa-register";
 import { createMetadata } from "../lib/seo";
 
 const inter = Inter({
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body className={`${inter.variable} ${fraunces.variable} font-sans antialiased`} suppressHydrationWarning>
         <div suppressHydrationWarning className="min-h-screen">
           <AppProviders>
+            <PwaRegister />
             <SiteHeader />
             <main className="min-h-[calc(100vh-3.5rem)] w-full">{children}</main>
             <footer className="border-t border-slate-200/70 bg-white/90 py-4 text-xs text-slate-500 sm:py-5">

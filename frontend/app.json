@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
@@ -52,7 +52,7 @@
     },
     "android": {
       "package": "com.taatom.app",
-      "versionCode": 13,
+      "versionCode": 14,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -158,8 +158,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "http://192.168.1.37:3000",
-      "WEB_SHARE_URL": "http://192.168.1.37:3000",
+      "API_BASE_URL": "https://api.taatom.com",
+      "WEB_SHARE_URL": "https://taatom.com",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",

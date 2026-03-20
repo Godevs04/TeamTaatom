@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
+import { Eye, EyeOff } from "lucide-react";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required"),
@@ -24,6 +25,7 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
   const router = useRouter();
   const next = nextUrl || "/feed";
   const { user, isLoading: authLoading, signIn } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -78,12 +80,22 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
         </div>
         <div className="grid gap-2">
           <label className="text-sm font-semibold text-slate-700">Password</label>
-          <Input
-            {...form.register("password")}
-            type="password"
-            autoComplete="current-password"
-            className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
-          />
+          <div className="relative">
+            <Input
+              {...form.register("password")}
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80 pr-11"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+            </button>
+          </div>
           {form.formState.errors.password && (
             <p className="text-xs text-red-600">{form.formState.errors.password.message}</p>
           )}
