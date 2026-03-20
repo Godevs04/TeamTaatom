@@ -38,24 +38,26 @@ export default function PrivacySettingsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Link href="/settings" className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+        <Link href="/settings" className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
           <ArrowLeft className="h-4 w-4" /> Back to Settings
         </Link>
-        <Skeleton className="h-96 w-full rounded-2xl" />
+        <Skeleton className="h-96 w-full rounded-[1.75rem]" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <Link href="/settings" className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+    <div className="space-y-8">
+      <Link href="/settings" className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
         <ArrowLeft className="h-4 w-4" /> Back to Settings
       </Link>
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white md:text-2xl">Privacy & Security</h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Control who can see your profile and message you.</p>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70">
+        <div className="border-b border-slate-200/70 bg-gradient-to-b from-slate-50/80 to-transparent px-5 py-6 md:px-8 md:py-7 dark:border-zinc-800/70 dark:from-zinc-800/40">
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">Privacy & Security</h2>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">Control who can see your profile and message you.</p>
+        </div>
 
-        <div className="mt-6 space-y-6">
+        <div className="space-y-6 px-5 py-6 md:px-8 md:py-7">
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Profile visibility</label>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Who can see your profile.</p>

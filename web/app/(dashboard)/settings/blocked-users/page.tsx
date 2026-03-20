@@ -49,20 +49,20 @@ export default function BlockedUsersSettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <Link
         href="/settings"
-        className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+        className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
       >
         <ArrowLeft className="h-4 w-4" /> Back to Settings
       </Link>
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/70 bg-gradient-to-b from-slate-50/80 to-transparent px-5 py-6 md:px-8 md:py-7 dark:border-zinc-800/70 dark:from-zinc-800/40">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white md:text-2xl">
+            <h2 className="font-display text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">
               Blocked users
             </h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
               Users you’ve blocked. Unblock to allow them to see your profile and contact you again.
             </p>
           </div>
@@ -77,18 +77,19 @@ export default function BlockedUsersSettingsPage() {
           </button>
         </div>
 
+        <div className="px-5 py-6 md:px-8 md:py-7">
         {loading ? (
-          <div className="mt-6 flex justify-center py-12">
+          <div className="flex justify-center py-12">
             <RefreshCw className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : blockedUsers.length === 0 ? (
-          <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 py-12 dark:border-zinc-700">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 py-12 dark:border-zinc-700">
             <UserX className="h-12 w-12 text-slate-300 dark:text-zinc-600" />
             <p className="mt-3 text-sm font-medium text-slate-600 dark:text-slate-400">No blocked users</p>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">When you block someone, they’ll appear here.</p>
           </div>
         ) : (
-          <ul className="mt-6 space-y-3">
+          <ul className="space-y-3">
             {blockedUsers.map((u) => {
               const isActing = unblockingId === u._id;
               return (
@@ -130,6 +131,7 @@ export default function BlockedUsersSettingsPage() {
             })}
           </ul>
         )}
+        </div>
       </div>
     </div>
   );

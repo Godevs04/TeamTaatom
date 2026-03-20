@@ -117,16 +117,16 @@ export default function AboutSettingsPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <Link
         href="/settings"
-        className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+        className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
       >
         <ArrowLeft className="h-4 w-4" /> Back to Settings
       </Link>
 
       {/* App Info */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-8">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-8">
         <div className="flex flex-col items-center text-center">
           <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border-2 border-slate-200/80 bg-white dark:border-zinc-700 dark:bg-zinc-800">
             <Image
@@ -147,8 +147,8 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Account Information */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Account Information</h2>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Account Information</h2>
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 py-3 dark:border-zinc-700/80">
             <span className="text-sm text-slate-500 dark:text-slate-400">User ID</span>
@@ -181,8 +181,8 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Support */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Support</h2>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Support</h2>
         <div className="mt-4 space-y-0">
           <Link
             href="/settings/contact-support"
@@ -208,8 +208,8 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Legal & Policies */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Legal & Policies</h2>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Legal & Policies</h2>
         <div className="mt-4 space-y-0">
           {policyLinks.map((link) => {
             const Icon = link.icon;
@@ -231,8 +231,8 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* App Actions */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">App Actions</h2>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">App Actions</h2>
         <div className="mt-4 space-y-0">
           <button
             type="button"
@@ -271,8 +271,8 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Legal */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white/95 p-6 shadow-soft backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Legal</h2>
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+        <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Legal</h2>
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap justify-between gap-2 border-b border-slate-200/80 py-3 dark:border-zinc-700/80">
             <span className="text-sm text-slate-500 dark:text-slate-400">Copyright</span>
