@@ -262,6 +262,7 @@ const TravelAnimatedBackground = () => {
 };
 
 export default function SignInScreen() {
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // const [isGoogleLoading, setIsGoogleLoading] = useState(false); // Hidden for now
   const router = useRouter();
@@ -464,7 +465,23 @@ export default function SignInScreen() {
                     onBlur={handleBlur('password')}
                     error={errors.password}
                     touched={touched.password}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    textContentType="password"
+                    rightIcon={
+                      <TouchableOpacity
+                        onPress={() => setShowPassword((v) => !v)}
+                        accessibilityRole="button"
+                        accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    }
                   />
 
                   <TouchableOpacity

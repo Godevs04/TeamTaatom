@@ -35,7 +35,39 @@ type FeedData = {
   pageParams: unknown[];
 };
 
-export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: () => void }) {
+type SavedPostsCache = { posts: Post[]; savedIds: string[] };
+
+/** Feed uses `["feed", feedMode]`; updating only `["feed"]` never touched the real cache. */
+function patchAllFeedQueries(
+  qc: ReturnType<typeof useQueryClient>,
+  updater: (old: FeedData | undefined) => FeedData | undefined
+) {
+  qc.setQueriesData<FeedData>({ queryKey: ["feed"] }, updater);
+}
+
+function patchSavedPostsForLike(
+  qc: ReturnType<typeof useQueryClient>,
+  postId: string,
+  mapPost: (p: Post) => Post
+) {
+  qc.setQueriesData<SavedPostsCache>({ queryKey: ["saved-posts"] }, (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      posts: old.posts.map((p) => (p._id === postId ? mapPost(p) : p)),
+    };
+  });
+}
+
+export function PostCard({
+  post,
+  onPostRemoved,
+  onOpenComments,
+}: {
+  post: Post;
+  onPostRemoved?: () => void;
+  onOpenComments?: (post: Post) => void;
+}) {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -56,7 +88,7 @@ export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: 
   }, [menuOpen]);
 
   const removeFromFeed = () => {
-    qc.setQueryData<FeedData>(["feed"], (old) => {
+    patchAllFeedQueries(qc, (old) => {
       if (!old) return old;
       return {
         ...old,
@@ -138,7 +170,7 @@ export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: 
     if (nextSaved) set.add(post._id);
     else set.delete(post._id);
     setSavedPostIds(Array.from(set));
-    qc.setQueryData<FeedData>(["feed"], (old) => {
+    patchAllFeedQueries(qc, (old) => {
       if (!old) return old;
       return {
         ...old,
@@ -193,65 +225,107 @@ export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: 
     mutationFn: () => toggleLike(post._id),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: ["feed"] });
-      const prev = qc.getQueryData<FeedData>(["feed"]);
-      qc.setQueryData<FeedData>(["feed"], (old) => {
+      await qc.cancelQueries({ queryKey: ["saved-posts"] });
+      const previousFeeds = qc.getQueriesData<FeedData>({ queryKey: ["feed"] });
+      const previousSaved = qc.getQueriesData<SavedPostsCache>({ queryKey: ["saved-posts"] });
+
+      const applyOptimisticToggle = (p: Post): Post => {
+        if (p._id !== post._id) return p;
+        const nextLiked = !p.isLiked;
+        return {
+          ...p,
+          isLiked: nextLiked,
+          likesCount: Math.max((p.likesCount ?? 0) + (nextLiked ? 1 : -1), 0),
+        };
+      };
+
+      patchAllFeedQueries(qc, (old) => {
         if (!old) return old;
         return {
           ...old,
           pages: old.pages.map((page) => ({
             ...page,
-            posts: page.posts.map((p: Post) => {
-              if (p._id !== post._id) return p;
-              const nextLiked = !p.isLiked;
-              return {
-                ...p,
-                isLiked: nextLiked,
-                likesCount: Math.max((p.likesCount ?? 0) + (nextLiked ? 1 : -1), 0),
-              };
-            }),
+            posts: page.posts.map((p: Post) => applyOptimisticToggle(p)),
           })),
         };
       });
-      return { prev };
+      patchSavedPostsForLike(qc, post._id, applyOptimisticToggle);
+
+      return { previousFeeds, previousSaved };
     },
     onSuccess: (data) => {
-      const nextLiked = data?.isLiked ?? !post.isLiked;
+      const nextLiked = data?.isLiked;
+      const likesCount = data?.likesCount;
+      if (typeof nextLiked === "boolean" && typeof likesCount === "number") {
+        const sync = (p: Post): Post =>
+          p._id === post._id ? { ...p, isLiked: nextLiked, likesCount } : p;
+        patchAllFeedQueries(qc, (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              posts: page.posts.map((p: Post) => sync(p)),
+            })),
+          };
+        });
+        patchSavedPostsForLike(qc, post._id, sync);
+      }
+
+      const liked = data?.isLiked ?? !post.isLiked;
       const ids = getLikedPostIds();
-      const set = new Set(ids);
-      if (nextLiked) set.add(post._id);
-      else set.delete(post._id);
-      setLikedPostIds(Array.from(set));
+      const next = new Set(ids);
+      if (liked) next.add(post._id);
+      else next.delete(post._id);
+      setLikedPostIds(Array.from(next));
     },
     onError: (e: unknown, _v, ctx) => {
-      qc.setQueryData(["feed"], ctx?.prev);
+      ctx?.previousFeeds?.forEach(([key, data]) => {
+        qc.setQueryData(key, data);
+      });
+      ctx?.previousSaved?.forEach(([key, data]) => {
+        qc.setQueryData(key, data);
+      });
       toast.error(getFriendlyErrorMessage(e));
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["feed"] });
+      qc.invalidateQueries({ queryKey: ["saved-posts"] });
     },
   });
 
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const isOwnPost = !!currentUser && post.user?._id === currentUser._id;
+  const displayName = post.user?.fullName || post.user?.username || "Traveler";
+  const avatarInitial = displayName.trim().charAt(0).toUpperCase();
 
   return (
-    <article className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium">
+    <article className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
         <Link href={`/profile/${post.user?._id}`} className="group flex items-center gap-4">
-          <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={post.user?.profilePic || ""}
-              alt={post.user?.fullName || "User"}
-              className="h-full w-full object-cover"
-            />
+          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
+            {post.user?.profilePic ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={post.user.profilePic}
+                alt={post.user?.fullName || "User"}
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/10 to-violet-500/10">
+                <span className="text-sm font-semibold text-primary/70">{avatarInitial}</span>
+              </div>
+            )}
           </div>
           <div className="leading-tight">
             <div className="text-[15px] font-semibold text-slate-900 group-hover:underline">
-              {post.user?.fullName || post.user?.username || "Traveler"}
+              {displayName}
             </div>
-            <div className="text-xs font-medium text-slate-500">{getPostDisplayLocation(post)}</div>
+            <div className="line-clamp-1 text-xs font-medium leading-snug text-slate-500">
+              {getPostDisplayLocation(post)}
+            </div>
           </div>
         </Link>
         <div className="flex items-center gap-1">
@@ -375,12 +449,19 @@ export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: 
 
       {/* Caption & actions */}
       <div className="space-y-4 border-t border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
-        {post.caption ? (
-          <p className="text-[15px] leading-6 text-slate-700">
-            <span className="font-semibold">{post.user?.username ? `@${post.user.username}` : ""}</span>{" "}
-            <span className="text-slate-600">{post.caption}</span>
+        <div className="min-h-[72px]">
+          <p
+            className={cn(
+              "line-clamp-3 text-[15px] leading-6 text-slate-700",
+              post.caption ? "opacity-100" : "opacity-0"
+            )}
+          >
+            <span className="font-semibold">
+              {post.user?.username ? `@${post.user.username}` : ""}
+            </span>{" "}
+            <span className="text-slate-600">{post.caption || ""}</span>
           </p>
-        ) : null}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -403,17 +484,29 @@ export function PostCard({ post, onPostRemoved }: { post: Post; onPostRemoved?: 
             {post.likesCount ?? 0}
           </span>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 rounded-xl hover:bg-slate-100"
-            aria-label="Comments"
-            asChild
-          >
-            <Link href={`/trip/${post._id}#comments`}>
+          {onOpenComments ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-xl hover:bg-slate-100"
+              aria-label="Comments"
+              onClick={() => onOpenComments(post)}
+            >
               <MessageCircle className="h-5 w-5 text-slate-600" />
-            </Link>
-          </Button>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 rounded-xl hover:bg-slate-100"
+              aria-label="Comments"
+              asChild
+            >
+              <Link href={`/trip/${post._id}#comments`}>
+                <MessageCircle className="h-5 w-5 text-slate-600" />
+              </Link>
+            </Button>
+          )}
           <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700">
             {post.commentsCount ?? 0}
           </span>

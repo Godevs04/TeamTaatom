@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { authSignUp, checkUsernameAvailability } from "@/lib/api";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
-import { X } from "lucide-react";
+import { X, Eye, EyeOff } from "lucide-react";
 
 const TERMS_FULL_URL = "https://www.taatom.com/terms";
 
@@ -135,6 +135,8 @@ export default function RegisterClient() {
   const [usernameAvailable, setUsernameAvailable] = React.useState<boolean | undefined>(undefined);
   const [isCheckingUsername, setIsCheckingUsername] = React.useState(false);
   const [termsPopupOpen, setTermsPopupOpen] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const usernameCheckTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const form = useForm<FormValues>({
@@ -288,12 +290,22 @@ export default function RegisterClient() {
 
           <div className="grid gap-2">
             <label className="text-sm font-semibold text-slate-700">Password</label>
-            <Input
-              {...form.register("password")}
-              type="password"
-              autoComplete="new-password"
-              className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
-            />
+            <div className="relative">
+              <Input
+                {...form.register("password")}
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80 pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+              </button>
+            </div>
             {form.formState.errors.password && (
               <p className="text-xs text-red-600">{form.formState.errors.password.message}</p>
             )}
@@ -304,12 +316,22 @@ export default function RegisterClient() {
 
           <div className="grid gap-2">
             <label className="text-sm font-semibold text-slate-700">Confirm password</label>
-            <Input
-              {...form.register("confirmPassword")}
-              type="password"
-              autoComplete="new-password"
-              className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
-            />
+            <div className="relative">
+              <Input
+                {...form.register("confirmPassword")}
+                type={showConfirmPassword ? "text" : "password"}
+                autoComplete="new-password"
+                className="h-12 rounded-xl border-slate-200/90 bg-slate-50/80 pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+              >
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+              </button>
+            </div>
             {form.formState.errors.confirmPassword && (
               <p className="text-xs text-red-600">{form.formState.errors.confirmPassword.message}</p>
             )}
