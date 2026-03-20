@@ -6,13 +6,14 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useFeed } from "../../../hooks/useFeed";
 import { PostCard } from "../../../components/trip/post-card";
+import { TripComments } from "../../../components/trip/comments";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
-import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw } from "lucide-react";
+import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw, X } from "lucide-react";
 import { useAuth } from "../../../context/auth-context";
 import { useMounted } from "../../../hooks/use-mounted";
 import { getLikedPostIds, getSavedPostIds, mergeLikedIntoPosts, mergeSavedIntoPosts } from "../../../lib/utils";
-import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
+import { getFriendlyErrorMessage, isUnauthorizedError } from "../../../lib/auth-errors";
 import type { Post } from "../../../types/post";
 
 type FeedTabId = "recents" | "friends" | "popular";
@@ -44,11 +45,24 @@ const postItemVariants = {
 
 function FeedContent() {
   const [activeTab, setActiveTab] = React.useState<FeedTabId>("recents");
+  const [loadMoreError, setLoadMoreError] = React.useState(false);
+  const [commentsPost, setCommentsPost] = React.useState<Post | null>(null);
   const searchParams = useSearchParams();
   const deepLinkPostId = searchParams.get("postId");
   const mounted = useMounted();
   const q = useFeed(activeTab);
   const { user } = useAuth();
+
+  React.useEffect(() => {
+    setLoadMoreError(false);
+  }, [activeTab]);
+
+  const fetchNextPageSafe = React.useCallback(() => {
+    if (!q.hasNextPage || q.isFetchingNextPage) return;
+    q.fetchNextPage()
+      .then(() => setLoadMoreError(false))
+      .catch(() => setLoadMoreError(true));
+  }, [q]);
   const rawPosts = React.useMemo(
     () => q.data?.pages.flatMap((p) => p.posts) ?? [],
     [q.data?.pages]
@@ -63,13 +77,11 @@ function FeedContent() {
   React.useEffect(() => {
     const onScroll = () => {
       const nearBottom = window.innerHeight + window.scrollY > document.body.offsetHeight - 900;
-      if (nearBottom && q.hasNextPage && !q.isFetchingNextPage) {
-        q.fetchNextPage();
-      }
+      if (nearBottom) fetchNextPageSafe();
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [q]);
+  }, [fetchNextPageSafe]);
 
   React.useEffect(() => {
     if (!deepLinkPostId || posts.length === 0) return;
@@ -140,7 +152,10 @@ function FeedContent() {
                   variant="outline"
                   size="sm"
                   className="rounded-xl border-slate-200/80 bg-white/80 shadow-sm"
-                  onClick={() => q.refetch()}
+                  onClick={() => {
+                    setLoadMoreError(false);
+                    void q.refetch();
+                  }}
                   disabled={q.isRefetching}
                   aria-label="Refresh feed"
                 >
@@ -238,10 +253,21 @@ function FeedContent() {
               className="rounded-[1.75rem] border border-slate-200/80 bg-white/95 p-12 text-center shadow-premium backdrop-blur-sm border-premium"
             >
               <p className="text-[15px] text-slate-600">{getFriendlyErrorMessage(q.error)}</p>
-              <motion.div className="mt-5 inline-block" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button className="rounded-xl shadow-premium" onClick={() => q.refetch()}>
+              <motion.div className="mt-5 flex flex-wrap items-center justify-center gap-3" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  className="rounded-xl shadow-premium"
+                  onClick={() => {
+                    setLoadMoreError(false);
+                    void q.refetch();
+                  }}
+                >
                   Try again
                 </Button>
+                {isUnauthorizedError(q.error) && (
+                  <Button variant="outline" className="rounded-xl border-slate-200/80" asChild>
+                    <Link href="/auth/login?next=/feed">Sign in</Link>
+                  </Button>
+                )}
               </motion.div>
             </motion.div>
           ) : posts.length === 0 ? (
@@ -312,6 +338,31 @@ function FeedContent() {
             </motion.div>
           ) : (
             <>
+              {loadMoreError && posts.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col gap-3 rounded-[1.25rem] border border-amber-200/90 bg-amber-50/90 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                  role="status"
+                >
+                  <p className="text-sm font-medium text-amber-950">
+                    Couldn&apos;t load more posts. Check your connection and try again.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 rounded-xl border-amber-300 bg-white/90 text-amber-950 hover:bg-white"
+                    onClick={() => {
+                      setLoadMoreError(false);
+                      fetchNextPageSafe();
+                    }}
+                    disabled={q.isFetchingNextPage || !q.hasNextPage}
+                  >
+                    Retry
+                  </Button>
+                </motion.div>
+              )}
               <motion.div
                 key={activeTab}
                 variants={feedListVariants}
@@ -321,7 +372,7 @@ function FeedContent() {
               >
                 {posts.map((p) => (
                   <motion.div key={p._id} variants={postItemVariants} data-post-id={p._id}>
-                    <PostCard post={p} />
+                    <PostCard post={p} onOpenComments={(post) => setCommentsPost(post)} />
                   </motion.div>
                 ))}
               </motion.div>
@@ -349,7 +400,10 @@ function FeedContent() {
                     <Button
                       variant="outline"
                       className="rounded-xl border-slate-200/80 bg-white/80 shadow-sm"
-                      onClick={() => q.fetchNextPage()}
+                      onClick={() => {
+                        setLoadMoreError(false);
+                        fetchNextPageSafe();
+                      }}
                     >
                       Load more
                     </Button>
@@ -369,6 +423,50 @@ function FeedContent() {
           )}
         </div>
       </div>
+
+      {commentsPost && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm"
+          role="presentation"
+          onClick={() => setCommentsPost(null)}
+        >
+          <motion.aside
+            role="dialog"
+            aria-modal="true"
+            aria-label="Comments"
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 340, damping: 36 }}
+            className="absolute right-0 top-0 h-full w-full max-w-xl border-l border-slate-200/80 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 sm:px-5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {commentsPost.caption || "Trip comments"}
+                  </p>
+                  <p className="text-xs text-slate-500">{commentsPost.user?.fullName || commentsPost.user?.username || "Traveler"}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-xl"
+                  aria-label="Close comments"
+                  onClick={() => setCommentsPost(null)}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+                <TripComments postId={commentsPost._id} />
+              </div>
+            </div>
+          </motion.aside>
+        </div>
+      )}
     </div>
   );
 }

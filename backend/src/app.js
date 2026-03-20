@@ -106,24 +106,50 @@ app.use(helmet({
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = process.env.NODE_ENV === 'development';
 
+const normalizeOrigin = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, '').toLowerCase();
+};
+
+const withApexAndWwwVariants = (origins) => {
+  const out = new Set();
+  origins.forEach((origin) => {
+    const normalized = normalizeOrigin(origin);
+    if (!normalized) return;
+    out.add(normalized);
+    if (normalized.startsWith('https://www.')) {
+      out.add(normalized.replace('https://www.', 'https://'));
+    } else if (normalized.startsWith('https://')) {
+      const host = normalized.replace('https://', '');
+      if (!host.startsWith('admin.')) {
+        out.add(`https://www.${host}`);
+      }
+    }
+  });
+  return [...out];
+};
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
+    const normalizedOrigin = normalizeOrigin(origin);
     
     // Production: Only allow specific domains (FRONTEND_URL, WEB_FRONTEND_URL, SUPERADMIN_URL)
     if (isProduction) {
-      const productionOrigins = [
+      const productionOrigins = withApexAndWwwVariants([
         process.env.FRONTEND_URL,
         process.env.WEB_FRONTEND_URL,
         process.env.SUPERADMIN_URL,
-      ].filter(Boolean); // Remove undefined values
+      ]);
       
-      if (productionOrigins.includes(origin)) {
+      if (normalizedOrigin && productionOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
       logger.warn('CORS blocked origin in production', {
-        blockedOrigin: origin,
+        blockedOrigin: normalizedOrigin || origin,
         allowedOrigins: productionOrigins,
         hint: 'Set FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in backend env to the allowed origin (no trailing slash).'
       });
@@ -131,7 +157,7 @@ app.use(cors({
     }
     
     // Development: Allow localhost and local network (development-only fallbacks)
-    const devOrigins = [
+    const devOrigins = withApexAndWwwVariants([
       process.env.FRONTEND_URL,
       process.env.WEB_FRONTEND_URL,
       process.env.SUPERADMIN_URL,
@@ -145,7 +171,7 @@ app.use(cors({
         'file://',
         'null'
       ] : [])
-    ].filter(Boolean); // Remove undefined values
+    ]);
     
     // In development, also allow localhost with any port and local network IPs
     const devPatterns = [
@@ -154,7 +180,7 @@ app.use(cors({
     ];
     
     // Check exact matches first
-    if (devOrigins.includes(origin)) {
+    if (normalizedOrigin && devOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
     
