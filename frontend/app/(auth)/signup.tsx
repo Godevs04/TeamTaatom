@@ -115,6 +115,7 @@ interface SignUpFormValues {
   email: string;
   password: string;
   confirmPassword: string;
+  termsAccepted: boolean;
 }
 
 // Travel-themed animated background component
@@ -393,6 +394,10 @@ export default function SignUpScreen() {
   }, []);
 
   const handleSignUp = async (values: SignUpFormValues) => {
+    if (!values.termsAccepted) {
+      showError('You must accept the Terms & Conditions to create an account');
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await signUp({
@@ -400,11 +405,13 @@ export default function SignUpScreen() {
         username: values.username,
         email: values.email,
         password: values.password,
+        termsAccepted: true,
       });
 
       // Ensure onboarding flag is not set for new users
       await AsyncStorage.removeItem('onboarding_completed');
 
+      track('signup_success', {});
       showSuccess(
         `${response.message}\n\n📧 Please check your inbox and spam folder for the verification code.`,
         'Verification Code Sent'
@@ -416,6 +423,45 @@ export default function SignUpScreen() {
         });
       }, 2000);
     } catch (error: any) {
+      // Extract detailed error information for Sentry reporting
+      const parsedError = error?.parsedError || (error?.originalError ? require('../../utils/errorCodes').parseError(error.originalError) : null);
+      const originalError = error?.originalError || error;
+      
+      // Check if this is an expected validation error (user input error)
+      // These shouldn't be reported to Sentry as errors since they're user input errors
+      const isValidationError = parsedError?.code?.startsWith('VAL_') || 
+                                parsedError?.code?.startsWith('AUTH_1004') ||
+                                originalError?.response?.status === 400 ||
+                                error?.message?.includes('validation') ||
+                                error?.message?.includes('already exists') ||
+                                error?.message?.includes('already taken');
+      
+      if (isValidationError) {
+        // Log validation errors as debug - these are expected user input errors
+        logger.debug('Sign-up validation error:', {
+          code: parsedError?.code,
+          message: error.message,
+          field: originalError?.response?.data?.field,
+        });
+      } else {
+        // Log unexpected errors with full context for Sentry
+        logger.error('Sign-up error:', {
+          code: parsedError?.code || 'UNKNOWN',
+          message: error.message,
+          userMessage: parsedError?.userMessage,
+          responseStatus: originalError?.response?.status,
+          responseData: originalError?.response?.data,
+          errorStack: originalError?.stack,
+          signupData: {
+            email: values.email,
+            username: values.username,
+            hasFullName: !!values.fullName,
+            // Don't log password for security
+          },
+        });
+      }
+      
+      // Show user-friendly error message
       showError(error.message);
     } finally {
       setIsLoading(false);
@@ -494,6 +540,7 @@ export default function SignUpScreen() {
                 email: '',
                 password: '',
                 confirmPassword: '',
+                termsAccepted: false,
               }}
               validationSchema={signUpSchema}
               onSubmit={handleSignUp}
@@ -615,15 +662,37 @@ export default function SignUpScreen() {
                     }
                   />
 
-
+                  {/* Apple Guideline 1.2 - Mandatory T&C acceptance */}
+                  <View style={styles.termsRow}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}
+                      onPress={() => setFieldValue('termsAccepted', !values.termsAccepted)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.checkbox, values.termsAccepted && styles.checkboxChecked, { borderColor: theme.colors.primary }]}>
+                        {values.termsAccepted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <Text style={[styles.termsText, { color: theme.colors.text }]}>
+                        I accept the{' '}
+                        <Text style={[styles.termsLink, { color: theme.colors.primary }]}>Terms & Conditions</Text>
+                        . No objectionable, abusive, sexual, violent, hateful, or illegal content is allowed. Violations will result in suspension.
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push('/terms')} style={{ marginTop: 4 }}>
+                      <Text style={[styles.termsLink, { color: theme.colors.primary }]}>View full Terms →</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {touched.termsAccepted && errors.termsAccepted && (
+                    <Text style={[styles.termsError, { color: theme.colors.error }]}>{errors.termsAccepted}</Text>
+                  )}
 
                   <TouchableOpacity
-                    style={[styles.signUpButton, isLoading && styles.signUpButtonDisabled]}
+                    style={[styles.signUpButton, (isLoading || !values.termsAccepted) && styles.signUpButtonDisabled]}
                     onPress={() => handleSubmit()}
-                    disabled={isLoading}
+                    disabled={isLoading || !values.termsAccepted}
                   >
                     <Text style={styles.signUpButtonText}>
-                      {isLoading ? 'Creating Account...' : 'Create Account'}
+                      {isLoading ? 'Creating Account...' : !values.termsAccepted ? 'Accept Terms to Continue' : 'Create Account'}
                     </Text>
                   </TouchableOpacity>
 
@@ -767,6 +836,38 @@ const styles = StyleSheet.create({
   },
   formFields: {
     width: '100%',
+  },
+  termsRow: {
+    marginTop: theme.spacing.lg,
+    paddingHorizontal: 4,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    marginRight: 12,
+    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  termsError: {
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 34,
   },
   signUpButton: {
     backgroundColor: theme.colors.primary,

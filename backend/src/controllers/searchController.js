@@ -5,23 +5,26 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { cacheWrapper, CacheKeys, CACHE_TTL } = require('../utils/cache');
+const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 
 // @desc    Advanced search for posts
 // @route   GET /api/v1/search/posts
 // @access  Public
 const searchPosts = async (req, res) => {
   try {
-    const { 
-      q, 
-      hashtag, 
-      location, 
-      startDate, 
-      endDate, 
-      type, 
-      page = 1, 
-      limit = 20 
+    const {
+      q,
+      query: queryParam,
+      hashtag,
+      location,
+      startDate,
+      endDate,
+      type,
+      page = 1,
+      limit = 20
     } = req.query;
 
+    const searchText = (queryParam != null && queryParam !== '') ? queryParam : q;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const userId = req.user?._id?.toString();
 
@@ -32,9 +35,9 @@ const searchPosts = async (req, res) => {
       isHidden: { $ne: true }
     };
 
-    // Text search in caption
-    if (q && q.trim().length > 0) {
-      matchQuery.caption = { $regex: q.trim(), $options: 'i' };
+    // Text search in caption (support both q and query params)
+    if (searchText && String(searchText).trim().length > 0) {
+      matchQuery.caption = { $regex: String(searchText).trim(), $options: 'i' };
     }
 
     // Hashtag filter
@@ -140,10 +143,41 @@ const searchPosts = async (req, res) => {
 
     const { posts, totalPosts } = result;
 
+    // Generate signed image URLs (same as feed) so search results show thumbnails
+    const postsWithImageUrls = await Promise.all(posts.map(async (post) => {
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || null;
+          post.images = imageUrls;
+        } catch (err) {
+          logger.warn('Search: failed to generate image URLs for post', { postId: post._id, error: err.message });
+          post.imageUrl = post.imageUrl || null;
+          post.images = post.images || (post.imageUrl ? [post.imageUrl] : []);
+        }
+      } else if (post.storageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          post.imageUrl = imageUrl;
+          post.images = imageUrl ? [imageUrl] : [];
+        } catch (err) {
+          logger.warn('Search: failed to generate image URL for post', { postId: post._id, error: err.message });
+          post.imageUrl = post.imageUrl || null;
+          post.images = post.images || (post.imageUrl ? [post.imageUrl] : []);
+        }
+      } else if (!post.imageUrl || post.imageUrl.trim() === '') {
+        post.imageUrl = null;
+        post.images = [];
+      } else {
+        post.images = post.images || (post.imageUrl ? [post.imageUrl] : []);
+      }
+      return post;
+    }));
+
     // Add isLiked field
-    const postsWithLikeStatus = posts.map(post => ({
+    const postsWithLikeStatus = postsWithImageUrls.map(post => ({
       ...post,
-      isLiked: userId && post.likes 
+      isLiked: userId && post.likes
         ? post.likes.some(like => like.toString() === userId)
         : false
     }));

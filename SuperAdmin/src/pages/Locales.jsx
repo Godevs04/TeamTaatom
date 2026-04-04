@@ -29,8 +29,9 @@ import {
   Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById } from '../services/localeService'
+import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById, getUniqueCountries } from '../services/localeService'
 import { motion, AnimatePresence } from 'framer-motion'
+import { searchPlace, geocodeAddress, areCoordinatesNearby, buildAddressString } from '../utils/geocoding'
 
 // Helper function to calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -82,6 +83,7 @@ const Locales = () => {
   const currentPageRef = useRef(1) // Ref to track current page for fetch operations
   const [totalPages, setTotalPages] = useState(1)
   const [totalLocales, setTotalLocales] = useState(0)
+  const [backendStatistics, setBackendStatistics] = useState(null) // Statistics from backend (total, active, inactive)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -99,6 +101,17 @@ const Locales = () => {
   const [bulkActionType, setBulkActionType] = useState(null) // 'enable' or 'disable'
   const [bulkActionProgress, setBulkActionProgress] = useState({ current: 0, total: 0 })
   const [isBulkActionInProgress, setIsBulkActionInProgress] = useState(false)
+  const [allCountries, setAllCountries] = useState([]) // All unique countries from database
+  const [loadingCountries, setLoadingCountries] = useState(false)
+  const [countryFilterOpen, setCountryFilterOpen] = useState(false) // Dropdown open state
+  const [countrySearchQuery, setCountrySearchQuery] = useState('') // Search within country filter
+  
+  // Place detection state
+  const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false)
+  const [detectPlaceName, setDetectPlaceName] = useState('')
+  const [detectedPlace, setDetectedPlace] = useState(null)
+  const [isSearchingPlace, setIsSearchingPlace] = useState(false)
+  const [isEditModeForDetect, setIsEditModeForDetect] = useState(false)
   
   // Stability & performance refs
   const isMountedRef = useRef(true)
@@ -122,7 +135,9 @@ const Locales = () => {
     displayOrder: '0',
     spotTypes: [],
     travelInfo: 'Drivable',
-    file: null
+    file: null,
+    latitude: null,
+    longitude: null
   })
   const [editFormData, setEditFormData] = useState({
     name: '',
@@ -133,7 +148,9 @@ const Locales = () => {
     description: '',
     displayOrder: '0',
     spotTypes: [],
-    travelInfo: 'Drivable'
+    travelInfo: 'Drivable',
+    latitude: null,
+    longitude: null
   })
 
   // Lifecycle safety
@@ -271,12 +288,14 @@ const Locales = () => {
         // Handle both response structures: direct data or nested in data property
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Response parsed:', { 
           hasLocales: !!locales, 
           localesCount: locales?.length || 0,
           resultKeys: Object.keys(result),
-          pagination: pagination ? { totalPages: pagination.totalPages, total: pagination.total } : null
+          pagination: pagination ? { totalPages: pagination.totalPages, total: pagination.total } : null,
+          statistics: statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -300,7 +319,10 @@ const Locales = () => {
         console.debug('[Locales] Setting locales:', minimalLocales.length)
         setLocales(minimalLocales)
         setTotalPages(pagination?.totalPages || 1)
-        setTotalLocales(pagination?.total || 0) 
+        setTotalLocales(pagination?.total || 0)
+        if (statistics) {
+          setBackendStatistics(statistics)
+        }
         cachedLocalesRef.current = minimalLocales
         
         // Analytics: track only once per fetchKey on successful 200 response
@@ -321,6 +343,7 @@ const Locales = () => {
           setLocales([])
           setTotalPages(1)
           setTotalLocales(0)
+          setBackendStatistics(null)
         }
       }
     } catch (error) {
@@ -343,6 +366,7 @@ const Locales = () => {
         setLocales([])
         setTotalPages(1)
         setTotalLocales(0)
+        setBackendStatistics(null)
       }
     } finally {
       // Reset isFetchingRef ONLY in finally block
@@ -483,10 +507,12 @@ const Locales = () => {
         const result = response.data
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Initial fetch response:', { 
           hasLocales: !!locales, 
-          localesCount: locales?.length || 0 
+          localesCount: locales?.length || 0,
+          statistics: statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -510,6 +536,9 @@ const Locales = () => {
           setLocales(minimalLocales)
           setTotalPages(pagination?.totalPages || 1)
           setTotalLocales(pagination?.total || 0)
+          if (statistics) {
+            setBackendStatistics(statistics)
+          }
           cachedLocalesRef.current = minimalLocales
         }
       }).catch((error) => {
@@ -611,12 +640,14 @@ const Locales = () => {
         // Handle both response structures: direct data or nested in data property
         const locales = result.locales || result.data?.locales || []
         const pagination = result.pagination || result.data?.pagination
+        const statistics = result.statistics || result.data?.statistics
         
         console.debug('[Locales] Response received:', { 
           hasLocales: !!locales, 
           localesCount: locales?.length || 0,
           resultKeys: Object.keys(result),
-          pagination 
+          pagination,
+          statistics
         })
         
         if (locales && Array.isArray(locales)) {
@@ -642,6 +673,9 @@ const Locales = () => {
           setLocales(minimalLocales)
           setTotalPages(pagination?.totalPages || 1)
           setTotalLocales(pagination?.total || 0)
+          if (statistics) {
+            setBackendStatistics(statistics)
+          }
           cachedLocalesRef.current = minimalLocales
           
           // Analytics: track only once per fetchKey on successful 200 response
@@ -655,6 +689,7 @@ const Locales = () => {
             setLocales([])
             setTotalPages(1)
             setTotalLocales(0)
+            setBackendStatistics(null)
           }
         }
       }).catch((error) => {
@@ -677,6 +712,7 @@ const Locales = () => {
           setLocales([])
           setTotalPages(1)
           setTotalLocales(0)
+          setBackendStatistics(null)
         }
       }).finally(() => {
         // Reset isFetchingRef ONLY in finally block
@@ -698,6 +734,97 @@ const Locales = () => {
       }
     }
   }, [searchQuery, selectedCountryCode, currentPage]) // Dependencies: only fetch params (fetchKey components), NO derived state, NO callbacks
+
+  // Handle opening detect place modal
+  const handleOpenDetectPlace = useCallback((isEditMode = false) => {
+    setIsEditModeForDetect(isEditMode)
+    setDetectPlaceName('')
+    setDetectedPlace(null)
+    setShowDetectPlaceModal(true)
+  }, [])
+
+  // Handle searching for a place
+  const handleSearchPlace = useCallback(async () => {
+    if (!detectPlaceName || detectPlaceName.trim().length === 0) {
+      toast.error('Please enter a place name')
+      return
+    }
+
+    setIsSearchingPlace(true)
+    setDetectedPlace(null)
+
+    try {
+      const placeResult = await searchPlace(detectPlaceName.trim())
+      
+      if (placeResult) {
+        setDetectedPlace(placeResult)
+      } else {
+        // Place not found - this is expected, don't show error toast
+        // The searchPlace function already handles errors gracefully
+        setDetectedPlace(null)
+        toast.error('Place not found. Please try a different name.')
+      }
+    } catch (error) {
+      // Only log unexpected errors (network errors, 500s, etc.)
+      // Expected errors (404, 400) are already handled by searchPlace
+      const status = error.response?.status
+      const isUnexpectedError = !status || (status >= 500)
+      
+      if (isUnexpectedError) {
+        logger.error('Unexpected error searching place:', error)
+        toast.error('Error searching for place. Please try again.')
+      } else {
+        // Expected error - just show user-friendly message
+        toast.error('Place not found. Please try a different name.')
+      }
+      setDetectedPlace(null)
+    } finally {
+      setIsSearchingPlace(false)
+    }
+  }, [detectPlaceName])
+
+  // Handle confirming detected place and populating fields
+  const handleConfirmDetectedPlace = useCallback(() => {
+    if (!detectedPlace) return
+
+    if (isEditModeForDetect) {
+      // Populate edit form
+      setEditFormData({
+        name: detectedPlace.name || editFormData.name,
+        country: detectedPlace.country || editFormData.country,
+        countryCode: detectedPlace.countryCode || editFormData.countryCode,
+        stateProvince: detectedPlace.stateProvince || editFormData.stateProvince,
+        city: detectedPlace.city || editFormData.city,
+        description: editFormData.description,
+        displayOrder: editFormData.displayOrder,
+        spotTypes: editFormData.spotTypes,
+        travelInfo: editFormData.travelInfo,
+        latitude: detectedPlace.lat,
+        longitude: detectedPlace.lng
+      })
+    } else {
+      // Populate add form
+      setFormData({
+        ...formData,
+        name: detectedPlace.name || formData.name,
+        country: detectedPlace.country || formData.country,
+        countryCode: detectedPlace.countryCode || formData.countryCode,
+        stateProvince: detectedPlace.stateProvince || formData.stateProvince,
+        city: detectedPlace.city || formData.city,
+        description: formData.description,
+        displayOrder: formData.displayOrder,
+        spotTypes: formData.spotTypes,
+        travelInfo: formData.travelInfo,
+        latitude: detectedPlace.lat,
+        longitude: detectedPlace.lng
+      })
+    }
+
+    setShowDetectPlaceModal(false)
+    setDetectPlaceName('')
+    setDetectedPlace(null)
+    toast.success('Place details populated successfully!')
+  }, [detectedPlace, isEditModeForDetect, formData, editFormData])
 
   // Detect duplicate locales (similar names and coordinates within radius)
   const duplicateHints = useMemo(() => {
@@ -742,8 +869,14 @@ const Locales = () => {
     return hints
   }, [locales])
 
-  // Calculate statistics
+  // Calculate statistics - use backend statistics if available, otherwise calculate from current page
   const statistics = useMemo(() => {
+    // If backend provided statistics (accurate counts), use them
+    if (backendStatistics) {
+      return backendStatistics
+    }
+    
+    // Fallback: calculate from current page's locales (less accurate with pagination)
     const activeLocales = locales.filter(l => l.isActive).length
     
     return {
@@ -751,7 +884,7 @@ const Locales = () => {
       active: activeLocales,
       inactive: totalLocales - activeLocales
     }
-  }, [locales, totalLocales])
+  }, [backendStatistics, locales, totalLocales])
 
   // Sort locales
   const sortedLocales = useMemo(() => {
@@ -897,6 +1030,12 @@ const Locales = () => {
       if (formData.travelInfo) {
         uploadFormData.append('travelInfo', formData.travelInfo)
       }
+      
+      // Send latitude and longitude if available
+      if (formData.latitude && formData.longitude) {
+        uploadFormData.append('latitude', formData.latitude.toString())
+        uploadFormData.append('longitude', formData.longitude.toString())
+      }
 
       const response = await uploadLocale(uploadFormData)
       toast.success(response.message || 'Locale uploaded successfully')
@@ -911,7 +1050,9 @@ const Locales = () => {
           displayOrder: '0',
           spotTypes: [],
           travelInfo: 'Drivable',
-          file: null 
+          file: null,
+          latitude: null,
+          longitude: null
         })
       })
       // Force refresh after upload - reset page to 1 and clear fetchKey to trigger fetch
@@ -1307,7 +1448,13 @@ const Locales = () => {
       if (editFormData.travelInfo) {
         updateData.travelInfo = editFormData.travelInfo
       }
-
+      
+      // Add latitude and longitude if available
+      if (editFormData.latitude && editFormData.longitude) {
+        updateData.latitude = parseFloat(editFormData.latitude)
+        updateData.longitude = parseFloat(editFormData.longitude)
+      }
+      
       const updatedLocale = await updateLocale(localeToEdit._id, updateData)
       toast.success('Locale updated successfully')
       
@@ -1354,11 +1501,69 @@ const Locales = () => {
     }
   }
 
-  // Get unique country codes for filter
+  // Load all unique countries from backend on mount (efficient - gets all countries from all locales)
+  useEffect(() => {
+    const loadAllCountries = async () => {
+      if (!isMountedRef.current) return;
+      try {
+        setLoadingCountries(true);
+        const countries = await getUniqueCountries();
+        if (isMountedRef.current) {
+          // Ensure all countries have localeCount set (should come from backend)
+          const processedCountries = (countries || []).map(country => ({
+            ...country,
+            localeCount: country.localeCount !== undefined ? country.localeCount : 0
+          }));
+          setAllCountries(processedCountries);
+        }
+      } catch (error) {
+        logger.error('Failed to load countries:', error);
+        // Fallback: use countries from current locales if API fails
+        if (isMountedRef.current && locales.length > 0) {
+          const countryMap = new Map();
+          locales.forEach(locale => {
+            if (locale.countryCode) {
+              if (!countryMap.has(locale.countryCode)) {
+                countryMap.set(locale.countryCode, {
+                  code: locale.countryCode,
+                  name: locale.country || locale.countryCode,
+                  localeCount: 0
+                });
+              }
+              countryMap.get(locale.countryCode).localeCount += 1;
+            }
+          });
+          const countries = Array.from(countryMap.values()).sort((a, b) => 
+            (a.name || a.code).localeCompare(b.name || b.code)
+          );
+          setAllCountries(countries);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoadingCountries(false);
+        }
+      }
+    };
+    
+    loadAllCountries();
+  }, []) // Only run on mount - fetch all countries from backend
+
+  // Get filtered countries based on search query
+  const filteredCountries = useMemo(() => {
+    if (!countrySearchQuery.trim()) {
+      return allCountries;
+    }
+    const query = countrySearchQuery.toLowerCase().trim();
+    return allCountries.filter(country => 
+      country.name?.toLowerCase().includes(query) || 
+      country.code?.toLowerCase().includes(query)
+    );
+  }, [allCountries, countrySearchQuery])
+
+  // Get unique country codes for filter (backward compatibility - now using allCountries)
   const countryCodes = useMemo(() => {
-    const codes = [...new Set(locales.map(l => l.countryCode).filter(Boolean))]
-    return codes.sort()
-  }, [locales])
+    return allCountries.map(c => c.code).sort()
+  }, [allCountries])
 
   const SortIcon = ({ field }) => {
     if (sortField !== field) return null
@@ -1712,23 +1917,128 @@ const Locales = () => {
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
               />
             </div>
+            {/* Enhanced Country Filter with Search */}
             <div className="relative">
-              <Filter className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
-              <select
-                value={selectedCountryCode}
-                onChange={(e) => {
-                  setSelectedCountryCode(e.target.value)
-                  setCurrentPage(1)
-                }}
-                className="pl-12 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none cursor-pointer transition-all"
+              <button
+                type="button"
+                onClick={() => setCountryFilterOpen(!countryFilterOpen)}
+                className="flex items-center gap-3 pl-4 pr-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl text-gray-900 hover:border-green-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all min-w-[200px] md:min-w-[240px]"
               >
-                <option value="all">All Countries</option>
-                {countryCodes.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
+                <Filter className="w-5 h-5 text-green-600" />
+                <span className="flex-1 text-left font-medium">
+                  {selectedCountryCode === 'all' 
+                    ? 'All Countries' 
+                    : allCountries.find(c => c.code === selectedCountryCode)?.name || selectedCountryCode}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${countryFilterOpen ? 'rotate-180' : ''}`} />
+                {selectedCountryCode !== 'all' && (
+                  <span className="px-2 py-1 bg-green-600 text-white text-xs font-bold rounded-full">
+                    {allCountries.find(c => c.code === selectedCountryCode)?.localeCount || 0}
+                  </span>
+                )}
+              </button>
+              
+              {/* Enhanced Dropdown with Search */}
+              {countryFilterOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full left-0 right-0 mt-2 bg-white border-2 border-green-200 rounded-xl shadow-2xl z-50 max-h-[400px] overflow-hidden flex flex-col"
+                >
+                  {/* Search Input */}
+                  <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Search countries..."
+                        value={countrySearchQuery}
+                        onChange={(e) => setCountrySearchQuery(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Country List */}
+                  <div className="overflow-y-auto max-h-[320px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCountryCode('all');
+                        setCountryFilterOpen(false);
+                        setCountrySearchQuery('');
+                        setCurrentPage(1);
+                      }}
+                      className={`w-full px-4 py-3 text-left hover:bg-green-50 transition-colors flex items-center justify-between ${
+                        selectedCountryCode === 'all' ? 'bg-green-100 font-semibold text-green-700' : 'text-gray-700'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        All Countries
+                      </span>
+                      <span className="text-xs text-gray-500">{totalLocales}</span>
+                    </button>
+                    
+                    {loadingCountries ? (
+                      <div className="px-4 py-8 text-center text-gray-500">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+                        <p className="text-sm">Loading countries...</p>
+                      </div>
+                    ) : filteredCountries.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-gray-500">
+                        <p className="text-sm">No countries found</p>
+                      </div>
+                    ) : (
+                      filteredCountries.map((country) => (
+                        <button
+                          key={country.code}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCountryCode(country.code);
+                            setCountryFilterOpen(false);
+                            setCountrySearchQuery('');
+                            setCurrentPage(1);
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-green-50 transition-colors flex items-center justify-between border-b border-gray-100 ${
+                            selectedCountryCode === country.code 
+                              ? 'bg-green-100 font-semibold text-green-700' 
+                              : 'text-gray-700'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-8 h-6 bg-gradient-to-r from-green-400 to-emerald-400 rounded text-white text-xs font-bold flex items-center justify-center">
+                              {country.code}
+                            </span>
+                            <span>{country.name || country.code}</span>
+                          </span>
+                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
+                            {country.localeCount || 0}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  
+                  {/* Footer with count */}
+                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-xs text-gray-600 text-center">
+                    {filteredCountries.length} {filteredCountries.length === 1 ? 'country' : 'countries'} {countrySearchQuery && `matching "${countrySearchQuery}"`}
+                  </div>
+                </motion.div>
+              )}
+              
+              {/* Overlay to close dropdown on outside click */}
+              {countryFilterOpen && (
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => {
+                    setCountryFilterOpen(false);
+                    setCountrySearchQuery('');
+                  }}
+                />
+              )}
             </div>
             {selectedLocales.length > 0 && (
               <div className="flex items-center gap-2">
@@ -2000,22 +2310,33 @@ const Locales = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
-              <div className="space-y-2.5">
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
                 <label className="block text-sm font-semibold text-gray-800">
                   Name <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
-                  placeholder="Locale name"
-                  required
-                  minLength={1}
-                  maxLength={200}
-                />
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetectPlace(false)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Detect Place
+                </button>
               </div>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all shadow-sm"
+                placeholder="Locale name"
+                required
+                minLength={1}
+                maxLength={200}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-4">
 
               <div className="space-y-2.5">
                 <label className="block text-sm font-semibold text-gray-800">
@@ -2207,6 +2528,166 @@ const Locales = () => {
         </form>
       </Modal>
 
+      {/* Detect Place Modal - Higher z-index to appear above Edit Modal */}
+      <Modal isOpen={showDetectPlaceModal} onClose={() => {
+        setShowDetectPlaceModal(false)
+        setDetectPlaceName('')
+        setDetectedPlace(null)
+      }} className="bg-white max-w-4xl" zIndex={60}>
+        <ModalHeader onClose={() => {
+          setShowDetectPlaceModal(false)
+          setDetectPlaceName('')
+          setDetectedPlace(null)
+        }}>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <MapPin className="w-5 h-5 text-blue-600" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Detect Place</h2>
+          </div>
+        </ModalHeader>
+        <ModalContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-gray-800">
+                Enter Place Name
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={detectPlaceName}
+                  onChange={(e) => setDetectPlaceName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearchPlace()
+                    }
+                  }}
+                  className="flex-1 px-4 py-3 text-base bg-white border-2 border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all shadow-sm"
+                  placeholder="e.g., Museum of Anthropology"
+                />
+                <button
+                  type="button"
+                  onClick={handleSearchPlace}
+                  disabled={isSearchingPlace || !detectPlaceName.trim()}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-semibold shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSearchingPlace ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      Search
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {detectedPlace && (
+              <div className="space-y-4">
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    <span className="font-semibold text-gray-900">Place Found!</span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-semibold">Name:</span> {detectedPlace.name}</p>
+                    <p><span className="font-semibold">Address:</span> {detectedPlace.formattedAddress}</p>
+                    {detectedPlace.city && <p><span className="font-semibold">City:</span> {detectedPlace.city}</p>}
+                    {detectedPlace.stateProvince && <p><span className="font-semibold">State/Province:</span> {detectedPlace.stateProvince}</p>}
+                    {detectedPlace.country && <p><span className="font-semibold">Country:</span> {detectedPlace.country} {detectedPlace.countryCode ? `(${detectedPlace.countryCode})` : ''}</p>}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Coordinates: {detectedPlace.lat.toFixed(6)}, {detectedPlace.lng.toFixed(6)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Google Maps Static Image */}
+                <div className="w-full h-96 rounded-xl overflow-hidden border-2 border-gray-200 shadow-lg relative group">
+                  <img
+                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${detectedPlace.lat},${detectedPlace.lng}&zoom=15&size=800x400&markers=color:red%7C${detectedPlace.lat},${detectedPlace.lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''}`}
+                    alt={`Map showing ${detectedPlace.name}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div 
+                    className="hidden absolute inset-0 bg-gray-100 flex items-center justify-center flex-col gap-2 p-4"
+                    style={{ display: 'none' }}
+                  >
+                    <MapPin className="w-12 h-12 text-gray-400" />
+                    <p className="text-sm text-gray-600 text-center">
+                      Map preview unavailable
+                    </p>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${detectedPlace.lat},${detectedPlace.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:text-blue-800 underline mt-2"
+                    >
+                      Open in Google Maps
+                    </a>
+                  </div>
+                  {/* Click overlay to open in Google Maps */}
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${detectedPlace.lat},${detectedPlace.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 hover:bg-opacity-10 transition-all cursor-pointer group-hover:bg-opacity-10"
+                    title="Click to open in Google Maps"
+                  >
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium text-gray-900">Open in Google Maps</span>
+                    </div>
+                  </a>
+                </div>
+
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <p className="text-sm text-blue-800">
+                    <span className="font-semibold">Confirm this is the correct place?</span> Click "Use This Place" to auto-fill all form fields.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!detectedPlace && !isSearchingPlace && detectPlaceName && (
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
+                <p className="text-sm text-gray-600">Enter a place name and click "Search" to find it on the map</p>
+              </div>
+            )}
+          </div>
+        </ModalContent>
+        <ModalFooter>
+          <button
+            type="button"
+            onClick={() => {
+              setShowDetectPlaceModal(false)
+              setDetectPlaceName('')
+              setDetectedPlace(null)
+            }}
+            className="w-full sm:w-auto px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors font-semibold text-base shadow-sm"
+          >
+            Cancel
+          </button>
+          {detectedPlace && (
+            <button
+              type="button"
+              onClick={handleConfirmDetectedPlace}
+              className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white rounded-lg transition-all font-semibold shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-base"
+            >
+              <CheckCircle className="w-5 h-5" />
+              Use This Place
+            </button>
+          )}
+        </ModalFooter>
+      </Modal>
+
       {/* Delete Confirmation Modal */}
       <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="bg-white">
         <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)}>
@@ -2285,22 +2766,33 @@ const Locales = () => {
         </ModalHeader>
         <form onSubmit={handleUpdate}>
           <ModalContent className="space-y-5 sm:space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="space-y-2 mb-4">
+              <div className="flex items-center justify-between">
                 <label className="block text-sm font-semibold text-gray-700">
                   Name <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={editFormData.name}
-                  onChange={(e) => setEditFormData({ ...editFormData, name: sanitizeText(e.target.value) })}
-                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  placeholder="Locale name"
-                  required
-                  minLength={1}
-                  maxLength={200}
-                />
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetectPlace(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium shadow-sm"
+                >
+                  <MapPin className="w-4 h-4" />
+                  Detect Place
+                </button>
               </div>
+              <input
+                type="text"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData({ ...editFormData, name: sanitizeText(e.target.value) })}
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Locale name"
+                required
+                minLength={1}
+                maxLength={200}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">

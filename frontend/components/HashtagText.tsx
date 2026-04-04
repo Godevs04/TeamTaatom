@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Text, StyleSheet } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useRouter } from 'expo-router';
 
@@ -70,15 +70,13 @@ export const HashtagText: React.FC<HashtagTextProps> = ({
       {parts.map((part, index) => {
         if (part.isHashtag) {
           return (
-            <TouchableOpacity
+            <Text
               key={index}
               onPress={() => handleHashtagPress(part.text)}
-              activeOpacity={0.7}
+              style={[styles.hashtag, { color: theme.colors.primary }]}
             >
-              <Text style={[styles.hashtag, { color: theme.colors.primary }]}>
-                {part.text}
-              </Text>
-            </TouchableOpacity>
+              {part.text}
+            </Text>
           );
         }
         return <Text key={index}>{part.text}</Text>;

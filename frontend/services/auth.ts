@@ -13,6 +13,7 @@ export interface SignUpData {
   username: string;
   email: string;
   password: string;
+  termsAccepted?: boolean;
 }
 
 export interface SignInData {
@@ -38,8 +39,13 @@ export const signUp = async (data: SignUpData): Promise<AuthResponse> => {
     const response = await api.post('/api/v1/auth/signup', data);
     return response.data;
   } catch (error: any) {
+    // Use error code parser for user-friendly messages
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    // Preserve the error code and original error so it can be detected upstream
+    const newError = new Error(parsedError.userMessage);
+    (newError as any).parsedError = parsedError;
+    (newError as any).originalError = error;
+    throw newError;
   }
 };
 
@@ -145,7 +151,11 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   } catch (error: any) {
     // Use error code parser for user-friendly messages
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    // Preserve the error code in the thrown error so it can be detected upstream
+    const newError = new Error(parsedError.userMessage);
+    (newError as any).parsedError = parsedError;
+    (newError as any).originalError = error;
+    throw newError;
   }
 };
 
@@ -186,9 +196,39 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
       return null;
     }
     // Network or other error - don't sign out, just return network error
-    lastAuthError = error?.message || 'Network or unknown error';
+    // Extract error message safely to avoid serialization issues
+    let errorMessage = 'Network or unknown error';
+    if (error) {
+      if (error instanceof Error) {
+        errorMessage = error.message || 'Network or unknown error';
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.message && typeof error.message === 'string') {
+        errorMessage = error.message;
+      } else {
+        // Try to stringify safely
+        try {
+          errorMessage = JSON.stringify(error);
+        } catch {
+          errorMessage = 'Network or unknown error';
+        }
+      }
+    }
+    
+    // Check for stack overflow errors - these shouldn't be logged as network errors
+    const isStackOverflow = errorMessage.includes('Maximum call stack size exceeded') || 
+                            errorMessage.includes('call stack size exceeded') ||
+                            errorMessage.includes('stack overflow');
+    
+    lastAuthError = errorMessage;
+    
     if (process.env.NODE_ENV === 'development') {
-      logger.warn('Network error in getCurrentUser:', error?.message || error);
+      if (isStackOverflow) {
+        // Log stack overflow as error, not warning, and don't include the full error object
+        logger.error('Stack overflow in getCurrentUser:', errorMessage);
+      } else {
+        logger.warn('Network error in getCurrentUser:', errorMessage);
+      }
     }
     return 'network-error';
   }
@@ -335,6 +375,22 @@ export const signOut = async (): Promise<void> => {
     
     // Clear any other auth-related data
     await AsyncStorage.removeItem('onboarding_completed');
+    await AsyncStorage.removeItem('taatom_shorts_liked_ids');
+    await AsyncStorage.removeItem('taatom_posts_liked_ids');
+    
+    // Clear last auth error
+    lastAuthError = null;
+    
+    // On web, trigger storage event to notify other tabs/windows
+    if (isWeb && typeof window !== 'undefined') {
+      // Trigger a custom event that can be listened to
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'authToken',
+        newValue: null,
+        oldValue: null,
+        storageArea: window.localStorage,
+      }));
+    }
     
     logger.debug('Sign out completed successfully');
   } catch (error) {
@@ -344,6 +400,9 @@ export const signOut = async (): Promise<void> => {
       await AsyncStorage.removeItem('authToken');
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('onboarding_completed');
+      await AsyncStorage.removeItem('taatom_shorts_liked_ids');
+      await AsyncStorage.removeItem('taatom_posts_liked_ids');
+      lastAuthError = null;
     } catch (clearError) {
       logger.error('Failed to clear storage during signout:', clearError);
     }

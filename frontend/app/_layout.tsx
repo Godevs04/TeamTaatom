@@ -1,11 +1,13 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
-import { updateFCMPushToken } from '../services/profile';
+import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
 import { fcmService } from '../services/fcm';
+import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
 import { AlertProvider } from '../context/AlertContext';
@@ -13,7 +15,7 @@ import { ScrollProvider } from '../context/ScrollContext';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname, useSegments } from 'expo-router';
-// Removed expo-notifications - using native FCM instead
+import * as Notifications from 'expo-notifications';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
@@ -25,8 +27,11 @@ import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
-import * as TrackingTransparency from 'expo-tracking-transparency';
 import logger from '../utils/logger';
+import { audioManager } from '../utils/audioManager';
+import LottieSplashScreen from '../components/LottieSplashScreen';
+import { testAPIConnectivity } from '../utils/connectivity';
+import Constants from 'expo-constants';
 
 // Validate environment variables on app startup (lazy import to avoid circular dependency)
 // This will throw an error in production if secrets are exposed
@@ -83,6 +88,19 @@ if (SENTRY_DSN) {
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+// Expo notification handler: show alert, sound, badge (iOS / native only)
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
+
 function RootLayoutInner() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isOffline, setIsOffline] = useState(false);
@@ -92,9 +110,91 @@ function RootLayoutInner() {
   const router = useRouter();
   const pathname = usePathname();
   const segments = useSegments();
-  
+  const previousPathnameRef = useRef<string | null>(null);
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'web' ? 0 : insets.top;
+
   // Apply web optimizations
   useWebOptimizations();
+
+  // Use default Expo splash screen (no longer hiding immediately for Lottie)
+  // The native splash screen will show until app is ready
+  useEffect(() => {
+    // Keep native splash visible until app initialization is complete
+    // This provides better UX with the default splash icon
+  }, []);
+
+  // Re-check connectivity when app comes to foreground and periodically when active
+  useEffect(() => {
+    const checkAndSetOffline = async () => {
+      const ok = await testAPIConnectivity();
+      setIsOffline((prev) => (ok ? false : true));
+    };
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkAndSetOffline();
+    });
+    const interval = setInterval(checkAndSetOffline, 60000);
+    checkAndSetOffline();
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Stop all audio when navigating away from tabs (home/shorts) to other routes
+  // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
+  const isStoppingAudioRef = useRef(false);
+  
+  useEffect(() => {
+    // Skip on initial mount
+    if (previousPathnameRef.current === null) {
+      previousPathnameRef.current = pathname;
+      return;
+    }
+
+    const previousPath = previousPathnameRef.current;
+    
+    // Prevent infinite loops - only process if pathname actually changed
+    if (previousPath === pathname) {
+      return;
+    }
+
+    // Prevent rapid-fire calls
+    if (isStoppingAudioRef.current) {
+      return;
+    }
+
+    previousPathnameRef.current = pathname;
+
+    // Only handle navigation OUT of tabs (not tab-to-tab navigation)
+    // Be more specific to avoid false matches
+    const isCurrentTab = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname === '/(tabs)/post' || pathname === '/(tabs)/locale' || pathname === '/(tabs)/profile' ||
+                        pathname?.startsWith('/(tabs)/') || pathname?.endsWith('/home') || pathname?.endsWith('/shorts') || pathname?.endsWith('/post') || pathname?.endsWith('/locale') || pathname?.endsWith('/profile');
+    const wasTab = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath === '/(tabs)/post' || previousPath === '/(tabs)/locale' || previousPath === '/(tabs)/profile' ||
+                   previousPath?.startsWith('/(tabs)/') || previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts') || previousPath?.endsWith('/post') || previousPath?.endsWith('/locale') || previousPath?.endsWith('/profile');
+    
+    // Only handle navigation from tabs to non-tabs (not tab-to-tab)
+    if (wasTab && !isCurrentTab) {
+      const wasHomeOrShorts = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || 
+                             previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts');
+      
+      // If leaving home or shorts tab to go outside tabs, stop all audio
+      if (wasHomeOrShorts) {
+        isStoppingAudioRef.current = true;
+        logger.debug('[RootLayout] Stopping all audio - navigating away from home/shorts to:', pathname);
+        audioManager.stopAll()
+          .catch((error) => {
+            logger.error('[RootLayout] Error stopping audio:', error);
+          })
+          .finally(() => {
+            // Reset flag after a short delay to allow for navigation
+            setTimeout(() => {
+              isStoppingAudioRef.current = false;
+            }, 100);
+          });
+      }
+    }
+  }, [pathname]);
 
   // Load Poppins font for web (elegant font for auth pages)
   useEffect(() => {
@@ -120,35 +220,6 @@ function RootLayoutInner() {
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
     }).catch(err => logger.error('Error setting audio mode:', err));
-  }, []);
-
-  // App Tracking Transparency (ATT) - iOS 14.5+
-  useEffect(() => {
-    if (Platform.OS === 'ios') {
-      const requestTrackingPermission = async () => {
-        try {
-          const { status } = await TrackingTransparency.requestTrackingPermissionsAsync();
-          if (status === 'granted') {
-            logger.debug('Tracking permission granted');
-            // Initialize analytics or tracking services here if needed
-            // Example: analyticsService.enableTracking();
-          } else {
-            logger.debug('Tracking permission denied');
-            // App still functions normally, just without tracking
-          }
-        } catch (error) {
-          logger.error('Error requesting tracking permission:', error);
-        }
-      };
-      
-      // Request permission after a short delay to ensure app is ready
-      // Best practice: Request after user has used the app a bit (better acceptance rate)
-      const timer = setTimeout(() => {
-        requestTrackingPermission();
-      }, 2000);
-      
-      return () => clearTimeout(timer);
-    }
   }, []);
 
   useEffect(() => {
@@ -232,6 +303,25 @@ function RootLayoutInner() {
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Initialize ads (AdMob + UMP) on native only. Skip in Expo Go & web.
+        const isExpoGo = Constants.appOwnership === 'expo';
+        if ((Platform.OS === 'ios' || Platform.OS === 'android') && !isExpoGo) {
+          try {
+            const { initializeAds } = await import('../services/admob');
+            initializeAds().catch((err: unknown) => {
+              logger.warn(
+                '[RootLayout] Ads init failed (non-blocking):',
+                err instanceof Error ? err.message : err
+              );
+            });
+          } catch (adMobError: any) {
+            logger.warn(
+              '[RootLayout] Ads module load failed (non-blocking):',
+              adMobError?.message || adMobError
+            );
+          }
+        }
 
         // Initialize update service and check for updates
         try {
@@ -327,11 +417,77 @@ function RootLayoutInner() {
         }
       } finally {
         setIsInitializing(false);
-        SplashScreen.hideAsync();
+        // Native splash is already hidden, just ensure it's hidden
+        SplashScreen.hideAsync().catch(() => {
+          // Ignore errors - splash might already be hidden
+        });
       }
     };
     initialize();
   }, []);
+
+  // Periodic check for auth state changes (detects signout)
+  useEffect(() => {
+    if (isInitializing || isAuthenticated === null) {
+      return;
+    }
+
+    // Check auth state periodically to detect signout
+    const checkAuthState = async () => {
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        const userData = await AsyncStorage.getItem('userData');
+        
+        // If we think we're authenticated but storage is cleared, user signed out
+        if (isAuthenticated && !token && !userData) {
+          logger.debug('[RootLayout] Auth state mismatch detected: storage cleared but state is authenticated, updating state');
+          setIsAuthenticated(false);
+          setSessionExpired(false);
+          setIsOffline(false);
+          // Navigation will be handled by the navigation useEffect
+        }
+        // If we think we're not authenticated but storage has data, re-check
+        else if (!isAuthenticated && (token || userData)) {
+          logger.debug('[RootLayout] Auth state mismatch detected: storage has data but state is not authenticated, re-checking');
+          // Re-initialize auth to get current state
+          try {
+            const user = await initializeAuth();
+            if (user && user !== 'network-error') {
+              setIsAuthenticated(true);
+            }
+          } catch (error) {
+            logger.debug('[RootLayout] Re-auth check failed:', error);
+          }
+        }
+      } catch (error) {
+        logger.debug('[RootLayout] Auth state check error:', error);
+      }
+    };
+
+    // Check every 2 seconds (not too frequent to avoid performance issues)
+    const interval = setInterval(checkAuthState, 2000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, isInitializing]);
+
+  // Listen for storage changes to detect signout (web only)
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // On web, listen for storage events (triggered when storage is cleared in another tab/window)
+      const handleStorageChange = async (e: StorageEvent) => {
+        if (e.key === 'authToken' && e.newValue === null && isAuthenticated) {
+          // Auth token was removed - user signed out
+          logger.debug('[RootLayout] Storage change detected: authToken removed, signing out');
+          setIsAuthenticated(false);
+          setSessionExpired(false);
+          setIsOffline(false);
+          router.replace('/(auth)/signin');
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      return () => window.removeEventListener('storage', handleStorageChange);
+    }
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     // Don't navigate during initialization to prevent flash to signin screen
@@ -371,7 +527,7 @@ function RootLayoutInner() {
       // Include all possible route formats and nested routes
       const isOnValidRoute = segments[0] === '(tabs)' || 
                               segments[0] === 'settings' ||
-                              segments[0] === 'post' ||
+                              // segments[0] === 'post' || // Post detail page commented out
                               segments[0] === 'profile' ||
                               segments[0] === 'chat' ||
                               segments[0] === 'search' ||
@@ -381,13 +537,15 @@ function RootLayoutInner() {
                               segments[0] === 'collections' ||
                               segments[0] === 'hashtag' ||
                               segments[0] === 'user-posts' ||
+                              segments[0] === 'user-shorts' ||
+                              segments[0] === 'saved-posts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
                               segments[0] === 'onboarding' ||
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
                               segments[0] === 'help' ||
-                              normalizedPath.startsWith('/post/') || 
+                              // normalizedPath.startsWith('/post/') || // Post detail page commented out 
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||
                               normalizedPath.startsWith('/search') ||
@@ -401,11 +559,29 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/help') ||
                               normalizedPath.startsWith('/hashtag/') ||
                               normalizedPath.startsWith('/user-posts/') ||
+                              normalizedPath.startsWith('/user-shorts/') ||
+                              normalizedPath.startsWith('/saved-posts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
                               normalizedPath.startsWith('/onboarding');
       
-      if (isAuthenticated) {
+      // Double-check storage before trusting isAuthenticated state
+      // This ensures we detect signout even if state hasn't updated yet
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      const hasAuthData = !!(token || userData);
+      
+      // If state says authenticated but storage is cleared, user signed out
+      if (isAuthenticated && !hasAuthData) {
+        logger.debug('[Navigation] Storage cleared but state says authenticated - user signed out, updating state');
+        setIsAuthenticated(false);
+        setSessionExpired(false);
+        setIsOffline(false);
+        // Will navigate to signin in the else block below
+        return;
+      }
+      
+      if (isAuthenticated && hasAuthData) {
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
         if (isOnValidRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
@@ -441,16 +617,25 @@ function RootLayoutInner() {
         
         // Only navigate to auth if we're definitely not authenticated and not due to session expiry
         // Double-check we have no stored auth data before navigating to signin
-        const token = await AsyncStorage.getItem('authToken');
-        const userData = await AsyncStorage.getItem('userData');
-        
-        if (!token && !userData) {
+        // (token and userData already checked above, but check again for clarity)
+        if (!hasAuthData) {
           logger.debug('[Navigation] User not authenticated, navigating to auth');
+          // Use replace to prevent back navigation to authenticated routes
+          // Force navigation even if on a valid route (user signed out)
+          if (isOnValidRoute) {
+            logger.debug('[Navigation] User signed out from authenticated route, forcing navigation to signin');
+          }
           router.replace('/(auth)/signin');
         } else {
           // We have stored data but auth check failed - might be network issue
           // Don't navigate to signin, let the user stay on current screen
           logger.debug('[Navigation] Auth check failed but stored data exists, not navigating to signin');
+        }
+      } else if (sessionExpired) {
+        // Session expired - navigate to signin
+        if (!isOnAuthScreen) {
+          logger.debug('[Navigation] Session expired, navigating to signin');
+          router.replace('/(auth)/signin');
         }
       }
     };
@@ -459,55 +644,83 @@ function RootLayoutInner() {
   }, [isAuthenticated, sessionExpired, isInitializing, router, pathname, segments]);
 
   useEffect(() => {
-    // Skip push notifications on web (requires VAPID keys)
+    // Skip push notifications on web
     if (Platform.OS === 'web') return;
-    
-    // Initialize FCM and register push token
-    async function initializeFCM() {
+
+    async function registerPushToken() {
+      const user = await getUserFromStorage();
+      if (!user?._id) return;
+
       try {
-        // Skip FCM on web platform
-        if (Platform.OS === 'web') {
+        // iOS: use Expo Push Notifications (EAS build)
+        if (Platform.OS === 'ios') {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            await saveExpoPushToken(token);
+            if (process.env.NODE_ENV === 'development') {
+              logger.debug('Expo push token registered');
+            }
+          }
           return;
         }
 
-        // Initialize FCM service
+        // Android: FCM
         await fcmService.initialize();
-
-        // Get FCM token
         const fcmToken = await fcmService.getToken();
         if (fcmToken) {
-          const user = await getUserFromStorage();
-          if (user && user._id) {
-            await updateFCMPushToken(user._id, fcmToken);
-            if (process.env.NODE_ENV === 'development') {
-              logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
-            }
+          await updateFCMPushToken(user._id, fcmToken);
+          if (process.env.NODE_ENV === 'development') {
+            logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
           }
         }
-
-        // Set up notification opened handler
-        fcmService.setupNotificationOpenedHandler((data) => {
+        fcmService.setupNotificationOpenedHandler((data: any) => {
           if (process.env.NODE_ENV === 'development') {
             logger.debug('Notification opened with data:', data);
           }
-          // Handle navigation based on notification data
-          // You can use router.push(data.screen) here if needed
+          const screen = data?.screen;
+          if (screen && typeof screen === 'string') {
+            router.push(screen);
+          }
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         if (process.env.NODE_ENV === 'development') {
-          logger.error('Error initializing FCM:', err);
+          logger.debug('Push token registration skipped or failed:', msg);
         }
-        // FCM might not be available in Expo Go - that's okay
-        if (err.message?.includes('Native module') || err.message?.includes('not found')) {
-          logger.warn('FCM native module not available. Use a development build for full FCM support.');
+        if (typeof msg === 'string' && (msg.includes('Native module') || msg.includes('not found'))) {
+          logger.warn('Push native module not available. Use a development build for full support.');
         }
       }
     }
 
     if (isAuthenticated) {
-      initializeFCM();
+      registerPushToken();
     }
   }, [isAuthenticated]);
+
+  // When user taps a push notification (Expo, iOS): navigate to data.screen (aligned with backend getScreenForType)
+  useEffect(() => {
+    if (Platform.OS === 'web' || Platform.OS !== 'ios') return;
+
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+      const screen = data?.screen;
+      if (screen && typeof screen === 'string') {
+        router.push(screen);
+      }
+    });
+
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+      const screen = data?.screen;
+      if (screen && typeof screen === 'string') {
+        router.push(screen);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [router]);
 
   // Handle app state changes to maintain authentication (mobile only)
   useEffect(() => {
@@ -585,34 +798,51 @@ function RootLayoutInner() {
   }, [isAuthenticated, isOffline, sessionExpired]);
 
   if (isAuthenticated === null || isInitializing) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }] }>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
+    return <LottieSplashScreen visible={true} />;
   }
 
   return (
     <ResponsiveContainer maxWidth={Platform.OS === 'web' ? 600 : undefined}>
       {isOffline && (
-        <View style={{ backgroundColor: '#ffb300', padding: 8, alignItems: 'center', zIndex: 100 }}>
-          <Text style={{ color: '#222', fontWeight: 'bold' }}>You are offline. Some features may not work.</Text>
+        <View
+          style={[
+            styles.offlineBanner,
+            { paddingTop: Math.max(10, topInset) },
+          ]}
+          accessibilityRole="alert"
+          accessibilityLabel="You are offline. Some features may not work."
+        >
+          <Text style={styles.offlineBannerText} numberOfLines={2}>
+            You are offline. Some features may not work.
+          </Text>
+          <TouchableOpacity
+            onPress={async () => {
+              const ok = await testAPIConnectivity();
+              if (ok) setIsOffline(false);
+            }}
+            style={styles.offlineRetryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retry connection"
+          >
+            <Text style={styles.offlineRetryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
       {sessionExpired && showSessionBanner && (
-        <View style={{ backgroundColor: '#ff5252', padding: 8, alignItems: 'center', zIndex: 101, flexDirection: 'row', justifyContent: 'center' }}>
-          <Text style={{ color: '#fff', fontWeight: 'bold', flex: 1, textAlign: 'center' }}>Session expired. Please sign in again.</Text>
-          <TouchableOpacity onPress={() => setShowSessionBanner(false)} style={{ marginLeft: 8 }}>
-            <Text style={{ color: '#fff', fontWeight: 'bold' }}>✕</Text>
+        <View style={[styles.sessionExpiredBanner, { paddingTop: Math.max(10, topInset) }]} accessibilityRole="alert" accessibilityLabel="Session expired. Please sign in again.">
+          <Text style={styles.sessionExpiredText} numberOfLines={1}>Session expired. Please sign in again.</Text>
+          <TouchableOpacity
+            onPress={() => setShowSessionBanner(false)}
+            style={styles.sessionExpiredDismiss}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss session expired banner"
+          >
+            <Text style={styles.sessionExpiredDismissText}>✕</Text>
           </TouchableOpacity>
         </View>
       )}
       <Suspense
-        fallback={
-          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        }
+        fallback={<LottieSplashScreen visible={true} />}
       >
         <Stack
           screenOptions={{
@@ -632,7 +862,8 @@ function RootLayoutInner() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
-          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
+          {/* Post detail page commented out - navigation routes to home instead */}
+          {/* <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} /> */}
           <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />
@@ -641,6 +872,7 @@ function RootLayoutInner() {
           {/* Nested routes with index files */}
           <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
           <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="collections/[id]" options={{ presentation: 'card' }} />
@@ -651,6 +883,8 @@ function RootLayoutInner() {
           <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card' }} />
           {/* User posts dynamic route */}
           <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
+          {/* User shorts dynamic route */}
+          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
@@ -693,5 +927,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     // backgroundColor is set dynamically from theme
+  },
+  // Offline banner: below status bar, clear alignment like real-time apps
+  offlineBanner: {
+    backgroundColor: '#ffb300',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  offlineBannerText: {
+    color: '#222',
+    fontWeight: '600',
+    fontSize: 14,
+    flex: 1,
+    marginRight: 12,
+  },
+  offlineRetryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#222',
+    borderRadius: 8,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  offlineRetryButtonText: {
+    color: '#ffb300',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  sessionExpiredBanner: {
+    backgroundColor: '#ff5252',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    zIndex: 101,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sessionExpiredText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+    flex: 1,
+    marginRight: 12,
+  },
+  sessionExpiredDismiss: {
+    padding: 8,
+  },
+  sessionExpiredDismissText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

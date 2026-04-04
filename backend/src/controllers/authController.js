@@ -2,11 +2,12 @@ const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
-const ForgotSignIn = require('../models/ForgotSignIn');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
+const { generateSignedUrl } = require('../services/mediaService');
+const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
 // Google OAuth client
 const googleClient = new OAuth2Client(
@@ -33,7 +34,11 @@ const signup = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
     }
 
-    const { fullName, username, email, password } = req.body;
+    const { fullName, username, email, password, termsAccepted } = req.body;
+
+    if (termsAccepted !== true && termsAccepted !== 'true') {
+      return sendError(res, 'VAL_2001', 'You must accept the Terms & Conditions to create an account');
+    }
 
     // Check if user already exists (email or username)
     const existingUser = await User.findOne({
@@ -62,12 +67,13 @@ const signup = async (req, res) => {
       }
     }
 
-    // Create new user
+    // Create new user (Apple Guideline 1.2 - store Terms acceptance)
     const user = new User({
       fullName,
       username,
       email,
-      password
+      password,
+      termsAcceptedAt: new Date()
     });
 
     // Generate OTP
@@ -214,8 +220,31 @@ const signin = async (req, res) => {
 
     const { email, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user by email or username
+    // Check if input is email format or username format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const isEmail = emailRegex.test(email.toLowerCase());
+    
+    let user;
+    if (isEmail) {
+      // Try to find by email first
+      user = await User.findOne({ email: email.toLowerCase() });
+    } else {
+      // Try to find by username (already lowercase in validation)
+      user = await User.findOne({ username: email.toLowerCase() });
+    }
+    
+    // If not found with first method, try the other as fallback
+    if (!user) {
+      if (isEmail) {
+        // Already tried email, try username
+        user = await User.findOne({ username: email.toLowerCase() });
+      } else {
+        // Already tried username, try email
+        user = await User.findOne({ email: email.toLowerCase() });
+      }
+    }
+    
     if (!user) {
       return sendError(res, 'AUTH_1004', 'Invalid email or password');
     }
@@ -283,11 +312,48 @@ const signin = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
+      .select('username fullName bio email profilePic profilePicStorageKey totalLikes isVerified createdAt lastLogin followers following')
       .populate('followers', 'fullName profilePic')
-      .populate('following', 'fullName profilePic');
+      .populate('following', 'fullName profilePic')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found', message: 'User does not exist' });
+    }
+
+    // Resolve profile picture URL (same logic as getProfile) so homepage/sidebar get a working image
+    let profilePicUrl = null;
+    const isTaatomOfficial = user._id.toString() === TAATOM_OFFICIAL_USER_ID;
+    if (isTaatomOfficial) {
+      profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
+    } else if (user.profilePicStorageKey) {
+      try {
+        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      } catch (err) {
+        logger.warn('getMe: failed to generate profile pic URL', { userId: user._id, error: err.message });
+        profilePicUrl = user.profilePic || null;
+      }
+    } else if (user.profilePic) {
+      profilePicUrl = user.profilePic;
+    }
+
+    const publicProfile = {
+      _id: user._id,
+      username: user.username,
+      fullName: user.fullName,
+      bio: user.bio,
+      email: user.email,
+      profilePic: profilePicUrl,
+      followers: user.followers?.length ?? 0,
+      following: user.following?.length ?? 0,
+      totalLikes: user.totalLikes ?? 0,
+      isVerified: user.isVerified,
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin
+    };
 
     res.status(200).json({
-      user: user.getPublicProfile()
+      user: publicProfile
     });
   } catch (error) {
     logger.error('Get me error:', error);

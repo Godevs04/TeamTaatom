@@ -17,14 +17,26 @@ class AudioManager {
   }
 
   async stopAll() {
-    if (this.currentSound) {
-      await this.currentSound.stopAsync().catch(() => {});
-      await this.currentSound.unloadAsync().catch(() => {});
-      this.currentSound = null;
-      this.currentPostId = null;
-      this.notifyListeners(null);
+    const sound = this.currentSound;
+    this.currentSound = null;
+    this.currentPostId = null;
+    this.notifyListeners(null);
+    if (sound) {
+      try {
+        await sound.stopAsync();
+      } catch (_) {}
+      try {
+        await sound.unloadAsync();
+      } catch (_) {}
       logger.debug('Stopped all audio');
     }
+  }
+
+  /**
+   * Get currently playing sound instance (for external pause when tab/focus changes)
+   */
+  getCurrentSound(): Audio.Sound | null {
+    return this.currentSound;
   }
 
   /**
@@ -39,6 +51,30 @@ class AudioManager {
    */
   isPostPlaying(postId: string): boolean {
     return this.currentPostId === postId;
+  }
+
+  /**
+   * Toggle mute for current sound
+   */
+  async toggleMute(isMuted: boolean, volume: number = 0.5): Promise<void> {
+    if (!this.currentSound) {
+      logger.debug('toggleMute: No current sound, skipping');
+      return;
+    }
+    
+    try {
+      // Check if sound is loaded before attempting to set volume
+      const status = await this.currentSound.getStatusAsync();
+      if (!status.isLoaded) {
+        logger.debug('toggleMute: Sound not loaded, skipping');
+        return;
+      }
+      
+      await this.currentSound.setVolumeAsync(isMuted ? 0 : volume);
+    } catch (error) {
+      logger.error('Error toggling mute:', error);
+      // Don't re-throw, just log the error
+    }
   }
 
   /**

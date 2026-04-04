@@ -1,11 +1,9 @@
 const AnalyticsEvent = require('../models/AnalyticsEvent');
 const ErrorLog = require('../models/ErrorLog');
-const User = require('../models/User');
 const Post = require('../models/Post');
-const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
-const { cacheWrapper, CacheKeys, CACHE_TTL } = require('../utils/cache');
+const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
 
 /**
  * Get analytics summary (KPIs: DAU, MAU, engagement rate, crash count)

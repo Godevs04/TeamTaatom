@@ -46,16 +46,9 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
-// Read the base app.json configuration
-// Using explicit require that expo-doctor can detect
-const { expo: appJsonExpo } = require('./app.json');
-
-// Export the Expo config - properly merge app.json values
-// This pattern is explicitly recognized by expo-doctor
-module.exports = () => ({
-  expo: {
-    ...appJsonExpo,
-    // Any additional runtime config can go here
-  },
-});
-
+/**
+ * Return the config object Expo builds from app.json (plus defaults).
+ * Reusing the same reference satisfies expo-doctor: static app.json is the base.
+ * @see https://docs.expo.dev/workflow/configuration/
+ */
+module.exports = ({ config }) => config;

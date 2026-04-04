@@ -7,6 +7,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import logger from './logger';
 import { getApiBaseUrl, WEB_SHARE_URL, PRIVACY_POLICY_URL } from './config';
+import { getGoogleMapsApiKey } from './maps';
 
 /**
  * Validates production environment configuration
@@ -58,11 +59,22 @@ export const validateProductionEnvironment = (): void => {
     warnings.push(`⚠️  PRIVACY_POLICY_URL is not using HTTPS: ${PRIVACY_POLICY_URL}`);
   }
 
-  // Validate Google Maps API Key
-  const mapsApiKey = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!mapsApiKey) {
-    warnings.push('⚠️  GOOGLE_MAPS_API_KEY is not set');
-    warnings.push('   Google Maps features will not work');
+  // Validate Google Maps API Key (using the same logic as the app)
+  // Note: Missing key is not an error - app gracefully falls back to Apple Maps on iOS
+  try {
+    const mapsApiKey = getGoogleMapsApiKey();
+    if (!mapsApiKey) {
+      // Log as debug, not warning, since the app handles this gracefully
+      // iOS will use Apple Maps, Android will use fallback
+      // This prevents Sentry from reporting it as an error
+      logger.debug('[ProductionValidator] Google Maps API key not set - app will use fallback map providers');
+    } else {
+      logger.debug('[ProductionValidator] Google Maps API key is configured');
+    }
+  } catch (error: any) {
+    // Don't add to warnings/errors - just log debug
+    // This prevents Sentry from reporting validation errors
+    logger.debug('[ProductionValidator] Error checking Google Maps API key:', error.message);
   }
 
   // Validate Sentry DSN
@@ -72,10 +84,11 @@ export const validateProductionEnvironment = (): void => {
     warnings.push('   Error tracking will be disabled');
   }
 
-  // Log warnings
+  // Log warnings as info instead of warn to prevent Sentry from reporting them
+  // These are informational configuration suggestions, not critical errors
   if (warnings.length > 0) {
-    logger.warn('Production environment warnings:');
-    warnings.forEach(warning => logger.warn(warning));
+    logger.info('Production environment configuration notes:');
+    warnings.forEach(warning => logger.info(warning));
   }
 
   // Throw errors in production

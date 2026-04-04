@@ -9,9 +9,11 @@ import PostLocation from './PostLocation';
 interface PostHeaderProps {
   post: PostType;
   onMenuPress: () => void;
+  onReportPress?: () => void;
+  showReportButton?: boolean;
 }
 
-export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
+export default function PostHeader({ post, onMenuPress, onReportPress, showReportButton }: PostHeaderProps) {
   const { theme } = useTheme();
   const router = useRouter();
 
@@ -43,16 +45,36 @@ export default function PostHeader({ post, onMenuPress }: PostHeaderProps) {
           <Text style={[styles.username, { color: theme.colors.text }]}>
             {user.fullName || 'Unknown User'}
           </Text>
+          
+          {/* Song - Instagram style inline */}
+          {post.song?.songId && (() => {
+            const song = post.song.songId;
+            const songTitle = song.title || 'Unknown Song';
+            const songArtist = song.artist || 'Unknown Artist';
+            return (
+              <View style={styles.inlineSong}>
+                <Ionicons name="musical-notes" size={12} color={theme.colors.textSecondary} />
+                <Text style={[styles.inlineSongText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  {songTitle} · {songArtist}
+                </Text>
+              </View>
+            );
+          })()}
+          
           <PostLocation post={post} />
         </View>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.menuButton}
-        onPress={onMenuPress}
-      >
-        <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
-      </TouchableOpacity>
+      <View style={styles.headerActions}>
+        {showReportButton && onReportPress && (
+          <TouchableOpacity style={styles.menuButton} onPress={onReportPress}>
+            <Ionicons name="flag-outline" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
+          <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -85,6 +107,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  inlineSong: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  inlineSongText: {
+    fontSize: 12,
+    marginLeft: 6,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   menuButton: {
     padding: 4,

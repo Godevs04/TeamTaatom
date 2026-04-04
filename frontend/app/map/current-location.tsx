@@ -17,10 +17,11 @@ import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
-import { MapView, Marker, PROVIDER_GOOGLE } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
+import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import logger from '../../utils/logger';
 
-const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView() ?? Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -207,8 +208,14 @@ export default function CurrentLocationMap() {
 
   useEffect(() => {
     // CRITICAL: Use exact coordinates from params if valid (for locale flow)
+    // These coordinates come from the database (admin locale) and should be used instead of current location
     if (hasValidCoordinates) {
-      logger.info('📍 Setting map location with EXACT coordinates:', { postLatitude, postLongitude });
+      logger.info('📍 Setting map location with EXACT database coordinates from locale:', { 
+        postLatitude, 
+        postLongitude,
+        locationName,
+        userId: userIdParam
+      });
       setLocation({
         coords: {
           latitude: postLatitude!,
@@ -222,8 +229,11 @@ export default function CurrentLocationMap() {
         timestamp: Date.now(),
       });
       setLoading(false);
+      // Don't watch location when showing a specific locale location
+      setIsWatching(false);
     } else {
-      // Get current location
+      // Only get current location if no coordinates were passed
+      // This is for the "current location" flow, not locale navigation
       getCurrentLocation();
       
       // Start watching location for continuous updates
@@ -239,7 +249,7 @@ export default function CurrentLocationMap() {
         }
       };
     }
-  }, [hasValidCoordinates, postLatitude, postLongitude]);
+  }, [hasValidCoordinates, postLatitude, postLongitude, locationName, userIdParam]);
 
   const getCurrentLocation = async () => {
     try {
@@ -405,8 +415,9 @@ export default function CurrentLocationMap() {
       );
     }
 
-    if (Platform.OS === 'web') {
-      // WebView map for web platform
+    // Use WebView for web and Android so maps open reliably (native MapView can be blank on some Android devices)
+    const useWebView = Platform.OS === 'web' || Platform.OS === 'android';
+    if (useWebView) {
       return (
         <WebView
           style={styles.map}
@@ -464,32 +475,41 @@ export default function CurrentLocationMap() {
     }
 
     // Native MapView for iOS/Android
+    // Note: customMapStyle disabled on Android - can cause blank map on some devices
     return (
       <MapView
-        style={styles.map}
-        provider={PROVIDER_GOOGLE}
-        customMapStyle={satelliteTheme}
+        style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
+        provider={getMapProvider()}
+        {...(Platform.OS === 'ios' ? { customMapStyle: satelliteTheme } : {})}
         initialRegion={{
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         }}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
+        showsUserLocation={!isPostLocation && !hasValidCoordinates}
+        showsMyLocationButton={!isPostLocation && !hasValidCoordinates}
         showsCompass={true}
         showsScale={true}
         mapType="terrain"
-        userLocationPriority="high"
-        followsUserLocation={true}
+        userLocationPriority={hasValidCoordinates ? "none" : "high"}
+        followsUserLocation={!hasValidCoordinates}
       >
         <Marker
           coordinate={{
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
           }}
-          title={isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location'}
-          description={isPostLocation ? 'Post Location' : 'You are here'}
+          title={
+            isPostLocation 
+              ? (postAddress || 'Post Location') 
+              : (locationName || 'Your Current Location')
+          }
+          description={
+            isPostLocation 
+              ? 'Post Location' 
+              : (locationName ? `${locationName} Location` : 'You are here')
+          }
           anchor={{ x: 0.5, y: 1 }}
           onPress={() => {
             // CRITICAL: For TripScore flow, just go back to existing detail screen
@@ -594,18 +614,6 @@ export default function CurrentLocationMap() {
               </Text>
             </View>
           )}
-          <View style={styles.locationRow}>
-            <Ionicons name="location" size={20} color={theme.colors.primary} />
-            <Text style={[styles.locationText, { color: theme.colors.text }]}>
-              Latitude: {location.coords.latitude.toFixed(6)}
-            </Text>
-          </View>
-          <View style={styles.locationRow}>
-            <Ionicons name="location" size={20} color={theme.colors.primary} />
-            <Text style={[styles.locationText, { color: theme.colors.text }]}>
-              Longitude: {location.coords.longitude.toFixed(6)}
-            </Text>
-          </View>
           {!isPostLocation && location.coords.accuracy && location.coords.accuracy > 0 && (
             <View style={styles.locationRow}>
               <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />

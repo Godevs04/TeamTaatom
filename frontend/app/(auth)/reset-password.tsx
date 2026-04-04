@@ -396,8 +396,8 @@ export default function ResetPassword() {
                     value={values.token}
                     onChangeText={handleChange('token')}
                     onBlur={handleBlur('token')}
-                    error={errors.token}
-                    touched={touched.token}
+                    error={typeof errors.token === 'string' ? errors.token : undefined}
+                    touched={!!touched.token}
                     autoCapitalize="none"
                     autoFocus
                   />
@@ -407,8 +407,8 @@ export default function ResetPassword() {
                     value={values.email}
                     onChangeText={handleChange('email')}
                     onBlur={handleBlur('email')}
-                    error={errors.email}
-                    touched={touched.email}
+                    error={typeof errors.email === 'string' ? errors.email : undefined}
+                    touched={!!touched.email}
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
@@ -418,8 +418,8 @@ export default function ResetPassword() {
                     value={values.newPassword}
                     onChangeText={handleChange('newPassword')}
                     onBlur={handleBlur('newPassword')}
-                    error={errors.newPassword}
-                    touched={touched.newPassword}
+                    error={typeof errors.newPassword === 'string' ? errors.newPassword : undefined}
+                    touched={!!touched.newPassword}
                     autoCapitalize="none"
                     secureTextEntry={!showPassword}
                     rightIcon={
@@ -438,8 +438,8 @@ export default function ResetPassword() {
                     value={values.confirmPassword}
                     onChangeText={handleChange('confirmPassword')}
                     onBlur={handleBlur('confirmPassword')}
-                    error={errors.confirmPassword}
-                    touched={touched.confirmPassword}
+                    error={typeof errors.confirmPassword === 'string' ? errors.confirmPassword : undefined}
+                    touched={!!touched.confirmPassword}
                     autoCapitalize="none"
                     secureTextEntry={!showConfirmPassword}
                     rightIcon={

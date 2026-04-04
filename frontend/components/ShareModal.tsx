@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,18 @@ import {
   Platform,
   Alert,
   Image,
+  ActivityIndicator,
+  FlatList,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { getPostShareUrl } from '../utils/config';
+import { getShortUrl } from '../services/shortUrl';
+import { sendMessage } from '../services/chat';
+import { searchUsers, getSuggestedUsers } from '../services/profile';
+import api from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../utils/logger';
 
 interface ShareModalProps {
@@ -23,6 +31,9 @@ interface ShareModalProps {
     _id: string;
     caption?: string;
     imageUrl?: string;
+    images?: string[];
+    mediaUrl?: string;
+    videoUrl?: string;
     user?: {
       fullName: string;
     };
@@ -37,9 +48,47 @@ export default function ShareModal({
   shareUrl,
 }: ShareModalProps) {
   const { theme } = useTheme();
+  const [shortUrl, setShortUrl] = useState<string>('');
+  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
+  const [showUserPicker, setShowUserPicker] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  // Generate share URL
+  // Fetch short URL when modal opens (non-blocking)
+  useEffect(() => {
+    if (visible && post?._id && !shareUrl) {
+      // Set fallback URL immediately so user can see something
+      const fallbackUrl = getPostShareUrl(post._id);
+      setShortUrl(fallbackUrl);
+      
+      // Try to get short URL in background (non-blocking)
+      setIsLoadingUrl(true);
+      getShortUrl(post._id)
+        .then((url) => {
+          setShortUrl(url);
+          setIsLoadingUrl(false);
+        })
+        .catch((error) => {
+          logger.error('Failed to get short URL, using fallback:', error);
+          // Keep using fallback URL - don't change it
+          setIsLoadingUrl(false);
+        });
+    } else if (visible && shareUrl) {
+      setShortUrl(shareUrl);
+      setIsLoadingUrl(false);
+    } else if (!visible) {
+      // Reset when modal closes
+      setShortUrl('');
+      setIsLoadingUrl(false);
+    }
+  }, [visible, post?._id, shareUrl]);
+
+  // Generate share URL (use short URL if available, otherwise fallback)
   const getShareUrl = () => {
+    if (shortUrl) return shortUrl;
     if (shareUrl) return shareUrl;
     if (post?._id) {
       return getPostShareUrl(post._id);
@@ -110,6 +159,188 @@ export default function ShareModal({
       onClose();
     } catch (error: any) {
       logger.error('Error sharing to Twitter:', error);
+    }
+  };
+
+  // Handle send to chat
+  const handleSendToChat = () => {
+    setShowUserPicker(true);
+    setSearchQuery(''); // Reset search when opening
+    setUsers([]); // Clear previous users
+    // loadUsers will be called by useEffect when showUserPicker becomes true
+  };
+
+  // Cleanup when modal closes
+  useEffect(() => {
+    if (!showUserPicker) {
+      setSearchQuery('');
+      setUsers([]);
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+        setSearchTimeout(null);
+      }
+    }
+  }, [showUserPicker]);
+
+  // Load users for chat - search across all users in the app
+  const loadUsers = async (query: string = '') => {
+    setIsLoadingUsers(true);
+    try {
+      const trimmedQuery = query.trim();
+      
+      // If query is empty or less than 2 characters, use suggested users or following users
+      if (!trimmedQuery || trimmedQuery.length < 2) {
+        // Try to get suggested users first
+        try {
+          const suggestedResponse = await getSuggestedUsers(50);
+          if (suggestedResponse.users && suggestedResponse.users.length > 0) {
+            setUsers(suggestedResponse.users);
+            return;
+          }
+        } catch (suggestedError) {
+          logger.debug('Could not get suggested users, trying following users:', suggestedError);
+        }
+        
+        // Fallback: get following users
+        try {
+          const userData = await AsyncStorage.getItem('userData');
+          if (userData) {
+            const parsed = JSON.parse(userData);
+            const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
+            const followingUsers = response.data.users || [];
+            if (followingUsers.length > 0) {
+              setUsers(followingUsers);
+              return;
+            }
+          }
+        } catch (followingError) {
+          logger.debug('Could not get following users:', followingError);
+        }
+        
+        // If both fail, set empty array
+        setUsers([]);
+      } else {
+        // Query is 2+ characters, use search API
+        const response = await searchUsers(trimmedQuery, 1, 100);
+        setUsers(response.users || []);
+      }
+    } catch (error: any) {
+      logger.error('Error loading users:', error);
+      // Final fallback: try to get following users
+      try {
+        const userData = await AsyncStorage.getItem('userData');
+        if (userData) {
+          const parsed = JSON.parse(userData);
+          const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
+          setUsers(response.data.users || []);
+        } else {
+          setUsers([]);
+        }
+      } catch (fallbackError) {
+        logger.error('Error loading following users:', fallbackError);
+        setUsers([]);
+      }
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  // Debounced search - load users when search query changes
+  useEffect(() => {
+    if (!showUserPicker) return;
+
+    // Clear previous timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    // Set new timeout for debounced search
+    const timeout = setTimeout(() => {
+      loadUsers(searchQuery);
+    }, 300); // 300ms debounce
+
+    setSearchTimeout(timeout);
+
+    // Cleanup
+    return () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [searchQuery, showUserPicker]);
+
+  // Load initial users when modal opens
+  useEffect(() => {
+    if (showUserPicker && !searchQuery) {
+      loadUsers('');
+    }
+  }, [showUserPicker]);
+
+  // Send post to selected user
+  const handleSendToUser = async (userId: string) => {
+    if (!post?._id) return;
+    
+    setIsSendingMessage(true);
+    try {
+      const shareUrl = getShareUrl();
+      
+      // Extract image URL - try multiple sources
+      let imageUrl = '';
+      if (post.imageUrl) {
+        imageUrl = post.imageUrl;
+      } else if (post.images && Array.isArray(post.images) && post.images.length > 0) {
+        // Use first image from images array
+        imageUrl = post.images[0];
+      } else if (post.mediaUrl) {
+        // Use mediaUrl as fallback
+        imageUrl = post.mediaUrl;
+      } else if (post.videoUrl) {
+        // For videos, we might want to use a thumbnail or the video URL itself
+        imageUrl = post.videoUrl;
+      }
+      
+      // Format: [POST_SHARE]postId|imageUrl|shareUrl|caption|authorName
+      // This allows the chat to parse and render as a post preview
+      const postData = [
+        post._id,
+        imageUrl || '',
+        shareUrl,
+        post.caption || '',
+        post.user?.fullName || ''
+      ].join('|');
+      
+      const messageText = `[POST_SHARE]${postData}`;
+      
+      // Debug logging
+      logger.debug('Sending post share:', {
+        postId: post._id,
+        imageUrl: imageUrl || 'NO IMAGE',
+        hasImageUrl: !!post.imageUrl,
+        hasImages: !!(post.images && post.images.length > 0),
+        hasMediaUrl: !!post.mediaUrl,
+      });
+      
+      await sendMessage(userId, messageText);
+      
+      // Reset sending state immediately
+      setIsSendingMessage(false);
+      
+      // Close user picker first
+      setShowUserPicker(false);
+      
+      // Close main modal after a brief delay to allow state updates
+      setTimeout(() => {
+        onClose();
+        // Show success message after modal closes to prevent blocking UI
+        setTimeout(() => {
+          Alert.alert('Success', 'Post sent successfully!');
+        }, 200);
+      }, 150);
+    } catch (error: any) {
+      logger.error('Error sending message:', error);
+      setIsSendingMessage(false);
+      // Don't close modals on error - let user retry
+      Alert.alert('Error', error.message || 'Failed to send post. Please try again.');
     }
   };
 
@@ -199,9 +430,16 @@ export default function ShareModal({
                     {post.caption}
                   </Text>
                 )}
-                <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
-                  {getShareUrl()}
-                </Text>
+                <View style={styles.urlContainer}>
+                  <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
+                    {getShareUrl()}
+                  </Text>
+                  {isLoadingUrl && (
+                    <View style={styles.loadingIndicator}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
           )}
@@ -261,6 +499,17 @@ export default function ShareModal({
                 Copy Link
               </Text>
             </TouchableOpacity>
+
+            {/* Send to Chat */}
+            <TouchableOpacity
+              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+              onPress={handleSendToChat}
+            >
+              <Ionicons name="chatbubble-outline" size={32} color={theme.colors.primary} />
+              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                Send to Chat
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -271,6 +520,101 @@ export default function ShareModal({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* User Picker Modal */}
+      <Modal
+        visible={showUserPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowUserPicker(false)}
+      >
+        <View style={styles.userPickerOverlay}>
+          <TouchableOpacity
+            style={styles.userPickerBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowUserPicker(false)}
+          />
+          <View style={[styles.userPickerContent, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+            
+            <View style={styles.userPickerHeader}>
+              <Text style={[styles.userPickerTitle, { color: theme.colors.text }]}>
+                Send to Chat
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowUserPicker(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Bar */}
+            <View style={[styles.searchBar, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.colors.text }]}
+                placeholder="Search users..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+
+            {/* Users List */}
+            {isLoadingUsers ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+              </View>
+            ) : (
+              <FlatList
+                data={users}
+                keyExtractor={(item) => item._id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.userItem, { backgroundColor: theme.colors.background }]}
+                    onPress={() => handleSendToUser(item._id)}
+                    disabled={isSendingMessage}
+                  >
+                    {item.profilePic ? (
+                      <Image
+                        source={{ uri: item.profilePic }}
+                        style={styles.userAvatar}
+                      />
+                    ) : (
+                      <View style={[styles.userAvatar, { backgroundColor: theme.colors.border }]}>
+                        <Ionicons name="person" size={24} color={theme.colors.textSecondary} />
+                      </View>
+                    )}
+                    <View style={styles.userInfo}>
+                      <Text style={[styles.userName, { color: theme.colors.text }]}>
+                        {item.fullName || item.username || 'User'}
+                      </Text>
+                      {item.username && item.username !== item.fullName && (
+                        <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
+                          @{item.username}
+                        </Text>
+                      )}
+                    </View>
+                    {isSendingMessage && (
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="people-outline" size={48} color={theme.colors.textSecondary} />
+                    <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                      {searchQuery ? 'No users found' : 'No users available'}
+                    </Text>
+                  </View>
+                }
+                contentContainerStyle={{ paddingBottom: 20 }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -355,8 +699,97 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 4,
   },
+  urlContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   previewUrl: {
     fontSize: 10,
+    flex: 1,
+  },
+  loadingIndicator: {
+    marginLeft: 4,
+  },
+  userPickerOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  userPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  userPickerContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+    maxHeight: '80%',
+  },
+  userPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  userPickerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  userItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  userAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  userUsername: {
+    fontSize: 14,
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    marginTop: 12,
+    fontSize: 16,
   },
 });
 

@@ -38,12 +38,19 @@ import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
 import { createLogger } from '../utils/logger';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import { createReport } from '../services/report';
+import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
+import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
+
+const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
+const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
 
 interface PhotoCardProps {
   post: PostType;
   onRefresh?: () => void;
   onPress?: () => void;
   isVisible?: boolean; // For lazy loading
+  isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
   showBookmark?: boolean; // Show/hide bookmark button
 }
 
@@ -52,6 +59,7 @@ function PhotoCard({
   onRefresh,
   onPress,
   isVisible = true,
+  isCurrentlyVisible = false,
   showBookmark = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
@@ -63,6 +71,7 @@ function PhotoCard({
   
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Handle case where user might be undefined (from fallback user object)
@@ -277,8 +286,15 @@ function PhotoCard({
       return;
     }
 
-    // Reset retry count when image URL changes
+    // Reset retry count and flags when image URL changes
     imageRetryCountRef.current = 0;
+    isRetryingRef.current = false;
+    
+    // Clear any pending retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
 
     setImageLoading(true);
     setImageError(false);
@@ -358,11 +374,27 @@ function PhotoCard({
     setLikesCountWithRef(newCount);
 
     try {
+      // Persist optimistic intent immediately so it survives app kill / RAM clear
+      try {
+        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, newLiked);
+        await enqueuePendingLike(PENDING_LIKES_STORAGE_KEY, post._id, newLiked);
+      } catch (e) {
+        logger.debug('Failed to persist optimistic like intent', e);
+      }
+
       // Mark as updating to prevent WebSocket listener from processing
       isUpdatingRef.current = true;
       lastUpdateTimeRef.current = Date.now();
       
       const response = await toggleLike(post._id);
+      
+      // Persist liked state locally so it survives app restart (same as Shorts)
+      try {
+        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, response.isLiked);
+        await clearPendingLike(PENDING_LIKES_STORAGE_KEY, post._id);
+      } catch (e) {
+        logger.debug('Failed to persist liked posts', e);
+      }
       
       // Update with actual response (in case of errors or discrepancies)
       setIsLikedWithRef(response.isLiked);
@@ -674,7 +706,8 @@ function PhotoCard({
         if (postId) {
           // Expo Router's router.push() doesn't return a Promise
           // It's a synchronous navigation method, so we just call it directly
-          router.push(`/post/${postId}`);
+          // Post detail page commented out - navigate to home with postId to scroll to specific post
+          router.push(`/(tabs)/home?postId=${postId}`);
         } else {
           logger.warn('Cannot navigate: post._id is missing', { post });
         }
@@ -689,15 +722,25 @@ function PhotoCard({
 
   // Image loading safety: stop retrying failed image loads to prevent retry loops
   const imageRetryCountRef = useRef(0);
+  const isRetryingRef = useRef(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_IMAGE_RETRIES = 2; // Maximum retry attempts before giving up
   
   const handleImageRetry = useCallback(async () => {
-    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      setImageError(true);
-      setImageLoading(false);
+    // Prevent multiple simultaneous retries
+    if (isRetryingRef.current) {
       return;
     }
     
+    // Check retry count before attempting
+    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
+      setImageError(true);
+      setImageLoading(false);
+      isRetryingRef.current = false;
+      return;
+    }
+    
+    isRetryingRef.current = true;
     setImageError(false);
     setImageLoading(true);
     
@@ -710,20 +753,40 @@ function PhotoCard({
       setImageUri(optimizedUrl);
       setImageLoading(false);
       imageRetryCountRef.current = 0; // Reset on success
+      isRetryingRef.current = false;
+      setImageError(false);
     } catch (error) {
-      logger.warn('Image retry failed', { postId: post._id, retryCount: imageRetryCountRef.current });
-      // handleImageError will be called by Image onError, which will check retry count
-      setImageError(true);
+      // If retry fails, set the URI anyway and let Image component try
+      // The Image component's onError will handle if it still fails
+      setImageUri(post.imageUrl);
       setImageLoading(false);
+      isRetryingRef.current = false;
+      // Don't set error here - let the Image component's onError handle it
+      // This prevents double error handling
     }
   }, [post.imageUrl, post._id]);
 
   const handleImageError = useCallback(() => {
+    // Clear any pending retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    
     // Stop retrying after max attempts to prevent retry loops
     if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
+      // Only log once to prevent spam
+      if (!imageError) {
+        logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
+      }
       setImageError(true);
       setImageLoading(false);
+      isRetryingRef.current = false;
+      return;
+    }
+    
+    // Prevent multiple simultaneous error handlers
+    if (isRetryingRef.current) {
       return;
     }
     
@@ -732,16 +795,32 @@ function PhotoCard({
     logger.debug(`Image load error, retry attempt ${imageRetryCountRef.current}`, { postId: post._id });
     
     // Retry with exponential backoff
-    setTimeout(() => {
+    retryTimeoutRef.current = setTimeout(() => {
+      retryTimeoutRef.current = null;
       handleImageRetry();
     }, 1000 * imageRetryCountRef.current);
-  }, [post._id, handleImageRetry]);
+  }, [post._id, handleImageRetry, imageError]);
+  
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
       {/* Header - Must be above image to receive touches */}
       <View pointerEvents="box-none">
-        <PostHeader post={post} onMenuPress={() => setShowMenu(true)} />
+        <PostHeader
+          post={post}
+          onMenuPress={() => setShowMenu(true)}
+          showReportButton={!!currentUser && postUser._id !== currentUser._id}
+          onReportPress={() => setShowReportModal(true)}
+        />
       </View>
 
       {/* Image - Conditional rendering: only render Image component when visible */}
@@ -757,6 +836,8 @@ function PhotoCard({
           onImageError={handleImageError}
           onRetry={handleImageRetry}
           pulseAnim={pulseAnim}
+          isCurrentlyVisible={isCurrentlyVisible}
+          onDoubleTap={handleLike}
         />
       ) : (
         // Lightweight placeholder for unmounted images
@@ -773,7 +854,7 @@ function PhotoCard({
           onComment={handleOpenComments}
           onShare={handleShareClick}
           onSave={handleSave}
-          showBookmark={showBookmark && currentUser && currentUser._id !== postUser._id}
+          showBookmark={showBookmark} // Allow users to save their own posts
           isLoading={actionLoading.size > 0}
         />
       </View>
@@ -920,14 +1001,7 @@ function PhotoCard({
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Report Post',
-                      'Are you sure you want to report this post? It will be reviewed by our moderation team.',
-                      'warning',
-                      () => {
-                        showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
-                      }
-                    );
+                    setShowReportModal(true);
                   }}
                   disabled={isMenuLoading}
                 >
@@ -945,7 +1019,7 @@ function PhotoCard({
                       `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
                       'warning',
                       () => {
-                        showCustomAlertMessage('Success', `You've unfollowed ${postUser.fullName || 'Unknown User'}`, 'success');
+                        // No success alert - silent update for better UX
                       }
                     );
                   }}
@@ -995,7 +1069,7 @@ function PhotoCard({
         </TouchableOpacity>
       </Modal>
 
-      {/* Edit Modal */}
+      {/* Edit Modal - Fixed alignment and responsiveness */}
       <Modal
         visible={showEditModal}
         transparent
@@ -1012,8 +1086,9 @@ function PhotoCard({
           style={styles.editModalOverlay}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
+          {/* Overlay background - close modal on press */}
           <TouchableOpacity 
-            style={{ flex: 1 }}
+            style={styles.editModalOverlayTouchable}
             activeOpacity={1}
             onPress={() => {
               if (!isMenuLoading) {
@@ -1022,7 +1097,9 @@ function PhotoCard({
               }
             }}
           >
+            {/* Modal container - prevent close on press */}
             <TouchableOpacity 
+              style={styles.editModalContainerTouchable}
               activeOpacity={1}
               onPress={(e) => e.stopPropagation()}
             >
@@ -1042,31 +1119,31 @@ function PhotoCard({
                   maxLength={1000}
                   autoFocus
                 />
-              <View style={styles.editModalActions}>
-                <TouchableOpacity
-                  style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
-                  onPress={() => {
-                    setShowEditModal(false);
-                    setEditCaption(post.caption || '');
-                  }}
-                >
-                  <Text style={[styles.editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.editModalButton, styles.editModalButtonSave, { backgroundColor: theme.colors.primary, marginLeft: 6 }]}
-                  onPress={handleEditPost}
-                  disabled={isMenuLoading || !editCaption.trim()}
-                >
-                  {isMenuLoading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.editModalButtonTextSave}>Save</Text>
-                  )}
-                </TouchableOpacity>
+                <View style={styles.editModalActions}>
+                  <TouchableOpacity
+                    style={[styles.editModalButton, styles.editModalButtonCancel, { marginRight: 6, borderColor: theme.colors.border }]}
+                    onPress={() => {
+                      setShowEditModal(false);
+                      setEditCaption(post.caption || '');
+                    }}
+                  >
+                    <Text style={[styles.editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editModalButton, styles.editModalButtonSave, { backgroundColor: theme.colors.primary, marginLeft: 6 }]}
+                    onPress={handleEditPost}
+                    disabled={isMenuLoading || !editCaption.trim()}
+                  >
+                    {isMenuLoading ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.editModalButtonTextSave}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1091,6 +1168,24 @@ function PhotoCard({
       />
 
       {/* Share Modal */}
+      <ReportReasonModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        title="Report Post"
+        onSelect={async (reason: ReportReasonType) => {
+          try {
+            await createReport({
+              type: reason,
+              reportedUserId: postUser._id,
+              postId: post._id,
+              reason,
+            });
+            showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
+          } catch (err: any) {
+            showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.report') || 'Failed to submit report', 'error');
+          }
+        }}
+      />
       <ShareModal
         visible={showShareModal}
         onClose={() => setShowShareModal(false)}
@@ -1118,7 +1213,8 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
-    prevProps.isVisible === nextProps.isVisible
+    prevProps.isVisible === nextProps.isVisible &&
+    prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });
 
@@ -1212,11 +1308,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  editModalOverlayTouchable: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
+  },
+  editModalContainerTouchable: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
   },
   editModalContainer: {
     width: '100%',
-    maxWidth: 400,
     borderRadius: 20,
     padding: 24,
     shadowColor: '#000',

@@ -3,7 +3,8 @@
  * Handles automatic update checking and installation using Expo Updates
  */
 
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
+import { showGlobalAlert } from '../utils/globalAlertHandler';
 import Constants from 'expo-constants';
 import logger from '../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,12 +34,18 @@ class UpdateService {
   private isChecking = false;
 
   /**
-   * Check if updates are enabled
+   * Check if updates are enabled.
+   * False in __DEV__ (Metro) to avoid crashes when expo-updates runs in dev context.
+   * True when: production build, expo-updates available, Updates.isEnabled, and EAS project ID set.
    */
   isEnabled(): boolean {
-    // Updates only work in production builds, not in Expo Go
+    if (__DEV__) return false;
     if (!Updates) return false;
-    return Updates.isEnabled && Constants.expoConfig?.extra?.eas?.projectId !== undefined;
+    const extra = Constants.expoConfig?.extra ?? {};
+    const hasEasProject =
+      extra.eas?.projectId !== undefined ||
+      (extra.EXPO_PROJECT_ID !== undefined && extra.EXPO_PROJECT_ID !== '');
+    return !!(Updates.isEnabled && hasEasProject);
   }
 
   /**
@@ -58,7 +65,7 @@ class UpdateService {
     this.isChecking = true;
 
     try {
-      if (!Updates) {
+      if (!Updates || typeof Updates.checkForUpdateAsync !== 'function') {
         logger.warn('Updates module not available');
         return { isAvailable: false, isCritical: false };
       }
@@ -131,11 +138,13 @@ class UpdateService {
       }
     } catch (error: any) {
       logger.error('Error downloading update:', error);
-      Alert.alert(
-        'Update Failed',
-        'Failed to download update. Please try again later.',
-        [{ text: 'OK' }]
-      );
+      showGlobalAlert({
+        title: 'Update Failed',
+        message: 'Failed to download update. Please try again later.',
+        type: 'error',
+        showCancel: false,
+        confirmText: 'OK',
+      });
       return false;
     }
   }
@@ -223,36 +232,24 @@ class UpdateService {
                    'A new version of the app is available. Would you like to update now?';
 
     if (isCritical) {
-      // Critical update - force update
-      Alert.alert(
-        'Update Required',
-        message + '\n\nThis update is required to continue using the app.',
-        [
-          {
-            text: 'Update Now',
-            onPress: () => this.downloadAndInstallUpdate(),
-            style: 'default',
-          },
-        ],
-        { cancelable: false }
-      );
+      showGlobalAlert({
+        title: 'Update Required',
+        message: message + '\n\nThis update is required to continue using the app.',
+        type: 'warning',
+        showCancel: false,
+        confirmText: 'Update Now',
+        onConfirm: () => this.downloadAndInstallUpdate(),
+      });
     } else {
-      // Optional update
-      Alert.alert(
-        'Update Available',
+      showGlobalAlert({
+        title: 'Update Available',
         message,
-        [
-          {
-            text: 'Later',
-            style: 'cancel',
-          },
-          {
-            text: 'Update Now',
-            onPress: () => this.downloadAndInstallUpdate(),
-            style: 'default',
-          },
-        ]
-      );
+        type: 'info',
+        showCancel: true,
+        cancelText: 'Later',
+        confirmText: 'Update Now',
+        onConfirm: () => this.downloadAndInstallUpdate(),
+      });
     }
   }
 

@@ -244,7 +244,11 @@ export default function AccountSettingsScreen() {
                   </Text>
                 </View>
               ) : null}
-              <Text style={[styles.settingValue, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
+              <Text 
+                style={[styles.settingValue, { color: theme.colors.textSecondary, marginLeft: 8 }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {user?.email}
               </Text>
             </View>
@@ -280,26 +284,6 @@ export default function AccountSettingsScreen() {
               )}
             </TouchableOpacity>
           )}
-
-          <TouchableOpacity 
-            style={styles.settingItem}
-            onPress={() => {
-              // Navigate back to profile and trigger edit profile modal
-              router.back();
-              // We'll need to pass a parameter to trigger edit profile
-              setTimeout(() => {
-                router.push({ pathname: '/profile', params: { editProfile: 'true' } });
-              }, 100);
-            }}
-          >
-            <View style={styles.settingContent}>
-              <Ionicons name="create-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
-                Edit Profile
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
         </View>
 
         {/* Preferences */}
@@ -326,7 +310,7 @@ export default function AccountSettingsScreen() {
               </View>
             </View>
             <View style={styles.settingRight}>
-              <View style={styles.comingSoonBadge}>
+              <View style={[styles.comingSoonBadge, { backgroundColor: 'rgba(0,0,0,0.1)' }]}>
                 <Text style={[styles.comingSoonText, { color: theme.colors.primary }]}>
                   Coming Soon
                 </Text>
@@ -673,6 +657,8 @@ const styles = StyleSheet.create({
   settingValue: {
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
+    flexShrink: 1,
+    textAlign: 'right',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -680,6 +666,8 @@ const styles = StyleSheet.create({
   settingRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
+    marginLeft: 8,
   },
   dangerItem: {
     borderBottomWidth: 0,
@@ -703,7 +691,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
-    backgroundColor: theme.colors.primary + '15',
     marginRight: 4,
   },
   comingSoonText: {

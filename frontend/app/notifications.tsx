@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   TouchableOpacity,
   Image,
   ActivityIndicator,
@@ -17,6 +17,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
 import NavBar from '../components/NavBar';
 import FollowRequestPopup from '../components/FollowRequestPopup';
+import CustomAlert from '../components/CustomAlert';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
@@ -59,6 +60,12 @@ export default function NotificationsScreen() {
     notification: null as Notification | null,
     loading: false,
   });
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(() => new Set());
+  const [contentUnavailableAlert, setContentUnavailableAlert] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: '', message: '' });
   const router = useRouter();
   const { theme, mode } = useTheme();
   const { showSuccess, showError, showInfo, showWarning } = useAlert();
@@ -72,17 +79,56 @@ export default function NotificationsScreen() {
       }
 
       const response = await getNotifications(pageNum, 20);
+      const rawList = response?.notifications ?? [];
+      if (!Array.isArray(rawList)) {
+        setNotifications([]);
+        setHasMore(false);
+        return;
+      }
+
+      // Filter out duplicate follow_request notifications (client-side safety check)
+      const seenFollowRequests = new Set<string>();
+      const filteredNotifications = rawList.filter((n: Notification) => {
+        if (n.type === 'follow_request') {
+          // If we've seen a follow_request from this user before, skip it
+          const key = `${n.fromUser._id}-${n.type}`;
+          if (seenFollowRequests.has(key)) {
+            return false;
+          }
+          seenFollowRequests.add(key);
+        }
+        return true;
+      });
       
       if (isRefresh || pageNum === 1) {
-        setNotifications(response.notifications);
+        setFailedThumbnails(() => new Set());
+        setNotifications(filteredNotifications);
       } else {
-        setNotifications(prev => [...prev, ...response.notifications]);
+        // For pagination, filter new notifications and merge with existing (avoid duplicates)
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(n => n._id));
+          const newFiltered = filteredNotifications.filter(n => !existingIds.has(n._id));
+          // Also filter out duplicate follow_request notifications for same user
+          const followRequestKeys = new Set<string>();
+          const allNotifications = [...prev, ...newFiltered];
+          return allNotifications.filter(n => {
+            if (n.type === 'follow_request') {
+              const key = `${n.fromUser._id}-${n.type}`;
+              if (followRequestKeys.has(key)) {
+                return false; // Duplicate follow_request from same user
+              }
+              followRequestKeys.add(key);
+            }
+            return true;
+          });
+        });
       }
       
-      setHasMore(response.pagination.hasNextPage);
+      setHasMore(response?.pagination?.hasNextPage ?? false);
       setPage(pageNum);
     } catch (error) {
       logger.error('Failed to load notifications:', error);
+      if (pageNum === 1) setNotifications([]);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -135,9 +181,17 @@ export default function NotificationsScreen() {
           logger.debug('Navigating to:', result.navigationPath);
           router.push(result.navigationPath);
         } else {
-          // Show info message for non-navigable notifications
-          logger.debug('Showing info message:', result.message);
-          showInfo(result.message);
+          // Post/content no longer available — show popup
+          const isUnavailable = result.contentUnavailable === true || /deleted|no longer available|not available|unavailable/i.test(result.message || '');
+          if (isUnavailable) {
+            setContentUnavailableAlert({
+              visible: true,
+              title: 'Content not available',
+              message: result.message || 'This post or content is no longer available.',
+            });
+          } else {
+            showInfo(result.message);
+          }
         }
       } else {
         showError(result.message);
@@ -160,7 +214,7 @@ export default function NotificationsScreen() {
   };
 
   const handleFollowRequestApprove = async () => {
-    if (!followRequestPopup.notification) return;
+    if (!followRequestPopup.notification || followRequestPopup.loading) return;
 
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
@@ -169,27 +223,17 @@ export default function NotificationsScreen() {
       const requesterId = followRequestPopup.notification.fromUser._id;
       logger.debug('Approving follow request for user:', requesterId);
 
-      // Debug: Check current follow requests data
-      try {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const token = await AsyncStorage.getItem('authToken');
-        const debugResponse = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/profile/follow-requests/debug`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        const debugData = await debugResponse.json();
-        logger.debug('🔍 Current follow requests data:', debugData);
-      } catch (debugError) {
-        logger.debug('Debug endpoint failed:', debugError);
-      }
-
-      await approveFollowRequest(requesterId);
+      const result = await approveFollowRequest(requesterId);
       
-      // Remove the notification from the list
+      // Remove the notification from the list (whether already processed or newly approved)
       setNotifications(prev => 
-        prev.filter(n => n._id !== followRequestPopup.notification!._id)
+        prev.filter(n => {
+          // Remove the follow_request notification
+          if (n._id === followRequestPopup.notification!._id) return false;
+          // Also filter out duplicate follow_request notifications for the same user
+          if (n.type === 'follow_request' && n.fromUser._id === requesterId) return false;
+          return true;
+        })
       );
 
       // Close popup
@@ -199,17 +243,41 @@ export default function NotificationsScreen() {
         loading: false,
       });
       
-      // Show success message
-      showSuccess('Follow request approved successfully!');
-    } catch (error) {
+      // Show success message (different message if already processed)
+      if (result.alreadyProcessed) {
+        showSuccess('Follow request was already approved!');
+      } else {
+        showSuccess('Follow request approved successfully!');
+      }
+    } catch (error: any) {
       logger.error('Failed to approve follow request:', error);
-      showError('Failed to approve follow request. Please try again.');
-      setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      // Check if it's an "already processed" error (even if it slipped through)
+      const errorMessage = error?.message || '';
+      if (errorMessage.toLowerCase().includes('already processed') || 
+          errorMessage.toLowerCase().includes('already approved')) {
+        // Remove notification and show success
+        setNotifications(prev => 
+          prev.filter(n => {
+            if (n._id === followRequestPopup.notification!._id) return false;
+            if (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id) return false;
+            return true;
+          })
+        );
+        setFollowRequestPopup({
+          visible: false,
+          notification: null,
+          loading: false,
+        });
+        showSuccess('Follow request was already approved!');
+      } else {
+        showError('Failed to approve follow request. Please try again.');
+        setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      }
     }
   };
 
   const handleFollowRequestReject = async () => {
-    if (!followRequestPopup.notification) return;
+    if (!followRequestPopup.notification || followRequestPopup.loading) return;
 
     setFollowRequestPopup(prev => ({ ...prev, loading: true }));
 
@@ -222,7 +290,13 @@ export default function NotificationsScreen() {
       
       // Remove the notification from the list
       setNotifications(prev => 
-        prev.filter(n => n._id !== followRequestPopup.notification!._id)
+        prev.filter(n => {
+          // Remove the follow_request notification
+          if (n._id === followRequestPopup.notification!._id) return false;
+          // Also filter out duplicate follow_request notifications for the same user
+          if (n.type === 'follow_request' && n.fromUser._id === requesterId) return false;
+          return true;
+        })
       );
 
       // Close popup
@@ -234,10 +308,30 @@ export default function NotificationsScreen() {
       
       // Show success message
       showSuccess('Follow request rejected successfully!');
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Failed to reject follow request:', error);
-      showError('Failed to reject follow request. Please try again.');
-      setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      // Check if it's an "already processed" error
+      const errorMessage = error?.message || '';
+      if (errorMessage.toLowerCase().includes('already processed') || 
+          errorMessage.toLowerCase().includes('already rejected')) {
+        // Remove notification and show success
+        setNotifications(prev => 
+          prev.filter(n => {
+            if (n._id === followRequestPopup.notification!._id) return false;
+            if (n.type === 'follow_request' && n.fromUser._id === followRequestPopup.notification?.fromUser._id) return false;
+            return true;
+          })
+        );
+        setFollowRequestPopup({
+          visible: false,
+          notification: null,
+          loading: false,
+        });
+        showSuccess('Follow request was already rejected!');
+      } else {
+        showError('Failed to reject follow request. Please try again.');
+        setFollowRequestPopup(prev => ({ ...prev, loading: false }));
+      }
     }
   };
 
@@ -250,37 +344,35 @@ export default function NotificationsScreen() {
   };
 
   const groupNotificationsByTime = (notifications: Notification[]): NotificationSection[] => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
-    const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (!notifications?.length) return [];
 
-    const todayNotifications = notifications.filter(n => new Date(n.createdAt) >= today);
-    const yesterdayNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= yesterday && new Date(n.createdAt) < today
-    );
-    const lastWeekNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= lastWeek && new Date(n.createdAt) < yesterday
-    );
-    const lastMonthNotifications = notifications.filter(n => 
-      new Date(n.createdAt) >= lastMonth && new Date(n.createdAt) < lastWeek
-    );
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    const lastWeekStart = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const lastMonthStart = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const todayNotifications = notifications.filter(n => new Date(n.createdAt).getTime() >= todayStart.getTime());
+    const yesterdayNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= yesterdayStart.getTime() && t < todayStart.getTime();
+    });
+    const lastWeekNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= lastWeekStart.getTime() && t < yesterdayStart.getTime();
+    });
+    const lastMonthNotifications = notifications.filter(n => {
+      const t = new Date(n.createdAt).getTime();
+      return t >= lastMonthStart.getTime() && t < lastWeekStart.getTime();
+    });
+    const olderNotifications = notifications.filter(n => new Date(n.createdAt).getTime() < lastMonthStart.getTime());
 
     const sections: NotificationSection[] = [];
-    
-    if (todayNotifications.length > 0) {
-      sections.push({ title: 'Today', data: todayNotifications });
-    }
-    if (yesterdayNotifications.length > 0) {
-      sections.push({ title: 'Yesterday', data: yesterdayNotifications });
-    }
-    if (lastWeekNotifications.length > 0) {
-      sections.push({ title: 'Last 7 days', data: lastWeekNotifications });
-    }
-    if (lastMonthNotifications.length > 0) {
-      sections.push({ title: 'Last 30 days', data: lastMonthNotifications });
-    }
+    if (todayNotifications.length > 0) sections.push({ title: 'Today', data: todayNotifications });
+    if (yesterdayNotifications.length > 0) sections.push({ title: 'Yesterday', data: yesterdayNotifications });
+    if (lastWeekNotifications.length > 0) sections.push({ title: 'Last 7 days', data: lastWeekNotifications });
+    if (lastMonthNotifications.length > 0) sections.push({ title: 'Last 30 days', data: lastMonthNotifications });
+    if (olderNotifications.length > 0) sections.push({ title: 'Older', data: olderNotifications });
 
     return sections;
   };
@@ -447,27 +539,30 @@ export default function NotificationsScreen() {
         </View>
 
         <View style={styles.notificationRight}>
-          {item.post?.imageUrl && (
+          {(item.post && (item.post.imageUrl || ['like', 'comment'].includes(item.type))) ? (
             <View style={[
               styles.postThumbnailContainer,
-              { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
+              { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSecondary }
             ]}>
-              <Image
-                source={{ uri: item.post.imageUrl }}
-                style={styles.postThumbnail}
-                resizeMode="cover"
-                onError={(error) => {
-                  if (__DEV__) {
-                    logger.warn('Post thumbnail failed to load:', {
-                      postId: item.post?._id,
-                      url: item.post?.imageUrl?.substring(0, 80),
-                      error: error?.nativeEvent?.error?.message || 'Unknown'
-                    });
-                  }
-                }}
-              />
+              {item.post?.imageUrl && !failedThumbnails.has(item._id) ? (
+                <Image
+                  source={{ uri: item.post.imageUrl }}
+                  style={styles.postThumbnail}
+                  resizeMode="cover"
+                  onError={() => {
+                    setFailedThumbnails(prev => new Set(prev).add(item._id));
+                    if (__DEV__) {
+                      logger.warn('Post thumbnail failed to load:', { postId: item.post?._id });
+                    }
+                  }}
+                />
+              ) : (
+                <View style={[styles.postThumbnailPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
+                  <Ionicons name="image-outline" size={isTablet ? 28 : 24} color={theme.colors.textSecondary} />
+                </View>
+              )}
             </View>
-          )}
+          ) : null}
           {!item.isRead && (
             <View style={[
               styles.unreadDot,
@@ -571,34 +666,35 @@ export default function NotificationsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={sections}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          renderItem={({ item }) => (
-            <View>
-              {renderSectionHeader({ section: item })}
-              {item.data.map((notification) => (
-                <View key={notification._id}>
-                  {renderNotificationItem({ item: notification })}
-                </View>
-              ))}
-            </View>
-          )}
-          keyExtractor={(item) => item.title}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[theme.colors.primary]}
-              tintColor={theme.colors.primary}
-            />
-          }
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.1}
-          ListFooterComponent={renderFooter}
-          showsVerticalScrollIndicator={false}
-        />
+        <View style={styles.listWrapper}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(item) => item._id}
+            renderItem={({ item }) => (
+              <View style={styles.notificationItemWrapper}>
+                {renderNotificationItem({ item })}
+              </View>
+            )}
+            renderSectionHeader={({ section }) => renderSectionHeader({ section })}
+            stickySectionHeadersEnabled={false}
+            style={styles.notificationList}
+            contentContainerStyle={styles.notificationListContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[theme.colors.primary]}
+                tintColor={theme.colors.primary}
+              />
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.2}
+            ListFooterComponent={renderFooter}
+            showsVerticalScrollIndicator={true}
+          />
+        </View>
       )}
       
       <FollowRequestPopup
@@ -609,6 +705,17 @@ export default function NotificationsScreen() {
         onReject={handleFollowRequestReject}
         onCancel={handleFollowRequestCancel}
         loading={followRequestPopup.loading}
+      />
+
+      <CustomAlert
+        visible={contentUnavailableAlert.visible}
+        title={contentUnavailableAlert.title}
+        message={contentUnavailableAlert.message}
+        type="info"
+        showCancel={false}
+        confirmText="OK"
+        onClose={() => setContentUnavailableAlert(prev => ({ ...prev, visible: false }))}
+        onConfirm={() => setContentUnavailableAlert(prev => ({ ...prev, visible: false }))}
       />
     </View>
   );
@@ -670,6 +777,21 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  listWrapper: {
+    flex: 1,
+    minHeight: 200,
+  },
+  notificationList: {
+    flex: 1,
+    width: '100%',
+  },
+  notificationListContent: {
+    flexGrow: 1,
+    paddingBottom: isTablet ? theme.spacing.xl : 24,
+  },
+  notificationItemWrapper: {
+    width: '100%',
   },
   notificationItem: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
@@ -759,6 +881,12 @@ const styles = StyleSheet.create({
   postThumbnail: {
     width: isTablet ? 60 : 48,
     height: isTablet ? 60 : 48,
+  },
+  postThumbnailPlaceholder: {
+    width: isTablet ? 60 : 48,
+    height: isTablet ? 60 : 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   unreadDot: {
     position: 'absolute',

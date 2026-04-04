@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { toggleFollow } from '../../services/profile';
+import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus } from '../../services/profile';
+import { createReport } from '../../services/report';
+import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import CustomAlert from '../../components/CustomAlert';
@@ -14,8 +16,25 @@ import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import logger from '../../utils/logger';
+import { getUserShorts } from '../../services/posts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
+
+const TRIP_GAP_DAYS = 7;
+
+function countTripsFromLocations(locations: Array<{ date?: string }>): number {
+  if (!locations?.length) return 0;
+  const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+  if (sorted.length === 0) return 0;
+  let trips = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].date!).getTime();
+    const curr = new Date(sorted[i].date!).getTime();
+    if ((curr - prev) / (24 * 60 * 60 * 1000) > TRIP_GAP_DAYS) trips += 1;
+  }
+  return trips;
+}
 
 // Follow state enum
 type FollowState = 'FOLLOWING' | 'REQUESTED' | 'FOLLOW';
@@ -32,6 +51,11 @@ export default function UserProfileScreen() {
   const [followRequestSent, setFollowRequestSent] = useState(false);
   const [followState, setFollowState] = useState<FollowState>('FOLLOW');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userShorts, setUserShorts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
+  const [loadingShorts, setLoadingShorts] = useState(false);
+  const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
+  const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   // Ref to track if we're in the middle of a follow/unfollow action
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
@@ -72,21 +96,24 @@ export default function UserProfileScreen() {
     const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
     setFollowState(derivedState);
 
-    // Update followers/following counts in profile if provided
-    if (response.followersCount !== undefined || response.followingCount !== undefined) {
+    // Update followers count in profile if provided
+    // Note: Only update followersCount (target user's follower count)
+    // Do NOT update followingCount - the API returns the current user's following count,
+    // but the profile displays the target user's following count (who the target user follows)
+    if (response.followersCount !== undefined) {
       setProfile((prevProfile: any) => {
         if (!prevProfile) return prevProfile;
         const updated: any = { ...prevProfile };
         if (typeof response.followersCount === 'number') {
           updated.followersCount = response.followersCount;
         }
-        if (typeof response.followingCount === 'number') {
-          updated.followingCount = response.followingCount;
-        }
         return updated;
       });
     }
   }, [deriveFollowState]);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -232,40 +259,126 @@ export default function UserProfileScreen() {
   };
 
   const fetchProfile = useCallback(async () => {
+    const startTime = Date.now();
     setLoading(true);
     try {
       // Add cache-busting parameter if we have a stored follow response
       // This ensures we get fresh data instead of cached stale data (304 responses)
       const cacheBuster = lastFollowApiResponse.current ? `?t=${Date.now()}` : '';
+      
+      // OPTIMIZATION: Try to load cached profile first for instant display (optimistic)
+      try {
+        const cachedProfile = await AsyncStorage.getItem(`cachedUserProfile_${id}`).catch(() => null);
+        if (cachedProfile) {
+          const parsed = JSON.parse(cachedProfile);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
+            setProfile(parsed.data);
+            setLoading(false); // Show cached data immediately
+          }
+        }
+      } catch (cacheError) {
+        logger.debug('Cache load error (non-critical):', cacheError);
+      }
+      
+      // OPTIMIZATION: Fetch profile, posts, and shorts in parallel if canViewPosts is true
+      // First get profile to check canViewPosts
       const res = await api.get(`/api/v1/profile/${id}${cacheBuster}`);
       let userProfile = res.data.profile;
       
-      // If posts are not included, fetch them
-      if (!Array.isArray(userProfile.posts)) {
-        // Fetch all posts with pagination
-        let allPosts: any[] = [];
-        let page = 1;
-        let hasMore = true;
-        const limit = 100; // Fetch 100 posts per page
+      // Cache profile for next time
+      AsyncStorage.setItem(`cachedUserProfile_${id}`, JSON.stringify({
+        data: userProfile,
+        timestamp: Date.now()
+      })).catch(() => {});
+      
+      setProfile(userProfile);
+      
+      // Fetch verified locations count (for all users, regardless of privacy)
+      // This runs in parallel with posts/shorts fetching for better performance
+      getTravelMapData(id as string)
+        .then((res) => {
+          const locs = Array.isArray(res?.locations) ? res.locations : [];
+          const total = res?.statistics?.totalLocations ?? locs.length;
+          setVerifiedLocationsCount(total);
+          setVerifiedLocations(locs.map((l: unknown) => {
+            const item = l as { latitude: number; longitude: number; address?: string; date?: string };
+            return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
+          }));
+        })
+        .catch((err) => {
+          logger.debug('Error fetching verified locations (non-critical):', err);
+          // Don't set error state, just log it - this is optional data
+        });
+      
+      // OPTIMIZATION: Fetch posts and shorts in parallel if user can view posts
+      if (userProfile.canViewPosts) {
+        setLoadingShorts(true);
         
-        while (hasMore) {
-          try {
-            const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${page}&limit=${limit}`);
-            const posts = postsRes.data.posts || [];
-            allPosts = [...allPosts, ...posts];
+        // Fetch posts with pagination and shorts in parallel
+        const [postsResult, shortsResult] = await Promise.allSettled([
+          // Fetch all posts with pagination
+          (async () => {
+            let allPosts: any[] = [];
+            let page = 1;
+            let hasMore = true;
+            const limit = 100;
             
-            // Check if there are more posts
-            hasMore = posts.length === limit;
-            page++;
-          } catch (err) {
-            logger.error('Error fetching posts page:', err);
-            hasMore = false;
-          }
+            while (hasMore) {
+              try {
+                const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${page}&limit=${limit}`);
+                const posts = postsRes.data.posts || [];
+                allPosts = [...allPosts, ...posts];
+                hasMore = posts.length === limit;
+                page++;
+              } catch (err) {
+                logger.error('Error fetching posts page:', err);
+                hasMore = false;
+              }
+            }
+            return allPosts;
+          })(),
+          // Fetch shorts in parallel
+          getUserShorts(id as string, 1, 100)
+        ]);
+        
+        // Handle posts result
+        if (postsResult.status === 'fulfilled') {
+          userProfile.posts = postsResult.value;
+        } else {
+          userProfile.posts = [];
         }
         
-        userProfile.posts = allPosts;
+        // Handle shorts result
+        if (shortsResult.status === 'fulfilled') {
+          const fetchedShorts = shortsResult.value.shorts || [];
+          setUserShorts(fetchedShorts);
+          
+          // Log for debugging
+          if (__DEV__ && fetchedShorts.length > 0) {
+            logger.debug('Fetched shorts for other user profile:', {
+              count: fetchedShorts.length,
+              firstShort: {
+                _id: fetchedShorts[0]._id,
+                imageUrl: (fetchedShorts[0] as any).imageUrl?.substring(0, 50),
+                thumbnailUrl: (fetchedShorts[0] as any).thumbnailUrl?.substring(0, 50),
+                mediaUrl: (fetchedShorts[0] as any).mediaUrl?.substring(0, 50),
+              }
+            });
+          }
+        } else {
+          logger.error('Error fetching shorts:', shortsResult.reason);
+          setUserShorts([]);
+        }
+        
+        setLoadingShorts(false);
+        setProfile(userProfile); // Update profile with posts (includes fetched posts)
+      } else {
+        // User cannot view posts, set empty arrays
+        userProfile.posts = [];
+        setUserShorts([]);
+        setProfile(userProfile);
       }
-      setProfile(userProfile);
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
       // This prevents cached/stale profile data (including 304 responses) from overriding the correct follow state
@@ -293,13 +406,22 @@ export default function UserProfileScreen() {
         setFollowState(derivedState);
       }
       // If in the middle of an action but no stored response yet, preserve current state
-    } catch (e) {
+      
+      const loadTime = Date.now() - startTime;
+      logger.debug(`[PERF] User profile loaded in ${loadTime}ms (optimized parallel fetch with cache)`);
+    } catch (e: any) {
       logger.error('Error fetching profile:', e);
-      showError('Failed to load user profile');
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (e?.response?.status === 403 || msg?.toLowerCase().includes('cannot view')) {
+        showError('You cannot view this profile');
+        router.back();
+      } else {
+        showError('Failed to load user profile');
+      }
     } finally {
       setLoading(false);
     }
-  }, [id, currentUser, deriveFollowState]);
+  }, [id, deriveFollowState]);
 
   useEffect(() => {
     setProfile(null);
@@ -308,18 +430,47 @@ export default function UserProfileScreen() {
     setFollowRequestSent(false);
     setFollowState('FOLLOW');
     setShowWorldMap(false);
+    setVerifiedLocationsCount(null);
+    setVerifiedLocations([]);
+    setShowProfileMenu(false);
     // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
-  }, [id]);
+    // Fetch profile when ID changes
+    if (id) {
+      fetchProfile();
+    }
+  }, [id, fetchProfile]);
+
+  // Fetch block status when viewing another user's profile
+  useEffect(() => {
+    if (currentUser && profile && currentUser._id !== profile._id) {
+      getBlockStatus(profile._id).then((r) => setIsBlocked(r.isBlocked)).catch(() => {});
+    } else {
+      setIsBlocked(false);
+    }
+  }, [currentUser?._id, profile?._id]);
 
   useEffect(() => {
     (async () => {
       try {
-        const userData = await api.get('/auth/me');
+        const userData = await api.get('/api/v1/auth/me');
         setCurrentUser(userData.data.user);
-      } catch {}
+      } catch (error) {
+        logger.error('Error fetching current user:', error);
+        // Don't block profile loading if current user fetch fails
+        // Profile can still be loaded without current user
+      }
     })();
   }, []);
+
+  const isOwnProfile = Boolean(currentUser && id && currentUser._id === id);
+  const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
+  const countriesCount = profile?.tripScore?.countries ? Object.keys(profile.tripScore.countries).length : 0;
+  const globeLocations = useMemo(() => {
+    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+    if (profile?.canViewLocations && profile?.locations?.length) return profile.locations;
+    return [];
+  }, [verifiedLocations, profile?.canViewLocations, profile?.locations]);
 
   useFocusEffect(
     useCallback(() => {
@@ -329,8 +480,10 @@ export default function UserProfileScreen() {
         lastFollowApiResponse.current = null;
       }
       isFollowActionInProgress.current = false;
-      if (currentUser) fetchProfile();
-    }, [fetchProfile, currentUser])
+      // Always fetch profile, don't wait for currentUser
+      // The profile fetch doesn't require currentUser to work
+      fetchProfile();
+    }, [fetchProfile])
   );
 
   const handleFollow = async () => {
@@ -355,20 +508,16 @@ export default function UserProfileScreen() {
         followingCount: response.followingCount
       });
       
-      // Show success message based on API response
-      if (response.isFollowing) {
-        showSuccess('You are now following this user!');
-      } else if (response.followRequestSent) {
-        showSuccess('Follow request sent!');
-      } else {
-        showSuccess('You have unfollowed this user.');
-      }
+      // No success alert - silent update for better UX
       
       // Refresh profile data to get updated counts and ensure consistency
       // Use a small delay to ensure the backend has processed the follow/unfollow
-      setTimeout(() => {
-        fetchProfile();
-      }, 500);
+      // --->
+      // No fetchProfile() call - update state optimistically to avoid loading screen
+      // The API response already contains the updated counts, so we don't need to reload
+      // setTimeout(() => {
+      //   fetchProfile();
+      // }, 500);
       
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that
@@ -438,7 +587,24 @@ export default function UserProfileScreen() {
               >
                 <Ionicons name="arrow-back" size={20} color={profileTheme.textPrimary} />
               </Pressable>
-              <View style={styles.topActionsRight} />
+              <View style={styles.topActionsRight}>
+                {currentUser && currentUser._id !== profile._id && (
+                  <>
+                    <Pressable
+                      onPress={() => setShowReportModal(true)}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                    >
+                      <Ionicons name="flag-outline" size={20} color={profileTheme.textPrimary} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setShowProfileMenu(true)}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={20} color={profileTheme.textPrimary} />
+                    </Pressable>
+                  </>
+                )}
+              </View>
             </View>
 
             {/* Profile Card */}
@@ -453,7 +619,12 @@ export default function UserProfileScreen() {
                 </View>
               </View>
 
-              {/* Name */}
+              {/* Username */}
+              {profile.username && (
+                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>{profile.username}</Text>
+              )}
+              
+              {/* Full Name */}
               <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profile.fullName}</Text>
               
               {/* Bio */}
@@ -550,11 +721,14 @@ export default function UserProfileScreen() {
           </Pressable>
         )}
 
-        {/* My Location Card - Premium Design */}
+        {/* Location Card - unified: base, verified summary, trips summary, globe */}
         <Pressable 
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => {
-            if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+            if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+              const name = profile?.fullName || profile?.username || 'User';
+              router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+            } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
               setShowWorldMap(true);
             }
           }}
@@ -564,29 +738,48 @@ export default function UserProfileScreen() {
               <Ionicons name="globe" size={24} color={profileTheme.accent} />
             </View>
             <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>Posted Locations</Text>
+              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>
+                {isOwnProfile ? 'My Location' : 'Their Location'}
+              </Text>
               <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {profile.canViewLocations && profile.locations && profile.locations.length > 0
-                  ? `${profile.locations.length} locations visited`
-                  : profile.canViewLocations 
-                    ? 'No locations yet'
-                    : profile.profileVisibility === 'followers' 
-                    ? 'Follow to view posted locations'
-                    : profile.profileVisibility === 'private'
-                    ? 'Follow request pending to view locations'
-                    : 'Follow to view posted locations'}
+                {isOwnProfile ? 'Your verified travel' : 'Their verified travel'}
               </Text>
             </View>
-            {profile.canViewLocations && profile.locations && profile.locations.length > 0 && (
+            {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
               <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-            )}
+            ) : null}
+          </View>
+          <View style={styles.locationCardBody}>
+            <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
+              {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                : 'No verified travel summary yet'}
+            </Text>
+            {countriesCount > 0 ? (
+              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
+                {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
+              </Text>
+            ) : null}
           </View>
           <View style={styles.locationGlobeContainer}>
-            {profile.canViewLocations && profile.locations && profile.locations.length > 0 ? (
-              <RotatingGlobe 
-                locations={profile.locations} 
-                size={140} 
+            {globeLocations.length > 0 ? (
+              <RotatingGlobe
+                locations={globeLocations}
+                size={140}
+                onPress={() => {
+                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                    const name = profile?.fullName || profile?.username || 'User';
+                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                  }
+                }}
               />
+            ) : !profile.canViewLocations ? (
+              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                <Ionicons name="lock-closed-outline" size={32} color={profileTheme.textSecondary} />
+                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginTop: 8, textAlign: 'center' }]}>
+                  Follow to view locations
+                </Text>
+              </View>
             ) : (
               <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
                 <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
@@ -595,44 +788,171 @@ export default function UserProfileScreen() {
           </View>
         </Pressable>
 
-        {/* Recent Posts Section */}
+        {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
           <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
-            <Text style={[styles.postsSectionTitle, { color: profileTheme.textPrimary }]}>Recent Posts</Text>
-            {profile.posts && profile.posts.length > 0 ? (
-              <View style={styles.postsGrid}>
-                {((profile.posts || [])
-                  .sort((a: any, b: any) => {
-                    // Sort by createdAt date (newest first)
-                    const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
-                    const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
-                    return dateB - dateA;
-                  })
-                  .map((item: any, index: number) => (
-                  <Pressable
-                    key={item._id}
-                    style={[
-                      styles.postThumbnail,
-                      { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
-                      (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
-                    ]}
-                    onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
-                  >
-                    <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
-                  </Pressable>
-                  ))
-                )}
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                  <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
-                <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                  This user hasn't shared any posts yet
+            {/* Tabs */}
+            <View style={styles.postsTabsSection}>
+              <Pressable
+                style={[
+                  styles.pillTab,
+                  activeTab === 'posts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                ]}
+                onPress={() => setActiveTab('posts')}
+              >
+                <Text style={[
+                  styles.pillTabText,
+                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary }
+                ]}>
+                  Posts
                 </Text>
-              </View>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.pillTab,
+                  activeTab === 'shorts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                ]}
+                onPress={() => setActiveTab('shorts')}
+              >
+                <Text style={[
+                  styles.pillTabText,
+                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary }
+                ]}>
+                  Shorts
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Posts Tab */}
+            {activeTab === 'posts' && (
+              profile.posts && profile.posts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {((profile.posts || [])
+                    .sort((a: any, b: any) => {
+                      // Sort by createdAt date (newest first)
+                      const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+                      const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+                      return dateB - dateA;
+                    })
+                    .map((item: any, index: number) => (
+                    <Pressable
+                      key={item._id}
+                      style={[
+                        styles.postThumbnail,
+                        { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                        (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                      ]}
+                      onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+                    >
+                      <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+                    </Pressable>
+                    ))
+                  )}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn't shared any posts yet
+                  </Text>
+                </View>
+              )
+            )}
+
+            {/* Shorts Tab */}
+            {activeTab === 'shorts' && (
+              loadingShorts ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color={profileTheme.accent} />
+                </View>
+              ) : userShorts.length > 0 ? (
+                <View style={styles.postsGrid}>
+                  {userShorts.map((s: any, index: number) => {
+                    // Get thumbnail URL - check multiple fields for compatibility (same as own profile)
+                    const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
+                    
+                    // Validate URI - check if it's a valid URL format
+                    const isValidUri = uri && typeof uri === 'string' && uri.trim() !== '' && 
+                                      (uri.startsWith('http://') || uri.startsWith('https://'));
+                    
+                    if (!isValidUri) {
+                      return (
+                        <Pressable 
+                          key={s._id} 
+                          style={[
+                            styles.postThumbnail,
+                            { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                            (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                          ]}
+                        >
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                        </Pressable>
+                      );
+                    }
+                    return (
+                      <Pressable 
+                        key={s._id} 
+                        style={[
+                          styles.postThumbnail,
+                          { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
+                          (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                        ]}
+                        onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
+                      >
+                        <Image 
+                          source={{ uri }} 
+                          style={styles.postImage} 
+                          resizeMode="cover"
+                          onError={(error) => {
+                            // Check if this is a 403 Forbidden error (expired signed URL)
+                            const errorMessage = error?.nativeEvent?.error?.message || '';
+                            const is403 = errorMessage.includes('403') || 
+                                         errorMessage.includes('Forbidden') ||
+                                         errorMessage.includes('forbidden');
+                            
+                            // Don't log 403 errors - they're expected for expired signed URLs
+                            // Only log non-403 errors to reduce noise in logs
+                            if (!is403) {
+                              logger.warn('Short thumbnail failed to load:', {
+                                shortId: s._id,
+                                uri: uri?.substring(0, 100),
+                                imageUrl: (s as any).imageUrl?.substring(0, 50),
+                                thumbnailUrl: (s as any).thumbnailUrl?.substring(0, 50),
+                                mediaUrl: (s as any).mediaUrl?.substring(0, 50),
+                                error: errorMessage || 'Unknown error'
+                              });
+                            } else if (__DEV__) {
+                              // Only log 403 errors in development for debugging
+                              logger.debug('Short thumbnail URL expired (403):', {
+                                shortId: s._id,
+                                uri: uri?.substring(0, 100)
+                              });
+                            }
+                          }}
+                        />
+                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="play" size={24} color="#FFFFFF" />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn't shared any shorts yet
+                  </Text>
+                </View>
+              )
             )}
           </View>
         )}
@@ -673,6 +993,79 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* Profile menu - Report & Block (Apple Guideline 1.2) */}
+      <Modal
+        visible={showProfileMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProfileMenu(false)}
+      >
+        <Pressable style={styles.profileMenuOverlay} onPress={() => setShowProfileMenu(false)}>
+          <View style={[styles.profileMenuContainer, { backgroundColor: theme.colors.surface }]} onStartShouldSetResponder={() => true}>
+            <TouchableOpacity
+              style={[styles.profileMenuItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+              onPress={() => {
+                setShowProfileMenu(false);
+                setShowReportModal(true);
+              }}
+            >
+              <Ionicons name="flag-outline" size={22} color={theme.colors.text} />
+              <Text style={[styles.profileMenuItemText, { color: theme.colors.text }]}>Report User</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileMenuItem}
+              onPress={async () => {
+                setShowProfileMenu(false);
+                Alert.alert(
+                  isBlocked ? 'Unblock User' : 'Block User',
+                  isBlocked
+                    ? `Unblock ${profile?.fullName || 'this user'}? You will be able to message and interact again.`
+                    : `Block ${profile?.fullName || 'this user'}? You won't be able to message or interact with them.`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: isBlocked ? 'Unblock' : 'Block',
+                      style: isBlocked ? 'default' : 'destructive',
+                      onPress: async () => {
+                        try {
+                          const result = await toggleBlockUser(profile!._id);
+                          setIsBlocked(result.isBlocked);
+                          showSuccess(result.isBlocked ? 'User blocked.' : 'User unblocked.');
+                          if (result.isBlocked) router.back();
+                        } catch (e: any) {
+                          showError(e?.message || 'Failed to update block status');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name={isBlocked ? 'person-add-outline' : 'person-remove-outline'} size={22} color={theme.colors.text} />
+              <Text style={[styles.profileMenuItemText, { color: theme.colors.text }]}>{isBlocked ? 'Unblock User' : 'Block User'}</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <ReportReasonModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        title="Report User"
+        onSelect={async (reason: ReportReasonType) => {
+          try {
+            await createReport({
+              type: reason,
+              reportedUserId: profile!._id,
+              reason: reason,
+            });
+            showSuccess('User reported. Thank you for helping keep our community safe.');
+          } catch (e: any) {
+            showError(e?.message || 'Failed to submit report');
+          }
+        }}
+      />
       
       <CustomAlert
         visible={alertVisible}
@@ -713,6 +1106,29 @@ const styles = StyleSheet.create({
   },
   topActionsRight: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  profileMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    padding: 16,
+  },
+  profileMenuContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  profileMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  profileMenuItemText: {
+    fontSize: 16,
   },
   backButton: {
     // Minimum touch target: 44x44 for iOS, 48x48 for Android
@@ -765,12 +1181,20 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  profileName: {
-    fontSize: 28,
+  username: {
+    fontSize: 22,
     fontWeight: '800',
-    marginBottom: 12,
+    marginBottom: 4,
     textAlign: 'center',
     letterSpacing: 0.3,
+  },
+  profileName: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: 0.1,
+    opacity: 0.7,
   },
   bioContainer: {
     marginBottom: 16,
@@ -929,7 +1353,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  locationCardBody: {
+    marginBottom: 4,
   },
   locationIconContainer: {
     width: 48,
@@ -976,6 +1403,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 24,
   },
+  postsTabsSection: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  pillTab: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  pillTabActive: {
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  pillTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   postsSectionTitle: {
     fontSize: 18,
     fontWeight: '700',
@@ -1005,6 +1454,25 @@ const styles = StyleSheet.create({
   postImage: {
     width: '100%',
     height: '100%',
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholderThumbnail: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playIconOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Empty State

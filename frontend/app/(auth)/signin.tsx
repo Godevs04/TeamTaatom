@@ -262,6 +262,7 @@ const TravelAnimatedBackground = () => {
 };
 
 export default function SignInScreen() {
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // const [isGoogleLoading, setIsGoogleLoading] = useState(false); // Hidden for now
   const router = useRouter();
@@ -326,7 +327,22 @@ export default function SignInScreen() {
         router.replace('/(tabs)/home');
       }
     } catch (error: any) {
-      logger.error('Sign-in error:', error);
+      // Check if this is an expected authentication error (incorrect credentials)
+      // These shouldn't be reported to Sentry as errors since they're user input errors
+      const { parseError } = require('../../utils/errorCodes');
+      const parsedError = error?.parsedError || (error?.originalError ? parseError(error.originalError) : null);
+      const isIncorrectCredentials = error?.message?.includes('incorrect') || 
+                                      error?.message?.includes('Invalid email or password') ||
+                                      error?.originalError?.response?.data?.error?.code === 'AUTH_1004' ||
+                                      parsedError?.code === 'AUTH_1004';
+      
+      if (isIncorrectCredentials) {
+        // Log as debug instead of error - this is expected user behavior
+        logger.debug('Sign-in failed: incorrect credentials');
+      } else {
+        // Log other errors normally
+        logger.error('Sign-in error:', error);
+      }
       
       // Check if account is not verified
       if (error.message.includes('verify')) {
@@ -430,14 +446,14 @@ export default function SignInScreen() {
               {({ handleChange, handleBlur, handleSubmit, values, errors, touched }) => (
                 <View style={styles.formFields}>
                   <AuthInput
-                    label="Email"
-                    placeholder="Enter your email"
+                    label="Email or Username"
+                    placeholder="Enter your email or username"
                     value={values.email}
                     onChangeText={handleChange('email')}
                     onBlur={handleBlur('email')}
                     error={errors.email}
                     touched={touched.email}
-                    keyboardType="email-address"
+                    keyboardType="default"
                     autoCapitalize="none"
                   />
 
@@ -449,12 +465,30 @@ export default function SignInScreen() {
                     onBlur={handleBlur('password')}
                     error={errors.password}
                     touched={touched.password}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    textContentType="password"
+                    rightIcon={
+                      <TouchableOpacity
+                        onPress={() => setShowPassword((v) => !v)}
+                        accessibilityRole="button"
+                        accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    }
                   />
 
                   <TouchableOpacity
                     style={styles.forgotPassword}
                     onPress={() => router.push('/(auth)/forgot')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Forgot password"
                   >
                     <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                   </TouchableOpacity>
@@ -463,6 +497,9 @@ export default function SignInScreen() {
                     style={[styles.signInButton, isLoading && styles.signInButtonDisabled]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel={isLoading ? 'Signing in' : 'Sign in'}
+                    accessibilityState={{ disabled: isLoading }}
                   >
                     <Text style={styles.signInButtonText}>
                       {isLoading ? 'Signing In...' : 'Sign In'}
@@ -494,7 +531,11 @@ export default function SignInScreen() {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+              <TouchableOpacity
+                onPress={() => router.push('/(auth)/signup')}
+                accessibilityRole="button"
+                accessibilityLabel="Sign up"
+              >
                 <Text style={styles.linkText}>Sign Up</Text>
               </TouchableOpacity>
             </View>

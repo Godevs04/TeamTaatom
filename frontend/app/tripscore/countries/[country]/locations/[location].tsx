@@ -41,6 +41,7 @@ interface LocationDetail {
     longitude: number;
   };
   travelInfo?: string;
+  distanceFromCurrent?: number; // Distance from current location in km (for nearby locations)
 }
 
 export default function LocationDetailScreen() {
@@ -57,6 +58,8 @@ export default function LocationDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
+  const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
   
   // Navigation & Lifecycle Safety: Track mounted state
   const isMountedRef = useRef(true);
@@ -131,6 +134,57 @@ export default function LocationDetailScreen() {
       }
     }
   }, [data?.coordinates?.latitude, data?.coordinates?.longitude, distance]);
+
+  // Calculate nearby locations when current location data is available (tripscore flow only)
+  useEffect(() => {
+    if (!isMountedRef.current || !isTripScoreFlow) return;
+    if (!data?.coordinates || !allCountryLocations.length) return;
+    
+    const currentLat = data.coordinates.latitude;
+    const currentLng = data.coordinates.longitude;
+    
+    // Skip if coordinates are invalid
+    if (!currentLat || !currentLng || currentLat === 0 || currentLng === 0 || 
+        isNaN(currentLat) || isNaN(currentLng)) {
+      return;
+    }
+    
+    try {
+      // Calculate distance from current location to all other locations in the country
+      const locationsWithDistance = allCountryLocations
+        .filter(loc => {
+          // Exclude current location and locations without coordinates
+          const isCurrentLocation = loc.name.toLowerCase().replace(/\s+/g, '-') === 
+            (Array.isArray(location) ? location[0] : location)?.toLowerCase().replace(/-/g, ' ');
+          const hasValidCoords = loc.coordinates?.latitude && loc.coordinates?.longitude &&
+                                 loc.coordinates.latitude !== 0 && loc.coordinates.longitude !== 0 &&
+                                 !isNaN(loc.coordinates.latitude) && !isNaN(loc.coordinates.longitude);
+          return !isCurrentLocation && hasValidCoords;
+        })
+        .map(loc => {
+          const distanceKm = calculateDistance(
+            currentLat,
+            currentLng,
+            loc.coordinates!.latitude,
+            loc.coordinates!.longitude
+          );
+          // Convert null to undefined for TypeScript compatibility
+          const distance: number | undefined = distanceKm !== null && distanceKm !== undefined ? distanceKm : undefined;
+          return {
+            ...loc,
+            distanceFromCurrent: distance
+          };
+        })
+        .sort((a, b) => (a.distanceFromCurrent || 0) - (b.distanceFromCurrent || 0)) // Sort by distance (closest first)
+        .slice(0, 5); // Show top 5 nearby locations
+      
+      setNearbyLocations(locationsWithDistance);
+      logger.debug('Nearby locations calculated:', { count: locationsWithDistance.length });
+    } catch (error) {
+      logger.error('Error calculating nearby locations:', error);
+      setNearbyLocations([]);
+    }
+  }, [data?.coordinates, allCountryLocations, isTripScoreFlow, location]);
 
   // Helper functions - defined before use
   const getLocationImage = (locationName: string) => {
@@ -533,7 +587,10 @@ export default function LocationDetailScreen() {
               logger.warn('⚠️ Geocoding API returned invalid coordinates for:', locationName);
             }
           } catch (geocodeError) {
-            logger.error('❌ Geocoding API failed for:', { locationName, error: geocodeError });
+            const errorToLog = geocodeError instanceof Error 
+              ? geocodeError 
+              : new Error(String(geocodeError) || 'Geocoding API failed');
+            logger.error('❌ Geocoding API failed for:', errorToLog, { locationName });
           }
         }
         
@@ -606,7 +663,10 @@ export default function LocationDetailScreen() {
             logger.warn('⚠️ Geocoding returned null for:', locationName);
           }
         } catch (geocodeError) {
-          logger.error('❌ Geocoding failed for general location:', { locationName, error: geocodeError });
+          const errorToLog = geocodeError instanceof Error 
+            ? geocodeError 
+            : new Error(String(geocodeError) || 'Geocoding failed');
+          logger.error('❌ Geocoding failed for general location:', errorToLog, { locationName });
         }
         
         setData({
@@ -628,6 +688,15 @@ export default function LocationDetailScreen() {
           try {
             const response = await api.get(`/api/v1/profile/${userIdParam}/tripscore/countries/${countryName}`);
             const locations = response.data.locations;
+            
+            // CRITICAL: Store all locations for nearby locations section
+            // Process all locations with coordinates
+            const processedLocations = locations.map((loc: any) => ({
+              ...loc,
+              description: loc.description || `${loc.name} is a beautiful destination`,
+              coordinates: loc.coordinates || undefined
+            }));
+            setAllCountryLocations(processedLocations);
           
             // Find the specific location
             const foundLocation = locations.find((loc: any) => 
@@ -650,7 +719,10 @@ export default function LocationDetailScreen() {
                   logger.warn('⚠️ Geocoding returned invalid coordinates for:', foundLocation.name);
                 }
               } catch (geocodeError) {
-                logger.error('❌ Geocoding failed for TripScore location:', { locationName: foundLocation.name, error: geocodeError });
+                const errorToLog = geocodeError instanceof Error 
+                  ? geocodeError 
+                  : new Error(String(geocodeError) || 'Geocoding failed');
+                logger.error('❌ Geocoding failed for TripScore location:', errorToLog, { locationName: foundLocation.name });
               }
               
               setData({
@@ -694,7 +766,10 @@ export default function LocationDetailScreen() {
           logger.debug('✅ Using geocoded coordinates as error fallback:', fallbackCoords);
         }
       } catch (geocodeError) {
-        logger.error('❌ Geocoding also failed in error handler:', geocodeError);
+        const errorToLog = geocodeError instanceof Error 
+          ? geocodeError 
+          : new Error(String(geocodeError) || 'Geocoding failed');
+        logger.error('❌ Geocoding also failed in error handler:', errorToLog);
       }
       
       setData({
@@ -814,7 +889,7 @@ export default function LocationDetailScreen() {
                       : (data?.imageUrl || getLocationImage(data?.name || ''))) // Admin locale or fallback
                 }}
                 style={styles.heroImage}
-                resizeMode="cover"
+                resizeMode="contain"
               />
               {/* Glassmorphism overlay effect */}
               <View style={styles.glassmorphismOverlay} />
@@ -929,24 +1004,34 @@ export default function LocationDetailScreen() {
                   style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
                   activeOpacity={0.7}
                   onPress={async () => {
-                    // CRITICAL: For locale flow, use EXACT coordinates from localeData
+                    // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
                     // For tripscore flow, use coordinates from data
                     let coords: { latitude: number; longitude: number } | undefined = undefined;
                     
                     if (isAdminLocale && localeData) {
-                      // Locale flow: Use EXACT coordinates from locale data
+                      // Locale flow: Use EXACT coordinates from database (localeData)
+                      // These are the coordinates saved in the database from admin locale
                       if (localeData.latitude && localeData.longitude && 
-                          localeData.latitude !== 0 && localeData.longitude !== 0) {
+                          localeData.latitude !== 0 && localeData.longitude !== 0 &&
+                          !isNaN(localeData.latitude) && !isNaN(localeData.longitude) &&
+                          localeData.latitude >= -90 && localeData.latitude <= 90 &&
+                          localeData.longitude >= -180 && localeData.longitude <= 180) {
                         coords = {
                           latitude: localeData.latitude,
                           longitude: localeData.longitude
                         };
-                        logger.debug('Using EXACT locale coordinates:', coords);
+                        logger.debug('✅ Using EXACT database coordinates from localeData:', coords);
+                      } else {
+                        logger.warn('⚠️ Invalid coordinates in localeData:', {
+                          latitude: localeData.latitude,
+                          longitude: localeData.longitude
+                        });
                       }
                     } else if (data?.coordinates) {
                       // Tripscore flow: Use coordinates from data
                       if (data.coordinates.latitude && data.coordinates.longitude &&
-                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
+                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0 &&
+                          !isNaN(data.coordinates.latitude) && !isNaN(data.coordinates.longitude)) {
                         coords = data.coordinates;
                         logger.debug('Using tripscore coordinates:', coords);
                       }
@@ -966,12 +1051,22 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
                         }
                       } catch (geocodeError) {
-                        logger.error('❌ Geocoding API failed for:', { locationName: data.name, error: geocodeError });
+                        const errorToLog = geocodeError instanceof Error 
+                          ? geocodeError 
+                          : new Error(String(geocodeError) || 'Geocoding API failed');
+                        logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
                       }
                     }
                     
                     if (coords && coords.latitude && coords.longitude) {
-                      // Navigate to map with EXACT coordinates
+                      // Navigate to map with EXACT database coordinates from locale
+                      // These coordinates come from the database (admin locale) and should be displayed on the map
+                      logger.debug('📍 Navigating to map with database coordinates:', {
+                        locationName: data?.name,
+                        coordinates: coords,
+                        source: isAdminLocale ? 'Database (localeData)' : 'Data coordinates'
+                      });
+                      
                       router.push({
                         pathname: '/map/current-location',
                         params: {
@@ -989,7 +1084,17 @@ export default function LocationDetailScreen() {
                         },
                       });
                     } else {
-                      logger.warn('Location coordinates not available for:', data?.name);
+                      logger.warn('❌ Location coordinates not available for:', {
+                        locationName: data?.name,
+                        isAdminLocale,
+                        localeData: localeData ? {
+                          hasLatitude: !!localeData.latitude,
+                          hasLongitude: !!localeData.longitude,
+                          latitude: localeData.latitude,
+                          longitude: localeData.longitude
+                        } : 'null',
+                        dataCoordinates: data?.coordinates
+                      });
                       Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
                   }}
@@ -1007,6 +1112,56 @@ export default function LocationDetailScreen() {
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
                 </TouchableOpacity>
               </View>
+
+            {/* Nearby Locations Section - Only for TripScore flow */}
+            {isTripScoreFlow && nearbyLocations.length > 0 && (
+              <View style={styles.detailedInfoContainer}>
+                <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+                  <View style={styles.cardHeader}>
+                    <Ionicons name="map-outline" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Nearby Locations</Text>
+                  </View>
+                  {nearbyLocations.map((nearbyLoc, index) => (
+                    <TouchableOpacity
+                      key={nearbyLoc.name || index}
+                      style={[styles.nearbyLocationItem, { borderBottomColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                      onPress={() => {
+                        const locationSlug = nearbyLoc.name.toLowerCase().replace(/\s+/g, '-');
+                        const countryParam = Array.isArray(country) ? country[0] : country;
+                        router.push({
+                          pathname: '/tripscore/countries/[country]/locations/[location]',
+                          params: { 
+                            country: countryParam as string, 
+                            location: locationSlug, 
+                            userId: (Array.isArray(userId) ? userId[0] : userId) as string 
+                          }
+                        });
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.nearbyLocationContent}>
+                        <View style={styles.nearbyLocationIcon}>
+                          <Ionicons name="location" size={18} color={theme.colors.primary} />
+                        </View>
+                        <View style={styles.nearbyLocationInfo}>
+                          <Text style={[styles.nearbyLocationName, { color: theme.colors.text }]} numberOfLines={1}>
+                            {nearbyLoc.name}
+                          </Text>
+                          <Text style={[styles.nearbyLocationDistance, { color: theme.colors.textSecondary }]}>
+                            {nearbyLoc.distanceFromCurrent !== undefined && nearbyLoc.distanceFromCurrent < 1
+                              ? `${Math.round(nearbyLoc.distanceFromCurrent * 1000)} m away`
+                              : nearbyLoc.distanceFromCurrent !== undefined
+                              ? `${nearbyLoc.distanceFromCurrent.toFixed(1)} km away`
+                              : 'Distance unknown'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {/* Detailed Info Section */}
             <View style={styles.detailedInfoContainer}>
@@ -1357,6 +1512,40 @@ const createStyles = () => {
     fontSize: 14,
     lineHeight: 22,
     opacity: 0.9,
+  },
+  // Nearby Locations Styles
+  nearbyLocationItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  nearbyLocationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  nearbyLocationIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  nearbyLocationInfo: {
+    flex: 1,
+  },
+  nearbyLocationName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  nearbyLocationDistance: {
+    fontSize: 12,
+    opacity: 0.7,
   },
   });
 };

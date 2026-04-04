@@ -70,7 +70,7 @@ const Sidebar = ({ isOpen = true, onClose = () => {}, isMobile = false }) => {
               <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
                 <span className="text-white font-bold text-xs sm:text-sm">T</span>
               </div>
-              <h1 className="text-base sm:text-lg md:text-xl font-bold truncate">TeamTaatom</h1>
+              <h1 className="text-base sm:text-lg md:text-xl font-bold truncate">Taatom</h1>
             </div>
             <p className="text-gray-400 text-[10px] sm:text-xs md:text-sm mt-0.5 sm:mt-1 truncate">SuperAdmin Dashboard</p>
           </div>

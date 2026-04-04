@@ -5,6 +5,7 @@ import { useRealTime } from '../context/RealTimeContext'
 import AIInsights from '../components/AIInsights'
 import RealTimeAnalytics from '../components/RealTimeAnalytics'
 import { Users, MessageSquare, TrendingUp, Activity, Globe, Shield, AlertTriangle, ArrowUp, ArrowDown, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react'
+import StorageUsageCard from '../components/StorageUsageCard'
 
 const Dashboard = () => {
   const navigate = useNavigate()
@@ -667,6 +668,11 @@ const Dashboard = () => {
                   hasError={hasErrorStable}
                 />
               ))}
+            </div>
+
+            {/* Storage Usage Card */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              <StorageUsageCard autoRefresh={autoRefreshEnabled} className="sm:col-span-2 lg:col-span-1" />
             </div>
 
             {/* Recent Activity - Enhanced */}

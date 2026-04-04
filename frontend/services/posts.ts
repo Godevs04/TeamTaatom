@@ -34,6 +34,18 @@ export interface CreatePostData {
   songVolume?: number;
   spotType?: string;
   travelInfo?: string;
+  detectedPlace?: {          // Detected place data for admin review
+    name?: string;
+    country?: string;
+    countryCode?: string;
+    city?: string;
+    stateProvince?: string;
+    continent?: string;
+    latitude?: number;
+    longitude?: number;
+    placeId?: string;
+    formattedAddress?: string;
+  };
 }
 
 export interface CreateShortData {
@@ -219,6 +231,25 @@ export const createPostWithProgress = async (
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add detected place data for admin review
+    // Always send all fields if detectedPlace exists (even if some are empty strings)
+    // This ensures country and city are sent even if name is empty
+    if (data.detectedPlace) {
+      formData.append('detectedPlaceName', data.detectedPlace.name || '');
+      formData.append('detectedPlaceCountry', data.detectedPlace.country || '');
+      formData.append('detectedPlaceCountryCode', data.detectedPlace.countryCode || '');
+      formData.append('detectedPlaceCity', data.detectedPlace.city || '');
+      formData.append('detectedPlaceStateProvince', data.detectedPlace.stateProvince || '');
+      if (data.detectedPlace.latitude !== undefined && data.detectedPlace.latitude !== null) {
+        formData.append('detectedPlaceLatitude', data.detectedPlace.latitude.toString());
+      }
+      if (data.detectedPlace.longitude !== undefined && data.detectedPlace.longitude !== null) {
+        formData.append('detectedPlaceLongitude', data.detectedPlace.longitude.toString());
+      }
+      formData.append('detectedPlacePlaceId', data.detectedPlace.placeId || '');
+      formData.append('detectedPlaceFormattedAddress', data.detectedPlace.formattedAddress || '');
+    }
 
     // Use fetch for FormData to avoid axios Content-Type issues
     const token = await AsyncStorage.getItem('authToken');
@@ -315,6 +346,29 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
       if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
       if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
       if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+    }
+    
+    // Add TripScore metadata
+    if (data.spotType) formData.append('spotType', data.spotType);
+    if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    
+    // Add detected place data for admin review
+    // Always send all fields if detectedPlace exists (even if some are empty strings)
+    // This ensures country and city are sent even if name is empty
+    if (data.detectedPlace) {
+      formData.append('detectedPlaceName', data.detectedPlace.name || '');
+      formData.append('detectedPlaceCountry', data.detectedPlace.country || '');
+      formData.append('detectedPlaceCountryCode', data.detectedPlace.countryCode || '');
+      formData.append('detectedPlaceCity', data.detectedPlace.city || '');
+      formData.append('detectedPlaceStateProvince', data.detectedPlace.stateProvince || '');
+      if (data.detectedPlace.latitude !== undefined && data.detectedPlace.latitude !== null) {
+        formData.append('detectedPlaceLatitude', data.detectedPlace.latitude.toString());
+      }
+      if (data.detectedPlace.longitude !== undefined && data.detectedPlace.longitude !== null) {
+        formData.append('detectedPlaceLongitude', data.detectedPlace.longitude.toString());
+      }
+      formData.append('detectedPlacePlaceId', data.detectedPlace.placeId || '');
+      formData.append('detectedPlaceFormattedAddress', data.detectedPlace.formattedAddress || '');
     }
 
     const response = await api.post('/api/v1/posts', formData, {
@@ -507,16 +561,15 @@ export const updatePost = async (postId: string, caption: string): Promise<{ mes
   }
 };
 
-// Delete short
+// Delete short (shorts are posts; backend uses DELETE /posts/:id for both)
 export const deleteShort = async (shortId: string): Promise<{ message: string }> => {
   try {
-    const response = await api.delete(`/api/v1/shorts/${shortId}`);
-    // Clear cache for this short
+    const response = await api.delete(`/api/v1/posts/${shortId}`);
     postByIdCache.delete(shortId);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
+    throw new Error(parsedError.userMessage ?? 'Failed to delete short. Please try again.');
   }
 };
 
@@ -542,7 +595,263 @@ export const getUserShorts = async (userId: string, page: number = 1, limit: num
   }
 };
 
-// Create new short
+// Create new short with progress tracking
+export const createShortWithProgress = async (
+  data: CreateShortData,
+  onProgress?: (progress: number) => void
+): Promise<{ message: string; short: PostType }> => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      logger.debug('createShortWithProgress service called with data:', data);
+      
+      // Get auth token
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        throw new Error('No auth token found');
+      }
+
+      const formData = new FormData();
+      
+      // Add video
+      formData.append('video', {
+        uri: data.video.uri,
+        type: data.video.type,
+        name: data.video.name,
+      } as any);
+      
+      // Add optional image (thumbnail) - backend expects 'image' not 'images'
+      if (data.image) {
+        formData.append('image', {
+          uri: data.image.uri,
+          type: data.image.type,
+          name: data.image.name,
+        } as any);
+      }
+      
+      logger.debug('FormData video field:', {
+        uri: data.video.uri,
+        type: data.video.type,
+        name: data.video.name,
+      });
+      
+      // Add other fields
+      formData.append('caption', data.caption);
+      if (data.tags && data.tags.length > 0) {
+        formData.append('tags', JSON.stringify(data.tags));
+      }
+      if (data.address) formData.append('address', data.address);
+      if (data.latitude) formData.append('latitude', data.latitude.toString());
+      if (data.longitude) formData.append('longitude', data.longitude.toString());
+      
+      // Add location metadata for TripScore v2
+      if (data.hasExifGps !== undefined) {
+        formData.append('hasExifGps', data.hasExifGps ? 'true' : 'false');
+      }
+      // Defensive: ensure takenAt is a valid Date before calling toISOString
+      if (data.takenAt) {
+        let takenAtDate: Date | null = null;
+        if (data.takenAt instanceof Date) {
+          takenAtDate = data.takenAt;
+        } else if (typeof data.takenAt === 'string') {
+          takenAtDate = new Date(data.takenAt);
+        }
+        // Only append if we have a valid Date
+        if (takenAtDate && !isNaN(takenAtDate.getTime())) {
+          formData.append('takenAt', takenAtDate.toISOString());
+        } else {
+          logger.warn('takenAt is not a valid Date, skipping');
+        }
+      }
+      if (data.source) {
+        formData.append('source', data.source);
+      }
+      if (data.fromCamera !== undefined) {
+        formData.append('fromCamera', data.fromCamera ? 'true' : 'false');
+      }
+      
+      if (data.songId) {
+        formData.append('songId', data.songId);
+        if (data.songStartTime !== undefined) formData.append('songStartTime', data.songStartTime.toString());
+        if (data.songEndTime !== undefined) formData.append('songEndTime', data.songEndTime.toString());
+        if (data.songVolume !== undefined) formData.append('songVolume', data.songVolume.toString());
+      }
+      
+      // Add TripScore metadata
+      if (data.spotType) formData.append('spotType', data.spotType);
+      if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+      
+      // Add copyright compliance fields
+      if (data.audioSource) {
+        formData.append('audioSource', data.audioSource);
+        if (__DEV__) {
+          logger.debug('createShortWithProgress service - Appending audioSource:', data.audioSource);
+        }
+      } else {
+        if (__DEV__) {
+          logger.warn('createShortWithProgress service - No audioSource provided!');
+        }
+      }
+      
+      if (data.copyrightAccepted !== undefined) {
+        formData.append('copyrightAccepted', data.copyrightAccepted ? 'true' : 'false');
+      }
+      if (data.copyrightAcceptedAt) {
+        formData.append('copyrightAcceptedAt', data.copyrightAcceptedAt);
+      }
+
+      logger.debug('Sending request to /shorts endpoint with progress tracking');
+      
+      // Use XMLHttpRequest for progress tracking (works on both web and React Native)
+      const xhr = new XMLHttpRequest();
+      const apiUrl = getApiUrl('/api/v1/shorts');
+      
+      // Calculate timeout based on file size (allow 1 minute per 100MB, minimum 10 minutes)
+      // For 400MB: 4 minutes + buffer = ~10 minutes minimum
+      // For unlimited size: use very long timeout (2 hours)
+      const DEFAULT_TIMEOUT = 2 * 60 * 60 * 1000; // 2 hours for large files
+      let uploadTimeout: NodeJS.Timeout | null = null;
+      
+      // Set timeout for the request (very long for large files)
+      // Note: XMLHttpRequest timeout is in milliseconds
+      xhr.timeout = DEFAULT_TIMEOUT;
+      
+      // Handle timeout
+      xhr.addEventListener('timeout', () => {
+        logger.error('[createShortWithProgress] Upload timeout after', DEFAULT_TIMEOUT / 1000, 'seconds');
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+        }
+        reject(new Error('Upload timeout. The file may be too large or network is too slow. Please try again with a smaller file or check your connection.'));
+      });
+      
+      // Track last progress time to detect stalls
+      let lastProgressTime = Date.now();
+      let lastProgressValue = 0;
+      const STALL_DETECTION_INTERVAL = 30000; // 30 seconds
+      const progressCheckInterval = setInterval(() => {
+        const timeSinceLastProgress = Date.now() - lastProgressTime;
+        if (timeSinceLastProgress > STALL_DETECTION_INTERVAL && lastProgressValue > 0 && lastProgressValue < 95) {
+          logger.warn('[createShortWithProgress] Upload progress may have stalled, but continuing...');
+          // Don't abort, just log - large files may have periods of slow progress
+        }
+      }, STALL_DETECTION_INTERVAL);
+      
+      // Set up progress tracking with improved handling for large files
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable && onProgress) {
+          lastProgressTime = Date.now();
+          const progress = Math.round((event.loaded / event.total) * 100);
+          lastProgressValue = progress;
+          
+          // Cap at 95% until response is received (backend processing may take time)
+          const cappedProgress = Math.min(progress, 95);
+          onProgress(cappedProgress);
+          
+          // Log progress every 10% or at key milestones for large files
+          if (progress % 10 === 0 || progress === 25 || progress === 50 || progress === 75 || progress === 90) {
+            logger.debug(`Upload progress: ${cappedProgress}% (${Math.round(event.loaded / 1024 / 1024)}MB / ${Math.round(event.total / 1024 / 1024)}MB)`);
+          }
+        } else if (!event.lengthComputable && onProgress) {
+          // If length is not computable (some servers don't send Content-Length),
+          // use a simulated progress based on time (fallback)
+          logger.debug('Upload progress: length not computable, using time-based estimation');
+        }
+      });
+      
+      // Handle response
+      xhr.addEventListener('load', () => {
+        // Clear progress check interval
+        if (progressCheckInterval) {
+          clearInterval(progressCheckInterval);
+        }
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+        }
+        
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const responseData = JSON.parse(xhr.responseText);
+            // Set progress to 100% on success
+            if (onProgress) {
+              onProgress(100);
+            }
+            logger.debug('Response received:', responseData);
+            resolve(responseData);
+          } catch (parseError) {
+            logger.error('[createShortWithProgress] Failed to parse response as JSON', parseError);
+            reject(new Error('Failed to parse server response'));
+          }
+        } else {
+          let errorMessage = 'Failed to upload short';
+          try {
+            const errorData = JSON.parse(xhr.responseText);
+            const parsedError = parseError({ response: { data: errorData } });
+            errorMessage = parsedError.userMessage;
+          } catch (jsonError) {
+            // Check for specific error codes
+            if (xhr.status === 413) {
+              errorMessage = 'File is too large. Please try a smaller file.';
+            } else if (xhr.status === 408) {
+              errorMessage = 'Upload timeout. Please check your connection and try again.';
+            } else {
+              errorMessage = `Upload failed with status ${xhr.status}. Please try again.`;
+            }
+          }
+          reject(new Error(errorMessage));
+        }
+      });
+      
+      // Handle errors with better messaging for large files
+      xhr.addEventListener('error', () => {
+        // Clear intervals
+        if (progressCheckInterval) {
+          clearInterval(progressCheckInterval);
+        }
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+        }
+        
+        // Provide more helpful error message
+        reject(new Error('Network error occurred during upload. Please check your internet connection and try again.'));
+      });
+      
+      xhr.addEventListener('abort', () => {
+        // Clear intervals
+        if (progressCheckInterval) {
+          clearInterval(progressCheckInterval);
+        }
+        if (uploadTimeout) {
+          clearTimeout(uploadTimeout);
+        }
+        reject(new Error('Upload was cancelled'));
+      });
+      
+      // Open and send request
+      xhr.open('POST', apiUrl);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      // Don't set Content-Type - let browser/React Native handle it for FormData
+      xhr.send(formData as any);
+      
+    } catch (error: any) {
+      // Ensure error is an Error instance for proper Sentry tracking
+      const errorToLog = error instanceof Error 
+        ? error 
+        : new Error(error?.message || String(error) || 'Failed to create short');
+      
+      logger.error('[createShortWithProgress] Error creating short', errorToLog, {
+        errorMessage: error?.message,
+        errorStack: error?.stack,
+        errorName: error?.name,
+        hasVideo: !!data?.video,
+        videoUri: data?.video?.uri,
+      });
+      
+      reject(errorToLog);
+    }
+  });
+};
+
+// Create new short (without progress tracking - for backward compatibility)
 export const createShort = async (data: CreateShortData): Promise<{ message: string; short: PostType }> => {
   try {
     logger.debug('createShort service called with data:', data);
@@ -662,10 +971,12 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
         errorData = await response.json();
       } catch (jsonError) {
         // If response is not JSON, use status text or default error
-        logger.error('[createShort] Failed to parse error response as JSON', {
+        const errorToLog = jsonError instanceof Error 
+          ? jsonError 
+          : new Error(`Failed to parse error response: ${String(jsonError)}`);
+        logger.error('[createShort] Failed to parse error response as JSON', errorToLog, {
           status: response.status,
           statusText: response.statusText,
-          jsonError: jsonError,
         });
         throw new Error(`Upload failed with status ${response.status}. Please try again.`);
       }
@@ -677,9 +988,14 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     logger.debug('Response received:', responseData);
     return responseData;
   } catch (error: any) {
+    // Ensure error is an Error instance for proper Sentry tracking
+    const errorToLog = error instanceof Error 
+      ? error 
+      : new Error(error?.message || String(error) || 'Failed to create short');
+    
     // Log comprehensive error details for debugging
-    logger.error('[createShort] Error creating short', {
-      error: error,
+    // Pass error as second parameter (not nested in data object) for proper Sentry tracking
+    logger.error('[createShort] Error creating short', errorToLog, {
       errorMessage: error?.message,
       errorStack: error?.stack,
       errorName: error?.name,

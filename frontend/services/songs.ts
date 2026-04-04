@@ -8,6 +8,7 @@ export interface Song {
   duration: number;
   s3Url: string;
   thumbnailUrl?: string;
+  imageUrl?: string;
   genre: string;
 }
 

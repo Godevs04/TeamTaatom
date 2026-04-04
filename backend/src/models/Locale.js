@@ -87,17 +87,53 @@ const localeSchema = new mongoose.Schema({
     trim: true,
     default: 'Drivable',
     enum: ['Drivable', 'Walkable', 'Public Transport', 'Flight Required', 'Not Accessible']
+  },
+  latitude: {
+    type: Number,
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        return v === null || (v >= -90 && v <= 90);
+      },
+      message: 'Latitude must be between -90 and 90'
+    }
+  },
+  longitude: {
+    type: Number,
+    required: false,
+    default: null,
+    validate: {
+      validator: function(v) {
+        return v === null || (v >= -180 && v <= 180);
+      },
+      message: 'Longitude must be between -180 and 180'
+    }
   }
 }, {
   timestamps: true
 });
 
 // Indexes for search and filtering
-localeSchema.index({ isActive: 1, createdAt: -1 });
-localeSchema.index({ countryCode: 1 });
+// CRITICAL: Compound index for most common query pattern (isActive + countryCode)
+// This index supports queries like: { isActive: true, countryCode: 'US' }
+// IMPORTANT: Index order MUST match sort order: .sort({ displayOrder: 1, createdAt: -1 })
+// If you need different sort orders, consider additional indexes
+localeSchema.index({ isActive: 1, countryCode: 1, displayOrder: 1, createdAt: -1 });
+// FUTURE OPTIMIZATION (for 10k+ docs): Consider partial index:
+// { countryCode: 1, displayOrder: 1, createdAt: -1 }, { partialFilterExpression: { isActive: true } }
+// Compound index for isActive + stateCode filtering
+localeSchema.index({ isActive: 1, stateCode: 1 });
+// Compound index for isActive + spotTypes filtering
+localeSchema.index({ isActive: 1, spotTypes: 1 });
+// Single field indexes (for queries that don't filter by isActive)
+localeSchema.index({ isActive: 1, createdAt: -1 }); // For default active locales sorted by date
+localeSchema.index({ countryCode: 1 }); // For country-only queries
 localeSchema.index({ name: 1 }); // For faster regex searches
 localeSchema.index({ country: 1 }); // For faster regex searches
 localeSchema.index({ displayOrder: 1 });
+// Geospatial index for location-based queries
+localeSchema.index({ latitude: 1, longitude: 1 });
 // Sparse unique index on imageKey to prevent duplicate null values (allows multiple nulls)
 localeSchema.index({ imageKey: 1 }, { unique: true, sparse: true });
 

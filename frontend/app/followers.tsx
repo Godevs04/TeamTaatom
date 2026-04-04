@@ -154,14 +154,7 @@ export default function FollowersFollowingList() {
         return u;
       }));
       
-      // Show success message based on response
-      if (isFollowingValue) {
-        Alert.alert('Success', 'You are now following this user!');
-      } else if (followRequestSentValue) {
-        Alert.alert('Success', 'Follow request sent!');
-      } else {
-        Alert.alert('Success', 'You have unfollowed this user.');
-      }
+      // No success alert - silent update for better UX
       
       // Refresh the list to ensure consistency
       // Only refresh if we're viewing someone's followers/following (not our own)

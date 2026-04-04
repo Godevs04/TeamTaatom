@@ -1,0 +1,6 @@
+# actionlint config: https://github.com/rhysd/actionlint
+# Ignore intentional "if: false" on build_mobile job (re-enable when EXPO_TOKEN is set)
+paths:
+  ".github/workflows/*.yml":
+    ignore:
+      - "constant expression .* in condition"
