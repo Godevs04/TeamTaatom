@@ -15,7 +15,7 @@ Express.js backend for the Taatom mobile app - a photo sharing platform with loc
 
 ## 📋 Prerequisites
 
-- Node.js 16+ 
+- Node.js 18+ 
 - MongoDB Atlas account
 - Cloudinary account
 - Gmail account with App Password
@@ -49,7 +49,14 @@ Express.js backend for the Taatom mobile app - a photo sharing platform with loc
    EMAIL_USER=your_email@gmail.com
    EMAIL_PASS=your_app_password
    FRONTEND_URL=http://localhost:8081
+   SUPERADMIN_URL=http://localhost:5001
    ```
+   **Production:** Set `FRONTEND_URL` and `SUPERADMIN_URL` to your deployed origins; otherwise CORS will block web clients. For multiple instances, consider `REDIS_URL` (or `RATE_LIMIT_REDIS_URL`) for shared rate limiting.
+
+   **Production CORS (required for web sign-in):** If your web app is on Vercel (e.g. `https://web-taatom.vercel.app`), set in your **backend** environment (e.g. Sevalla):
+   - `FRONTEND_URL=https://web-taatom.vercel.app` (no trailing slash; must match the browser origin exactly)
+   - `SUPERADMIN_URL=https://your-superadmin-domain.com` (if you use SuperAdmin)
+   Without `FRONTEND_URL`, the backend will block requests from the web app and sign-in will fail with CORS/500.
 
 5. **Start the server:**
    ```bash
@@ -94,6 +101,12 @@ POST   /profile/:id/follow - Follow/unfollow user (Protected)
 ```
 GET    /health            - API health status
 ```
+
+## 🔒 Dependency and security
+
+- Run `npm audit` regularly and fix critical/high issues; pin major versions where appropriate.
+- **npm audit:** If `npm audit fix` fails with EACCES, fix cache ownership (see [AUDIT.md](./AUDIT.md)). That doc also lists overrides for transitive vulns and unfixable (e.g. Brevo/request) accepted risks.
+- See `src/jobs/README.md` for background job queue names and failure handling when Redis is enabled.
 
 ## 📊 Database Schema
 
@@ -272,7 +285,7 @@ DEBUG=taatom:* npm run dev
 ## 📞 Support
 
 For issues and questions:
-- Email: support@taatom.com
+- Email: contact@taatom.com
 - GitHub Issues: [Create an issue](https://github.com/your-org/taatom-backend/issues)
 
 ## 📄 License

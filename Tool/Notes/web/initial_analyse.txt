@@ -1,0 +1,512 @@
+1. Mobile app feature analysis (Expo React Native – frontend/)
+I’ll use “trip” to mean the combination of posts, shorts, and TripScore/location features, since there isn’t a separate “trip” entity.
+1.1 Authentication
+Core flows
+Email/password signup with OTP verification
+Screens: signin, signup, verifyOtp, forgot, reset-password under app/(auth)/.
+Features:
+Email + password registration.
+6‑digit OTP verification flow.
+Resend OTP.
+Password reset via OTP.
+Email/password signin
+Maintains JWT in AsyncStorage (mobile) and via HttpOnly cookies (web, for shared services).
+Google OAuth signin
+Uses expo-auth-session and backend POST /api/v1/auth/google.
+Tokens / session
+JWT Bearer tokens for mobile (Authorization: Bearer <token>).
+GET /api/v1/auth/me to hydrate user on app start.
+POST /api/v1/auth/refresh for access token refresh.
+POST /api/v1/auth/logout for logout, clearing token + cookies.
+Username & validation
+Username availability check during signup.
+Centralized error-code handling in services/auth.ts.
+1.2 User profile & account
+Profile viewing & editing
+Screens:
+Own profile: app/(tabs)/profile.tsx
+Other user profile: app/profile/[id].tsx
+Followers / following: app/followers.tsx
+Features:
+Display avatar, full name, username, bio, counts (posts, followers, following, TripScore).
+Edit profile (bio, full name, avatar).
+Upload/change profile picture (image upload to backend/Cloudinary).
+Account & privacy settings
+Screens:
+app/settings/index.tsx (entry)
+app/settings/account.tsx
+app/settings/privacy.tsx
+app/settings/notifications.tsx
+app/settings/appearance.tsx
+app/settings/data.tsx, .../manage-posts.tsx, .../blocked-users.tsx, .../account-activity.tsx, etc.
+Features:
+Privacy: private/public account, who can follow, activity visibility.
+Notification preferences (push + in‑app).
+Appearance (theme mode).
+Data/export & account deletion.
+Manage blocked users, sessions, and account activity logs.
+1.3 Trips / posts / shorts (creation, listing, details)
+Posts (photo-based “trips”)
+Screens:
+Home feed: app/(tabs)/home.tsx
+Create post: app/(tabs)/post.tsx (photo mode)
+Post detail: app/post/[id].tsx
+User posts: app/user-posts/[userId].tsx
+Saved posts: app/saved-posts/index.tsx
+Manage posts (archive/hidden): app/settings/manage-posts.tsx
+Features:
+Multi-image posts (up to 10 photos).
+Caption with hashtags and @mentions.
+Attach location (address + lat/lng), TripScore integration.
+Attach background music (song selection, clipping, volume).
+View post details with comments, likes, saves, share sheet.
+Delete, archive, hide/unhide posts.
+Shorts (vertical video trips)
+Screens:
+Vertical video feed: app/(tabs)/shorts.tsx
+User’s shorts grid (from profile): taps open filtered shorts with shortId + userId.
+Features:
+Full-screen vertical swipe feed.
+Auto-play / pause on visibility.
+Per-short like/comment/share/save.
+Tap to play/pause; overlays for caption, user info, actions.
+Video + optional thumbnail upload; audio track selection.
+Trip “details” via TripScore
+Profile-level TripScore (aggregate trip stats by continents/countries/locations).
+Per-country/continent drill-down; location-level listing of posts.
+1.4 Audio / music features
+Song library & playback
+Integrated into post/short creation (SongSelector, SongPlayer).
+Choose a song, select clip (start/end), adjust volume.
+Playback uses signed S3 URLs (songs service).
+Backed by backend /api/v1/songs
+Search, filter, and paginate songs.
+Some admin-only song upload/edit/delete is available (but used mainly from web/superadmin).
+1.5 Location handling & verified location logic
+Location capture / EXIF
+Extract EXIF GPS metadata from uploaded images where available.
+Allow manual or auto selection of location for posts/shorts.
+TripScore & verified locations
+Screens under app/tripscore/*:
+Continents overview (continents.tsx)
+Per-continent countries (continents/[continent]/countries.tsx)
+Per-country detail / locations / map.
+Features:
+Tracks visited continents, countries, and locations based on verified posts/shorts.
+Distinguishes GPS-verified vs. manually tagged locations.
+Derives user “TripScore” used in profile and superadmin analytics.
+Map integration
+Screens:
+app/map/all-locations.tsx – all verified locations on a map.
+app/map/current-location.tsx – user’s current location & posts.
+app/tripscore/countries/[country]/map.tsx – country-level map.
+Uses react-native-maps with markers, region, etc.
+1.6 Media upload (images, videos)
+Implementation
+Service: services/posts.ts (createPostWithProgress, createShortWithProgress).
+Uses FormData + XMLHttpRequest to track progress.
+Features
+Multiple image upload for posts.
+Single video + optional thumbnail for shorts.
+Upload progress UI & error handling.
+Server-side thumbnail / derivative generation (video thumb).
+Handles large video uploads (backend uses Multer memory storage & S3).
+1.7 Likes, saves, and other social actions
+Likes
+Posts: heart toggle on feed, detail, profile grids.
+Shorts: heart toggle with animations (double-tap & tap on icon).
+Persistent across sessions using:
+Backend /posts/:id/like + /shorts isLiked flags.
+Additional local persistence via AsyncStorage for last-liked IDs (we just added).
+Saves / bookmarks
+Save to collections:
+Create collection, add/remove posts, reorder.
+Saved posts screen with grid layout & navigation to detail.
+Comments
+Add/delete comments on posts and shorts.
+Comment modal with keyboard handling.
+Share
+Share to OS share sheet using generated short URLs.
+Social sharing metadata is prepared server-side (short-url + redirect).
+Follow / unfollow
+Follow user, handle private profile follow-requests.
+Followers/following screens.
+Block / report
+Block/unblock users.
+Report content/users (with reasons) and see confirmation.
+Notifications
+In-app notification center.
+Push notifications (Expo) via registered push token.
+Chat / messaging
+1:1 chat:
+Chat threads listing.
+Message history with pagination.
+Send messages, mark as seen, mute/unmute conversation.
+Backed by Socket.IO for real-time updates.
+1.8 Admin-only features visible from mobile
+Direct superadmin UI is not in mobile; however, some mobile UX is affected by:
+Content moderation results (hidden/archived posts, blocked users).
+Verified/trusted locations, TripScore-based curation.
+All actual admin management is in superadmin/ + backend.
+1.9 Cloud storage, signed URLs, and refresh logic
+Images
+Cloudinary-based storage for images (posts, profile pics, thumbnails).
+URLs are stored and returned directly; some normalization in controllers.
+Videos & audio
+Stored in S3 (or compatible).
+Backend generates presigned URLs for:
+videoUrl/mediaUrl fields on posts/shorts.
+Audio/song URLs.
+Refresh of expired URLs
+For shorts:
+If a video URL fails with 403/404/timeouts, frontend calls getPostById/refetchShortWithFreshUrl to get a fresh signed URL.
+Posts:
+Similar pattern using getPostById and media normalization in controller.
+1.10 Pagination / infinite scroll
+Home feed (home.tsx)
+Uses FlatList with:
+onEndReached for pagination.
+Pull-to-refresh.
+De-duplication by _id.
+Supports both offset (page, limit) and cursor-based pagination from backend.
+Shorts feed
+Uses FlatList with pagingEnabled and vertical snapping.
+Windowing & removeClippedSubviews for memory.
+Other lists
+Followers/following, notifications, collections, user posts, chats, etc. all use page/limit style pagination consistent with backend.
+1.11 Other notable mobile features
+Onboarding flow:
+Welcome → Interests selection → Suggested users to follow.
+Interests saved to /profile/interests, suggested users from /profile/suggested-users.
+Search:
+Global search (users, posts, hashtags, locations).
+Hashtag pages: /hashtag/[hashtag].
+Settings & policies:
+Terms, privacy policy, copyright policy.
+Support:
+Support index, contact form, help/FAQ.
+2. Backend route & architecture analysis (backend/)
+2.1 API surface (high level, grouped)
+I’ll group by resource; individual methods were enumerated in the exploration step.
+Auth (/api/v1/auth)
+Signup, OTP verification, resend OTP.
+Check username availability.
+Signin (email/password).
+Google OAuth signin.
+Get current user.
+Refresh token.
+Forgot/reset password via OTP.
+Logout.
+Posts & Shorts
+Posts (/api/v1/posts)
+Feed (GET /), post detail (GET /:id), create (POST /).
+User posts (GET /user/:userId).
+Like/unlike (POST /:id/like).
+Comments (add/delete).
+Archive/hide/show, toggle comments, edit.
+Archived/hidden feeds.
+Shorts (/api/v1/shorts)
+Short feed (GET /), user shorts (GET /user/:userId).
+Create short (POST /).
+Profile & social graph (/api/v1/profile)
+Profile CRUD (get/update).
+Search users.
+Suggested users (now interest-aware).
+Interests save.
+Follow/unfollow, follow-requests, approve/reject.
+Block/unblock, block-status.
+Followers/following lists.
+TripScore + travel-map endpoints.
+Chat (/api/v1/chat)
+Threads listing; conversation metadata.
+Messages listing, sending, clearing.
+Mark all seen.
+Mute/mute-status.
+Notifications (/api/v1/notifications)
+List notifications (paginated).
+Mark one/all as read.
+Unread count.
+Collections (/api/v1/collections)
+CRUD collections.
+Add/remove posts.
+Reorder posts inside a collection.
+Search & hashtags
+/api/v1/search/posts, /api/v1/search/location.
+/api/v1/hashtags:
+Search, trending, hashtag detail, hashtag posts.
+Songs (/api/v1/songs)
+Get songs, get by ID.
+Upload/delete/update/toggle (admin-only).
+Maps & location (/api/v1/maps)
+Search place / geocode for users and admin.
+Tightly integrated with TripScore + travel map.
+Reports (/api/v1/reports)
+Create report (content/user).
+Activity & settings
+/api/v1/activity: activity feed & privacy.
+/api/v1/settings: app/user settings.
+User management (/api/v1/user-management)
+Account activity, active sessions, blocked users, email verification, account deletion, data export.
+Short URL (/api/v1/short-url + /s/:shortCode)
+Create short URL for sharing posts/links.
+Public redirect handler.
+Health checks
+/health, /health/detailed, /health/ready, /health/live.
+SuperAdmin (/api/v1/superadmin)
+Comprehensive admin endpoints for:
+Users & content moderation.
+TripScore & travel map oversight.
+Songs, hashtags, reports, analytics, dashboards, feature flags, system config.
+2.2 Middleware
+Global middleware stack (in app.js)
+Security: Helmet, sanitization (sanitizeInput).
+CORS: environment-based allowed origins; supports credentials.
+Cookie parsing.
+Request ID & structured request logging.
+Compression.
+Body parsing with size limits.
+Request size limiter (per-path, e.g. /posts, /shorts, /profile, /songs).
+Rate limiting:
+Global + specialized (signup/signin/OTP/reset/etc.).
+CSRF:
+Token generation middleware (adds token in cookie/header).
+Verification middleware for state-changing requests; bypassed when using Bearer tokens/mobile or on specific public endpoints.
+Error handling:
+Centralized error middleware that maps errors to the standard error format + codes.
+Auth middleware
+authMiddleware:
+Reads token from cookie or Authorization header via helper getAuthToken.
+Verifies JWT; rejects if invalid, expired, unverified account, or user not found.
+Sets req.user.
+optionalAuth:
+Same as above, but silently continues with req.user undefined if no/invalid token.
+verifySuperAdminToken (for SuperAdmin routes).
+Validation / file upload
+Express-validator rules per route.
+Multer memory storage with file-type validation (images, video, audio).
+Request-size guard via requestSizeLimiter.
+2.3 Auth strategy
+Tokens
+JWT (access token) with user ID; stored:
+Mobile: AsyncStorage, passed via Authorization: Bearer.
+Web: HttpOnly cookie (set on signin).
+Session
+No explicit refresh token for mobile; refresh endpoint uses existing cookies/headers.
+Multiple sessions tracked for account-activity + session management.
+Platform detection
+X-Platform header + presence of Authorization used to:
+Decide CSRF enforcement vs. Bearer-based protection.
+Tailor some responses for mobile/web as needed.
+2.4 Response and error format
+Success
+Always includes success: true.
+Either:
+data: { ... }, or
+top-level resource keys (posts, shorts, pagination, etc.).
+Also includes message on many endpoints for user feedback.
+Error
+success: false
+error: { code, message, details? }
+Error codes are namespaced:
+AUTH_*, VAL_*, RES_*, FILE_*, RATE_*, SRV_*, BIZ_*.
+Highly consistent across controllers.
+2.5 Pagination format
+Offset-based
+Query: ?page=1&limit=20
+Response:
+    {      "success": true,      "posts": [...],      "pagination": {        "currentPage": 1,        "totalPages": 10,        "totalPosts": 200,        "hasNextPage": true,        "hasPrevPage": false,        "limit": 20      }    }
+Cursor-based
+Query: ?useCursor=true&cursor=<ISO-date>&limit=20
+Response:
+    {      "success": true,      "posts": [...],      "pagination": {        "cursor": "2024-01-15T10:30:00.000Z",        "hasNextPage": true,        "limit": 20      }    }
+Used for
+Posts feed (GET /posts) and some other list endpoints where large, time-ordered lists are expected.
+3. Feature parity checklist for Web (Next.js App Router) + missing web‑specific requirements
+Your web (web/) Next.js app is currently empty, so none of the mobile features exist on web yet. Below is a checklist of what must be implemented for parity, plus extra things web must add (SEO/SSR/meta).
+3.1 Core auth & account
+Auth flows (must be ported to web)
+[ ] Email/password signup with OTP verification.
+[ ] OTP verification + resend OTP screens.
+[ ] Login (email/password).
+[ ] Google OAuth login (web flow).
+[ ] Forgot password & OTP reset flow.
+[ ] Username availability check during signup.
+[ ] “Remember me”/session persistence via HttpOnly cookies.
+[ ] Logout.
+[ ] Global auth guard (protected routes under /app, public routes for auth/landing).
+Web-specific
+[ ] Use HttpOnly cookies + CSRF tokens (X-CSRF-Token) for all state-changing requests.
+[ ] Use X-Platform: web header in all web requests.
+[ ] Proper error-code mapping to UI messages.
+3.2 Profile & settings
+Profile
+[ ] Profile page for current user (same info as mobile).
+[ ] Public profile page by username/ID (/u/[username] or similar).
+[ ] Edit profile (bio, avatar, name).
+[ ] Upload/change avatar on web.
+[ ] TripScore summary + travel stats on profile.
+Follow graph
+[ ] Followers / following pages (paginated).
+[ ] Follow/unfollow buttons, conditional on privacy.
+[ ] Follow-request approval/rejection UI for private profiles.
+Settings
+[ ] Account settings: email, password, account deletion, data export.
+[ ] Privacy settings: account visibility, activity visibility.
+[ ] Notification settings (email/web push where applicable).
+[ ] Blocked users management UI.
+[ ] Account activity & sessions.
+Web-specific
+[ ] SEO-friendly profile URLs.
+[ ] SSR for public profiles with meta tags and Open Graph images.
+3.3 Trips / posts / shorts
+Posts
+[ ] Home feed page mirroring mobile home (with pagination/infinite scroll or “Load more”).
+[ ] Post detail page (/post/[id]) with:
+Photo gallery.
+Caption, hashtags, mentions.
+Likes, comments, saves, share.
+[ ] Create post page with multi-image upload, location selection, and optional music.
+[ ] User’s posts listing (same as user-posts/[userId]).
+[ ] Saved posts page + collections management.
+Shorts
+[ ] Web shorts experience (vertical video) – either:
+TikTok-style full-screen vertical swiper, or
+Rich card-based layout with video playback.
+[ ] Shorts detail page (if not full-screen).
+[ ] Create short UI: video + thumbnail upload, caption, audio.
+Trip details / TripScore
+[ ] TripScore pages replicated on web:
+Continents overview.
+Per-continent countries.
+Country detail & location history.
+3.4 Media upload & processing
+[ ] Image upload with progress (multiple files).
+[ ] Video upload with progress & validation.
+[ ] Thumbnail preview & removal of selected images.
+[ ] Integration with existing /posts and /shorts upload endpoints.
+[ ] Graceful handling of large uploads (e.g., UI warnings, progress states).
+3.5 Audio / music
+[ ] Song library UI (search/filter/pagination).
+[ ] Attach song to post/short with:
+Start/end clipping.
+Volume controls.
+[ ] Audio playback on post/short detail page.
+[ ] Respect signed song URLs & handle expiry gracefully.
+3.6 Location, maps, TripScore
+[ ] Location picker:
+Search for places via /maps/search-place-user.
+Show selected location in UI.
+[ ] Map pages:
+Travel map (all verified locations) using a web map (Mapbox/Google Maps/embed or React wrapper).
+Current-location page equivalent (read-only in web).
+Country/continent maps similar to mobile.
+[ ] TripScore views:
+Score breakdown by continents/countries/locations.
+Linked to posts at each location.
+Verified locations
+[ ] Icons/badges to represent verified vs non-verified locations on web.
+[ ] Reuse backend TripScore/verification logic; no new backend code needed.
+3.7 Social features
+Likes / saves
+[ ] Like/unlike posts and shorts.
+[ ] Save/unsave posts to collections.
+[ ] Collections pages (index/detail/create/edit).
+[ ] Client-side optimistics updates, synced with backend counts.
+Comments
+[ ] Comment threads on posts (list/add/delete).
+[ ] Comment count & preview.
+[ ] Possibly inline replies (if mobile does this later).
+Shares
+[ ] Share buttons that:
+Use short URLs from /short-url/create.
+-> Pre-populate social share metadata (Open Graph).
+Follow / block / report
+[ ] Follow/unfollow buttons on profile and lists.
+[ ] Block/unblock UI.
+[ ] Report content form mapping to /reports.
+Notifications
+[ ] Web notifications center with pagination, mark as read/all read.
+[ ] Badge indicators on header.
+Chat
+[ ] Web chat interface:
+List of conversations.
+Message history.
+Typing/send message UI.
+Mute/unmute + mark all seen.
+[ ] Socket.IO client connection for real-time.
+3.8 Onboarding & discovery
+[ ] Onboarding flow for new web users:
+Optionally re-use welcome → interests → suggested users steps.
+Or detect if onboarding already done and skip.
+[ ] Global search page:
+Users, posts, hashtags, locations.
+[ ] Hashtag pages:
+/tag/[hashtag] or /hashtag/[hashtag] with posts listing.
+3.9 Policies, support, misc
+[ ] Terms, privacy, copyright pages (SSR, SEO optimized).
+[ ] Support center:
+Help/FAQ.
+Contact form.
+[ ] Settings pages mirrored from mobile where applicable.
+3.10 Cloud & signed URL behavior (web)
+[ ] Respect signed video/audio/image URLs from backend.
+[ ] Retry/refetch on 403/404/timeout (e.g., call GET /posts/:id to refresh media URL).
+[ ] Do not attempt to sign URLs on the client.
+3.11 Pagination / infinite scroll (web UX)
+[ ] Use backend pagination formats:
+Offset for most lists.
+Cursor for feeds that benefit from it (e.g., home feed).
+[ ] Implement infinite scroll or “Load more” while preserving SEO concerns (see below).
+4. Missing web‑specific requirements (SEO, SSR, meta tags, etc.)
+Because web is Next.js (App Router), you should plan additional web-only capabilities beyond mobile parity:
+4.1 SEO & meta
+Per-page SEO
+[ ] Implement generateMetadata or metadata exports for key routes:
+Home.
+Public profile pages.
+Post detail pages.
+Hashtag pages.
+Location/TripScore public pages (if public).
+[ ] Dynamic <title> and <meta name="description"> based on post caption, user bio, hashtag summary.
+Open Graph & Twitter cards
+[ ] OG tags for shareable pages:
+og:title, og:description, og:image, og:url, og:type.
+[ ] Use primary post image or user avatar as OG image.
+[ ] Ensure short URLs redirect to SEO-friendly canonical URLs with OG tags.
+Canonical URLs
+[ ] Set canonical links to avoid duplicate content (e.g., /posts/[id] vs /s/[shortCode]).
+Structured data
+[ ] JSON-LD for:
+User profiles (Person/Organization).
+Posts as Article or SocialMediaPosting.
+Travel/TripScore pages as Place or similar.
+4.2 SSR / SSG strategy
+Public content SSR
+[ ] SSR for:
+Profile pages.
+Public post detail pages.
+Hashtag pages.
+Policy/support pages.
+This improves SEO and first-paint performance.
+Auth-protected pages
+[ ] Use server-side auth (cookies) in middleware.ts or layouts to:
+Redirect unauthenticated users from protected routes.
+Avoid hydration mismatch for auth state.
+Hybrid rendering
+[ ] Consider SSG with revalidation for:
+Policy and static marketing pages.
+Top-level discovery pages (e.g., trending hashtags, public explore feed).
+[ ] Client-side pagination + data fetching (React Query/SWR) for feeds while keeping SEO-friendly initial HTML.
+4.3 Performance and UX
+[ ] Route-based code splitting using Next.js App Router (layout/routes).
+[ ] Image optimization via next/image for all user-generated images (including thumbnails).
+[ ] Use HTTP caching headers + Next.js revalidation where safe (e.g., read-only resources).
+4.4 Web-only capabilities
+[ ] Desktop layout & responsive design for:
+Navigation/header.
+Sidebars vs mobile bottom tabs.
+Multi-column feeds on large screens.
+[ ] Keyboard shortcuts for power users (optional).
+[ ] Accessibility (a11y):
+Proper roles/labels for buttons, forms, lists.
+Focus management after dialogs/modals.

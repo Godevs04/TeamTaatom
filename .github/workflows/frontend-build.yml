@@ -1,23 +1,14 @@
 name: Frontend Build Pipeline
 
-# Build Pipeline Flow:
-# GitHub Actions:
-#   ├─ Validate code (linting, tests)
-#   ├─ Build web version
-#   ├─ Upload Sentry source maps
-#   ├─ Trigger EAS build (iOS/Android)
-#   └─ Enforce quality gates
+# Frontend lint + build web runs ONCE in CI (see ci.yml). This workflow does NOT duplicate it.
+# Flow:
+#   1. validate     → Commit message & branch conventions (TAATOM prefix)
+#   2. build-mobile → EAS iOS/Android (main or manual only)
 #
-# EAS Build (triggered by GitHub Actions):
-#   ├─ Android build
-#   ├─ iOS build
-#   ├─ Code signing
-#   └─ Store artifacts
+# Commit message rule: First line must match ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
+#   Bypass: Include [skip validation] in the message to skip (use sparingly).
 #
-# Note: Warnings about "Context access might be invalid" are expected.
-# These warnings appear because GitHub Actions doesn't know if the secrets exist.
-# The workflow will work correctly when secrets are added to GitHub Secrets.
-# Add these secrets in: Repository Settings → Secrets and variables → Actions
+# Lint, build web, Sentry source maps, and web-build artifact are in CI / Lint & Build Frontend.
 
 on:
   push:
@@ -37,90 +28,120 @@ on:
 env:
   NODE_VERSION: '20.x'
 
+# Cancel in-progress runs for the same branch (saves minutes, avoids stale results)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal permissions: read-only for repo (artifact upload does not need contents write)
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
-    name: Build & Test Frontend
+  validate:
+    name: Validate Conventions
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 5
+    outputs:
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+      branch: ${{ steps.meta.outputs.branch }}
+      message_ok: ${{ steps.conventions.outputs.message_ok }}
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          fetch-depth: 1
 
-      - name: Install dependencies
-        working-directory: ./frontend
+      - name: Set ref meta
+        id: meta
         run: |
-          # Try npm ci first (faster), fallback to npm install if lock file is out of sync
-          npm ci || npm install
+          echo "commit_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "branch=${GITHUB_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
 
-      - name: Validate code - Linting
-        working-directory: ./frontend
-        run: npm run lint || echo "Linting not configured"
-
-      - name: Build web
-        working-directory: ./frontend
+      - name: Enforce commit message & branch conventions
+        id: conventions
         env:
-          NODE_ENV: production
-          # Public values - can be in vars or secrets
-          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
-          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
-          EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
-          EXPO_PUBLIC_ENV: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
         run: |
-          npm run build:web
-          # Source maps are automatically uploaded by Sentry CLI during build
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            MSG="$PR_TITLE"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$HEAD_COMMIT_MESSAGE" ]; then
+            MSG="$HEAD_COMMIT_MESSAGE"
+            MSG=$(printf '%s\n' "$MSG" | head -n1)
+          else
+            MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
+          fi
 
-      - name: Upload source maps to Sentry
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
-        working-directory: ./frontend
-        env:
-          # Secrets required for Sentry source map uploads
-          # Note: "Context access might be invalid" warnings are expected until secrets are added to GitHub
-          # These warnings will disappear once secrets are configured in: Settings → Secrets and variables → Actions
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          RELEASE_VERSION: ${{ github.sha }}
-        run: |
-          # Skip if secrets are not configured
-          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
-            echo "⚠️  Sentry secrets not configured. Skipping source maps upload."
-            echo "   Add secrets in: Repository Settings → Secrets and variables → Actions"
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Dependabot PR; commit message validation skipped."
             exit 0
           fi
-          
-          # Install Sentry CLI if not already installed
-          npm install -g @sentry/cli || true
-          
-          # Upload source maps (if build generated them)
-          if [ -d "dist" ]; then
-            sentry-cli sourcemaps upload \
-              --org "$SENTRY_ORG" \
-              --project "$SENTRY_PROJECT" \
-              --release "$RELEASE_VERSION" \
-              dist/ || echo "Source maps upload skipped (may not be needed for this build)"
+          # Allow bypass
+          if echo "$MSG" | grep -qi '\[skip validation\]'; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Commit message validation skipped (bypass marker found)."
+            exit 0
           fi
 
-      - name: Upload build artifacts
-        if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-build
-          path: frontend/dist
-          retention-days: 7
+          # workflow_dispatch: skip strict convention so manual runs always pass
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Manual run: convention check skipped."
+            exit 0
+          fi
+
+          # Allow merge commits (GitHub default "Merge pull request #N from ..." or "Merge branch ...")
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Merge commit detected; convention check skipped."
+            exit 0
+          fi
+
+          # Require first line to start with TAATOM (optional: TAATOM-123 or TAATOM-Description) then space or colon
+          # Regex: ^TAATOM(-[0-9A-Za-z]+)?(\s|:)
+          if echo "$MSG" | grep -qE '^TAATOM(-[0-9A-Za-z]+)?(\s|:)'; then
+            echo "message_ok=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Commit message matches convention: TAATOM or TAATOM-<id> prefix."
+          else
+            echo "message_ok=false" >> "$GITHUB_OUTPUT"
+            echo "❌ Commit message must start with TAATOM or TAATOM-<number> (or TAATOM-<word>) followed by space or colon."
+            echo "   Example: TAATOM: Add feature"
+            echo "   Example: TAATOM-42: Fix bug"
+            echo "   Example: TAATOM-111: Fixing web and Shorts issues"
+            echo "   Got (first line): $MSG"
+            exit 1
+          fi
+
+          # Optional: branch name pattern (main, develop, or feature/TAATOM-*, hotfix/*, release/*)
+          if echo "$BRANCH" | grep -qE '^(main|develop|feature/|hotfix/|release/|bugfix/)'; then
+            echo "✅ Branch name allowed: $BRANCH"
+          else
+            echo "⚠️  Branch '$BRANCH' does not match common pattern (main|develop|feature/|hotfix/|release/|bugfix/). Continuing anyway."
+          fi
+
+      - name: Summary
+        run: |
+          echo "=============================================="
+          echo "  Validation summary"
+          echo "=============================================="
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Branch: ${GITHUB_REF#refs/heads/}"
+          echo "  Event:  ${{ github.event_name }}"
+          echo "  Message OK: ${{ steps.conventions.outputs.message_ok }}"
+          echo "=============================================="
 
   build-mobile:
     name: Build Mobile Apps (EAS)
     runs-on: ubuntu-latest
-    needs: build-and-test  # Only run after web build and validation pass
+    needs: validate
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    
+    timeout-minutes: 35
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

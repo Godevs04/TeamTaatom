@@ -119,15 +119,17 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
             },
           ]}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={[styles.iconContainer, { backgroundColor: color + '20' }]}>
-              <Ionicons name={icon as any} size={32} color={color} />
+          {/* Header - Only show if title is provided */}
+          {title && (
+            <View style={styles.header}>
+              <View style={[styles.iconContainer, { backgroundColor: color + '20' }]}>
+                <Ionicons name={icon as any} size={32} color={color} />
+              </View>
+              <Text style={[styles.title, { color: theme.colors.text }]}>
+                {title}
+              </Text>
             </View>
-            <Text style={[styles.title, { color: theme.colors.text }]}>
-              {title}
-            </Text>
-          </View>
+          )}
 
           {/* Message */}
           <Text style={[styles.message, { color: theme.colors.textSecondary }]}>

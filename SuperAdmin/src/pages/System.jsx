@@ -73,9 +73,25 @@ const System = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError' || !isMountedRef.current) return
-      logger.error('Failed to fetch system health:', error)
+      
+      // Handle 503 (Service Unavailable) gracefully - don't show error toast
+      const isServiceUnavailable = error.response?.status === 503
+      
+      if (isServiceUnavailable) {
+        // Log as debug instead of error for 503
+        logger.debug('System health endpoint unavailable (503):', error.response?.status)
+        // Don't show toast for 503 - it's expected when backend is down
+      } else {
+        // Log other errors normally
+        logger.error('Failed to fetch system health:', error)
+        if (isMountedRef.current) {
+          toast.error('Failed to fetch system health')
+        }
+      }
+      
+      // Set healthData to null so empty state is shown
       if (isMountedRef.current) {
-        toast.error('Failed to fetch system health')
+        setHealthData(null)
       }
     } finally {
       if (isMountedRef.current) {
@@ -104,9 +120,21 @@ const System = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError' || !isMountedRef.current) return
-      logger.error('Failed to fetch system statistics:', error)
+      
+      // Handle 503 (Service Unavailable) gracefully
+      const isServiceUnavailable = error.response?.status === 503
+      
+      if (isServiceUnavailable) {
+        logger.debug('System statistics endpoint unavailable (503):', error.response?.status)
+      } else {
+        logger.error('Failed to fetch system statistics:', error)
+        if (isMountedRef.current) {
+          toast.error('Failed to fetch system statistics')
+        }
+      }
+      
       if (isMountedRef.current) {
-        toast.error('Failed to fetch system statistics')
+        setStatisticsData(null)
       }
     } finally {
       if (isMountedRef.current) {
@@ -135,9 +163,21 @@ const System = () => {
       }
     } catch (error) {
       if (error.name === 'AbortError' || !isMountedRef.current) return
-      logger.error('Failed to fetch performance metrics:', error)
+      
+      // Handle 503 (Service Unavailable) gracefully
+      const isServiceUnavailable = error.response?.status === 503
+      
+      if (isServiceUnavailable) {
+        logger.debug('Performance metrics endpoint unavailable (503):', error.response?.status)
+      } else {
+        logger.error('Failed to fetch performance metrics:', error)
+        if (isMountedRef.current) {
+          toast.error('Failed to fetch performance metrics')
+        }
+      }
+      
       if (isMountedRef.current) {
-        toast.error('Failed to fetch performance metrics')
+        setPerformanceData(null)
       }
     } finally {
       if (isMountedRef.current) {
@@ -439,6 +479,29 @@ const System = () => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               </div>
             )}
+            {!loading.health && !healthData && (
+              <Card className="border-0 shadow-lg">
+                <CardContent className="p-12 text-center">
+                  <AlertCircle className="w-16 h-16 mx-auto mb-4 text-amber-500" />
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Service Unavailable</h3>
+                  <p className="text-gray-600 mb-6">
+                    The system health endpoint is currently unavailable. This may be due to:
+                  </p>
+                  <ul className="text-sm text-gray-600 mb-6 space-y-1 text-left max-w-md mx-auto">
+                    <li>• Backend server is temporarily down</li>
+                    <li>• Service is under maintenance</li>
+                    <li>• Network connectivity issues</li>
+                  </ul>
+                  <button
+                    onClick={fetchSystemHealth}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Retry
+                  </button>
+                </CardContent>
+              </Card>
+            )}
             {healthData && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
                 <Card className="border-0 shadow-lg">
@@ -553,6 +616,24 @@ const System = () => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               </div>
             )}
+            {!loading.statistics && !statisticsData && (
+              <Card className="border-0 shadow-lg">
+                <CardContent className="p-12 text-center">
+                  <AlertCircle className="w-16 h-16 mx-auto mb-4 text-amber-500" />
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Service Unavailable</h3>
+                  <p className="text-gray-600 mb-6">
+                    The system statistics endpoint is currently unavailable.
+                  </p>
+                  <button
+                    onClick={fetchSystemStatistics}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Retry
+                  </button>
+                </CardContent>
+              </Card>
+            )}
             {statisticsData && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -637,6 +718,24 @@ const System = () => {
               <div className="flex items-center justify-center h-64">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               </div>
+            )}
+            {!loading.performance && !performanceData && (
+              <Card className="border-0 shadow-lg">
+                <CardContent className="p-12 text-center">
+                  <AlertCircle className="w-16 h-16 mx-auto mb-4 text-amber-500" />
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Service Unavailable</h3>
+                  <p className="text-gray-600 mb-6">
+                    The performance metrics endpoint is currently unavailable.
+                  </p>
+                  <button
+                    onClick={fetchPerformance}
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-all flex items-center gap-2 mx-auto"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Retry
+                  </button>
+                </CardContent>
+              </Card>
             )}
             {performanceData && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 md:gap-6">

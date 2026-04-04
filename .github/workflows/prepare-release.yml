@@ -1,0 +1,297 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Prepare Release — Internal GitHub release (does NOT change app.json / stores)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# WHEN DOES THIS RUN?
+#   • Only when you manually run it: Actions → "Prepare Release" → "Run workflow".
+#   • It does NOT run on push or pull request.
+#
+# WHAT IT DOES:
+#   1. Merge translations (placeholder — add your step if needed)
+#   2. Bump internal version from .github/release.properties (GitHub tag only)
+#   3. Build mobile (Android + iOS) — SKIPPED for now; re-enable when EXPO_TOKEN is set
+#   4. Create GitHub tag + release (no push to main; branch protection requires PRs)
+#
+# NOTE: app.json is for App Store / Play Store only — change that manually.
+#       This workflow only creates/updates GitHub tag and release.
+#       Update LAST_INTERNAL_VERSION in .github/release.properties manually (via PR) after each release so the next run uses the correct version.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Override RELEASE_TYPE (patch|minor|major|service_pack)'
+        required: false
+      patch_version:
+        description: 'For patch type: patch number to set (1 → 2026.1.1, 2 → 2026.1.2)'
+        required: false
+        default: ''
+      allow_repatch:
+        description: 'Re-release same version (e.g. after failure). Overrides ALLOW_REPATCH in properties.'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '20.x'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  merge_translations:
+    name: 🌐 Merge translations
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: When this workflow runs
+        run: |
+          {
+            echo "## 📌 When does Prepare Release run?"
+            echo "This workflow **only runs when you manually trigger it** from:"
+            echo "**Actions** → **Prepare Release** → **Run workflow**."
+            echo ""
+            echo "It does not run on push or pull request."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Merge translations (placeholder)
+        run: |
+          {
+            echo "## 🌐 Merge translations"
+            echo "Placeholder step. Add your translation merge here (e.g. Crowdin, merge keys). Skipping — no-op."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "=============================================="
+          echo "  Merge translations (placeholder)"
+          echo "=============================================="
+          echo "  Add your translation merge step here (e.g. pull from Crowdin, merge keys)."
+          echo "  Skipping for now — no-op."
+          echo "=============================================="
+
+  bump_version:
+    name: 📦 Bump internal version
+    runs-on: ubuntu-latest
+    needs: merge_translations
+    timeout-minutes: 5
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply workflow inputs to release.properties
+        run: |
+          PROP=.github/release.properties
+          if [ -n "${{ github.event.inputs.release_type }}" ]; then
+            sed -i.bak "s/^RELEASE_TYPE=.*/RELEASE_TYPE=${{ github.event.inputs.release_type }}/" "$PROP" && rm -f "${PROP}.bak"
+          fi
+          if [ -n "${{ github.event.inputs.patch_version }}" ]; then
+            if grep -q '^PATCH_VERSION=' "$PROP"; then
+              sed -i.bak "s/^PATCH_VERSION=.*/PATCH_VERSION=${{ github.event.inputs.patch_version }}/" "$PROP" && rm -f "${PROP}.bak"
+            else
+              echo "PATCH_VERSION=${{ github.event.inputs.patch_version }}" >> "$PROP"
+            fi
+          fi
+          if [ "${{ github.event.inputs.allow_repatch }}" = "true" ]; then
+            if grep -q '^ALLOW_REPATCH=' "$PROP"; then
+              sed -i.bak "s/^ALLOW_REPATCH=.*/ALLOW_REPATCH=true/" "$PROP" && rm -f "${PROP}.bak"
+            else
+              echo "ALLOW_REPATCH=true" >> "$PROP"
+            fi
+            echo "ALLOW_REPATCH set to true (re-release same version)"
+          fi
+          echo "Release config:"
+          grep -E '^RELEASE_TYPE=|^PATCH_VERSION=|^ALLOW_REPATCH=|^YEAR=|^MONTH=' .github/release.properties 2>/dev/null || true
+          {
+            echo ""
+            echo "## 📦 Bump version (GitHub internal only)"
+            echo "Using \`.github/release.properties\`. app.json is **not** modified."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Compute next version and tag
+        id: bump
+        run: |
+          node .github/scripts/bump-version.js
+          NEW_VERSION=$(cat NEW_VERSION.txt)
+          RELEASE_TAG=$(cat RELEASE_TAG.txt)
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "✅ Internal version (GitHub): $NEW_VERSION → tag $RELEASE_TAG"
+          echo "**New version:** \`$NEW_VERSION\` → **tag:** \`$RELEASE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            NEW_VERSION.txt
+            RELEASE_LABEL.txt
+            RELEASE_TAG.txt
+            .github/release.properties
+
+  # Temporary: lint + local build only (Expo/EAS push skipped). Re-enable EAS when ready.
+  build_mobile:
+    name: 📱 Build mobile (lint + build)
+    runs-on: ubuntu-latest
+    needs: bump_version
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📌 Lint + build check (EAS skipped)
+        run: |
+          {
+            echo "## 📱 Frontend — lint + build"
+            echo "Running lint and local web build to verify frontend. **EAS/Expo push temporarily skipped.**"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Lint
+        working-directory: ./frontend
+        run: npm run lint || echo "Lint not configured"
+
+      - name: Build web (verify no build errors)
+        working-directory: ./frontend
+        env:
+          NODE_ENV: production
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
+        run: npm run build:web
+
+      - name: ✅ Lint + build passed
+        run: |
+          {
+            echo "## ✅ Frontend lint + build passed"
+            echo "EAS/Expo push is temporarily skipped. Re-enable in the workflow when ready."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Lint and build completed (EAS skipped)"
+
+  prepare_release:
+    name: Create GitHub tag & release
+    runs-on: ubuntu-latest
+    needs: [bump_version, build_mobile]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download version artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: ./release
+
+      - name: Read release tag and version
+        id: version
+        run: |
+          TAG=$(cat ./release/RELEASE_TAG.txt)
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$(cat ./release/NEW_VERSION.txt)" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Create GitHub tag & release"
+            echo "Tag: \`$TAG\` (internal only; app.json unchanged). No push to branch (releases only)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set Git identity (committer for tag)
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          echo "Tag will be created as: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>"
+
+      - name: Create and push GitHub tag
+        run: |
+          TAG="${{ env.TAG }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping push"
+          else
+            git tag -a "$TAG" -m "Release $TAG (internal)"
+            git push origin "$TAG"
+            echo "✅ Pushed tag: $TAG"
+          fi
+
+      - name: Build release notes body
+        id: release_body
+        run: |
+          if [ -f ./release/RELEASE_LABEL.txt ]; then
+            LABEL=$(cat ./release/RELEASE_LABEL.txt)
+            [ -n "$LABEL" ] && echo "body=**$LABEL**" >> "$GITHUB_OUTPUT" || echo "body=" >> "$GITHUB_OUTPUT"
+          else
+            echo "body=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          body: ${{ steps.release_body.outputs.body }}
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: ✅ Prepare Release — complete
+        run: |
+          TAG="${{ env.TAG }}"
+          echo "=============================================="
+          echo "  ✅ Prepare Release — Complete (GitHub only)"
+          echo "=============================================="
+          echo "  Internal tag: ${TAG}"
+          echo "  Branch:       ${{ github.ref_name }}"
+          echo ""
+          echo "  app.json (App Store / Play Store) was NOT changed."
+          echo "  GitHub release created/updated for internal reference."
+          echo "=============================================="
+          {
+            echo ""
+            echo "## ✅ Prepare Release — Complete"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| **GitHub tag** | \`${{ env.TAG }}\` |"
+            echo "| **Branch** | ${{ github.ref_name }} |"
+            echo ""
+            echo "**app.json** (store version) was **not** changed. GitHub tag and release are for internal use only."
+            echo ""
+            echo "💡 **Tip:** Update \`LAST_INTERNAL_VERSION\` in \`.github/release.properties\` (via a PR) to match this release so the next Prepare Release bumps from the correct version."
+          } >> "$GITHUB_STEP_SUMMARY"

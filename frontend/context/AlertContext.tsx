@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState } from 'react';
-import { View } from 'react-native';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import CustomAlert from '../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../components/CustomOptions';
 import { sanitizeErrorForDisplay, sanitizeErrorMessage } from '../utils/errorSanitizer';
+import { registerGlobalAlertHandler } from '../utils/globalAlertHandler';
 
 interface AlertState {
   visible: boolean;
@@ -97,6 +97,18 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const hideOptions = () => {
     setOptionsState(prev => ({ ...prev, visible: false }));
   };
+
+  useEffect(() => {
+    registerGlobalAlertHandler((config) => {
+      showAlert({
+        ...config,
+        showCancel: config.showCancel ?? false,
+        onConfirm: config.onConfirm ? () => { config.onConfirm!(); hideAlert(); } : hideAlert,
+        onCancel: config.onCancel ? () => { config.onCancel!(); hideAlert(); } : hideAlert,
+      });
+    });
+    return () => registerGlobalAlertHandler(() => {});
+  }, []);
 
   const contextValue: AlertContextType = {
     showSuccess: (message: string, title?: string) => {

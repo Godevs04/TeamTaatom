@@ -106,6 +106,18 @@ const getProfile = async (req, res) => {
       logger.warn(`Profile not found for userId: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
     }
+
+    // Apple Guideline 1.2: Blocked users cannot view each other's profiles
+    if (req.user && req.user._id.toString() !== id) {
+      const currentUserId = req.user._id.toString();
+      const targetUserDoc = await User.findById(id).select('blockedUsers').lean();
+      const currentUserDoc = await User.findById(currentUserId).select('blockedUsers').lean();
+      const targetBlockedIds = (targetUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const currentBlockedIds = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (targetBlockedIds.includes(currentUserId) || currentBlockedIds.includes(id)) {
+        return sendError(res, 'AUTH_1006', 'You cannot view this profile');
+      }
+    }
     
     // Defensive: Ensure user has required fields
     if (!user._id || !user.fullName) {
@@ -163,11 +175,36 @@ const getProfile = async (req, res) => {
       return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
     };
 
+    // Helper function to normalize continent name to standard format (same as getTripScoreContinents)
+    const normalizeContinentName = (continent) => {
+      if (!continent) return 'UNKNOWN';
+      const normalized = continent.toUpperCase().trim();
+      // Map common variations to standard names
+      const continentMap = {
+        'ASIA': 'ASIA',
+        'AFRICA': 'AFRICA',
+        'NORTH AMERICA': 'NORTH AMERICA',
+        'SOUTH AMERICA': 'SOUTH AMERICA',
+        'AUSTRALIA': 'AUSTRALIA',
+        'EUROPE': 'EUROPE',
+        'ANTARCTICA': 'ANTARCTICA',
+        'OCEANIA': 'AUSTRALIA', // Map Oceania to Australia
+        'AMERICA': 'NORTH AMERICA', // Default America to North America
+      };
+      return continentMap[normalized] || normalized;
+    };
+
     // Track unique locations (deduplicate by rounded lat/lng to match deduplication tolerance)
     const uniqueLocations = new Set();
 
     // Process visits to calculate TripScore (unique places only)
     trustedVisits.forEach(visit => {
+      // Skip visits with invalid coordinates
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0 || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        return;
+      }
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
       
@@ -175,7 +212,8 @@ const getProfile = async (req, res) => {
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.add(locationKey);
         
-        const continentKey = visit.continent || 'Unknown';
+        // Normalize continent name to ensure consistent matching
+        const continentKey = normalizeContinentName(visit.continent);
 
         // Add to continent score (unique locations only)
         if (!tripScoreData.continents[continentKey]) {
@@ -476,7 +514,7 @@ const updateProfile = async (req, res) => {
       name: error.name,
       stack: error.stack,
       userId: req.params.id,
-      body: req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
       hasFile: !!req.file
     });
     
@@ -537,7 +575,28 @@ const toggleFollow = async (req, res) => {
       logger.error(`Current user not found in toggleFollow: ${currentUserId}`);
       return sendError(res, 'AUTH_1001', 'Authentication error');
     }
-    const isFollowing = currentUser.following.includes(id);
+    // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
+    const targetIdStr = id.toString();
+    const isFollowing = currentUser.following.some(
+      (fid) => fid.toString() === targetIdStr
+    );
+
+    const notifyFollowUpdated = () => {
+      void (async () => {
+        try {
+          const io = getIO();
+          if (!io) return;
+          const nsp = io.of('/app');
+          const followers = await getFollowers(id);
+          const audience = [targetIdStr, ...followers, currentUserId.toString()];
+          nsp.emitInvalidateProfile(id);
+          nsp.emitInvalidateFeed(audience);
+          nsp.emitEvent('follow:updated', audience, { userId: id });
+        } catch (e) {
+          logger.error('Follow socket notify error:', e);
+        }
+      })();
+    };
 
     if (isFollowing) {
       // Unfollow - remove from both users
@@ -553,6 +612,8 @@ const toggleFollow = async (req, res) => {
       );
 
       await Promise.all([currentUser.save(), targetUser.save()]);
+
+      notifyFollowUpdated();
 
       return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
@@ -646,6 +707,8 @@ const toggleFollow = async (req, res) => {
           }
         }).catch(err => logger.error('Error sending push notification for follow request:', err));
 
+        notifyFollowUpdated();
+
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -710,6 +773,8 @@ const toggleFollow = async (req, res) => {
           }
         }).catch(err => logger.error('Error sending push notification for follow:', err));
 
+        notifyFollowUpdated();
+
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
           followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
@@ -717,17 +782,6 @@ const toggleFollow = async (req, res) => {
           followRequestSent: false
         });
       }
-    }
-
-    // Emit socket events
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      const followers = await getFollowers(id);
-      const audience = [id, ...followers, currentUserId.toString()];
-      nsp.emitInvalidateProfile(id);
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitEvent('follow:updated', audience, { userId: id });
     }
   } catch (error) {
     logger.error('Toggle follow error:', error);
@@ -740,54 +794,235 @@ const toggleFollow = async (req, res) => {
 // @access  Public
 const searchUsers = async (req, res) => {
   try {
-    const { q, page = 1, limit = 20 } = req.query;
+    // Accept both 'q' and 'query' for compatibility with web and API docs
+    const q = (req.query.q || req.query.query || '').trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
 
-    if (!q || q.trim().length < 2) {
+    if (!q || q.length < 2) {
       return sendError(res, 'VAL_2001', 'Search query must be at least 2 characters long');
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (page - 1) * limit;
 
     // Cache search results
     const cacheKey = CacheKeys.search(q, 'users');
     
     const result = await cacheWrapper(cacheKey, async () => {
-      const users = await User.find({
-        $and: [
-          { isVerified: true },
-          {
-            $or: [
-              { fullName: { $regex: q, $options: 'i' } },
-              { email: { $regex: q, $options: 'i' } }
-            ]
+      const originalQuery = q.trim();
+      const searchQuery = originalQuery.toLowerCase(); // Username is stored in lowercase
+      const currentUserId = req.user?._id?.toString();
+      
+      // Escape special regex characters in search query
+      const escapeRegex = (str) => {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      };
+      const escapedQuery = escapeRegex(searchQuery);
+      
+      logger.debug('Search users - query processing:', {
+        originalQuery,
+        searchQuery,
+        escapedQuery,
+        currentUserId
+      });
+      
+      // Build base query - exclude current user
+      const baseMatch = {
+        isVerified: true
+      };
+      
+      if (currentUserId) {
+        baseMatch._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+      }
+      
+      // Build match query - prioritize username search
+      // Username is stored in lowercase, so we search in lowercase
+      // Username is required in schema, so we don't need $exists check
+      const matchQuery = {
+        ...baseMatch,
+        $or: [
+          // Username search (prioritized) - username is stored in lowercase
+          { 
+            username: { 
+              $regex: escapedQuery, 
+              $options: 'i' 
+            } 
+          },
+          // FullName fallback
+          { 
+            fullName: { 
+              $exists: true,
+              $ne: null,
+              $regex: escapedQuery, 
+              $options: 'i' 
+            } 
           }
         ]
-      })
-      .select('fullName email profilePic followers following totalLikes')
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-
-      const totalUsers = await User.countDocuments({
-        $and: [
-          { isVerified: true },
-          {
-            $or: [
-              { fullName: { $regex: q, $options: 'i' } },
-              { email: { $regex: q, $options: 'i' } }
-            ]
+      };
+      
+      logger.debug('Search users - match query:', JSON.stringify(matchQuery, null, 2));
+      
+      // Use aggregation to prioritize username matches, then fallback to fullName
+      const users = await User.aggregate([
+        {
+          $match: matchQuery
+        },
+        {
+          $addFields: {
+            // Score: username exact match = 4, username starts with = 3, username contains = 2, fullName = 1
+            matchScore: {
+              $cond: [
+                // Check if username exists and matches exactly (username is already lowercase)
+                {
+                  $and: [
+                    { $ne: ['$username', null] },
+                    { $ne: ['$username', ''] },
+                    { $eq: ['$username', searchQuery] } // Direct comparison since username is lowercase
+                  ]
+                },
+                4, // Exact username match - highest priority
+                {
+                  $cond: [
+                    // Username starts with query
+                    {
+                      $and: [
+                        { $ne: ['$username', null] },
+                        { $ne: ['$username', ''] },
+                        { $regexMatch: { input: '$username', regex: `^${escapedQuery}`, options: 'i' } }
+                      ]
+                    },
+                    3, // Username starts with query
+                    {
+                      $cond: [
+                        // Username contains query
+                        {
+                          $and: [
+                            { $ne: ['$username', null] },
+                            { $ne: ['$username', ''] },
+                            { $regexMatch: { input: '$username', regex: escapedQuery, options: 'i' } }
+                          ]
+                        },
+                        2, // Username contains query
+                        1  // Only fullName match
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
           }
-        ]
-      }).lean();
+        },
+        {
+          $sort: { matchScore: -1, createdAt: -1 } // Sort by match score (username matches first), then by creation date
+        },
+        {
+          $project: {
+            username: 1,
+            fullName: 1,
+            email: 1,
+            profilePic: 1,
+            profilePicStorageKey: 1,
+            followers: 1,
+            following: 1,
+            totalLikes: 1,
+            matchScore: 1
+          }
+        },
+        {
+          $skip: skip
+        },
+        {
+          $limit: limit
+        }
+      ]);
 
-      return { users, totalUsers };
+      // Get total count for pagination (excluding current user)
+      // Use same match query for consistency
+      const totalUsers = await User.countDocuments(matchQuery);
+      
+      // Debug logging
+      logger.debug('User search query:', {
+        searchQuery,
+        escapedQuery,
+        matchQuery,
+        usersFound: users.length,
+        totalUsers
+      });
+
+      // Remove matchScore from final results (keep profilePicStorageKey for URL generation outside cache)
+      const cleanedUsers = users.map(user => {
+        const { matchScore, ...userWithoutScore } = user;
+        return userWithoutScore;
+      });
+
+      return { users: cleanedUsers, totalUsers };
     }, CACHE_TTL.SEARCH_RESULTS);
 
     const { users, totalUsers } = result;
 
+    // Debug: Log first user to check if profilePicStorageKey is present
+    if (users.length > 0) {
+      const firstUser = users[0];
+      logger.info('First user from search (before URL generation):', {
+        userId: firstUser._id?.toString(),
+        username: firstUser.username,
+        fullName: firstUser.fullName,
+        hasProfilePicStorageKey: !!firstUser.profilePicStorageKey,
+        hasProfilePic: !!firstUser.profilePic,
+        profilePicStorageKey: firstUser.profilePicStorageKey ? firstUser.profilePicStorageKey.substring(0, 50) + '...' : 'MISSING',
+        profilePic: firstUser.profilePic ? firstUser.profilePic.substring(0, 50) + '...' : 'MISSING',
+        allKeys: Object.keys(firstUser)
+      });
+    }
+
+    // Generate signed URLs for profile pictures AFTER cache (fresh URLs each time)
+    // Same pattern as getPosts - generate fresh signed URLs for each request
+    const usersWithProfilePics = await Promise.all(users.map(async (user) => {
+      // Store original profilePic as fallback (same pattern as getPosts)
+      const originalProfilePic = user.profilePic;
+      
+      // Generate signed URL for profile picture (exact same pattern as getPosts line 234-249)
+      if (user.profilePicStorageKey) {
+        try {
+          user.profilePic = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+          logger.debug('Generated profile picture URL for search result:', {
+            userId: user._id?.toString(),
+            username: user.username,
+            hasUrl: !!user.profilePic
+          });
+        } catch (error) {
+          logger.warn('Failed to generate profile picture URL for search result:', { 
+            userId: user._id?.toString(),
+            username: user.username,
+            storageKey: user.profilePicStorageKey,
+            error: error.message 
+          });
+          // Fallback to legacy URL if available (same as getPosts)
+          user.profilePic = originalProfilePic || null;
+        }
+      } else if (user.profilePic) {
+        // Legacy: use existing profilePic if no storage key (same as getPosts line 246-249)
+        // Keep the existing profilePic value
+        logger.debug('Using legacy profilePic for search result:', {
+          userId: user._id?.toString(),
+          username: user.username
+        });
+      }
+      // Note: If no profilePicStorageKey and no profilePic, profilePic remains null/undefined
+      // This matches getPosts behavior
+      
+      // Remove profilePicStorageKey from response (not needed by frontend)
+      delete user.profilePicStorageKey;
+      
+      return user;
+    }));
+
     const currentUserId = req.user?._id?.toString();
-    const usersWithFollowStatus = users.map(user => ({
+    const usersWithFollowStatus = usersWithProfilePics.map(user => ({
       ...user,
+      _id: user._id?.toString() || user._id,
+      // Keep profilePic as is (can be null/undefined/string - frontend handles it)
+      // Don't convert null to empty string - let frontend handle fallback
       followersCount: user.followers ? user.followers.length : 0,
       followingCount: user.following ? user.following.length : 0,
       isFollowing: currentUserId && user.followers 
@@ -798,11 +1033,11 @@ const searchUsers = async (req, res) => {
     return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalUsers / parseInt(limit)),
+        currentPage: page,
+        totalPages: Math.ceil(totalUsers / limit),
         totalUsers,
-        hasNextPage: skip + parseInt(limit) < totalUsers,
-        limit: parseInt(limit)
+        hasNextPage: skip + limit < totalUsers,
+        limit
       }
     });
 
@@ -1054,14 +1289,20 @@ const approveFollowRequest = async (req, res) => {
       logger.debug(`  [${index}] User ID: ${req.user}, Status: ${req.status}, RequestedAt: ${req.requestedAt}`);
     });
 
+    // Check if requester is already a follower (idempotency - allow re-approval)
+    const isAlreadyFollower = user.followers.some(followerId => 
+      followerId.toString() === requestId.toString()
+    );
+
     // Find the follow request by requester ID (since requestId is actually the requester's user ID)
     const request = user.followRequests.find(req => 
-      req.user.toString() === requestId && req.status === 'pending'
+      req.user.toString() === requestId
     );
     
     logger.debug('Searching for request with:');
     logger.debug('  - requestId:', requestId);
     logger.debug('  - requestId type:', typeof requestId);
+    logger.debug('  - isAlreadyFollower:', isAlreadyFollower);
     logger.debug('Found request:', request ? 'Yes' : 'No');
     
     if (request) {
@@ -1072,7 +1313,7 @@ const approveFollowRequest = async (req, res) => {
         requestedAt: request.requestedAt
       });
     } else {
-      logger.debug('❌ No pending request found for user:', requestId);
+      logger.debug('❌ No request found for user:', requestId);
       logger.debug('Available request user IDs:', user.followRequests.map(req => ({
         id: req.user.toString(),
         type: typeof req.user,
@@ -1080,7 +1321,18 @@ const approveFollowRequest = async (req, res) => {
       })));
     }
 
-    if (!request) {
+    // If already approved or already a follower, return success (idempotent operation)
+    if (isAlreadyFollower || (request && request.status === 'approved')) {
+      logger.debug('✅ Request already processed - returning success (idempotent)');
+      return sendSuccess(res, 200, 'Follow request already approved', {
+        followersCount: user.followers.length,
+        alreadyProcessed: true
+      });
+    }
+
+    // If request not found and not already a follower, return error
+    if (!request || request.status !== 'pending') {
+      logger.debug('❌ No pending request found for user:', requestId);
       return sendError(res, 'RES_3001', 'Follow request not found or already processed');
     }
 
@@ -1100,9 +1352,13 @@ const approveFollowRequest = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'You cannot approve your own follow request');
     }
 
-    // Add to followers/following
-    user.followers.push(requesterId);
-    requester.following.push(currentUserId);
+    // Add to followers/following (prevent duplicates)
+    if (!user.followers.some(followerId => followerId.toString() === requesterId.toString())) {
+      user.followers.push(requesterId);
+    }
+    if (!requester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
+      requester.following.push(currentUserId);
+    }
 
     // Update request status
     request.status = 'approved';
@@ -1131,19 +1387,26 @@ const approveFollowRequest = async (req, res) => {
           const freshUser = await User.findById(currentUserId);
           const freshRequester = await User.findById(requesterId);
           
-          // Re-apply the changes
-          freshUser.followers.push(requesterId);
-          freshRequester.following.push(currentUserId);
+          // Re-apply the changes (check for duplicates first)
+          if (!freshUser.followers.some(followerId => followerId.toString() === requesterId.toString())) {
+            freshUser.followers.push(requesterId);
+          }
+          if (!freshRequester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
+            freshRequester.following.push(currentUserId);
+          }
           
-          const freshRequest = freshUser.followRequests.id(requestId);
-          if (freshRequest) {
+          // Find the request by requester ID (not by _id)
+          const freshRequest = freshUser.followRequests.find(req => 
+            req.user.toString() === requestId.toString()
+          );
+          if (freshRequest && freshRequest.status === 'pending') {
             freshRequest.status = 'approved';
           }
           
           const freshSentRequest = freshRequester.sentFollowRequests.find(
             req => req.user.toString() === currentUserId.toString()
           );
-          if (freshSentRequest) {
+          if (freshSentRequest && freshSentRequest.status === 'pending') {
             freshSentRequest.status = 'approved';
           }
           
@@ -1321,7 +1584,32 @@ const getTripScoreContinents = async (req, res) => {
     const uniqueLocationKeys = new Set(); // Track unique locations globally
     let totalScore = 0;
 
+    // Helper function to normalize continent name to standard format
+    const normalizeContinentName = (continent) => {
+      if (!continent) return 'UNKNOWN';
+      const normalized = continent.toUpperCase().trim();
+      // Map common variations to standard names
+      const continentMap = {
+        'ASIA': 'ASIA',
+        'AFRICA': 'AFRICA',
+        'NORTH AMERICA': 'NORTH AMERICA',
+        'SOUTH AMERICA': 'SOUTH AMERICA',
+        'AUSTRALIA': 'AUSTRALIA',
+        'EUROPE': 'EUROPE',
+        'ANTARCTICA': 'ANTARCTICA',
+        'OCEANIA': 'AUSTRALIA', // Map Oceania to Australia
+        'AMERICA': 'NORTH AMERICA', // Default America to North America
+      };
+      return continentMap[normalized] || normalized;
+    };
+
     trustedVisits.forEach(visit => {
+      // Skip visits with invalid coordinates
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0 || 
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        return;
+      }
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
       
@@ -1329,7 +1617,8 @@ const getTripScoreContinents = async (req, res) => {
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
-        const continentKey = visit.continent || 'Unknown';
+        // Normalize continent name to ensure consistent matching
+        const continentKey = normalizeContinentName(visit.continent);
         
         // Initialize continent scores and location arrays if needed
         if (!continentScores[continentKey]) {
@@ -1384,8 +1673,23 @@ const getTripScoreContinents = async (req, res) => {
       { name: 'ANTARCTICA', score: continentScores['ANTARCTICA'] || 0, distance: Math.round(continentDistances['ANTARCTICA'] || 0) }
     ];
 
+    // CRITICAL: Recalculate totalScore as sum of all continent scores to ensure consistency
+    // This ensures totalScore always equals the sum of individual continent scores
+    const calculatedTotalScore = continents.reduce((sum, continent) => sum + continent.score, 0);
+    
+    // Check for any locations in unmapped continents (like UNKNOWN) that aren't in the formatted list
+    const unmappedScore = Object.keys(continentScores).reduce((sum, key) => {
+      const isMapped = continents.some(c => c.name === key);
+      return isMapped ? sum : sum + (continentScores[key] || 0);
+    }, 0);
+    
+    // Log warning if there's a mismatch (for debugging)
+    if (calculatedTotalScore !== totalScore) {
+      logger.warn(`TripScore mismatch detected: calculatedTotal=${calculatedTotalScore}, originalTotal=${totalScore}, unmapped=${unmappedScore}. Using calculated total.`);
+    }
+
     return sendSuccess(res, 200, 'TripScore continents fetched successfully', {
-      totalScore,
+      totalScore: calculatedTotalScore, // Use calculated total to ensure consistency
       continents
     });
 
@@ -1413,7 +1717,9 @@ const getTripScoreCountries = async (req, res) => {
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      continent: continentName
+      // IMPORTANT: Use case-insensitive match for continent to handle values like 'Asia' vs 'ASIA'
+      // This keeps TripScore consistent between the overall continents view and per-continent view
+      continent: { $regex: new RegExp(`^${continentName}$`, 'i') }
     })
     .select('lat lng country address')
     .lean();
@@ -1430,7 +1736,6 @@ const getTripScoreCountries = async (req, res) => {
     // Filter visits by continent and calculate country scores based on unique places
     const countryScores = {};
     const uniqueLocationKeys = new Set(); // Track unique locations
-    let continentScore = 0;
 
     trustedVisits.forEach(visit => {
       // Skip visits with invalid coordinates
@@ -1447,16 +1752,24 @@ const getTripScoreCountries = async (req, res) => {
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
         
-        const country = visit.country || 'Unknown';
+        // CRITICAL: Normalize country name to prevent duplicates
+        // Maps regions/states to parent countries (e.g., "England" -> "United Kingdom")
+        const rawCountry = visit.country || 'Unknown';
+        const normalizedCountry = normalizeCountryName(rawCountry);
         
-        // Count unique places visited
-        if (!countryScores[country]) {
-          countryScores[country] = 0;
+        // Count unique places visited using normalized country name
+        if (!countryScores[normalizedCountry]) {
+          countryScores[normalizedCountry] = 0;
         }
-        countryScores[country] += 1;
-        continentScore += 1;
+        countryScores[normalizedCountry] += 1;
       }
     });
+
+    // CRITICAL: Derive continentScore from countryScores to guarantee consistency
+    const continentScore = Object.values(countryScores).reduce(
+      (sum, value) => sum + (typeof value === 'number' ? value : 0),
+      0
+    );
 
     // Get countries for this continent
     const predefinedCountries = getCountriesForContinent(continentName);
@@ -1508,13 +1821,20 @@ const getTripScoreCountryDetails = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
+    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
+    // This ensures we find all locations even if stored with different country names
+    const normalizedCountryParam = normalizeCountryName(country);
+    
     // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Populate post to get image data
+    // Search for both normalized and original country names to handle legacy data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
+      $or: [
+        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
+        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
+      ]
     })
     .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
@@ -1699,13 +2019,20 @@ const getTripScoreLocations = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
+    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
+    // This ensures we find all locations even if stored with different country names
+    const normalizedCountryParam = normalizeCountryName(country);
+    
     // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Populate post to get image data
+    // Search for both normalized and original country names to handle legacy data
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      country: { $regex: new RegExp(`^${country}$`, 'i') } // Case-insensitive match
+      $or: [
+        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
+        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
+      ]
     })
     .select('lat lng address takenAt uploadedAt post contentType')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
@@ -1822,7 +2149,7 @@ const getTripScoreLocations = async (req, res) => {
   }
 };
 
-// @desc    Get user's travel map data (locations, stats)
+// @desc    Get user's travel map data (locations, stats) - Returns verified trip locations
 // @route   GET /profile/:id/travel-map
 // @access  Public
 const getTravelMapData = async (req, res) => {
@@ -1832,35 +2159,52 @@ const getTravelMapData = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
-    // Get all posts with valid locations
-    const posts = await Post.find({ 
-      user: id, 
+    // Get verified TripVisits (only verified trip locations)
+    const trustedVisits = await TripVisit.find({
+      user: id,
       isActive: true,
-      'location.coordinates.latitude': { $ne: 0 },
-      'location.coordinates.longitude': { $ne: 0 }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      lat: { $exists: true, $ne: null, $ne: 0 },
+      lng: { $exists: true, $ne: null, $ne: 0 }
     })
-    .select('location createdAt')
-    .sort({ createdAt: 1 }) // Sort by creation date to maintain order
-    .lean();
+    .select('lat lng address takenAt uploadedAt')
+    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically
+    .lean()
+    .limit(1000); // Limit for performance
 
-    // Extract unique locations for the map (numbered points)
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
+    const roundCoordinate = (coord, precision = 2) => {
+      return Math.round(coord * 100) / 100;
+    };
+    
+    const getLocationKey = (lat, lng) => {
+      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
+    };
+
+    // Extract unique verified locations for the map (numbered points)
     const uniqueLocations = new Map();
     const locations = [];
     let locationCounter = 1;
 
-    posts.forEach(post => {
-      const locationKey = `${post.location.coordinates.latitude},${post.location.coordinates.longitude}`;
+    trustedVisits.forEach(visit => {
+      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0) {
+        return; // Skip invalid coordinates
+      }
+
+      const locationKey = getLocationKey(visit.lat, visit.lng);
       
-      // Only add unique locations
+      // Only add unique locations (deduplicate nearby locations)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
         
+        const visitDate = visit.takenAt || visit.uploadedAt || new Date();
+        
         locations.push({
           number: locationCounter,
-          latitude: post.location.coordinates.latitude,
-          longitude: post.location.coordinates.longitude,
-          address: post.location.address,
-          date: post.createdAt
+          latitude: visit.lat,
+          longitude: visit.lng,
+          address: visit.address || 'Unknown Location',
+          date: visitDate
         });
         
         locationCounter++;
@@ -1869,7 +2213,8 @@ const getTravelMapData = async (req, res) => {
 
     // Calculate statistics
     const totalLocations = locations.length;
-    const totalDays = posts.length > 0 ? Math.ceil((Date.now() - new Date(posts[0].createdAt).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    const firstVisit = trustedVisits.length > 0 ? (trustedVisits[0].takenAt || trustedVisits[0].uploadedAt) : null;
+    const totalDays = firstVisit ? Math.ceil((Date.now() - new Date(firstVisit).getTime()) / (1000 * 60 * 60 * 24)) : 0;
     
     // Calculate approximate distance traveled (simplified calculation)
     let totalDistance = 0;
@@ -2003,6 +2348,82 @@ const getCountryFromLocation = (address) => {
   if (addressLower.includes('morocco')) return 'Morocco';
   
   return 'Unknown';
+};
+
+// Helper function to normalize country names - maps regions/states to parent countries
+// This prevents duplicates like "England" and "United Kingdom" or US states and "United States"
+const normalizeCountryName = (country) => {
+  if (!country || typeof country !== 'string') return country || 'Unknown';
+  
+  const countryLower = country.toLowerCase().trim();
+  
+  // United Kingdom regions -> United Kingdom
+  if (countryLower === 'england' || countryLower === 'scotland' || 
+      countryLower === 'wales' || countryLower === 'northern ireland' ||
+      countryLower === 'great britain' || countryLower === 'britain') {
+    return 'United Kingdom';
+  }
+  
+  // United States states and territories -> United States
+  // Common US state patterns (50 states + DC + territories)
+  const usStates = [
+    'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut',
+    'delaware', 'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa',
+    'kansas', 'kentucky', 'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan',
+    'minnesota', 'mississippi', 'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire',
+    'new jersey', 'new mexico', 'new york', 'north carolina', 'north dakota', 'ohio',
+    'oklahoma', 'oregon', 'pennsylvania', 'rhode island', 'south carolina', 'south dakota',
+    'tennessee', 'texas', 'utah', 'vermont', 'virginia', 'washington', 'west virginia',
+    'wisconsin', 'wyoming', 'district of columbia', 'washington dc', 'dc',
+    'puerto rico', 'guam', 'american samoa', 'us virgin islands', 'northern mariana islands'
+  ];
+  
+  if (usStates.includes(countryLower)) {
+    return 'United States';
+  }
+  
+  // Check if country contains US state names (e.g., "California, United States")
+  for (const state of usStates) {
+    if (countryLower.includes(state)) {
+      return 'United States';
+    }
+  }
+  
+  // Canada provinces -> Canada
+  const canadaProvinces = [
+    'ontario', 'quebec', 'nova scotia', 'new brunswick', 'manitoba', 'british columbia',
+    'prince edward island', 'saskatchewan', 'alberta', 'newfoundland and labrador',
+    'northwest territories', 'yukon', 'nunavut'
+  ];
+  
+  if (canadaProvinces.includes(countryLower)) {
+    return 'Canada';
+  }
+  
+  // Australia states/territories -> Australia
+  const australiaStates = [
+    'new south wales', 'victoria', 'queensland', 'western australia', 'south australia',
+    'tasmania', 'northern territory', 'australian capital territory', 'act'
+  ];
+  
+  if (australiaStates.includes(countryLower)) {
+    return 'Australia';
+  }
+  
+  // China regions/provinces -> China
+  if (countryLower.includes('china') || countryLower.includes('taiwan') || 
+      countryLower.includes('hong kong') || countryLower.includes('macau')) {
+    return 'China';
+  }
+  
+  // India states -> India (keep India as is since states are usually not stored as country)
+  // But handle common variations
+  if (countryLower === 'india' || countryLower === 'bharat') {
+    return 'India';
+  }
+  
+  // Keep original if no normalization needed
+  return country;
 };
 
 // Helper function to get countries for a continent
@@ -2205,7 +2626,7 @@ const getBlockStatus = async (req, res) => {
   }
 };
 
-// @desc    Get suggested users for onboarding
+// @desc    Get suggested users for onboarding (prioritize same interests, then verified/popular)
 // @route   GET /profile/suggested-users
 // @access  Private
 const getSuggestedUsers = async (req, res) => {
@@ -2213,85 +2634,86 @@ const getSuggestedUsers = async (req, res) => {
     const userId = req.user._id || req.user.id;
     const limit = parseInt(req.query.limit) || 6;
 
-    // Get users that:
-    // 1. Are not the current user
-    // 2. Are not already being followed
-    // 3. For onboarding, show verified users first, then others
-    const currentUser = await User.findById(userId).select('following');
-    const followingIds = currentUser.following.map(f => f.toString());
-    followingIds.push(userId);
+    const currentUser = await User.findById(userId).select('following interests').lean();
+    const followingIds = (currentUser.following || []).map(f => f.toString());
+    followingIds.push(userId.toString());
+    const userInterests = Array.isArray(currentUser.interests) ? currentUser.interests : [];
 
-    // For onboarding, show popular/active users even if they don't have posts yet
-    // Priority: verified users > users with posts > users with followers > new users
-    const suggestedUsers = await User.find({
-      _id: { $nin: followingIds },
-      isActive: true,
-      isVerified: true, // Show verified users first for better quality
-    })
-      .select('username fullName profilePic bio followers isVerified createdAt')
-      .limit(limit * 2) // Get more to filter later
-      .sort({ 
-        isVerified: -1, // Verified users first
-        followers: -1, // Then by follower count
-        createdAt: -1 // Then by newest
-      })
-      .lean();
+    let suggestedUsers = [];
+    const seenIds = new Set(followingIds);
 
-    // If we don't have enough verified users, get more (including unverified)
-    if (suggestedUsers.length < limit) {
-      const additionalUsers = await User.find({
-        _id: { $nin: [...followingIds, ...suggestedUsers.map(u => u._id.toString())] },
-        isActive: true,
+    // 1. Same interests first (like real apps): users who share at least one interest
+    // Note: User model has no isActive; do not filter by it or no users would match
+    if (userInterests.length > 0) {
+      const sameInterestUsers = await User.find({
+        _id: { $nin: followingIds },
+        interests: { $in: userInterests },
       })
-        .select('username fullName profilePic bio followers isVerified createdAt')
-        .limit(limit * 2 - suggestedUsers.length)
-        .sort({ 
-          followers: -1,
-          createdAt: -1
-        })
+        .select('username fullName profilePic bio followers isVerified createdAt interests')
+        .limit(limit * 2)
         .lean();
-      
-      suggestedUsers.push(...additionalUsers);
+
+      // Sort by how many interests match (most first), then verified, then followers
+      const withMatchCount = sameInterestUsers.map((u) => {
+        const matchCount = (u.interests || []).filter((i) => userInterests.includes(i)).length;
+        return { ...u, _matchCount: matchCount };
+      });
+      withMatchCount.sort((a, b) => {
+        if (b._matchCount !== a._matchCount) return b._matchCount - a._matchCount;
+        if (a.isVerified !== b.isVerified) return b.isVerified ? 1 : -1;
+        return (b.followers?.length || 0) - (a.followers?.length || 0);
+      });
+      const chosen = withMatchCount.slice(0, limit).map(({ _matchCount, ...u }) => u);
+      suggestedUsers = chosen;
+      chosen.forEach((u) => seenIds.add(u._id.toString()));
     }
 
-    // Get post counts for each user
+    // 2. Fill remaining with verified then any active users (no interest filter)
+    if (suggestedUsers.length < limit) {
+      const excludeIds = [...seenIds];
+      const need = limit - suggestedUsers.length;
+
+      let fillUsers = await User.find({
+        _id: { $nin: excludeIds },
+        isVerified: true,
+      })
+        .select('username fullName profilePic bio followers isVerified createdAt')
+        .limit(need * 2)
+        .sort({ followers: -1, createdAt: -1 })
+        .lean();
+
+      if (fillUsers.length < need) {
+        const more = await User.find({
+          _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
+        })
+          .select('username fullName profilePic bio followers isVerified createdAt')
+          .limit(need * 2 - fillUsers.length)
+          .sort({ followers: -1, createdAt: -1 })
+          .lean();
+        fillUsers = fillUsers.concat(more);
+      }
+
+      suggestedUsers = suggestedUsers.concat(fillUsers.slice(0, need));
+    }
+
+    // Get post counts and final shape
     const usersWithPostCounts = await Promise.all(
-      suggestedUsers.map(async (user) => {
-        const postCount = await Post.countDocuments({ 
-          user: user._id, 
-          isActive: true 
+      suggestedUsers.slice(0, limit).map(async (user) => {
+        const postCount = await Post.countDocuments({
+          user: user._id,
+          isActive: true,
         });
+        const { interests: _i, ...rest } = user;
         return {
-          ...user,
+          ...rest,
           postsCount: postCount,
           followersCount: user.followers?.length || 0,
         };
       })
     );
 
-    // Sort by priority: verified > has posts > has followers > new
-    const sortedUsers = usersWithPostCounts.sort((a, b) => {
-      // Verified users first
-      if (a.isVerified !== b.isVerified) {
-        return b.isVerified ? 1 : -1;
-      }
-      // Then by posts
-      if (a.postsCount !== b.postsCount) {
-        return b.postsCount - a.postsCount;
-      }
-      // Then by followers
-      if (a.followersCount !== b.followersCount) {
-        return b.followersCount - a.followersCount;
-      }
-      // Then by newest
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-
-    // Take top users (don't filter by postsCount - show all for onboarding)
-    const filteredUsers = sortedUsers.slice(0, limit);
-
     return sendSuccess(res, 200, 'Suggested users fetched successfully', {
-      users: filteredUsers,
+      users: usersWithPostCounts,
     });
   } catch (error) {
     logger.error('Error getting suggested users:', error);

@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
-  Dimensions
+  Dimensions,
+  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -95,6 +96,20 @@ const settingsSections: SettingsSection[] = [
     icon: 'cloud-outline',
     description: 'Storage usage, cache management, and sync settings',
     route: '/settings/data'
+  },
+  {
+    id: 'collections',
+    title: 'Collections',
+    icon: 'albums-outline',
+    description: 'Organise your trips and posts',
+    route: '/collections'
+  },
+  {
+    id: 'activity',
+    title: 'Activity Feed',
+    icon: 'pulse-outline',
+    description: 'See what your friends are up to',
+    route: '/activity'
   },
   {
     id: 'manage-posts',
@@ -273,6 +288,16 @@ export default function SettingsScreen() {
           />
         }
       >
+        {/* Travel illustration banner - centered with equal insets */}
+        <View style={styles.settingsBannerOuter}>
+          <View style={[styles.settingsBannerWrapper, { marginBottom: theme.spacing.md }]}>
+            <Image
+              source={require('../../assets/settings_image.png')}
+              style={styles.settingsBannerImage}
+              resizeMode="cover"
+            />
+          </View>
+        </View>
         {/* User Info Header */}
         <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}>
           <View style={styles.userInfo}>
@@ -354,6 +379,22 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  settingsBannerOuter: {
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+  },
+  settingsBannerWrapper: {
+    width: '100%',
+    height: isTablet ? 140 : 120,
+    marginBottom: 0,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  settingsBannerImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
+    alignSelf: 'center',
   },
   loadingContainer: {
     flex: 1,

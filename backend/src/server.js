@@ -39,6 +39,7 @@ const validateEnvironment = () => {
   if (process.env.NODE_ENV === 'production') {
     const recommendedVars = [
       'FRONTEND_URL',
+      'SUPERADMIN_URL',
       'SENTRY_DSN',
     ];
     
@@ -48,6 +49,18 @@ const validateEnvironment = () => {
       missingRecommended.forEach(varName => {
         console.warn(`   - ${varName}`);
       });
+    }
+    
+    // CORS: At least one of these should be set so web clients are allowed
+    const corsVars = ['FRONTEND_URL', 'WEB_FRONTEND_URL', 'SUPERADMIN_URL'];
+    const hasCorsOrigin = corsVars.some(v => process.env[v]);
+    if (!hasCorsOrigin) {
+      console.warn('⚠️  CORS: Set at least one of FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in production so web clients are not blocked.');
+    }
+    
+    // Rate limiting: in-memory store is per process; multi-instance should use Redis
+    if (!process.env.REDIS_URL && !process.env.RATE_LIMIT_REDIS_URL) {
+      console.warn('⚠️  Rate limiting uses in-memory store. For multiple instances, set REDIS_URL or RATE_LIMIT_REDIS_URL and use a shared store.');
     }
     
     // CRITICAL: Check Brevo configuration for SuperAdmin 2FA
@@ -221,6 +234,13 @@ process.on('unhandledRejection', async (reason, promise) => {
     logger.info('✅ Database connection established, starting server...');
 
     server = http.createServer(app);
+    
+    // Configure server timeouts for large file uploads
+    // Increase timeout to 2 hours (7200000ms) to handle large video uploads (400MB+)
+    server.timeout = 2 * 60 * 60 * 1000; // 2 hours
+    server.keepAliveTimeout = 65000; // 65 seconds (slightly longer than default 60s)
+    server.headersTimeout = 66000; // 66 seconds (must be > keepAliveTimeout)
+    
     setupSocket(server); // Sets up Socket.IO and stores io in global.socketIO
     // Get io instance from global reference
     io = global.socketIO;

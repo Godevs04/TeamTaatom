@@ -29,8 +29,9 @@ const postSchema = new mongoose.Schema({
   },
   caption: {
     type: String,
-    required: [true, 'Caption is required'],
-    maxlength: [1000, 'Caption cannot be more than 1000 characters']
+    required: false,
+    maxlength: [1000, 'Caption cannot be more than 1000 characters'],
+    default: ''
   },
   mentions: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -182,7 +183,7 @@ const postSchema = new mongoose.Schema({
   // Post status for DMCA compliance
   status: {
     type: String,
-    enum: ['active', 'removed'],
+    enum: ['active', 'flagged', 'removed'],
     default: 'active'
   },
   removalReason: {
@@ -190,6 +191,54 @@ const postSchema = new mongoose.Schema({
     enum: ['copyright_claim', 'user_request', 'policy_violation', 'other'],
     required: false,
     default: null
+  },
+  // Detected place data from Google Maps API for admin review
+  detectedPlace: {
+    name: {
+      type: String,
+      required: false,
+      default: null
+    },
+    country: {
+      type: String,
+      required: false,
+      default: null
+    },
+    countryCode: {
+      type: String,
+      required: false,
+      default: null
+    },
+    city: {
+      type: String,
+      required: false,
+      default: null
+    },
+    stateProvince: {
+      type: String,
+      required: false,
+      default: null
+    },
+    latitude: {
+      type: Number,
+      required: false,
+      default: null
+    },
+    longitude: {
+      type: Number,
+      required: false,
+      default: null
+    },
+    placeId: {
+      type: String,
+      required: false,
+      default: null
+    },
+    formattedAddress: {
+      type: String,
+      required: false,
+      default: null
+    }
   }
 }, {
   timestamps: true

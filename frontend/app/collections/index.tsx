@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -55,7 +55,20 @@ export default function CollectionsScreen() {
       }
 
       const response = await getCollections(user._id);
-      setCollections(response.collections || []);
+      const collections = response.collections || [];
+      
+      // Debug: Log collection cover images
+      if (process.env.NODE_ENV === 'development') {
+        collections.forEach((collection: Collection) => {
+          logger.debug('Collection cover image', { 
+            name: collection.name, 
+            coverImage: collection.coverImage,
+            hasPosts: collection.posts?.length > 0 
+          });
+        });
+      }
+      
+      setCollections(collections);
     } catch (error: any) {
       showError('Failed to load collections');
       logger.error('Error loading collections:', error);
@@ -74,18 +87,63 @@ export default function CollectionsScreen() {
     await loadCollections();
   };
 
+  const CollectionImage = ({ coverImage }: { coverImage: string | null | undefined }) => {
+    const { theme: themeContext } = useTheme();
+    const [imageError, setImageError] = useState(false);
+    const [imageLoading, setImageLoading] = useState(true);
+
+    // Reset error and loading when coverImage changes
+    useEffect(() => {
+      setImageError(false);
+      setImageLoading(true);
+    }, [coverImage]);
+
+    if (!coverImage || coverImage.trim() === '' || imageError) {
+      return (
+        <View style={[styles.coverPlaceholder, { backgroundColor: themeContext.colors.surfaceSecondary }]}>
+          <Ionicons name="images-outline" size={40} color={themeContext.colors.textSecondary} />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.coverImageContainer}>
+        {imageLoading && (
+          <View style={[styles.imageLoader, { backgroundColor: themeContext.colors.surfaceSecondary }]}>
+            <ActivityIndicator size="small" color={themeContext.colors.primary} />
+          </View>
+        )}
+        <Image
+          source={{ uri: coverImage }}
+          style={[styles.coverImage, imageLoading && { opacity: 0 }]}
+          resizeMode="cover"
+          onError={(error) => {
+            logger.warn('Collection cover image failed to load', { 
+              coverImage: coverImage?.substring(0, 100), 
+              error 
+            });
+            setImageError(true);
+            setImageLoading(false);
+          }}
+          onLoad={() => {
+            setImageError(false);
+            setImageLoading(false);
+          }}
+          onLoadStart={() => {
+            setImageLoading(true);
+            setImageError(false);
+          }}
+        />
+      </View>
+    );
+  };
+
   const renderCollection = ({ item }: { item: Collection }) => (
     <TouchableOpacity
       style={[styles.collectionCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
       onPress={() => router.push(`/collections/${item._id}`)}
     >
-      {item.coverImage ? (
-        <Image source={{ uri: item.coverImage }} style={styles.coverImage} />
-      ) : (
-        <View style={[styles.coverPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
-          <Ionicons name="images-outline" size={40} color={theme.colors.textSecondary} />
-        </View>
-      )}
+      <CollectionImage coverImage={item.coverImage} />
       <View style={styles.collectionInfo}>
         <Text style={[styles.collectionName, { color: theme.colors.text }]} numberOfLines={1}>
           {item.name}
@@ -236,11 +294,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: isTablet ? theme.spacing.md : 12,
   },
-  coverImage: {
+  coverImageContainer: {
     width: isTablet ? 80 : 60,
     height: isTablet ? 80 : 60,
     borderRadius: theme.borderRadius.sm,
     marginRight: isTablet ? theme.spacing.md : 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: theme.borderRadius.sm,
+  },
+  imageLoader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: theme.borderRadius.sm,
+    zIndex: 1,
   },
   coverPlaceholder: {
     width: isTablet ? 80 : 60,

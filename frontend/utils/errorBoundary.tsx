@@ -33,7 +33,33 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
     
-    // Add Sentry context for error boundary
+    // Use centralized error reporter for better Sentry reporting
+    try {
+      const { reportComponentError } = require('./errorReporter');
+      if (reportComponentError) {
+        reportComponentError(error, {
+          screen: 'error_boundary',
+          component: 'ErrorBoundary',
+          action: `error_boundary_${this.props.level || 'component'}`,
+          metadata: {
+            level: this.props.level || 'component',
+            componentStack: errorInfo.componentStack,
+            errorInfo: errorInfo.componentStack,
+          },
+        });
+      }
+    } catch (reporterError) {
+      // Fallback to existing crash reporting if errorReporter not available
+      captureException(error, {
+        screen: 'error_boundary',
+        action: `error_boundary_${this.props.level || 'component'}`,
+        componentStack: errorInfo.componentStack,
+        context: `error_boundary_${this.props.level || 'component'}`,
+        errorInfo: errorInfo.componentStack,
+      });
+    }
+    
+    // Also add Sentry context for error boundary (backup)
     if (Sentry) {
       Sentry.setContext('error_boundary', {
         level: this.props.level || 'component',
@@ -41,15 +67,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       });
       Sentry.setTag('error_boundary_level', this.props.level || 'component');
     }
-    
-    // Log error to crash reporting
-    captureException(error, {
-      screen: 'error_boundary',
-      action: `error_boundary_${this.props.level || 'component'}`,
-      componentStack: errorInfo.componentStack,
-      context: `error_boundary_${this.props.level || 'component'}`,
-      errorInfo: errorInfo.componentStack,
-    });
 
     // Call custom error handler if provided
     if (this.props.onError) {

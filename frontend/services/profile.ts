@@ -154,7 +154,7 @@ export const searchUsers = async (query: string, page: number = 1, limit: number
   }
 };
 
-// Update FCM push token
+// Update FCM push token (Android)
 export const updateFCMPushToken = async (userId: string, fcmToken: string): Promise<void> => {
   try {
     await api.put(`/api/v1/profile/${userId}/push-token`, { 
@@ -164,6 +164,17 @@ export const updateFCMPushToken = async (userId: string, fcmToken: string): Prom
     logger.error('updateFCMPushToken', error.response?.data || error.message || error);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
+  }
+};
+
+/** Save Expo push token (iOS / EAS builds). Uses POST /api/v1/user/save-push-token. Does not throw. */
+export const saveExpoPushToken = async (token: string): Promise<void> => {
+  try {
+    await api.post('/api/v1/user/save-push-token', { token });
+  } catch (error: any) {
+    const msg = error?.response?.data?.error ?? error?.message ?? 'Request failed';
+    logger.error('saveExpoPushToken', typeof msg === 'string' ? msg : JSON.stringify(msg));
+    // Do not throw - push registration failure is non-fatal
   }
 };
 
@@ -182,12 +193,21 @@ export const getFollowRequests = async (): Promise<FollowRequestsResponse> => {
 };
 
 // Approve follow request
-export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number }> => {
+export const approveFollowRequest = async (requestId: string): Promise<{ message: string; followersCount: number; alreadyProcessed?: boolean }> => {
   try {
     const response = await api.post(`/api/v1/profile/follow-requests/${requestId}/approve`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
+    // If error is "already processed", treat as success (idempotent operation)
+    if (parsedError.userMessage?.toLowerCase().includes('already processed') || 
+        parsedError.userMessage?.toLowerCase().includes('already approved')) {
+      return {
+        message: 'Follow request already approved',
+        followersCount: 0,
+        alreadyProcessed: true
+      };
+    }
     throw new Error(parsedError.userMessage);
   }
 };
@@ -313,6 +333,33 @@ export const getTripScoreLocations = async (
 ): Promise<TripScoreLocationsResponse> => {
   try {
     const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${country}/locations`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export interface TravelMapDataResponse {
+  success: boolean;
+  message?: string;
+  locations: Array<{
+    number: number;
+    latitude: number;
+    longitude: number;
+    address: string;
+    date: string;
+  }>;
+  statistics: {
+    totalLocations: number;
+    totalDistance: number;
+    totalDays: number;
+  };
+}
+
+export const getTravelMapData = async (userId: string): Promise<TravelMapDataResponse> => {
+  try {
+    const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

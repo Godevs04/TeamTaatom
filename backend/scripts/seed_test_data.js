@@ -1,9 +1,18 @@
 const mongoose = require('mongoose');
 const path = require('path');
+
+// Load env: try .env first, then environment.env
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 require('dotenv').config({ path: path.join(__dirname, '../environment.env') });
 
+const mongoUri = process.env.MONGO_URL || process.env.MONGODB_URI || process.env.DATABASE_URI;
+if (!mongoUri) {
+  console.error('❌ No MongoDB URI found. Set MONGO_URL in backend/.env');
+  process.exit(1);
+}
+
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URL)
+mongoose.connect(mongoUri)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
@@ -12,7 +21,7 @@ const Post = require('../src/models/Post');
 
 async function seedTestData() {
   try {
-    console.log('🌱 Starting to seed test data...');
+    console.log('🌱 Starting to seed test data (Apple 1.2 UGC demo)...');
 
     // Check if data already exists
     const userCount = await User.countDocuments();
@@ -21,69 +30,26 @@ async function seedTestData() {
       process.exit(0);
     }
 
-    // Create test users
     const testUsers = await User.create([
-      {
-        fullName: 'John Doe',
-        email: 'john@example.com',
-        password: 'password123',
-        bio: 'Travel enthusiast from New York',
-        location: 'New York, USA',
-        isActive: true
-      },
-      {
-        fullName: 'Jane Smith',
-        email: 'jane@example.com',
-        password: 'password123',
-        bio: 'Adventure seeker and photographer',
-        location: 'London, UK',
-        isActive: true
-      },
-      {
-        fullName: 'Mike Johnson',
-        email: 'mike@example.com',
-        password: 'password123',
-        bio: 'World traveler and blogger',
-        location: 'Sydney, Australia',
-        isActive: true
-      },
-      {
-        fullName: 'Sarah Williams',
-        email: 'sarah@example.com',
-        password: 'password123',
-        bio: 'Digital nomad',
-        location: 'Tokyo, Japan',
-        isActive: false
-      },
-      {
-        fullName: 'Tom Brown',
-        email: 'tom@example.com',
-        password: 'password123',
-        bio: 'Backpacker and explorer',
-        location: 'Paris, France',
-        isActive: true
-      }
+      { fullName: 'John Doe', username: 'johndoe', email: 'john@example.com', password: 'Password1!', bio: 'Travel enthusiast', termsAcceptedAt: new Date(), isVerified: true },
+      { fullName: 'Jane Smith', username: 'janesmith', email: 'jane@example.com', password: 'Password1!', bio: 'Adventure seeker', termsAcceptedAt: new Date(), isVerified: true },
+      { fullName: 'Mike Johnson', username: 'mikejohnson', email: 'mike@example.com', password: 'Password1!', bio: 'World traveler', termsAcceptedAt: new Date(), isVerified: true }
     ]);
+    console.log(`✅ Created ${testUsers.length} test users (sign in: any email above + Password1!)`);
 
-    console.log(`✅ Created ${testUsers.length} test users`);
-
-    // Create test posts
     const testPosts = [];
-    for (let i = 0; i < testUsers.length; i++) {
-      for (let j = 0; j < 3; j++) {
+    for (const u of testUsers) {
+      for (let j = 0; j < 2; j++) {
         testPosts.push({
-          user: testUsers[i]._id,
-          caption: `Test post ${j + 1} from ${testUsers[i].fullName}`,
-          content: `This is test content for post ${j + 1}`,
-          location: testUsers[i].location,
-          imageUrl: 'https://via.placeholder.com/600x400',
-          type: 'post',
-          likes: Math.floor(Math.random() * 100),
-          comments: []
+          user: u._id,
+          caption: `Test post ${j + 1} from ${u.fullName}`,
+          imageUrl: 'https://picsum.photos/600/400',
+          type: 'photo',
+          location: { address: 'Unknown Location', coordinates: { latitude: 0, longitude: 0 } },
+          status: 'active'
         });
       }
     }
-
     const createdPosts = await Post.create(testPosts);
     console.log(`✅ Created ${createdPosts.length} test posts`);
 

@@ -19,9 +19,42 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 
+/**
+ * Get user IDs whose posts the viewer is allowed to see in the feed.
+ * - Anonymous: only authors with profileVisibility === 'public'
+ * - Logged in: self + public authors + authors with 'followers'/'private' who have viewer in their followers
+ */
+async function getAllowedPostAuthorIds(viewerId) {
+  if (!viewerId) {
+    const users = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+    return users.map(u => u._id);
+  }
+  const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
+  if (!viewerObjId) return [];
+
+  const publicUsers = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+  const publicIds = publicUsers.map(u => u._id);
+
+  const restrictedAuthors = await User.find({
+    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] },
+    followers: viewerObjId
+  }).select('_id').lean();
+  const restrictedIds = restrictedAuthors.map(u => u._id);
+
+  const allowed = [viewerObjId, ...publicIds, ...restrictedIds];
+  const seen = new Set();
+  return allowed.filter(id => {
+    const key = id.toString();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
+// @query   feed=recents|friends|popular (optional; recents = newest first, friends = from people you follow, popular = by likes)
 const getPosts = async (req, res) => {
   try {
     // Defensive guards: validate and cap pagination params
@@ -30,19 +63,47 @@ const getPosts = async (req, res) => {
     const skip = Math.max(0, (page - 1) * limit);
     const cursor = req.query.cursor; // Cursor for cursor-based pagination
     const useCursor = req.query.useCursor === 'true'; // Enable cursor-based pagination
+    const feedMode = ['recents', 'friends', 'popular'].includes(req.query.feed) ? req.query.feed : 'recents';
 
-    // Cache key with filters
-    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor });
+    const viewerId = req.user?._id?.toString();
+    const cacheKey = CacheKeys.postList(page, limit, { type: 'photo', cursor, viewerId: viewerId || 'anon', feed: feedMode });
 
-    // Use cache wrapper for performance
     const result = await cacheWrapper(cacheKey, async () => {
-      // Build match query
+      let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+      const blockedIds = req.user?.blockedUsers?.length
+        ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
+        : [];
+      let allowedFiltered = blockedIds.length
+        ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+        : allowedAuthorIds;
+
+      // Friends feed: only posts from users the viewer follows
+      if (feedMode === 'friends' && viewerId) {
+        const viewer = await User.findById(viewerId).select('following').lean();
+        const followingIds = (viewer?.following || []).map(id => (id && (id._id || id)).toString()).filter(Boolean);
+        const followingObjIds = followingIds
+          .filter(id => mongoose.Types.ObjectId.isValid(id))
+          .map(id => new mongoose.Types.ObjectId(id));
+        if (followingObjIds.length > 0) {
+          const allowedSet = new Set(allowedFiltered.map(id => id.toString()));
+          allowedFiltered = followingObjIds.filter(id => allowedSet.has(id.toString()));
+        } else {
+          allowedFiltered = [];
+        }
+      }
+
       const matchQuery = {
         isActive: true,
         isArchived: { $ne: true },
         isHidden: { $ne: true },
-        type: 'photo'
+        type: 'photo',
+        $or: [{ status: 'active' }, { status: { $exists: false } }]
       };
+      if (allowedFiltered.length > 0) {
+        matchQuery.user = { $in: allowedFiltered };
+      } else {
+        matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
+      }
 
       // Add cursor-based filtering if cursor is provided
       if (useCursor && cursor) {
@@ -54,12 +115,17 @@ const getPosts = async (req, res) => {
         }
       }
 
+      // For popular sort we need likesCount before $sort
+      const addLikesCountStage = { $addFields: { likesCount: { $size: { $ifNull: ['$likes', []] } } } };
+      const sortStage = feedMode === 'popular'
+        ? { $sort: { likesCount: -1, createdAt: -1 } }
+        : { $sort: { createdAt: -1 } };
+
       // Use aggregation pipeline for better performance (single query instead of populate)
       const posts = await Post.aggregate([
-        {
-          $match: matchQuery
-        },
-        { $sort: { createdAt: -1 } },
+        { $match: matchQuery },
+        ...(feedMode === 'popular' ? [addLikesCountStage] : []),
+        sortStage,
         ...(useCursor && cursor ? [] : [{ $skip: skip }]), // Skip only for offset pagination
         { $limit: limit },
         {
@@ -487,7 +553,8 @@ const getPostById = async (req, res) => {
         {
           $match: {
             _id: new mongoose.Types.ObjectId(id),
-            isActive: true
+            isActive: true,
+            $or: [{ status: 'active' }, { status: { $exists: false } }] // Hide flagged/removed
           }
         },
         {
@@ -741,6 +808,42 @@ const getPostById = async (req, res) => {
       }
     }
 
+    // CRITICAL: Generate fresh signed URL for video if post is a short (videos expire after 15 minutes)
+    if (post.type === 'short') {
+      if (post.storageKey) {
+        try {
+          const freshVideoUrl = await generateSignedUrl(post.storageKey, 'VIDEO');
+          post.videoUrl = freshVideoUrl;
+          // Also generate thumbnail URL
+          if (post.storageKeys && post.storageKeys.length > 1) {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+          } else {
+            post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          }
+          logger.debug(`Generated fresh signed URLs for short ${post._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
+          // Fallback to stored URLs if generation fails
+          post.videoUrl = post.videoUrl || post.imageUrl || null;
+        }
+      } else if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO');
+          if (post.storageKeys.length > 1) {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+          } else {
+            post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE');
+          }
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${post._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${post._id}:`, error.message);
+          post.videoUrl = post.videoUrl || post.imageUrl || null;
+        }
+      }
+      // Set mediaUrl for shorts (virtual field)
+      post.mediaUrl = post.videoUrl || post.imageUrl || null;
+    }
+
     // Use generated imageUrl (already set above)
     const optimizedImageUrl = post.imageUrl;
 
@@ -809,7 +912,44 @@ const createPost = async (req, res) => {
       return sendError(res, 'BIZ_7003', 'Maximum 10 images are allowed');
     }
 
-    const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo } = req.body;
+    const { 
+      caption, 
+      address, 
+      latitude, 
+      longitude, 
+      tags, 
+      songId, 
+      songStartTime, 
+      songEndTime, 
+      songVolume, 
+      spotType, 
+      travelInfo,
+      // Detected place data from Google Maps API
+      detectedPlaceName,
+      detectedPlaceCountry,
+      detectedPlaceCountryCode,
+      detectedPlaceCity,
+      detectedPlaceStateProvince,
+      detectedPlaceLatitude,
+      detectedPlaceLongitude,
+      detectedPlacePlaceId,
+      detectedPlaceFormattedAddress
+    } = req.body;
+
+    // Debug: Log detected place data to verify it's being received
+    if (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity) {
+      logger.debug('Detected place data received:', {
+        name: detectedPlaceName,
+        country: detectedPlaceCountry,
+        countryCode: detectedPlaceCountryCode,
+        city: detectedPlaceCity,
+        stateProvince: detectedPlaceStateProvince,
+        latitude: detectedPlaceLatitude,
+        longitude: detectedPlaceLongitude,
+        placeId: detectedPlacePlaceId,
+        formattedAddress: detectedPlaceFormattedAddress
+      });
+    }
 
     // Defensive guard: validate caption length within limits
     if (caption && caption.length > 2000) {
@@ -913,7 +1053,24 @@ const createPost = async (req, res) => {
       } : undefined,
       // TripScore metadata from user dropdowns
       spotType: spotType || null,
-      travelInfo: travelInfo || null
+      travelInfo: travelInfo || null,
+      // Detected place data for admin review (from Google Maps API)
+      // Check if any detected place field exists (handle empty strings from FormData)
+      // Save detected place data if ANY field is provided (even if some are empty)
+      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity || 
+                     detectedPlaceCountryCode || detectedPlaceStateProvince || 
+                     detectedPlaceLatitude || detectedPlaceLongitude || 
+                     detectedPlacePlaceId || detectedPlaceFormattedAddress) ? {
+        name: (detectedPlaceName && detectedPlaceName.trim()) || null,
+        country: (detectedPlaceCountry && detectedPlaceCountry.trim()) || null,
+        countryCode: (detectedPlaceCountryCode && detectedPlaceCountryCode.trim()) || null,
+        city: (detectedPlaceCity && detectedPlaceCity.trim()) || null,
+        stateProvince: (detectedPlaceStateProvince && detectedPlaceStateProvince.trim()) || null,
+        latitude: (detectedPlaceLatitude && detectedPlaceLatitude.toString().trim() && !isNaN(parseFloat(detectedPlaceLatitude))) ? parseFloat(detectedPlaceLatitude) : null,
+        longitude: (detectedPlaceLongitude && detectedPlaceLongitude.toString().trim() && !isNaN(parseFloat(detectedPlaceLongitude))) ? parseFloat(detectedPlaceLongitude) : null,
+        placeId: (detectedPlacePlaceId && detectedPlacePlaceId.trim()) || null,
+        formattedAddress: (detectedPlaceFormattedAddress && detectedPlaceFormattedAddress.trim()) || null
+      } : undefined
     });
 
     await post.save();
@@ -1114,10 +1271,54 @@ const getUserShorts = async (req, res) => {
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
     const safeSkip = Math.max(skip, 0);
 
-    // Check if user exists
-    const user = await User.findById(userId).select('fullName profilePic');
+    // Check if user exists and get privacy settings
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
     if (!user) {
       return sendError(res, 'RES_3002', 'User not found');
+    }
+
+    // Check privacy settings for "followers only" profile
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+    const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
+    
+    // For "followers only" profiles, check if current user is following
+    if (!isOwnProfile && profileVisibility === 'followers') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty shorts array
+        return sendSuccess(res, 200, 'Shorts fetched successfully', {
+          shorts: [],
+          totalShorts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
+    }
+    
+    // For "private" profiles, check if current user is following (approved)
+    if (!isOwnProfile && profileVisibility === 'private') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty shorts array
+        return sendSuccess(res, 200, 'Shorts fetched successfully', {
+          shorts: [],
+          totalShorts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
     }
 
     // Use aggregation pipeline to avoid N+1 queries
@@ -1129,7 +1330,8 @@ const getUserShorts = async (req, res) => {
         $match: {
           user: userIdObj,
           isActive: true,
-          type: 'short' // Explicitly filter for shorts only
+          type: 'short',
+          $or: [{ status: 'active' }, { status: { $exists: false } }]
         }
       },
       { $sort: { createdAt: -1 } },
@@ -1201,11 +1403,12 @@ const getUserShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           'user.followers': 0 // Remove followers array from response
+          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, thumbnailUrl, etc.)
         }
       }
     ]);
 
-    // Generate signed URLs for profile pictures
+    // Generate signed URLs for profile pictures and short thumbnails
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       // Generate signed URL for short author's profile picture
       if (short.user && short.user.profilePicStorageKey) {
@@ -1223,6 +1426,241 @@ const getUserShorts = async (req, res) => {
       } else if (short.user && short.user.profilePic) {
         // Legacy: use existing profilePic if no storage key
         // Keep the existing profilePic value
+      }
+
+      // Generate signed URLs for short video and thumbnail
+      let videoUrl = short.videoUrl || null;
+      let imageUrl = short.imageUrl || short.thumbnailUrl || null;
+      
+      // Log initial state for debugging
+      logger.debug(`Processing short ${short._id}`, {
+        hasStorageKey: !!short.storageKey,
+        storageKey: short.storageKey ? short.storageKey.substring(0, 100) : null,
+        hasStorageKeys: !!(short.storageKeys && short.storageKeys.length > 0),
+        storageKeysLength: short.storageKeys ? short.storageKeys.length : 0,
+        storageKeys: short.storageKeys ? short.storageKeys.map(k => k?.substring(0, 50)) : null,
+        hasVideoUrl: !!short.videoUrl,
+        hasImageUrl: !!short.imageUrl,
+        hasThumbnailUrl: !!short.thumbnailUrl
+      });
+      
+      // Priority 1: Check storageKeys array first (most reliable - contains both video and thumbnail)
+      if (short.storageKeys && short.storageKeys.length > 0) {
+        try {
+          // First key is always the video
+          videoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
+          if (!videoUrl) {
+            logger.warn(`Failed to generate video URL from storageKeys[0] for short ${short._id}`);
+          }
+          
+          // Second key is the thumbnail (if it exists)
+          if (short.storageKeys.length > 1 && short.storageKeys[1]) {
+            try {
+              const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+                logger.debug(`Generated thumbnail from storageKeys[1] for short ${short._id}`, {
+                  storageKey: short.storageKeys[1]?.substring(0, 50)
+                });
+              } else {
+                logger.warn(`Failed to generate thumbnail URL from storageKeys[1] for short ${short._id} - returned null`);
+              }
+            } catch (thumbError) {
+              logger.warn(`Failed to generate thumbnail from storageKeys[1] for short ${short._id}:`, {
+                error: thumbError.message,
+                storageKey: short.storageKeys[1]?.substring(0, 50)
+              });
+            }
+          }
+          
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${short._id}`, { 
+            videoUrl: !!videoUrl, 
+            imageUrl: !!imageUrl,
+            storageKeysCount: short.storageKeys.length
+          });
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
+        }
+      } else if (short.storageKey) {
+        // Fallback: Use single storageKey (older shorts might only have this)
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          
+          // For older shorts without storageKeys array, try to use existing thumbnailUrl from DB
+          // Don't try to generate image from video storageKey - it won't work
+          
+          logger.debug(`Generated fresh video URL from storageKey for short ${short._id}`, { videoUrl: !!videoUrl });
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKey for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+        }
+      } else {
+        // No storage keys - use existing URLs from database
+        logger.debug(`Short ${short._id} has no storageKey or storageKeys - using existing URLs from DB`, {
+          hasVideoUrl: !!short.videoUrl,
+          hasImageUrl: !!short.imageUrl,
+          hasThumbnailUrl: !!short.thumbnailUrl
+        });
+      }
+
+      // Update short with generated URLs
+      short.videoUrl = videoUrl;
+      
+      // CRITICAL: Only set imageUrl/thumbnailUrl if we successfully generated a valid one
+      // Validate that imageUrl is a proper URL (not incomplete)
+      if (imageUrl && imageUrl !== videoUrl && imageUrl.trim() !== '') {
+        // Validate URL format - must be a complete URL
+        const isValidUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+        if (isValidUrl && imageUrl.length > 20) { // Basic validation: complete URL
+          short.imageUrl = imageUrl;
+          short.thumbnailUrl = imageUrl;
+        } else {
+          logger.warn(`Short ${short._id} generated invalid thumbnail URL: ${imageUrl?.substring(0, 100)}`);
+          // Fall through to check existing URLs
+          imageUrl = null; // Reset to null so we check existing URLs
+        }
+      }
+      
+      // If no valid generated URL, check existing URLs from database
+      if (!imageUrl || imageUrl === videoUrl) {
+        // Helper function to check if URL is an R2 URL
+        const isR2Url = (url) => {
+          return url && typeof url === 'string' && 
+                 (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) &&
+                 !url.includes('?'); // Not already signed
+        };
+        
+        // Helper function to extract storage key from R2 URL
+        const extractStorageKeyFromR2Url = (url) => {
+          try {
+            // R2 URL format: https://[account-id].r2.cloudflarestorage.com/[bucket]/[key]
+            const urlObj = new URL(url);
+            const pathParts = urlObj.pathname.split('/').filter(p => p);
+            if (pathParts.length >= 2) {
+              // Remove bucket name (first part), rest is the storage key
+              return pathParts.slice(1).join('/');
+            }
+          } catch (e) {
+            logger.warn(`Failed to extract storage key from R2 URL: ${url?.substring(0, 100)}`);
+          }
+          return null;
+        };
+        
+        // Check existing thumbnailUrl first (preferred field for shorts)
+        if (short.thumbnailUrl && short.thumbnailUrl.trim() !== '' && 
+            (short.thumbnailUrl.startsWith('http://') || short.thumbnailUrl.startsWith('https://')) &&
+            short.thumbnailUrl !== short.videoUrl) { // Don't use video URL as thumbnail
+          
+          // If it's an R2 URL, convert to signed URL
+          if (isR2Url(short.thumbnailUrl)) {
+            const storageKey = extractStorageKeyFromR2Url(short.thumbnailUrl);
+            if (storageKey) {
+              try {
+                const signedUrl = await generateSignedUrl(storageKey, 'IMAGE');
+                if (signedUrl) {
+                  short.imageUrl = signedUrl;
+                  short.thumbnailUrl = signedUrl;
+                  logger.debug(`Converted R2 thumbnailUrl to signed URL for short ${short._id}`);
+                } else {
+                  logger.warn(`Failed to generate signed URL from R2 thumbnailUrl for short ${short._id}`);
+                  short.imageUrl = null;
+                  short.thumbnailUrl = null;
+                }
+              } catch (error) {
+                logger.warn(`Error converting R2 thumbnailUrl to signed URL for short ${short._id}:`, error.message);
+                short.imageUrl = null;
+                short.thumbnailUrl = null;
+              }
+            } else {
+              logger.warn(`Could not extract storage key from R2 thumbnailUrl for short ${short._id}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
+          } else {
+            // Not an R2 URL, validate and use as-is
+            if (short.thumbnailUrl.length > 30 && short.thumbnailUrl.includes('/')) {
+              short.imageUrl = short.thumbnailUrl;
+              logger.debug(`Short ${short._id} using existing thumbnailUrl from database`);
+            } else {
+              logger.warn(`Short ${short._id} has incomplete thumbnailUrl: ${short.thumbnailUrl?.substring(0, 100)}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
+          }
+        } else if (short.imageUrl && short.imageUrl.trim() !== '' && 
+                   (short.imageUrl.startsWith('http://') || short.imageUrl.startsWith('https://')) &&
+                   short.imageUrl !== short.videoUrl) { // Don't use video URL as thumbnail
+          
+          // If it's an R2 URL, convert to signed URL
+          if (isR2Url(short.imageUrl)) {
+            const storageKey = extractStorageKeyFromR2Url(short.imageUrl);
+            if (storageKey) {
+              try {
+                const signedUrl = await generateSignedUrl(storageKey, 'IMAGE');
+                if (signedUrl) {
+                  short.imageUrl = signedUrl;
+                  short.thumbnailUrl = signedUrl;
+                  logger.debug(`Converted R2 imageUrl to signed URL for short ${short._id}`);
+                } else {
+                  logger.warn(`Failed to generate signed URL from R2 imageUrl for short ${short._id}`);
+                  short.imageUrl = null;
+                  short.thumbnailUrl = null;
+                }
+              } catch (error) {
+                logger.warn(`Error converting R2 imageUrl to signed URL for short ${short._id}:`, error.message);
+                short.imageUrl = null;
+                short.thumbnailUrl = null;
+              }
+            } else {
+              logger.warn(`Could not extract storage key from R2 imageUrl for short ${short._id}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
+          } else {
+            // Not an R2 URL, validate and use as-is
+            if (short.imageUrl.length > 30 && short.imageUrl.includes('/')) {
+              short.thumbnailUrl = short.imageUrl;
+              logger.debug(`Short ${short._id} using existing imageUrl from database`);
+            } else {
+              logger.warn(`Short ${short._id} has incomplete imageUrl: ${short.imageUrl?.substring(0, 100)}`);
+              short.imageUrl = null;
+              short.thumbnailUrl = null;
+            }
+          }
+        } else {
+          // No valid thumbnail available - set to null (frontend will show placeholder)
+          short.imageUrl = null;
+          short.thumbnailUrl = null;
+          logger.warn(`Short ${short._id} has no valid thumbnail URL available`, {
+            storageKey: short.storageKey?.substring(0, 50),
+            storageKeys: short.storageKeys?.map(k => k?.substring(0, 50)),
+            generatedImageUrl: imageUrl?.substring(0, 50),
+            existingImageUrl: short.imageUrl?.substring(0, 50),
+            existingThumbnailUrl: short.thumbnailUrl?.substring(0, 50),
+            videoUrl: short.videoUrl?.substring(0, 50)
+          });
+        }
+      }
+      
+      // FINAL SAFETY CHECK: Ensure we NEVER return unsigned R2 URLs
+      const isR2UrlFinal = (url) => {
+        return url && typeof url === 'string' && 
+               (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) &&
+               !url.includes('?');
+      };
+      
+      if (short.imageUrl && isR2UrlFinal(short.imageUrl)) {
+        logger.error(`CRITICAL: Short ${short._id} still has unsigned R2 URL in imageUrl! Setting to null.`);
+        short.imageUrl = null;
+        short.thumbnailUrl = null;
+      }
+      if (short.thumbnailUrl && isR2UrlFinal(short.thumbnailUrl)) {
+        logger.error(`CRITICAL: Short ${short._id} still has unsigned R2 URL in thumbnailUrl! Setting to null.`);
+        short.imageUrl = null;
+        short.thumbnailUrl = null;
       }
 
       // Generate signed URLs for comment users' profile pictures
@@ -1251,23 +1689,71 @@ const getUserShorts = async (req, res) => {
       return short;
     }));
 
-    // Defensive: filter out shorts without media URLs and add mediaUrl field
+    // Defensive: filter out shorts without video URLs (video is required, thumbnail is optional)
     const validShorts = shortsWithProfilePics
       .filter(short => {
-        const hasMedia = short.videoUrl || short.imageUrl;
-        if (!hasMedia) {
-          logger.warn(`User short ${short._id} missing mediaUrl, filtering out`);
+        // Video URL is required - shorts must have a video
+        const hasVideo = !!short.videoUrl;
+        if (!hasVideo) {
+          logger.warn(`User short ${short._id} missing videoUrl, filtering out`, {
+            hasVideoUrl: !!short.videoUrl,
+            hasImageUrl: !!short.imageUrl,
+            hasThumbnailUrl: !!short.thumbnailUrl,
+            hasStorageKey: !!short.storageKey,
+            hasStorageKeys: !!(short.storageKeys && short.storageKeys.length > 0)
+          });
         }
-        return hasMedia;
+        return hasVideo;
       })
-      .map(short => ({
-        ...short,
-        mediaUrl: short.videoUrl || short.imageUrl, // Include virtual field
-        user: {
-          ...short.user,
-          isFollowing: short.isFollowing || false
+      .map(short => {
+        // Ensure we have a thumbnail URL - prioritize imageUrl, then thumbnailUrl
+        // If neither exists, that's okay - frontend will show placeholder
+        let thumbnailUrl = short.imageUrl || short.thumbnailUrl || null;
+        
+        // CRITICAL: Final safety check - if thumbnailUrl is an unsigned R2 URL, set to null
+        if (thumbnailUrl && typeof thumbnailUrl === 'string') {
+          const isR2Url = (thumbnailUrl.includes('r2.cloudflarestorage.com') || 
+                           thumbnailUrl.includes('cloudflarestorage.com')) &&
+                          !thumbnailUrl.includes('?'); // Not signed
+          
+          if (isR2Url) {
+            logger.error(`CRITICAL: Short ${short._id} has unsigned R2 URL in final response! Setting to null. URL: ${thumbnailUrl.substring(0, 100)}`);
+            thumbnailUrl = null; // Set to null so frontend shows placeholder
+          }
         }
-      }));
+        
+        // Validate thumbnail URL format if present
+        let validThumbnailUrl = thumbnailUrl;
+        if (thumbnailUrl) {
+          // Check if URL looks valid (has proper format)
+          const urlPattern = /^https?:\/\/.+/;
+          if (!urlPattern.test(thumbnailUrl)) {
+            logger.warn(`Short ${short._id} has invalid thumbnail URL format: ${thumbnailUrl?.substring(0, 100)}`);
+            validThumbnailUrl = null;
+          }
+        }
+        
+        // Log for debugging if thumbnail is missing (but don't filter out - video is what matters)
+        if (!validThumbnailUrl && short.videoUrl) {
+          logger.debug(`Short ${short._id} has videoUrl but no valid thumbnailUrl - frontend will show placeholder`, {
+            videoUrl: short.videoUrl ? 'present' : 'missing',
+            imageUrl: short.imageUrl ? 'present' : 'missing',
+            thumbnailUrl: short.thumbnailUrl ? 'present' : 'missing'
+          });
+        }
+        
+        return {
+          ...short,
+          mediaUrl: short.videoUrl, // Use videoUrl as mediaUrl for shorts
+          // CRITICAL: Set thumbnailUrl for frontend display (null is acceptable - shows placeholder)
+          thumbnailUrl: validThumbnailUrl,
+          imageUrl: validThumbnailUrl, // Also set imageUrl for compatibility
+          user: {
+            ...short.user,
+            isFollowing: short.isFollowing || false
+          }
+        };
+      });
 
     const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
 
@@ -1293,13 +1779,57 @@ const getUserPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Check if user exists
-    const user = await User.findById(userId).select('fullName profilePic');
+    // Check if user exists and get privacy settings
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
         message: 'User does not exist'
       });
+    }
+
+    // Check privacy settings for "followers only" profile
+    const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
+    const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
+    
+    // For "followers only" profiles, check if current user is following
+    if (!isOwnProfile && profileVisibility === 'followers') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty posts array
+        return sendSuccess(res, 200, 'Posts fetched successfully', {
+          posts: [],
+          totalPosts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
+    }
+    
+    // For "private" profiles, check if current user is following (approved)
+    if (!isOwnProfile && profileVisibility === 'private') {
+      const isFollowing = req.user && user.followers ? 
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
+        }) : 
+        false;
+      
+      if (!isFollowing) {
+        // User is not following, return empty posts array
+        return sendSuccess(res, 200, 'Posts fetched successfully', {
+          posts: [],
+          totalPosts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
     }
 
     // Cache key
@@ -1315,7 +1845,8 @@ const getUserPosts = async (req, res) => {
           $match: {
             user: userIdObj,
             isActive: true,
-            type: 'photo'
+            type: 'photo',
+            $or: [{ status: 'active' }, { status: { $exists: false } }]
           }
         },
         { $sort: { createdAt: -1 } },
@@ -1563,17 +2094,39 @@ const toggleLike = async (req, res) => {
     // Verify the final state matches what we expect (use actual database state)
     const finalIsLiked = updatedPost ? updatedPost.likes.some(like => like.toString() === req.user._id.toString()) : isLiked;
 
-    // Create activity for like (respect user's privacy settings) - use final verified state
+    // Handle activity creation/deletion to prevent duplicates
+    // Check if activity already exists for this user, post, and type
+    const existingActivity = await Activity.findOne({
+      user: req.user._id,
+      type: 'post_liked',
+      post: req.params.id
+    });
+
     if (finalIsLiked) {
+      // User liked the post
       const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
       const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
-      Activity.createActivity({
-        user: req.user._id,
-        type: 'post_liked',
-        post: req.params.id,
-        targetUser: post.user,
-        isPublic: shareActivity
-      }).catch(err => logger.error('Error creating activity:', err));
+      
+      if (existingActivity) {
+        // Activity already exists, just update the timestamp to reflect the latest like
+        existingActivity.createdAt = new Date();
+        existingActivity.isPublic = shareActivity;
+        await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+      } else {
+        // Create new activity only if it doesn't exist
+        Activity.createActivity({
+          user: req.user._id,
+          type: 'post_liked',
+          post: req.params.id,
+          targetUser: post.user,
+          isPublic: shareActivity
+        }).catch(err => logger.error('Error creating activity:', err));
+      }
+    } else {
+      // User unliked the post - remove the activity if it exists
+      if (existingActivity) {
+        await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
+      }
     }
 
     // Invalidate cache
@@ -2259,14 +2812,27 @@ const getShorts = async (req, res) => {
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
     const safeSkip = Math.max(skip, 0);
 
-    // Use aggregation pipeline to populate song data efficiently
+    const viewerId = req.user?._id?.toString();
+    const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+    const blockedIds = req.user?.blockedUsers?.length
+      ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
+      : [];
+    const allowedFiltered = blockedIds.length
+      ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
+      : allowedAuthorIds;
+
+    const shortsMatch = {
+      isActive: true,
+      type: 'short',
+      $or: [{ status: 'active' }, { status: { $exists: false } }]
+    };
+    if (allowedFiltered.length > 0) {
+      shortsMatch.user = { $in: allowedFiltered };
+    } else {
+      shortsMatch.user = { $in: [new mongoose.Types.ObjectId()] };
+    }
     const shorts = await Post.aggregate([
-      {
-        $match: {
-          isActive: true,
-          type: 'short' // Explicitly filter for shorts only
-        }
-      },
+      { $match: shortsMatch },
       { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limit },
@@ -2378,6 +2944,7 @@ const getShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           songData: 0
+          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, etc.)
         }
       }
     ]);
@@ -2476,17 +3043,88 @@ const getShorts = async (req, res) => {
         logger.debug('getShorts - No song data for short:', { shortId: short._id });
       }
       
+      // Generate fresh signed URL for video if storageKey exists (CRITICAL: Videos expire after 15 minutes)
+      let videoUrl = short.videoUrl || null; // Start with stored URL as fallback
+      let imageUrl = short.imageUrl || null; // Start with stored URL as fallback
+      
+      // Priority 1: Generate fresh signed URL from storageKey (best practice)
+      if (short.storageKey) {
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          // For shorts, also generate thumbnail URL (use same storageKey or separate one)
+          if (short.storageKeys && short.storageKeys.length > 1) {
+            // Second key might be thumbnail
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } else {
+            // Use same key for thumbnail (CDN can generate thumbnails)
+            const freshImageUrl = await generateSignedUrl(short.storageKey, 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          }
+          logger.debug(`Generated fresh signed URLs for short ${short._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+          if (!videoUrl && !imageUrl) {
+            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
+          }
+        }
+      } else if (short.storageKeys && short.storageKeys.length > 0) {
+        // Try storageKeys array (backward compatibility)
+        try {
+          const freshVideoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
+          if (freshVideoUrl) {
+            videoUrl = freshVideoUrl;
+          }
+          if (short.storageKeys.length > 1) {
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } else {
+            const freshImageUrl = await generateSignedUrl(short.storageKeys[0], 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          }
+          logger.debug(`Generated fresh signed URLs from storageKeys for short ${short._id}`);
+        } catch (error) {
+          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
+          // Use stored URLs as fallback (already set above)
+          if (!videoUrl && !imageUrl) {
+            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
+          }
+        }
+      } else {
+        // Use stored URLs (legacy support) - no storageKey found
+        logger.debug(`Using stored URLs for short ${short._id} (no storageKey found)`);
+        if (!videoUrl && !imageUrl) {
+          logger.warn(`Short ${short._id} has no storageKey and no stored URLs`);
+        }
+      }
+      
       // Defensive: ensure mediaUrl exists (required for shorts)
-      const mediaUrl = short.videoUrl || short.imageUrl || '';
+      // Use stored URLs if fresh URLs failed, or fresh URLs if available
+      const mediaUrl = videoUrl || imageUrl || short.videoUrl || short.imageUrl || '';
       if (!mediaUrl) {
-        logger.warn(`Short ${short._id} missing mediaUrl, skipping`);
-        return null; // Filter out shorts without media
+        logger.warn(`Short ${short._id} missing mediaUrl completely (no storageKey, no stored URLs), skipping`);
+        return null; // Filter out shorts without any media URL
       }
       
       return {
         ...short,
         _id: short._id,
-        mediaUrl, // Include virtual field with validation
+        // Use fresh signed URLs if available, otherwise use stored URLs as fallback
+        videoUrl: videoUrl || short.videoUrl || null,
+        imageUrl: imageUrl || short.imageUrl || null,
+        mediaUrl, // Include virtual field with fresh signed URL or fallback
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
@@ -2535,9 +3173,8 @@ const getShorts = async (req, res) => {
 const createShort = async (req, res) => {
   try {
     logger.debug('createShort called');
-    logger.debug('req.file:', req.file);
-    logger.debug('req.body:', req.body);
-    
+    logger.debug('req.file:', req.file ? { fieldname: req.file.fieldname, size: req.file.size } : null);
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       logger.debug('Validation errors:', errors.array());
@@ -2565,15 +3202,8 @@ const createShort = async (req, res) => {
     const { caption, address, latitude, longitude, tags, songId, songStartTime, songEndTime, songVolume, spotType, travelInfo, audioSource, copyrightAccepted, copyrightAcceptedAt } = req.body;
     logger.info('createShort - Received data:', {
       hasSongId: !!songId,
-      songId: songId,
-      audioSource: audioSource,
-      songStartTime: songStartTime,
-      songEndTime: songEndTime,
-      songVolume: songVolume,
-      // Log raw req.body to see what's actually being sent
-      rawBodyKeys: Object.keys(req.body),
-      rawSongId: req.body.songId,
-      rawAudioSource: req.body.audioSource
+      hasAudioSource: !!audioSource,
+      hasCopyrightAccepted: !!copyrightAccepted,
     });
     
     // Copyright validation for shorts
@@ -2613,9 +3243,28 @@ const createShort = async (req, res) => {
       extension
     });
     
+    // Log file size for monitoring large uploads
+    const fileSizeMB = (videoFile.buffer.length / (1024 * 1024)).toFixed(2);
+    logger.info('Starting video upload:', {
+      key: videoStorageKey,
+      size: `${fileSizeMB}MB`,
+      mimetype: videoFile.mimetype,
+      userId: req.user._id.toString()
+    });
+    
     let videoUploadResult;
     try {
+      // uploadObject automatically uses multipart upload for files > 100MB
+      const uploadStartTime = Date.now();
       videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+      
+      logger.info('Video upload completed:', {
+        key: videoStorageKey,
+        size: `${fileSizeMB}MB`,
+        duration: `${uploadDuration}s`,
+        uploadSpeed: `${(parseFloat(fileSizeMB) / parseFloat(uploadDuration)).toFixed(2)}MB/s`
+      });
       
       // Defensive: validate upload result has URL
       if (!videoUploadResult || !videoUploadResult.url) {
@@ -2623,8 +3272,24 @@ const createShort = async (req, res) => {
         return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
       }
     } catch (uploadErr) {
-      logger.error('Storage upload error:', uploadErr);
-      return sendError(res, 'FILE_4004', uploadErr.message || 'Video upload failed. Please try again.');
+      logger.error('Storage upload error:', {
+        error: uploadErr.message || uploadErr,
+        key: videoStorageKey,
+        size: `${fileSizeMB}MB`,
+        stack: uploadErr.stack
+      });
+      
+      // Provide more specific error messages for large files
+      let errorMessage = uploadErr.message || 'Video upload failed. Please try again.';
+      if (uploadErr.message?.includes('timeout') || uploadErr.message?.includes('ETIMEDOUT')) {
+        errorMessage = 'Upload timeout. The file may be too large or network is too slow. Please try again with a better connection.';
+      } else if (uploadErr.message?.includes('ECONNRESET') || uploadErr.message?.includes('socket')) {
+        errorMessage = 'Connection lost during upload. Please check your internet connection and try again.';
+      } else if (uploadErr.message?.includes('413') || uploadErr.message?.includes('too large')) {
+        errorMessage = 'File is too large. Please try a smaller file or compress the video.';
+      }
+      
+      return sendError(res, 'FILE_4004', errorMessage);
     }
 
     // Note: Video duration validation would require video processing library
@@ -2686,6 +3351,12 @@ const createShort = async (req, res) => {
       songVolume: songVolume
     });
     
+    // Build storageKeys array: [video, thumbnail] if thumbnail exists
+    const storageKeys = [videoStorageKey];
+    if (thumbnailStorageKey) {
+      storageKeys.push(thumbnailStorageKey);
+    }
+    
     // Build base post object
     const postData = {
       user: req.user._id,
@@ -2694,7 +3365,9 @@ const createShort = async (req, res) => {
       thumbnailUrl: thumbnailUrl || '', // New field for clarity - thumbnail for shorts
       videoUrl: videoUploadResult.url, // Video URL goes here
       storageKey: videoStorageKey, // Primary storage key for video
+      storageKeys: storageKeys, // CRITICAL: Array with video and thumbnail keys [video, thumbnail]
       cloudinaryPublicId: videoStorageKey, // Backward compatibility
+      cloudinaryPublicIds: storageKeys, // Backward compatibility: use storageKeys as cloudinaryPublicIds
       tags: allHashtags,
       type: 'short',
       location: {

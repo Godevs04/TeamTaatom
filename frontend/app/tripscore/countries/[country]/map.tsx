@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
-import { MapView, Marker, PROVIDER_GOOGLE } from '../../../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
@@ -59,6 +59,8 @@ export default function CountryMapScreen() {
   const mapRef = useRef<any>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(0)).current;
+  // Cache markers to prevent re-rendering issues when navigating back
+  const markersCacheRef = useRef<Array<any>>([]);
 
   useEffect(() => {
     if (hoveredIndex !== null) {
@@ -73,9 +75,13 @@ export default function CountryMapScreen() {
     }
   }, [hoveredIndex, pulseAnim]);
 
+  // Load data on mount and when screen comes into focus (to persist markers after navigation)
   useEffect(() => {
     loadCountryData();
   }, []);
+
+  // NOTE: We intentionally do not reload on focus. Re-fetching can re-order / change marker lists.
+  // Markers are made stable via deterministic fallback coordinates + stable keys.
 
   const loadCountryData = async () => {
     try {
@@ -186,46 +192,135 @@ export default function CountryMapScreen() {
     return deltas[key] || { latitudeDelta: 10, longitudeDelta: 10 };
   };
 
-  const getRandomLatitude = (countryName: string) => {
-    const center = getCountryCenter(countryName);
-    const delta = getCountryDelta(countryName);
-    return center.latitude + (Math.random() - 0.5) * delta.latitudeDelta;
-  };
+  /**
+   * Stable fallback coordinates for locations that don't have real coordinates.
+   * IMPORTANT: Must be deterministic across renders; otherwise markers appear to "disappear"
+   * (they actually move to new random positions after navigation / rerender).
+   *
+   * NOTE: Declared as a function (not const) so it's hoisted and safe to use in hooks above/below.
+   */
+  function getStableFallbackCoordinates(
+    countryDisplayName: string,
+    locName: string,
+    idx: number
+  ): { latitude: number; longitude: number } {
+    const center = getCountryCenter(countryDisplayName);
+    const delta = getCountryDelta(countryDisplayName);
 
-  const getRandomLongitude = (countryName: string) => {
-    const center = getCountryCenter(countryName);
-    const delta = getCountryDelta(countryName);
-    return center.longitude + (Math.random() - 0.5) * delta.longitudeDelta;
-  };
+    // Deterministic hash -> unsigned 32-bit
+    const hashString = (str: string) => {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    };
+
+    // Turn hash into two stable pseudo-random floats in [0, 1)
+    const seed = hashString(`${countryDisplayName}|${locName}|${idx}`);
+    const rand1 = ((seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    const rand2 = (((seed ^ 0x9e3779b9) * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+    // Keep points reasonably close to center so they remain in-frame
+    const latOffset = (rand1 - 0.5) * delta.latitudeDelta * 0.25;
+    const lngOffset = (rand2 - 0.5) * delta.longitudeDelta * 0.25;
+
+    return {
+      latitude: center.latitude + latOffset,
+      longitude: center.longitude + lngOffset,
+    };
+  }
+
+  const countryParam = Array.isArray(country) ? country[0] : country;
+  const displayCountryName = (countryParam ?? '')
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (l: string) => l.toUpperCase());
+
+  // Build visited markers once per data change (Rules of Hooks: top-level)
+  // CRITICAL: Use stable dependencies and cache to prevent markers from disappearing
+  const visitedMarkers = useMemo(() => {
+    if (!data || !data.locations || data.locations.length === 0) {
+      // If no data but we have cached markers, keep them to prevent disappearing
+      if (markersCacheRef.current.length > 0) {
+        return markersCacheRef.current;
+      }
+      return [];
+    }
+
+    // Create stable markers with deterministic coordinates
+    const markers = data.locations.map((loc, i) => {
+      const hasValidCoords =
+        typeof loc.coordinates?.latitude === 'number' &&
+        typeof loc.coordinates?.longitude === 'number' &&
+        !Number.isNaN(loc.coordinates.latitude) &&
+        !Number.isNaN(loc.coordinates.longitude) &&
+        loc.coordinates.latitude !== 0 &&
+        loc.coordinates.longitude !== 0 &&
+        loc.coordinates.latitude >= -90 &&
+        loc.coordinates.latitude <= 90 &&
+        loc.coordinates.longitude >= -180 &&
+        loc.coordinates.longitude <= 180;
+
+      // Always use stable coordinates - either real ones or deterministic fallback
+      const finalCoords = hasValidCoords
+        ? loc.coordinates!
+        : getStableFallbackCoordinates(
+            displayCountryName || '',
+            loc.name || `Location ${i + 1}`,
+            i
+          );
+
+      // Create a unique stable ID for this marker (doesn't change across renders)
+      const stableId = `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}`;
+
+      return {
+        ...loc,
+        stableId, // Add stable ID for key generation
+        coordinates: finalCoords,
+      };
+    });
+
+    // Cache markers to preserve them when navigating back
+    markersCacheRef.current = markers;
+    return markers;
+  }, [data?.locations?.length, displayCountryName]); // Only depend on locations count and country name (more stable)
 
   // Get locations with coordinates for map rendering
+  // CRITICAL: Only show locations with valid coordinates (no random coordinates)
   const getMapLocations = (countryDisplayName: string): Location[] => {
     if (!data) return [];
-    const withCoords = data.locations.filter(
-      loc => !!loc.coordinates?.latitude && !!loc.coordinates?.longitude
+    
+    // Filter locations to only include those with valid coordinates
+    const markers = data.locations.filter(
+      loc => loc.coordinates?.latitude && 
+             loc.coordinates?.longitude && 
+             loc.coordinates.latitude !== 0 && 
+             loc.coordinates.longitude !== 0 &&
+             !isNaN(loc.coordinates.latitude) &&
+             !isNaN(loc.coordinates.longitude) &&
+             loc.coordinates.latitude >= -90 && 
+             loc.coordinates.latitude <= 90 &&
+             loc.coordinates.longitude >= -180 && 
+             loc.coordinates.longitude <= 180
     );
-    let markers = withCoords.length > 0
-      ? withCoords
-      : data.locations.map((loc) => ({
-          ...loc,
-          coordinates: {
-            latitude: getRandomLatitude(countryDisplayName || ''),
-            longitude: getRandomLongitude(countryDisplayName || ''),
-          },
-        }));
+    
+    // If no valid locations, show center marker as fallback
     if (markers.length === 0) {
-      markers = [{
+      const center = getCountryCenter(countryDisplayName || '');
+      return [{
         name: countryDisplayName || 'Center',
         score: 0,
         date: new Date().toISOString(),
         caption: '',
         category: { fromYou: '', typeOfSpot: '' },
         coordinates: {
-          latitude: getCountryCenter(countryDisplayName || '').latitude,
-          longitude: getCountryCenter(countryDisplayName || '').longitude,
+          latitude: center.latitude,
+          longitude: center.longitude,
         },
-      } as any];
+      } as Location];
     }
+    
     return markers;
   };
 
@@ -323,9 +418,6 @@ export default function CountryMapScreen() {
     );
   }
 
-  const countryName = Array.isArray(country) ? country[0] : country;
-  const displayCountryName = countryName?.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
   return (
     <SafeAreaView 
       style={[styles.container, { backgroundColor: theme.colors.background }]}
@@ -347,10 +439,9 @@ export default function CountryMapScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      {/* Map View */}
+      {/* Map View - use WebView for web and Android so maps open reliably on Android */}
       <View style={styles.mapContainer}>
-        {Platform.OS === 'web' ? (
-          // WebView map for web platform
+        {(Platform.OS === 'web' || Platform.OS === 'android') ? (
           <WebView
             style={styles.map}
             source={{ html: getWebMapHTML(displayCountryName || '') }}
@@ -368,7 +459,7 @@ export default function CountryMapScreen() {
           // Native MapView for iOS/Android
           <MapView
             ref={(ref: any) => { mapRef.current = ref; }}
-            provider={PROVIDER_GOOGLE}
+            provider={getMapProvider()}
             style={styles.map}
             customMapStyle={forestStyle}
             initialRegion={{
@@ -433,37 +524,13 @@ export default function CountryMapScreen() {
             </View>
           </Marker>
           {/* Markers for visited locations */}
-          {(() => {
-            if (!data) return null;
-            const withCoords = data.locations.filter(
-              loc => !!loc.coordinates?.latitude && !!loc.coordinates?.longitude
-            );
-            let markers = withCoords.length > 0
-              ? withCoords
-              : data.locations.map((loc, i) => ({
-                  ...loc,
-                  coordinates: {
-                    latitude: getRandomLatitude(displayCountryName || ''),
-                    longitude: getRandomLongitude(displayCountryName || ''),
-                  },
-                }));
-            if (markers.length === 0) {
-              // As a last resort, show one marker at country center so the user sees a flag
-              markers = [{
-                name: displayCountryName || 'Center',
-                score: 0,
-                date: new Date().toISOString(),
-                caption: '',
-                category: { fromYou: '', typeOfSpot: '' },
-                coordinates: {
-                  latitude: getCountryCenter(displayCountryName || '').latitude,
-                  longitude: getCountryCenter(displayCountryName || '').longitude,
-                },
-              } as any];
-            }
-            return markers.map((location, index) => (
+          {visitedMarkers.map((location: any, index: number) => {
+            // Use stableId if available, otherwise fallback to name + coordinates
+            const stableKey = location.stableId || `${location.name}-${location.coordinates!.latitude.toFixed(6)}-${location.coordinates!.longitude.toFixed(6)}`;
+
+            return (
               <Marker
-                key={`${location.name}-${index}`}
+                key={stableKey}
                 zIndex={9999}
                 anchor={{ x: 0.5, y: 1 }}
                 coordinate={{
@@ -473,10 +540,9 @@ export default function CountryMapScreen() {
                 title={location.name}
                 description={`Score: ${location.score}`}
                 onPress={() => handleLocationPress(location)}
-              // Navigate directly on press; keep single handler to avoid double triggers
-              onCalloutPress={undefined}
-              onSelect={() => setHoveredIndex(index)}
-              onDeselect={() => setHoveredIndex(null)}
+                onCalloutPress={undefined}
+                onSelect={() => setHoveredIndex(index)}
+                onDeselect={() => setHoveredIndex(null)}
               >
                 <View style={styles.markerContainer}>
                   {hoveredIndex === index && (
@@ -496,8 +562,8 @@ export default function CountryMapScreen() {
                   </View>
                 </View>
               </Marker>
-            ));
-          })()}
+            );
+          })}
           </MapView>
         ) : (
           // Fallback if MapView is not available

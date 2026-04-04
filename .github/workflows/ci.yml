@@ -1,0 +1,382 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — Unified pipeline (Validate first, then Frontend + Backend + Web)
+# ─────────────────────────────────────────────────────────────────────────────
+# • Validate runs FIRST (commit message / branch conventions). If it fails, no other job runs (saves minutes).
+# • On merge commits (push with "Merge pull request" / "Merge branch"), only validate + pre-job run; frontend/web/backend are skipped to save minutes (CI already passed on the PR).
+# • Otherwise path-based: frontend, web, backend run only when their folder changed. Manual "Run workflow" runs all.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**', 'web/**', 'backend/**']
+  pull_request:
+    branches: [main, develop]
+    paths: ['frontend/**', 'web/**', 'backend/**']
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ─── Validate first: if this fails, no other jobs run (saves minutes)
+  validate:
+    name: Validate (PR / commit conventions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      is_merge_commit: ${{ steps.merge_check.outputs.is_merge_commit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enforce commit message & branch conventions
+        id: conventions
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            MSG="$PR_TITLE"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$HEAD_COMMIT_MESSAGE" ]; then
+            MSG="$HEAD_COMMIT_MESSAGE"
+            MSG=$(printf '%s\n' "$MSG" | head -n1)
+          else
+            MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "TAATOM: workflow run")
+          fi
+
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "✅ Dependabot PR; commit message validation skipped."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qi '\[skip validation\]'; then
+            echo "✅ Bypass marker found; validation skipped."
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "✅ Manual run; validation skipped."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "✅ Merge commit; validation skipped."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qE '^TAATOM(-[0-9A-Za-z]+)?(\s|:)'; then
+            echo "✅ Commit message OK: TAATOM or TAATOM-<id> prefix."
+            exit 0
+          fi
+          echo "❌ Commit message must start with TAATOM or TAATOM-<id> followed by space or colon."
+          echo "   Example: TAATOM: Add feature   or   TAATOM-42: Fix bug"
+          echo "   Got (first line): $MSG"
+          exit 1
+
+      - name: Set merge-commit flag (skip heavy jobs on merge to save minutes)
+        id: merge_check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$EVENT_NAME" != "push" ]; then
+            echo "is_merge_commit=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MSG="$HEAD_COMMIT_MESSAGE"
+          MSG=$(echo "$MSG" | head -n1)
+          if echo "$MSG" | grep -qE '^Merge (pull request|branch) '; then
+            echo "is_merge_commit=true" >> "$GITHUB_OUTPUT"
+            echo "Merge commit detected — frontend, web, backend jobs will be skipped."
+          else
+            echo "is_merge_commit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## ✅ Validate (PR / commit conventions)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Passed. Other jobs (pre-job, frontend, web, backend) will run." >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Validate passed — other jobs will run."
+
+  # ─── Pre-job: detect which modules changed (runs only if validate passed)
+  changes:
+    name: pre-job
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 2
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      web: ${{ steps.filter.outputs.web }}
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed folders
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+            web:
+              - 'web/**'
+            backend:
+              - 'backend/**'
+
+      - name: Show what will run
+        run: |
+          echo "## 📋 CI plan (path-based)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.validate.outputs.is_merge_commit }}" = "true" ]; then
+            echo "🔄 **Merge commit detected** — frontend, web, backend jobs skipped to save minutes (CI already passed on the PR)." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.filter.outputs.frontend }}" = "true" ]; then
+            echo "• **Frontend** — Will run (lint, build web)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "• **Frontend** — Skipped (no changes in \`frontend/\`)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.filter.outputs.web }}" = "true" ]; then
+            echo "• **Web** — Will run (lint, typecheck, build)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "• **Web** — Skipped (no changes in \`web/\`)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${{ steps.filter.outputs.backend }}" = "true" ]; then
+            echo "• **Backend** — Will run (lint, test, coverage)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "• **Backend** — Skipped (no changes in \`backend/\`)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+
+  # ─── Frontend: lint & build web (path-based; runs only after validate + changes)
+  frontend:
+    name: Lint & Build Frontend
+    runs-on: ubuntu-latest
+    needs: [validate, changes]
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true') && needs.validate.outputs.is_merge_commit != 'true'
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 📌 Why this job ran
+        run: |
+          {
+            echo "## 📱 Frontend CI"
+            echo "Running because there are changes in \`frontend/\` (or you triggered the workflow manually)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci || npm install
+
+      - name: Lint
+        working-directory: ./frontend
+        run: npm run lint || echo "Lint not configured"
+
+      - name: Build web
+        working-directory: ./frontend
+        env:
+          NODE_ENV: production
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
+          EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+        run: npm run build:web
+
+      - name: Upload source maps to Sentry
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        working-directory: ./frontend
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          RELEASE_VERSION: ${{ github.sha }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "⚠️ Sentry secrets not set; skipping source maps upload."
+            exit 0
+          fi
+          npm install -g @sentry/cli || true
+          if [ -d "dist" ]; then
+            sentry-cli sourcemaps upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" --release "$RELEASE_VERSION" dist/ || true
+          fi
+
+      - name: Upload web-build artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: frontend/dist
+          retention-days: 7
+
+      - name: ✅ Frontend CI result
+        run: |
+          {
+            echo "## ✅ Frontend CI passed"
+            echo "Lint and build (web) completed successfully for \`frontend/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Frontend CI passed — lint and build completed for frontend/"
+
+  # ─── Web: lint, typecheck & build (path-based; runs only after validate + changes)
+  web:
+    name: Lint & Build Web
+    runs-on: ubuntu-latest
+    needs: [validate, changes]
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') && needs.validate.outputs.is_merge_commit != 'true'
+    timeout-minutes: 20
+    env:
+      # Required at build time (Vercel has the real value; CI needs a placeholder so build does not throw)
+      BACKEND_ORIGIN: ${{ vars.BACKEND_ORIGIN || 'https://api.taatom.com' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 📌 Why this job ran
+        run: |
+          {
+            echo "## 🌐 Web CI"
+            echo "Running because there are changes in \`web/\` (or manual run)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./web
+        run: npm ci || npm install
+
+      - name: Lint
+        working-directory: ./web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: ./web
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: ./web
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+      - name: ✅ Web CI result
+        run: |
+          echo "## ✅ Web CI passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Lint, typecheck, and build completed successfully for \`web/\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Web CI passed — lint, typecheck, and build completed for web/"
+
+  # ─── Backend: lint & test (path-based; runs only after validate + changes)
+  backend:
+    name: Test & Lint Backend
+    runs-on: ubuntu-latest
+    needs: [validate, changes]
+    if: (github.event_name == 'workflow_dispatch' || needs.changes.outputs.backend == 'true') && needs.validate.outputs.is_merge_commit != 'true'
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 📌 Why this job ran
+        run: |
+          {
+            echo "## ⚙️ Backend CI"
+            echo "Running because there are changes in \`backend/\` (or manual run)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Lint
+        working-directory: ./backend
+        run: npm run lint
+
+      - name: Test
+        working-directory: ./backend
+        env:
+          CI: true
+        run: npm test
+
+      - name: Test coverage
+        working-directory: ./backend
+        env:
+          CI: true
+        run: npm run test:coverage -- --ci --coverageReporters=text-summary
+
+      - name: Why some tests are skipped
+        run: |
+          {
+            echo "## 🧪 Backend tests in CI"
+            echo ""
+            echo "• **Unit tests** (e.g. \`tripScoreConfig\`) run in CI — no database needed."
+            echo "• **Integration tests** (TripScore controller, TripVisit service) need MongoDB. In CI we don't set \`MONGO_URL\`, so those suites are **skipped** to avoid failing the job."
+            echo "• Run \`npm test\` locally with \`MONGO_URL\` in \`.env\` to execute all tests."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ✅ Backend CI result
+        run: |
+          {
+            echo "## ✅ Backend CI passed"
+            echo "Lint, tests, and coverage completed successfully for \`backend/\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ Backend CI passed — lint, tests, and coverage completed for backend/"
+
+  # ─── Final job: ties the graph (runs only when validate + changes passed)
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [validate, changes, frontend, web, backend]
+    if: always() && needs.validate.result == 'success' && needs.changes.result == 'success'
+    timeout-minutes: 1
+    steps:
+      - name: Summary
+        run: |
+          {
+            echo "## ✅ CI Success"
+            echo ""
+            echo "| Module   | Status |"
+            echo "|----------|--------|"
+            echo "| Frontend | ${{ needs.frontend.result == 'success' && '✅ Passed' || (needs.frontend.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo "| Web      | ${{ needs.web.result == 'success' && '✅ Passed' || (needs.web.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo "| Backend  | ${{ needs.backend.result == 'success' && '✅ Passed' || (needs.backend.result == 'skipped' && (needs.validate.outputs.is_merge_commit == 'true' && '⏭️ Skipped (merge commit)') || '⏭️ Skipped (no changes)') || '❌ Failed' }} |"
+            echo ""
+            echo "Unified CI (frontend + web + backend) finished. Only changed modules ran."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ CI Success — see Step summary (above) for module status."

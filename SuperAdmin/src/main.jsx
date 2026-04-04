@@ -25,7 +25,53 @@ if (SENTRY_DSN) {
       Sentry.browserTracingIntegration(),
       Sentry.replayIntegration(),
     ],
+    // Before send hook - ensure errors are properly formatted
+    beforeSend(event, hint) {
+      // Filter out chunk loading errors (they're often transient and not actionable)
+      // These occur when the browser can't fetch a dynamically imported module
+      // Usually due to network issues, cache problems, or deployment updates
+      if (event.exception && event.exception.values) {
+        const firstException = event.exception.values[0];
+        const errorValue = firstException?.value || '';
+        const errorType = firstException?.type || '';
+        
+        // Check for chunk loading errors with more comprehensive matching
+        const isChunkError = 
+          errorValue.includes('Failed to fetch dynamically imported module') ||
+          errorValue.includes('Loading chunk') ||
+          errorValue.includes('Loading CSS chunk') ||
+          errorValue.includes('dynamically imported module') ||
+          errorType === 'ChunkLoadError' ||
+          errorValue.includes('ERR_MODULE_NOT_FOUND') ||
+          (event.request?.url && event.request.url.includes('/assets/') && 
+           errorValue.includes('Failed to fetch'));
+        
+        if (isChunkError) {
+          // These are usually transient network/cache issues - don't report them
+          // The lazyWithRetry utility will handle retries automatically
+          console.debug('[Sentry] Filtered chunk loading error:', errorValue);
+          return null;
+        }
+      }
+      
+      // Ensure error is properly formatted
+      if (event.exception && event.exception.values) {
+        event.exception.values.forEach(exception => {
+          if (!exception.type || (exception.type === 'Error' && !exception.value)) {
+            exception.type = exception.type || 'Error';
+            exception.value = exception.value || 'Unknown error';
+          }
+        });
+      }
+      return event;
+    },
   })
+  
+  // Make Sentry available globally for logger
+  if (typeof window !== 'undefined') {
+    window.Sentry = Sentry;
+  }
+  
   console.log('✅ Sentry initialized successfully for SuperAdmin')
 } else {
   console.warn('⚠️  Sentry DSN not found. Sentry error tracking is disabled.')

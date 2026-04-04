@@ -127,12 +127,16 @@ const getLocales = async (req, res) => {
       query.spotTypes = { $in: [spotType] };
     }
 
+    // OPTIMIZATION: Use lean() and select only required fields to reduce payload size
+    // Exclude large fields that aren't needed: description (can be long), full country name
+    // Note: country field removed from select to reduce payload (countryCode is sufficient)
     const locales = await Locale.find(query)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
-      .lean();
+      .lean()
+      .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
     
     // Generate signed URLs dynamically for all locales
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
@@ -160,9 +164,30 @@ const getLocales = async (req, res) => {
       };
     }));
 
-    const total = await Locale.countDocuments(query);
+    // OPTIMIZATION: Use countDocuments with timeout to prevent slow queries
+    // Indexes ensure this is fast (<20ms target)
+    // NOTE: For very large collections (10k+), consider caching counts or using
+    // estimatedDocumentCount() for pagination UI when no filters are applied
+    const total = await Locale.countDocuments(query).maxTimeMS(2000);
 
-    return sendSuccess(res, 200, 'Locales fetched successfully', {
+    // Include statistics for SuperAdmin when includeInactive is true
+    // OPTIMIZATION: Use Promise.all for parallel execution (faster than sequential)
+    // These queries use indexes and should be fast
+    let statistics = null;
+    if (includeInactive === 'true') {
+      const [totalLocales, activeLocales, inactiveLocales] = await Promise.all([
+        Locale.countDocuments({}).maxTimeMS(2000),
+        Locale.countDocuments({ isActive: true }).maxTimeMS(2000),
+        Locale.countDocuments({ isActive: false }).maxTimeMS(2000)
+      ]);
+      statistics = {
+        total: totalLocales,
+        active: activeLocales,
+        inactive: inactiveLocales
+      };
+    }
+
+    const responseData = {
       locales: mappedLocales,
       pagination: {
         currentPage: parsedPage,
@@ -170,7 +195,14 @@ const getLocales = async (req, res) => {
         total,
         limit: parsedLimit
       }
-    });
+    };
+
+    // Add statistics if available (for SuperAdmin)
+    if (statistics) {
+      responseData.statistics = statistics;
+    }
+
+    return sendSuccess(res, 200, 'Locales fetched successfully', responseData);
   } catch (error) {
     logger.error('Get locales error:', error);
     return sendError(res, 'SRV_6001', 'Error fetching locales');
@@ -183,7 +215,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
 
     if (!locale) {
@@ -228,7 +260,7 @@ const uploadLocale = async (req, res) => {
       hasFile: !!req.file,
       fileMimetype: req.file?.mimetype,
       fileSize: req.file?.size,
-      body: req.body
+      bodyKeys: req.body ? Object.keys(req.body) : [],
     });
 
     if (!req.file) {
@@ -236,7 +268,7 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'FILE_4001', 'Please upload an image file');
     }
 
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
 
     if (!name || !country || !countryCode || !city) {
       logger.error('Missing required fields:', { name: !!name, country: !!country, countryCode: !!countryCode, city: !!city });
@@ -299,6 +331,24 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'VAL_2001', 'City is required and must be between 1 and 50 characters');
     }
 
+    // Validate and process coordinates
+    let processedLatitude = null;
+    let processedLongitude = null;
+    
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng)) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          processedLatitude = lat;
+          processedLongitude = lng;
+        } else {
+          logger.warn('Invalid coordinates provided:', { latitude: lat, longitude: lng });
+        }
+      }
+    }
+
     // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
       name: name.trim(),
@@ -316,14 +366,16 @@ const uploadLocale = async (req, res) => {
       displayOrder: requestedOrder,
       isActive: true, // Explicitly set to active
       spotTypes: processedSpotTypes,
-      travelInfo: processedTravelInfo
+      travelInfo: processedTravelInfo,
+      latitude: processedLatitude,
+      longitude: processedLongitude
     });
 
     await locale.save();
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
       .lean();
     
     // Generate signed URL dynamically
@@ -463,7 +515,7 @@ const toggleLocaleStatus = async (req, res) => {
 const updateLocale = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo } = req.body;
+    const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
 
     const locale = await Locale.findById(id);
     if (!locale) {
@@ -574,6 +626,26 @@ const updateLocale = async (req, res) => {
       }
     }
 
+    // Handle latitude and longitude update
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng)) {
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          locale.latitude = lat;
+          locale.longitude = lng;
+        } else {
+          logger.warn('Invalid coordinates provided for update:', { latitude: lat, longitude: lng });
+          // Don't fail the update, just log the warning
+        }
+      } else if (latitude === null && longitude === null) {
+        // Allow explicitly setting to null to clear coordinates
+        locale.latitude = null;
+        locale.longitude = null;
+      }
+    }
+
     // Also update legacy fields for backward compatibility
     // Ensure all storage key fields are synchronized
     const primaryStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
@@ -617,6 +689,8 @@ const updateLocale = async (req, res) => {
         isActive: locale.isActive,
         spotTypes: locale.spotTypes || [],
         travelInfo: locale.travelInfo || 'Drivable',
+        latitude: locale.latitude,
+        longitude: locale.longitude,
         imageUrl: signedUrl,
         cloudinaryUrl: signedUrl
       }
@@ -627,12 +701,141 @@ const updateLocale = async (req, res) => {
   }
 };
 
+// @desc    Get all unique countries from locales (for filter dropdown)
+// @route   GET /api/v1/locales/countries
+// @access  Public
+const getUniqueCountries = async (req, res) => {
+  try {
+    // Try aggregation first (no allowDiskUse - not supported on MongoDB Atlas M0/free tier)
+    const matchStage = {
+      isActive: true,
+      countryCode: { $exists: true, $ne: null, $ne: '' }
+    };
+    const aggregationPipeline = [
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$countryCode',
+          country: { $first: '$country' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          code: '$_id',
+          name: {
+            $cond: {
+              if: { $and: [{ $ne: ['$country', null] }, { $ne: ['$country', ''] }] },
+              then: '$country',
+              else: '$_id'
+            }
+          },
+          localeCount: '$count'
+        }
+      },
+      { $sort: { name: 1 } }
+    ];
+
+    let uniqueCountries;
+    try {
+      uniqueCountries = await Locale.aggregate(aggregationPipeline).option({ maxTimeMS: 10000 });
+    } catch (aggError) {
+      // Fallback: use distinct + find for compatibility (e.g. Atlas M0 without allowDiskUse)
+      logger.warn('Aggregation failed, using distinct fallback:', aggError.message);
+      const countryCodes = await Locale.distinct('countryCode', matchStage);
+      const countriesWithDetails = await Promise.all(
+        countryCodes.map(async (code) => {
+          const sample = await Locale.findOne(
+            { ...matchStage, countryCode: code },
+            { country: 1 }
+          ).lean();
+          const count = await Locale.countDocuments({ ...matchStage, countryCode: code });
+          return {
+            code,
+            name: sample?.country || code,
+            localeCount: count
+          };
+        })
+      );
+      uniqueCountries = countriesWithDetails.sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+      );
+    }
+
+    return sendSuccess(res, 200, 'Countries fetched successfully', {
+      countries: uniqueCountries
+    });
+  } catch (error) {
+    logger.error('Get unique countries error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching countries');
+  }
+};
+
+// @desc    Get unique states/regions for a country (from active locales)
+// @route   GET /api/v1/locales/states?countryCode=IN
+// @access  Public
+const getUniqueStates = async (req, res) => {
+  try {
+    const { countryCode } = req.query;
+    if (!countryCode || typeof countryCode !== 'string' || countryCode.trim() === '') {
+      return sendError(res, 'VAL_4001', 'countryCode is required');
+    }
+    const code = countryCode.trim().toUpperCase();
+    const states = await Locale.aggregate([
+      { $match: { isActive: true, countryCode: code } },
+      {
+        $project: {
+          stateCode: { $ifNull: ['$stateCode', ''] },
+          stateProvince: { $ifNull: ['$stateProvince', ''] }
+        }
+      },
+      { $group: { _id: { stateCode: '$stateCode', stateProvince: '$stateProvince' } } },
+      {
+        $project: {
+          _id: 0,
+          stateCode: '$_id.stateCode',
+          stateProvince: '$_id.stateProvince'
+        }
+      },
+      { $sort: { stateProvince: 1, stateCode: 1 } }
+    ]).option({ maxTimeMS: 10000 });
+    return sendSuccess(res, 200, 'States fetched successfully', { states });
+  } catch (error) {
+    logger.error('Get unique states error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching states');
+  }
+};
+
+// @desc    Get all distinct spot types from active locales
+// @route   GET /api/v1/locales/spot-types
+// @access  Public
+const getSpotTypes = async (req, res) => {
+  try {
+    const result = await Locale.aggregate([
+      { $match: { isActive: true, spotTypes: { $exists: true, $ne: [] } } },
+      { $unwind: '$spotTypes' },
+      { $group: { _id: '$spotTypes' } },
+      { $sort: { _id: 1 } },
+      { $project: { _id: 0, name: '$_id' } }
+    ]).option({ maxTimeMS: 10000 });
+    const spotTypes = result.map((r) => r.name).filter(Boolean);
+    return sendSuccess(res, 200, 'Spot types fetched successfully', { spotTypes });
+  } catch (error) {
+    logger.error('Get spot types error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching spot types');
+  }
+};
+
 module.exports = {
   getLocales,
   getLocaleById,
   uploadLocale,
   deleteLocaleById,
   toggleLocaleStatus,
-  updateLocale
+  updateLocale,
+  getUniqueCountries,
+  getUniqueStates,
+  getSpotTypes
 };
 

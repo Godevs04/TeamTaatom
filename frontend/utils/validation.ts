@@ -6,7 +6,7 @@ export const signUpSchema = Yup.object().shape({
     .max(50, 'Name must be less than 50 characters')
     .required('Full name is required'),
   username: Yup.string()
-    .matches(/^[a-z0-9_.]+$/, 'Only lowercase letters, numbers, and underscores allowed')
+    .matches(/^[a-z0-9_.]+$/, 'Only lowercase letters, numbers, dots (.), and underscores (_) allowed')
     .min(3, 'Username must be at least 3 characters')
     .max(20, 'Username must be less than 20 characters')
     .required('Username is required'),
@@ -23,12 +23,16 @@ export const signUpSchema = Yup.object().shape({
   confirmPassword: Yup.string()
     .oneOf([Yup.ref('password')], 'Passwords must match')
     .required('Confirm password is required'),
+  termsAccepted: Yup.boolean()
+    .oneOf([true], 'You must accept the Terms & Conditions to create an account')
+    .required('Terms acceptance is required'),
 });
 
 export const signInSchema = Yup.object().shape({
   email: Yup.string()
-    .email('Please enter a valid email')
-    .required('Email is required'),
+    .required('Email or username is required')
+    .min(3, 'Email or username must be at least 3 characters')
+    .max(100, 'Email or username must be less than 100 characters'),
   password: Yup.string()
     .required('Password is required'),
 });
@@ -41,16 +45,14 @@ export const forgotPasswordSchema = Yup.object().shape({
 
 export const postSchema = Yup.object().shape({
   comment: Yup.string()
-    .max(500, 'Comment must be less than 500 characters')
-    .required('Comment is required'),
+    .max(500, 'Comment must be less than 500 characters'),
   placeName: Yup.string()
     .max(100, 'Place name must be less than 100 characters'),
 });
 
 export const shortSchema = Yup.object().shape({
   caption: Yup.string()
-    .max(500, 'Caption must be less than 500 characters')
-    .required('Caption is required'),
+    .max(500, 'Caption must be less than 500 characters'),
   tags: Yup.string()
     .max(200, 'Tags must be less than 200 characters'),
   placeName: Yup.string()

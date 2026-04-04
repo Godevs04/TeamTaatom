@@ -6,6 +6,7 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Image, 
+  ImageStyle,
   ActivityIndicator,
   RefreshControl,
   Pressable,
@@ -21,7 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
 import { getUserFromStorage, signOut } from '../../services/auth';
-import { getProfile } from '../../services/profile';
+import { getProfile, getTravelMapData } from '../../services/profile';
 import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, deleteShort } from '../../services/posts';
 import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,7 +34,6 @@ import RotatingGlobe from '../../components/RotatingGlobe';
 import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
-import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
@@ -41,6 +41,21 @@ import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../servi
 import { theme } from '../../constants/theme';
 
 const logger = createLogger('ProfileScreen');
+
+const TRIP_GAP_DAYS = 7;
+
+function countTripsFromLocations(locations: Array<{ date?: string }>): number {
+  if (!locations?.length) return 0;
+  const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
+  if (sorted.length === 0) return 0;
+  let trips = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].date!).getTime();
+    const curr = new Date(sorted[i].date!).getTime();
+    if ((curr - prev) / (24 * 60 * 60 * 1000) > TRIP_GAP_DAYS) trips += 1;
+  }
+  return trips;
+}
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -99,6 +114,8 @@ export default function ProfileScreen() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
+  const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
@@ -114,6 +131,12 @@ export default function ProfileScreen() {
   
   // Request Guards: Prevent duplicate API calls on rapid tab switching
   const isFetchingRef = useRef(false);
+  
+  // Scroll position persistence: Store scroll position when navigating away
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollPositionRef = useRef<number>(0);
+  // Remember where the posts/shorts/saved tabs sit, so tab switches don't feel like a jump
+  const tabsOffsetRef = useRef<number>(0);
   
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
@@ -146,6 +169,13 @@ export default function ProfileScreen() {
     }
   }, [isDark]);
 
+  const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
+  const countriesCount = useMemo(() => (profileData?.tripScore?.countries ? Object.keys(profileData.tripScore.countries).length : 0), [profileData?.tripScore?.countries]);
+  const globeLocations = useMemo(() => {
+    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+    return profileData?.locations || [];
+  }, [verifiedLocations, profileData?.locations]);
+
   const loadUnreadCount = useCallback(async () => {
     try {
       const response = await getUnreadCount();
@@ -165,6 +195,8 @@ export default function ProfileScreen() {
     
     isFetchingRef.current = true;
     setCheckingUser(true);
+    setVerifiedLocations([]);
+    setVerifiedLocationsCount(null);
     
     // Cancel previous request if any
     if (abortControllerRef.current) {
@@ -173,6 +205,7 @@ export default function ProfileScreen() {
     abortControllerRef.current = new AbortController();
     
     try {
+      const startTime = Date.now();
       const userData = await getUserFromStorage();
       logger.debug('getUserFromStorage:', userData);
       
@@ -184,21 +217,75 @@ export default function ProfileScreen() {
         return;
       }
       
+      // OPTIMIZATION: Set user immediately for optimistic rendering
       setUser(userData);
       setCheckingUser(false);
       
-      // Fetch profile data (single source of truth)
-      const profile = await getProfile(userData._id);
-      if (!isMountedRef.current) return;
-      setProfileData(profile.profile);
+      // OPTIMIZATION: Try to load cached data first for instant display (optimistic)
+      try {
+        const [cachedProfile, cachedPosts] = await Promise.all([
+          AsyncStorage.getItem(`cachedProfile_${userData._id}`).catch(() => null),
+          AsyncStorage.getItem(`cachedUserPosts_${userData._id}`).catch(() => null)
+        ]);
+        
+        if (cachedProfile && !isMountedRef.current) return;
+        if (cachedProfile) {
+          const parsed = JSON.parse(cachedProfile);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 5 * 60 * 1000) { // 5 min cache for profile
+            setProfileData(parsed.data);
+            setLoading(false); // Show cached data immediately
+          }
+        }
+        
+        if (cachedPosts && !isMountedRef.current) return;
+        if (cachedPosts) {
+          const parsed = JSON.parse(cachedPosts);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 24 * 60 * 60 * 1000) { // 24 hour cache for posts
+            setPosts(parsed.data);
+          }
+        }
+      } catch (cacheError) {
+        logger.debug('Cache load error (non-critical):', cacheError);
+      }
       
-      // Fetch posts and shorts in parallel for better performance
-      const [userPosts, shortsResp] = await Promise.allSettled([
+      // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
+      const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
+        getProfile(userData._id),
         getUserPosts(userData._id),
-        getUserShorts(userData._id, 1, 100)
+        getUserShorts(userData._id, 1, 100),
+        getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
       ]);
       
       if (!isMountedRef.current) return;
+      
+      // Handle profile result
+      if (profileResult.status === 'fulfilled') {
+        setProfileData(profileResult.value.profile);
+        // Cache profile for next time
+        AsyncStorage.setItem(`cachedProfile_${userData._id}`, JSON.stringify({
+          data: profileResult.value.profile,
+          timestamp: Date.now()
+        })).catch(() => {});
+      }
+      
+      if (!isMountedRef.current) return;
+
+      // Handle verified locations (count + list for globe and trips) - backend returns { locations, statistics } at top level
+      if (travelMapResult.status === 'fulfilled' && travelMapResult.value) {
+        const raw = travelMapResult.value as { locations?: unknown[]; statistics?: { totalLocations?: number } };
+        const locs = Array.isArray(raw.locations) ? raw.locations : [];
+        const total = raw.statistics?.totalLocations ?? locs.length;
+        setVerifiedLocationsCount(total);
+        setVerifiedLocations(locs.map((l: unknown) => {
+          const item = l as { latitude: number; longitude: number; address?: string; date?: string };
+          return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
+        }));
+      } else {
+        setVerifiedLocationsCount(0);
+        setVerifiedLocations([]);
+      }
       
       if (userPosts.status === 'fulfilled') {
         const fetchedPosts = userPosts.value.posts || [];
@@ -258,24 +345,31 @@ export default function ProfileScreen() {
         setUserShorts(shortsResp.value.shorts || []);
       }
       
-      // Load saved IDs (defensive parsing)
-      try {
-        const stored = await AsyncStorage.getItem('savedShorts');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setSavedIds(parsed);
+      // OPTIMIZATION: Load saved IDs and unread count in parallel (non-blocking)
+      Promise.allSettled([
+        // Load saved IDs (defensive parsing)
+        (async () => {
+          try {
+            const stored = await AsyncStorage.getItem('savedShorts');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (Array.isArray(parsed)) {
+                setSavedIds(parsed);
+              }
+            }
+          } catch (storageError) {
+            logger.warn('Failed to parse savedShorts from AsyncStorage', storageError);
+            // Recover corrupted storage by resetting
+            try {
+              await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
+            } catch {}
           }
-        }
-      } catch (storageError) {
-        logger.warn('Failed to parse savedShorts from AsyncStorage', storageError);
-        // Recover corrupted storage by resetting
-        try {
-          await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
-        } catch {}
-      }
+        })(),
+        loadUnreadCount()
+      ]).catch(() => {}); // Non-critical, continue even if these fail
       
-      await loadUnreadCount();
+      const loadTime = Date.now() - startTime;
+      logger.debug(`[PERF] Profile loaded in ${loadTime}ms (optimized parallel fetch with cache)`);
     } catch (error: any) {
       if (error.name === 'AbortError') {
         logger.debug('loadUserData aborted');
@@ -314,9 +408,68 @@ export default function ProfileScreen() {
       // Screen focused - ensure mounted
       isMountedRef.current = true;
       
+      // Restore scroll position when returning to profile page
+      // This ensures users don't have to scroll down again after viewing a post or short
+      if (scrollViewRef.current && scrollPositionRef.current > 0) {
+        // Small delay to ensure ScrollView is fully rendered
+        setTimeout(() => {
+          if (scrollViewRef.current && isMountedRef.current) {
+            scrollViewRef.current.scrollTo({
+              y: scrollPositionRef.current,
+              animated: false, // Instant scroll to avoid animation delay
+            });
+          }
+        }, 100);
+      }
+      
+      // Reload saved items when screen is focused and saved tab is active
+      // This ensures saved items persist when navigating back from a post
+      if (activeTab === 'saved' && isMountedRef.current) {
+        const reloadSaved = async () => {
+          try {
+            const savedShorts = await AsyncStorage.getItem('savedShorts');
+            const savedPosts = await AsyncStorage.getItem('savedPosts');
+            
+            let shortsArr: string[] = [];
+            let postsArr: string[] = [];
+            
+            try {
+              if (savedShorts) {
+                const parsed = JSON.parse(savedShorts);
+                shortsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedShorts on focus', error);
+            }
+            
+            try {
+              if (savedPosts) {
+                const parsed = JSON.parse(savedPosts);
+                postsArr = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              logger.warn('Failed to parse savedPosts on focus', error);
+            }
+            
+            const allIds = [...postsArr, ...shortsArr];
+            const uniqueIds = Array.from(new Set(allIds));
+            
+            if (isMountedRef.current) {
+              setSavedIds(uniqueIds);
+            }
+          } catch (error) {
+            logger.error('Error reloading saved items on focus', error);
+          }
+        };
+        
+        // Reload saved items immediately when focused
+        reloadSaved();
+      }
+      
       // Refresh profile data when screen is focused to ensure privacy settings are reflected
       // This ensures profile header, visibility, and dependent UI reflect latest settings
-      if (user?._id && !isFetchingRef.current) {
+      // BUT: Don't refresh if we're on saved tab to avoid clearing saved items
+      if (user?._id && !isFetchingRef.current && activeTab !== 'saved') {
         // Small delay to avoid race conditions with navigation
         const refreshTimer = setTimeout(() => {
           if (isMountedRef.current && user?._id) {
@@ -339,7 +492,7 @@ export default function ProfileScreen() {
           abortControllerRef.current.abort();
         }
       };
-    }, [user?._id, loadUserData])
+    }, [user?._id, loadUserData, activeTab])
   );
 
   // Log posts when they change for debugging (development only)
@@ -646,23 +799,45 @@ export default function ProfileScreen() {
           // Sign out and clear all auth data (includes socket disconnect and storage clearing)
           await signOut();
           
-          // Force navigation to signin - use replace to prevent back navigation
-          router.replace('/(auth)/signin');
-          
-          // Small delay to ensure navigation completes, then force reload on web
+          // Force navigation to signin immediately - use replace to prevent back navigation
+          // Use a small delay to ensure storage is cleared before navigation
           setTimeout(() => {
-            // Force a page reload on web to clear any cached state
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-              window.location.href = '/(auth)/signin';
+            try {
+              // Navigate to signin screen
+              router.replace('/(auth)/signin');
+              
+              // On web, also force a hard reload to clear all state
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                // Use a slightly longer delay to ensure navigation completes first
+                setTimeout(() => {
+                  window.location.href = '/';
+                }, 200);
+              }
+            } catch (navError) {
+              logger.error('Navigation error after signout:', navError);
+              // Fallback: try direct navigation
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                window.location.href = '/';
+              }
             }
-          }, 100);
+          }, 50);
         } catch (error: any) {
           logger.error('Sign out error:', error);
           // Even if signOut fails, try to navigate to signin
           try {
             router.replace('/(auth)/signin');
+            // On web, force reload
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 100);
+            }
           } catch (navError) {
             logger.error('Navigation error after signout:', navError);
+            // Last resort: force page reload
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.location.href = '/';
+            }
           }
           showError(error?.message || 'Failed to sign out. Please try again.');
         }
@@ -869,12 +1044,17 @@ export default function ProfileScreen() {
     <ErrorBoundary level="route">
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(event) => {
+          handleScroll(event);
+          // Store scroll position for restoration
+          scrollPositionRef.current = event.nativeEvent.contentOffset.y;
+        }}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
@@ -885,73 +1065,91 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Modern Hero Header - Now Inside ScrollView */}
-        <ExpoLinearGradient
-          colors={profileTheme.headerGradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.heroHeader}
-        >
-          <View style={styles.heroHeaderContent}>
-            {/* Top Actions */}
-            <View style={styles.topActions}>
-              <View style={styles.topActionsLeft} />
-              <View style={styles.topActionsRight}>
-                <Pressable
-                  style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
-                  onPress={() => router.push('/notifications')}
-                >
-                  <Ionicons
-                    name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                    size={20}
-                    color={profileTheme.textPrimary}
-                  />
-                  {unreadCount > 0 && (
-                    <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                      <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </Text>
-                    </View>
-                  )}
-                </Pressable>
-                <KebabMenu
-                  items={[
-                    {
-                      label: 'Settings',
-                      icon: 'settings-outline',
-                      onPress: () => router.push('/settings'),
-                    },
-                    {
-                      label: 'Sign Out',
-                      icon: 'log-out-outline',
-                      onPress: handleSignOut,
-                      destructive: true,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
+        {/* Top Actions - Outside unified card */}
+        <View style={styles.topActionsContainer}>
+          <View style={styles.topActionsLeft} />
+          <View style={styles.topActionsRight}>
+            <Pressable
+              style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons
+                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                size={20}
+                color={profileTheme.textPrimary}
+              />
+              {unreadCount > 0 && (
+                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
+                  <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+            <KebabMenu
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
 
-            {/* Profile Card */}
-            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95', shadowColor: theme.colors.shadow }]}>
+        {/* Travel banner image - elegant full-width banner above profile card */}
+        <View style={styles.travelBannerWrapper}>
+          <Image
+            source={require('../../assets/banner1.png')}
+            style={styles.travelBannerImage as ImageStyle}
+            resizeMode="cover"
+          />
+        </View>
+
+        {/* Unified Profile Content Card - Everything in one container */}
+        {profileData && (
+          <View style={[styles.unifiedCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+            {/* Subtle travel accent line at top of card */}
+            <View style={[styles.travelAccentStrip, { backgroundColor: profileTheme.accent + (isDark ? '25' : '15') }]} />
+            {/* Profile Header Section */}
+            <View style={styles.profileHeaderSection}>
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
                   <Image
                     source={profileData.profilePic ? { uri: profileData.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                    style={[styles.avatar as ImageStyle, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                   />
                 </View>
               </View>
 
-              {/* Name */}
+              {/* Username / handle */}
+              {profileData.username && (
+                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>@{profileData.username}</Text>
+              )}
+              
+              {/* Full Name */}
               <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
               
-              {/* Member Since */}
+              {/* Join date (no \"Member since\" label text) */}
               {profileData.createdAt && (
                 <Text style={[styles.memberSince, { color: profileTheme.textSecondary }]}>
-                  Member since {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </Text>
+              )}
+
+              {/* Bio */}
+              {profileData.bio && (
+                <View style={{ marginTop: 8, width: '100%', alignItems: 'center' }}>
+                  <BioDisplay bio={profileData.bio} />
+                </View>
               )}
 
               {/* Badge */}
@@ -960,178 +1158,199 @@ export default function ProfileScreen() {
                 <Text style={[styles.badgeText, { color: profileTheme.accent }]}>Explorer</Text>
               </View>
             </View>
-          </View>
-        </ExpoLinearGradient>
-        {/* Stats Row - Premium Cards */}
-        <View style={styles.statsContainer}>
-          <StatCard 
-            icon="flame" 
-            value={profileData?.postsCount || 0} 
-            label="Posts"
-            iconName="flame"
-          />
-          <StatCard 
-            icon="trophy" 
-            value={profileData?.followersCount || 0} 
-            label="Followers"
-            onPress={() => {
-              if (profileData?._id) {
-                router.push(`/followers?userId=${profileData._id}&type=followers`);
-              }
-            }}
-            iconName="trophy"
-          />
-          <StatCard 
-            icon="people" 
-            value={profileData?.followingCount || 0} 
-            label="Following"
-            onPress={() => {
-              if (profileData?._id) {
-                router.push(`/followers?userId=${profileData._id}&type=following`);
-              }
-            }}
-            iconName="people"
-          />
-        </View>
 
-        {/* TripScore Section - Always show (even if score is 0) */}
-        {profileData && (
-          <Pressable 
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-            onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-          >
-            <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="trophy" size={22} color={profileTheme.accent} />
-              </View>
-              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
-            </View>
-            <View style={styles.tripScoreContent}>
-              <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
-                <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
-                  {profileData.tripScore?.totalScore ?? 0}
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+            {/* Stats Row - Posts, Followers, Following */}
+            <View style={styles.statsContainer}>
+              {/* Posts Stat */}
+              <View style={styles.statItem}>
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="flame" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.postsCount || 0}
                 </Text>
-                <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
-                  Total TripScore
-                </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>POSTS</Text>
               </View>
-              {(!profileData.tripScore || profileData.tripScore.totalScore === 0) && (
-                <Text style={[styles.tripScoreHint, { color: profileTheme.textSecondary, marginTop: 8, fontSize: 12, textAlign: 'center', paddingHorizontal: 16 }]}>
-                  Start traveling and posting with locations to build your TripScore!
-                </Text>
-              )}
-            </View>
-          </Pressable>
-        )}
 
-        {/* My Location Card - Premium Design */}
-        <Pressable 
-          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => {
-            if (profileData?.locations && profileData.locations.length > 0) {
-              // Navigate to locations view if available
-            }
-          }}
-        >
-          <View style={styles.locationCardHeader}>
-            <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-              <Ionicons name="globe" size={24} color={profileTheme.accent} />
-            </View>
-            <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
-              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {profileData?.locations && profileData.locations.length > 0 
-                  ? `${profileData.locations.length} locations visited`
-                  : 'Add your home base'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-          </View>
-          <View style={styles.locationGlobeContainer}>
-            {profileData?.locations && profileData.locations.length > 0 ? (
-              <RotatingGlobe 
-                locations={profileData.locations} 
-                size={140} 
-              />
-            ) : (
-              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
-              </View>
-            )}
-          </View>
-        </Pressable>
-
-        {/* Collections Tile */}
-        <Pressable 
-          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => router.push('/collections')}
-        >
-          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-            <Ionicons name="albums" size={22} color={profileTheme.accent} />
-          </View>
-          <View style={styles.tileTextContainer}>
-            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Collections</Text>
-            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
-              Organise your trips and posts
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-        </Pressable>
-
-        {/* Activity Feed Tile */}
-        <Pressable 
-          style={[styles.settingsTile, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
-          onPress={() => router.push('/activity')}
-        >
-          <View style={[styles.tileIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-            <Ionicons name="pulse" size={22} color={profileTheme.accent} />
-          </View>
-          <View style={styles.tileTextContainer}>
-            <Text style={[styles.tileTitle, { color: profileTheme.textPrimary }]}>Activity Feed</Text>
-            <Text style={[styles.tileSubtitle, { color: profileTheme.textSecondary }]}>
-              See what your friends are up to
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-        </Pressable>
-
-        {/* Posts/Shorts/Saved Tabs - Pill Style */}
-        <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}> 
-          <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
-            {(['posts','shorts','saved'] as const).map(tab => (
+              {/* Followers Stat */}
               <Pressable 
-                key={tab} 
-                style={[
-                  styles.pillTab, 
-                  activeTab===tab 
-                    ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
-                    : { backgroundColor: 'transparent' }
-                ]} 
+                style={styles.statItem}
                 onPress={() => {
-                  // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
-                  if (isFetchingRef.current && activeTab !== tab) {
-                    logger.debug('Tab switch blocked - fetch in progress');
-                    return;
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=followers`);
                   }
-                  setActiveTab(tab);
                 }}
               >
-                <Ionicons 
-                  name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                  size={18} 
-                  color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
-                />
-                <Text style={[
-                  styles.pillTabText, 
-                  { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
-                ]}>
-                  {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="people" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.followersCount || 0}
                 </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWERS</Text>
               </Pressable>
-            ))}
-          </View>
-          
-          <View style={styles.contentArea}>
+
+              {/* Following Stat */}
+              <Pressable 
+                style={styles.statItem}
+                onPress={() => {
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=following`);
+                  }
+                }}
+              >
+                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="people-outline" size={18} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
+                  {profileData?.followingCount || 0}
+                </Text>
+                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWING</Text>
+              </Pressable>
+            </View>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* Edit Profile Button */}
+            <Pressable
+              style={styles.editProfileButton}
+              onPress={() => setShowEditProfile(true)}
+            >
+              <Ionicons name="create-outline" size={18} color={profileTheme.accent} />
+              <Text style={[styles.editProfileButtonText, { color: profileTheme.textPrimary }]}>
+                Edit Profile
+              </Text>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* TripScore Section */}
+            <Pressable 
+              style={styles.unifiedSection}
+              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+            >
+              <View style={styles.sectionHeader}>
+                <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="trophy" size={22} color={profileTheme.accent} />
+                </View>
+                <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
+                <Text style={[styles.tripScoreNumberInline, { color: profileTheme.accent }]}>
+                  {profileData.tripScore?.totalScore ?? 0}
+                </Text>
+                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+              </View>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* My Location Section - unified card */}
+            <Pressable 
+              style={styles.unifiedSection}
+              onPress={() => {
+                const id = user?._id ?? profileData?._id;
+                const userId = id != null ? String(id) : undefined;
+                if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
+              }}
+            >
+              <View style={styles.locationCardHeader}>
+                <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                  <Ionicons name="globe" size={24} color={profileTheme.accent} />
+                </View>
+                <View style={styles.locationTextContainer}>
+                  <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
+                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
+                    Your verified travel
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+              </View>
+              <View style={styles.locationCardBody}>
+                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
+                  {verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                    : verifiedLocationsCount === null
+                    ? 'Loading travel summary…'
+                    : (profileData?.tripScore?.totalScore ?? 0) > 0
+                    ? `TripScore ${profileData?.tripScore?.totalScore ?? 0} · Tap to view your travel map`
+                    : 'No verified locations yet. Post with locations to build your map.'}
+                </Text>
+                {countriesCount > 0 ? (
+                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
+                    {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.locationGlobeContainer}>
+                {globeLocations.length > 0 ? (
+                  <RotatingGlobe locations={globeLocations} size={140} />
+                ) : (
+                  <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
+                    <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
+                  </View>
+                )}
+              </View>
+            </Pressable>
+
+            {/* Divider */}
+            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
+
+            {/* Posts/Shorts/Saved Tabs - Pill Style */}
+            <View
+              style={styles.postsTabsSection}
+              onLayout={(event) => {
+                // Capture the vertical position of the tabs section once it's laid out
+                tabsOffsetRef.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
+                {(['posts','shorts','saved'] as const).map(tab => (
+                  <Pressable 
+                    key={tab} 
+                    style={[
+                      styles.pillTab, 
+                      activeTab===tab 
+                        ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
+                        : { backgroundColor: 'transparent' }
+                    ]} 
+                    onPress={() => {
+                      // When switching tabs, keep the tabs row in a stable position instead of
+                      // snapping the whole profile to the very top. This avoids the "jump to top"
+                      // feeling when tapping "Shorts" on own profile.
+                      if (scrollViewRef.current && tabsOffsetRef.current >= 0) {
+                        scrollViewRef.current.scrollTo({
+                          y: Math.max(tabsOffsetRef.current - 16, 0),
+                          animated: true,
+                        });
+                      }
+                      // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
+                      if (isFetchingRef.current && activeTab !== tab) {
+                        logger.debug('Tab switch blocked - fetch in progress');
+                        return;
+                      }
+                      setActiveTab(tab);
+                    }}
+                  >
+                    <Ionicons 
+                      name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
+                      size={18} 
+                      color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                    />
+                    <Text style={[
+                      styles.pillTabText, 
+                      { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
+                    ]}>
+                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              
+              <View style={styles.contentArea}>
             {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
             {activeTab === 'posts' && (
               posts.length > 0 ? (
@@ -1153,26 +1372,33 @@ export default function ProfileScreen() {
                         key={post._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(post._id, false)}
-                        onPress={() => router.push(`/post/${post._id}`)}
+                        onPress={() => user?._id && router.push(`/user-posts/${user._id}?postId=${post._id}`)}
                       >
                         {validImageUrl ? (
                           <Image 
                             source={{ uri: validImageUrl }} 
-                            style={styles.thumbnailImage}
+                            style={styles.thumbnailImage as ImageStyle}
                             resizeMode="cover"
                             onError={(error) => {
-                              if (__DEV__) {
+                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
+                              const errorMessage = error?.nativeEvent?.error?.message || '';
+                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                              
+                              if (__DEV__ && !is403) {
                                 console.warn('⚠️ [Profile] Image failed:', {
                                   postId: post._id,
                                   url: validImageUrl.substring(0, 80),
-                                  error: error?.nativeEvent?.error?.message || 'Unknown'
+                                  error: errorMessage || 'Unknown'
                                 });
                               }
-                              logger.warn('Image failed to load:', {
-                                postId: post._id,
-                                imageUrl: validImageUrl.substring(0, 100),
-                                error: error?.nativeEvent?.error?.message || 'Unknown error'
-                              });
+                              // Only log non-403 errors in production to reduce noise
+                              if (!is403) {
+                                logger.warn('Image failed to load', {
+                                  postId: post._id,
+                                  imageUrl: validImageUrl.substring(0, 100),
+                                  error: errorMessage || 'Unknown error'
+                                });
+                              }
                             }}
                           />
                         ) : (
@@ -1213,6 +1439,7 @@ export default function ProfileScreen() {
                           key={s._id} 
                           style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
+                          onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
                             <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
@@ -1225,9 +1452,9 @@ export default function ProfileScreen() {
                         key={s._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
-                        onPress={() => router.push(`/(tabs)/shorts?shortId=${s._id}`)}
+                        onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                       >
-                        <Image source={{ uri }} style={styles.thumbnailImage} />
+                        <Image source={{ uri }} style={styles.thumbnailImage as ImageStyle} />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                           <Ionicons name="play" size={24} color="#FFFFFF" />
                         </View>
@@ -1256,18 +1483,65 @@ export default function ProfileScreen() {
             {activeTab === 'saved' && (
               savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
-                  {savedItems.map((item) => (
-                    <Pressable 
-                      key={item._id} 
-                      style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
-                      onPress={() => router.push(`/post/${item._id}`)}
-                    >
-                      <Image source={{ uri: (item as any).imageUrl || (item as any).thumbnailUrl || (item as any).mediaUrl }} style={styles.thumbnailImage} />
-                      <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                        <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                      </View>
-                    </Pressable>
-                  ))}
+                  {savedItems.map((item) => {
+                    // Try multiple possible image URL fields
+                    const imageUrl = (item as any).imageUrl 
+                      || (item as any).image_url 
+                      || (item as any).mediaUrl 
+                      || (item as any).images?.[0]
+                      || (item as any).thumbnailUrl;
+                    
+                    const validImageUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0 
+                      ? String(imageUrl).trim() 
+                      : null;
+                    
+                    return (
+                      <Pressable 
+                        key={item._id} 
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                        onPress={() => {
+                          // Use the same format as user-posts route
+                          router.push(`/saved-posts?postId=${item._id}`);
+                        }}
+                      >
+                        {validImageUrl ? (
+                          <Image 
+                            source={{ uri: validImageUrl }} 
+                            style={styles.thumbnailImage as ImageStyle}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
+                              const errorMessage = error?.nativeEvent?.error?.message || '';
+                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                              
+                              if (__DEV__ && !is403) {
+                                console.warn('⚠️ [Profile] Saved item image failed:', {
+                                  postId: item._id,
+                                  url: validImageUrl.substring(0, 80),
+                                  error: errorMessage || 'Unknown'
+                                });
+                              }
+                              // Only log non-403 errors in production to reduce noise
+                              if (!is403) {
+                                logger.warn('Saved item image failed to load', {
+                                  postId: item._id,
+                                  imageUrl: validImageUrl.substring(0, 100),
+                                  error: errorMessage || 'Unknown error'
+                                });
+                              }
+                            }}
+                          />
+                        ) : (
+                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                        )}
+                        <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                          <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : (
                 <View style={styles.emptyState}>
@@ -1281,8 +1555,10 @@ export default function ProfileScreen() {
                 </View>
               )
             )}
+              </View>
+            </View>
           </View>
-        </View>
+        )}
         
         {/* Edit Profile Modal */}
         {user && (
@@ -1312,7 +1588,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: isTablet ? 30 : 20,
+    // Add padding for tab bar (88px mobile, 70px web) + extra spacing
+    paddingBottom: isWeb ? 90 : (isTablet ? 110 : 100),
   },
   loadingContainer: {
     flex: 1,
@@ -1353,23 +1630,28 @@ const styles = StyleSheet.create({
     } as any),
   },
   
-  // Hero Header
-  heroHeader: {
-    paddingTop: isTablet ? 80 : 60,
-    paddingBottom: isTablet ? theme.spacing.xl : 32,
-    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-  },
-  heroHeaderContent: {
-    width: '100%',
-  },
-  topActions: {
+  // Top Actions Container
+  topActionsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: isTablet ? theme.spacing.xl : 24,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? 80 : 60,
+    marginBottom: 4,
   },
   topActionsLeft: {
     flex: 1,
+  },
+  travelBannerWrapper: {
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: 0,
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: isTablet ? 140 : 120,
+  },
+  travelBannerImage: {
+    width: '100%',
+    height: '100%',
   },
   topActionsRight: {
     flexDirection: 'row',
@@ -1405,15 +1687,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   
-  // Profile Card
-  profileCard: {
-    borderRadius: isTablet ? theme.borderRadius.xl : 24,
-    padding: isTablet ? theme.spacing.xl : 24,
+  // Profile Header Section (inside unified card)
+  profileHeaderSection: {
     alignItems: 'center',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
   },
   avatarContainer: {
     marginBottom: isTablet ? theme.spacing.lg : 16,
@@ -1437,13 +1714,25 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  profileName: {
-    fontSize: isTablet ? theme.typography.h1.fontSize : 28,
+  username: {
+    fontSize: isTablet ? theme.typography.h1.fontSize : 22,
     fontFamily: getFontFamily('800'),
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
     textAlign: 'center',
     letterSpacing: isIOS ? 0.3 : 0.2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  profileName: {
+    fontSize: isTablet ? theme.typography.body.fontSize : 16,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: isIOS ? 0.1 : 0.05,
+    opacity: 0.7,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -1468,15 +1757,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   
-  // Stats Container - Uniform pill-like cards
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: isTablet ? theme.spacing.md : 12,
-    marginBottom: isTablet ? theme.spacing.sm : 8,
-    gap: isTablet ? theme.spacing.md : 12,
-  },
+  // Stats Container - Uniform pill-like cards (legacy, kept for compatibility)
   statCard: {
     flex: 1,
     width: '100%',
@@ -1522,7 +1803,78 @@ const styles = StyleSheet.create({
     } as any),
   },
   
-  // Section Cards
+  // Unified Profile Content Card - elegant, soft shadow
+  unifiedCard: {
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? 14 : 12,
+    marginBottom: isTablet ? theme.spacing.md : 12,
+    padding: isTablet ? theme.spacing.xl : 22,
+    borderRadius: 24,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  travelAccentStrip: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  divider: {
+    height: 1,
+    marginVertical: isTablet ? theme.spacing.lg : 20,
+  },
+  unifiedSection: {
+    width: '100%',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: isTablet ? theme.spacing.md : 12,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsIconContainer: {
+    width: isTablet ? 44 : 36,
+    height: isTablet ? 44 : 36,
+    borderRadius: isTablet ? 22 : 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: isTablet ? theme.spacing.sm : 8,
+  },
+  statsLabel: {
+    fontSize: isTablet ? theme.typography.small.fontSize + 1 : 10,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 1,
+    textAlign: 'center',
+    marginTop: 4,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  statsValue: {
+    fontSize: isTablet ? 24 : 20,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  
+  // Section Cards (legacy, kept for compatibility)
   sectionCard: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -1538,7 +1890,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 12,
   },
   sectionIconContainer: {
     width: 48,
@@ -1560,6 +1911,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
+  },
+  tripScoreNumberInline: {
+    fontSize: isTablet ? 24 : 20,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    marginLeft: 'auto',
+    marginRight: 8,
   },
   tripScoreContent: {
     alignItems: 'center',
@@ -1590,7 +1948,31 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   
-  // Location Card
+  // Edit Profile Button (inside unified card)
+  editProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 20,
+    borderRadius: theme.borderRadius.md,
+    gap: 8,
+    ...(isWeb && {
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    } as any),
+  },
+  editProfileButtonText: {
+    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  
+  // Location Card (legacy, kept for compatibility)
   locationCard: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -1606,7 +1988,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  locationCardBody: {
+    marginBottom: 4,
   },
   locationIconContainer: {
     width: 48,
@@ -1679,6 +2064,9 @@ const styles = StyleSheet.create({
   },
   
   // Posts Container
+  postsTabsSection: {
+    width: '100%',
+  },
   postsContainer: {
     margin: 16,
     marginTop: 8,

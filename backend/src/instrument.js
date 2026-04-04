@@ -26,12 +26,23 @@ if (SENTRY_DSN) {
     // Enable debug mode in development
     debug: process.env.SENTRY_DEBUG === 'true' || false,
     
-    // Before send hook - ensure errors are sent
+    // Before send hook - ensure errors are properly formatted
     beforeSend(event, hint) {
-      // Log that we're sending the event
+      // Ensure error is properly formatted
+      if (event.exception && event.exception.values) {
+        event.exception.values.forEach(exception => {
+          if (!exception.type || (exception.type === 'Error' && !exception.value)) {
+            exception.type = exception.type || 'Error';
+            exception.value = exception.value || 'Unknown error';
+          }
+        });
+      }
+      
+      // Log that we're sending the event (development only)
       if (process.env.NODE_ENV === 'development') {
         logger.log('📤 Sending error to Sentry:', event.message || event.exception?.values?.[0]?.value);
       }
+      
       return event;
     },
     

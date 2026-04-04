@@ -1,4 +1,5 @@
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import logger from '../utils/logger'
 import { parseError } from '../utils/errorCodes'
 import rateLimiter from '../utils/rateLimiter'
@@ -181,8 +182,50 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
     
+    // Skip error logging if explicitly requested (for expected failures)
+    const skipErrorLog = error.config?.skipErrorLog
+    
+    // Skip logging for expected client errors (400, 404, 422) on certain endpoints
+    const status = error.response?.status
+    const isExpectedClientError = (status === 400 || status === 404 || status === 422) && 
+                                  (error.config?.url?.includes('/maps/search-place') || 
+                                   error.config?.url?.includes('/maps/geocode'))
+    
+    // Handle 503 (Service Unavailable) gracefully - don't log as error
+    const isServiceUnavailable = status === 503
+    
     const parsedError = parseError(error)
-    logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
+    
+    // Check if this is a token expiration (expected, handled gracefully)
+    const isTokenExpired = error.response?.status === 401 && 
+                          (error.response?.data?.message?.includes('expired') || 
+                           error.response?.data?.message?.includes('Token expired') ||
+                           error.response?.data?.error?.message?.includes('expired'))
+    
+    // Check if this is a network error (expected - network issues, offline, etc.)
+    const isNetworkError = error.message === 'Network Error' || 
+                          error.code === 'ERR_NETWORK' ||
+                          parsedError.code === 'SRV_6003' ||
+                          parsedError.message?.includes('Network error')
+    
+    // Check if this is a 401 (authentication error - expected, handled with redirect)
+    const isAuthError = status === 401
+    
+    // Determine if this is an expected error that shouldn't be sent to Sentry
+    const isExpectedError = skipErrorLog || 
+                           isExpectedClientError || 
+                           isTokenExpired || 
+                           isServiceUnavailable ||
+                           isNetworkError ||
+                           isAuthError
+    
+    // Only log as error and send to Sentry if it's not an expected error
+    if (!isExpectedError) {
+      logger.error('API Error:', parsedError.code, parsedError.message, error.config?.url)
+    } else {
+      // Log as debug for expected errors (don't send to Sentry)
+      logger.debug('API Error (expected):', parsedError.code, parsedError.message, error.config?.url)
+    }
     
     if (error.response?.status === 401) {
       // Don't redirect for 2FA endpoints - let the frontend handle the error
@@ -195,10 +238,12 @@ api.interceptors.response.use(
         localStorage.removeItem('founder_token')
         delete api.defaults.headers.common['Authorization']
         csrfToken = null // Clear CSRF token on auth failure
-        
+        // Show session expired message before redirect
+        try {
+          toast.error('Session expired. Please sign in again.')
+        } catch (_) {}
         // Only redirect if not already on login page to prevent infinite loops
         if (window.location.pathname !== '/login') {
-          // Use a small delay to ensure state is cleared
           setTimeout(() => {
             window.location.href = '/login'
           }, 100)
@@ -213,8 +258,10 @@ api.interceptors.response.use(
     }
     
     // Handle token expiration specifically
+    // Log as debug, not warn, since this is expected behavior and handled gracefully
+    // This prevents Sentry from reporting token expiration as an error
     if (error.response?.status === 401 && error.response?.data?.message?.includes('expired')) {
-      logger.warn('Token expired, redirecting to login')
+      logger.debug('Token expired, redirecting to login')
     }
     
     // Attach parsed error to the error object for easier handling

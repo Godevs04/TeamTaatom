@@ -1,5 +1,5 @@
 const AWS = require('aws-sdk');
-const { v4: uuidv4 } = require('uuid');
+const { v4: _uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 
 // Configure AWS S3
