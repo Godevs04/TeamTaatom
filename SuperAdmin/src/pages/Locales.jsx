@@ -26,12 +26,15 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Loader2
+  Loader2,
+  Globe2,
+  LayoutList
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getLocales, uploadLocale, deleteLocale, toggleLocaleStatus, updateLocale, getLocaleById, getUniqueCountries } from '../services/localeService'
 import { motion, AnimatePresence } from 'framer-motion'
 import { searchPlace, geocodeAddress, areCoordinatesNearby, buildAddressString } from '../utils/geocoding'
+import LocalesWorldMap from '../components/LocalesWorldMap.jsx'
 
 // Helper function to calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -105,6 +108,10 @@ const Locales = () => {
   const [loadingCountries, setLoadingCountries] = useState(false)
   const [countryFilterOpen, setCountryFilterOpen] = useState(false) // Dropdown open state
   const [countrySearchQuery, setCountrySearchQuery] = useState('') // Search within country filter
+  const [viewMode, setViewMode] = useState('list') // 'list' | 'map'
+  const [mapLocalesAll, setMapLocalesAll] = useState([])
+  const [mapLoading, setMapLoading] = useState(false)
+  const mapFetchDebounceRef = useRef(null)
   
   // Place detection state
   const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false)
@@ -734,6 +741,62 @@ const Locales = () => {
       }
     }
   }, [searchQuery, selectedCountryCode, currentPage]) // Dependencies: only fetch params (fetchKey components), NO derived state, NO callbacks
+
+  /** Load every page of locales for the world map (respects search + country filter). */
+  const loadAllLocalesForMap = useCallback(async () => {
+    if (!isMountedRef.current) return
+    setMapLoading(true)
+    try {
+      const api = (await import('../services/api')).default
+      const merged = []
+      let page = 1
+      let totalPages = 1
+      do {
+        const paramsObj = new URLSearchParams()
+        if (searchQuery.trim()) paramsObj.append('search', searchQuery.trim())
+        if (selectedCountryCode && selectedCountryCode !== 'all') {
+          paramsObj.append('countryCode', selectedCountryCode)
+        }
+        paramsObj.append('page', String(page))
+        paramsObj.append('limit', '50')
+        paramsObj.append('includeInactive', 'true')
+        const { data } = await api.get(`/api/v1/locales?${paramsObj}`)
+        const batch = data.locales || data.data?.locales || []
+        merged.push(...batch)
+        totalPages = data.pagination?.totalPages || 1
+        page += 1
+      } while (page <= totalPages && page <= 500)
+      if (isMountedRef.current) {
+        setMapLocalesAll(merged)
+      }
+    } catch (error) {
+      logger.error('Failed to load locales for map:', error)
+      toast.error('Could not load locales for the world map')
+      if (isMountedRef.current) {
+        setMapLocalesAll([])
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setMapLoading(false)
+      }
+    }
+  }, [searchQuery, selectedCountryCode])
+
+  useEffect(() => {
+    if (viewMode !== 'map') return
+    if (mapFetchDebounceRef.current) {
+      clearTimeout(mapFetchDebounceRef.current)
+    }
+    mapFetchDebounceRef.current = setTimeout(() => {
+      loadAllLocalesForMap()
+    }, 400)
+    return () => {
+      if (mapFetchDebounceRef.current) {
+        clearTimeout(mapFetchDebounceRef.current)
+        mapFetchDebounceRef.current = null
+      }
+    }
+  }, [viewMode, searchQuery, selectedCountryCode, loadAllLocalesForMap])
 
   // Handle opening detect place modal
   const handleOpenDetectPlace = useCallback((isEditMode = false) => {
@@ -1796,10 +1859,44 @@ const Locales = () => {
               <p className="text-green-100 text-lg">Manage and organize location locales</p>
             </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div
+              className="flex rounded-xl overflow-hidden border border-white/40 shadow-md"
+              role="group"
+              aria-label="View mode"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-white text-green-700'
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <LayoutList className="w-4 h-4" />
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('map')}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-colors border-l border-white/30 ${
+                  viewMode === 'map'
+                    ? 'bg-white text-green-700'
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <Globe2 className="w-4 h-4" />
+                World map
+              </button>
+            </div>
             <button
               onClick={async () => {
                 console.debug('[Locales] Refresh button clicked')
+                if (viewMode === 'map') {
+                  await loadAllLocalesForMap()
+                  return
+                }
                 // Clear all fetch tracking
                 lastFetchKeyRef.current = null
                 hasInitialFetchRef.current = false
@@ -1820,10 +1917,10 @@ const Locales = () => {
                 // Force refresh with current page
                 await loadLocales(true, currentPageRef.current)
               }}
-              disabled={loading}
+              disabled={viewMode === 'map' ? mapLoading : loading}
               className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white rounded-lg transition-all shadow-lg hover:shadow-xl disabled:opacity-50"
             >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-5 h-5 ${(viewMode === 'map' ? mapLoading : loading) ? 'animate-spin' : ''}`} />
               Refresh
             </button>
             <button
@@ -1900,10 +1997,10 @@ const Locales = () => {
         </motion.div>
       </div>
 
-      {/* Search and Filter Section */}
-      <Card className="shadow-lg border-gray-200">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row gap-4">
+      {/* Search and Filter Section — z-index above Leaflet map (.leaflet-container ~400) so dropdown is not covered */}
+      <Card className="shadow-lg border-gray-200 relative z-[10050] overflow-visible">
+        <CardContent className="p-6 overflow-visible">
+          <div className="flex flex-col md:flex-row gap-4 overflow-visible">
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
@@ -1918,7 +2015,7 @@ const Locales = () => {
               />
             </div>
             {/* Enhanced Country Filter with Search */}
-            <div className="relative">
+            <div className="relative z-[10051]">
               <button
                 type="button"
                 onClick={() => setCountryFilterOpen(!countryFilterOpen)}
@@ -1944,7 +2041,7 @@ const Locales = () => {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-white border-2 border-green-200 rounded-xl shadow-2xl z-50 max-h-[400px] overflow-hidden flex flex-col"
+                  className="absolute top-full left-0 right-0 mt-2 bg-white border-2 border-green-200 rounded-xl shadow-2xl z-[10052] max-h-[400px] overflow-hidden flex flex-col"
                 >
                   {/* Search Input */}
                   <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50">
@@ -2029,14 +2126,15 @@ const Locales = () => {
                 </motion.div>
               )}
               
-              {/* Overlay to close dropdown on outside click */}
+              {/* Overlay to close dropdown — above Leaflet, below dropdown panel */}
               {countryFilterOpen && (
                 <div
-                  className="fixed inset-0 z-40"
+                  className="fixed inset-0 z-[10049]"
                   onClick={() => {
                     setCountryFilterOpen(false);
                     setCountrySearchQuery('');
                   }}
+                  aria-hidden="true"
                 />
               )}
             </div>
@@ -2095,7 +2193,34 @@ const Locales = () => {
         </CardContent>
       </Card>
 
-      {/* Locales Table */}
+      {/* Locales Table or World map */}
+      {viewMode === 'map' && (
+        <Card className="shadow-lg border-gray-200 overflow-hidden relative z-0 isolate">
+          <CardHeader className="bg-gradient-to-r from-gray-50 to-emerald-50 border-b border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <CardTitle className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Globe2 className="w-6 h-6 text-emerald-600" />
+                World map
+              </CardTitle>
+              <p className="text-sm text-gray-600">
+                All locales matching your search and country filter. Green = active, orange = inactive.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 sm:p-6">
+            {mapLoading ? (
+              <div className="flex flex-col items-center justify-center py-24 gap-4">
+                <Loader2 className="w-12 h-12 animate-spin text-emerald-600" />
+                <p className="text-gray-600">Loading map data…</p>
+              </div>
+            ) : (
+              <LocalesWorldMap locales={mapLocalesAll} onPreviewLocale={handlePreview} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {viewMode === 'list' && (
       <Card className="shadow-lg border-gray-200 overflow-hidden">
         <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
           <div className="flex items-center justify-between">
@@ -2270,6 +2395,7 @@ const Locales = () => {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Upload Modal */}
       <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="bg-white">
@@ -3118,8 +3244,13 @@ const Locales = () => {
         </ModalFooter>
       </Modal>
 
-      {/* Preview Modal */}
-      <Modal isOpen={showPreviewModal} onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)} className="bg-white">
+      {/* Preview Modal — z-index above Leaflet popups (~6500) when opened from world map */}
+      <Modal
+        isOpen={showPreviewModal}
+        onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)}
+        className="bg-white"
+        zIndex={12000}
+      >
         <ModalHeader onClose={() => handleModalClose(setShowPreviewModal, setPreviewLocale)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-100 rounded-lg">
