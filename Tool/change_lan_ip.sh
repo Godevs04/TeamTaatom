@@ -128,4 +128,3 @@ else
 fi
 
 echo "LAN IP updated to $NEW_IP across frontend, backend, superAdmin, and web configs."
- 
