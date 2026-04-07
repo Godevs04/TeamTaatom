@@ -20,6 +20,7 @@ import {
   MessageCircle,
   Bell,
   Bookmark,
+  Compass,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
@@ -32,6 +33,7 @@ const leftNav = [
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/discover", label: "Discover", icon: Compass },
   { href: "/create", label: "Create", icon: PlusSquare },
   { href: "/saved", label: "Saved", icon: Bookmark },
   { href: "/profile", label: "Profile", icon: User2 },
@@ -191,12 +193,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Link>{" "}
             to follow and see their trips in your feed.
           </p>
-          <Link
-            href="/search"
-            className="mt-4 inline-flex items-center text-sm font-semibold text-primary hover:underline"
-          >
-            See all →
-          </Link>
+          <div className="mt-4 flex flex-col gap-2">
+            <Link href="/search" className="inline-flex items-center text-sm font-semibold text-primary hover:underline">
+              Search →
+            </Link>
+            <Link href="/discover" className="inline-flex items-center text-sm font-semibold text-primary hover:underline">
+              Trending hashtags →
+            </Link>
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium border-premium">

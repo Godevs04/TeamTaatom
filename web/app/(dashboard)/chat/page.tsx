@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { listChats } from "../../../lib/api";
+import { formatChatMessagePreview } from "../../../lib/post-share-chat";
 import { useAuth } from "../../../context/auth-context";
 import type { Chat, ChatParticipant } from "../../../types/chat";
 import { MessageCircle, User } from "lucide-react";
@@ -96,7 +97,8 @@ export default function ChatListPage() {
           {chats.map((chat) => {
             const other = getOtherParticipant(chat, myId);
             const lastMsg = chat.lastMessage ?? chat.messages?.[chat.messages.length - 1];
-            const preview = lastMsg?.text ?? "No messages yet";
+            const rawPreview = lastMsg?.text ?? "No messages yet";
+            const preview = rawPreview === "No messages yet" ? rawPreview : formatChatMessagePreview(rawPreview);
             const time = formatTime(lastMsg?.timestamp ?? lastMsg?.createdAt ?? chat.updatedAt);
             if (!other) return null;
             const otherId = other._id ?? (other as unknown as { _id?: string })._id ?? "";

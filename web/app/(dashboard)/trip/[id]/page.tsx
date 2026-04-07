@@ -6,6 +6,7 @@ import type { Post } from "../../../../types/post";
 import { getPostDisplayLocation, getPostCoordinates } from "../../../../lib/post-utils";
 import { fetchWithAuth } from "../../../../lib/server-fetch";
 import { TripComments } from "../../../../components/trip/comments";
+import { CaptionWithLinks } from "../../../../components/caption-with-links";
 import { createMetadata } from "../../../../lib/seo";
 
 async function fetchPost(id: string): Promise<Post | null> {
@@ -70,7 +71,12 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     <div className="mx-auto grid w-full max-w-3xl gap-4 md:gap-8">
       <div className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
-          <h1 className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">{post.caption || "Trip"}</h1>
+          <CaptionWithLinks
+            text={post.caption || "Trip"}
+            as="h1"
+            className="text-balance text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl"
+            linkClassName="text-primary"
+          />
           <p className="mt-2 text-sm text-muted-foreground">{getPostDisplayLocation(post)}</p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <div className="h-10 w-10 overflow-hidden rounded-full bg-muted">

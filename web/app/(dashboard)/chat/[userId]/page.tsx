@@ -19,6 +19,8 @@ import { Input } from "../../../../components/ui/input";
 import { ArrowLeft, Send, User } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
+import { parsePostShareMessage } from "../../../../lib/post-share-chat";
+import { PostShareCard } from "../../../../components/chat/post-share-card";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -136,21 +138,31 @@ export default function ChatConversationPage() {
         ) : (
           messages.map((msg) => {
             const isMe = normalizeSenderId(msg.sender) === myId;
+            const text = msg.text ?? "";
+            const postShare = parsePostShareMessage(text);
             return (
               <div
                 key={msg._id}
                 className={`flex ${isMe ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                    isMe
-                      ? "bg-primary text-white"
-                      : "bg-slate-100 text-slate-900"
+                  className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
+                    postShare
+                      ? isMe
+                        ? "bg-primary text-white"
+                        : "bg-slate-100 text-slate-900"
+                      : isMe
+                        ? "bg-primary px-4 py-2.5 text-white"
+                        : "bg-slate-100 px-4 py-2.5 text-slate-900"
                   }`}
                 >
-                  <p className="text-[15px] leading-snug">{msg.text}</p>
+                  {postShare ? (
+                    <PostShareCard share={postShare} isSent={isMe} />
+                  ) : (
+                    <p className="text-[15px] leading-snug">{text}</p>
+                  )}
                   {msg.createdAt && (
-                    <p className={`mt-1 text-xs ${isMe ? "text-white/80" : "text-slate-500"}`}>
+                    <p className={`mt-1.5 px-1 text-xs ${isMe ? "text-white/80" : "text-slate-500"}`}>
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   )}

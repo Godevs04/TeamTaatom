@@ -123,8 +123,16 @@ export default async function ProfilePage({ params }: { params: { id: string } }
       )}
 
       <section className="space-y-4">
-        <div className="flex items-end justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Trips</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <h2 className="text-lg font-semibold text-slate-900">Trips</h2>
+            <Link
+              href={`/profile/${params.id}/shorts`}
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Shorts →
+            </Link>
+          </div>
           <span className="text-sm text-slate-500">{posts.length} items</span>
         </div>
 
