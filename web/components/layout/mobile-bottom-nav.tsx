@@ -14,6 +14,7 @@ import {
   Settings,
   MoreHorizontal,
   X,
+  Compass,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
@@ -30,6 +31,7 @@ const mainNav = [
 const moreNav = [
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/discover", label: "Discover", icon: Compass },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
