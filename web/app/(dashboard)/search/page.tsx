@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { searchPosts, searchUsers } from "../../../lib/api";
+import { searchPosts, searchUsers, searchHashtags } from "../../../lib/api";
 import { Input } from "../../../components/ui/input";
 import { Card } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
@@ -36,6 +36,14 @@ export default function SearchPage() {
     enabled: debounced.trim().length >= 2,
   });
 
+  const hashtagTerm = debounced.trim().replace(/^#/, "");
+
+  const hashtagsQ = useQuery({
+    queryKey: ["search", "hashtags", hashtagTerm],
+    queryFn: () => searchHashtags(hashtagTerm, 24),
+    enabled: debounced.trim().length >= 2,
+  });
+
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 sm:space-y-6">
       <div>
@@ -49,7 +57,7 @@ export default function SearchPage() {
       </div>
 
       {debounced.trim().length < 2 ? null : (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 lg:grid-cols-3">
           <section className="space-y-3">
             <h2 className="text-lg font-semibold">Travelers</h2>
             {usersQ.isLoading ? (
@@ -81,6 +89,34 @@ export default function SearchPage() {
                       </div>
                     </div>
                     <span className="text-xs font-semibold text-muted-foreground">View</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold">Hashtags</h2>
+            {hashtagsQ.isLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full rounded-2xl" />
+                ))}
+              </div>
+            ) : (hashtagsQ.data?.length || 0) === 0 ? (
+              <Card className="p-6 text-sm text-muted-foreground">No matching hashtags.</Card>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(hashtagsQ.data || []).map((h) => (
+                  <Link
+                    key={h.name}
+                    href={`/hashtag/${encodeURIComponent(h.name)}`}
+                    className="flex items-center justify-between rounded-2xl border bg-card p-4 shadow-card hover:bg-accent"
+                  >
+                    <span className="font-semibold text-primary">#{h.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {h.postCount} {h.postCount === 1 ? "post" : "posts"}
+                    </span>
                   </Link>
                 ))}
               </div>
