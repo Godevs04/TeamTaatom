@@ -21,6 +21,8 @@ import { cn, getLikedPostIds, setLikedPostIds, getSavedPostIds, setSavedPostIds 
 import { toast } from "sonner";
 import { useAuth } from "../../context/auth-context";
 import { AddToCollectionModal } from "./AddToCollectionModal";
+import { SharePostModal } from "./share-post-modal";
+import { CaptionWithLinks } from "../caption-with-links";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
@@ -73,6 +75,7 @@ export function PostCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [menuLoading, setMenuLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -156,11 +159,7 @@ export function PostCard({
 
   const handleShare = () => {
     setMenuOpen(false);
-    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/trip/${post._id}`;
-    navigator.clipboard.writeText(url).then(
-      () => toast.success("Link copied"),
-      () => toast.error("Copy link manually")
-    );
+    setShareModalOpen(true);
   };
 
   const handleSave = () => {
@@ -459,7 +458,12 @@ export function PostCard({
             <span className="font-semibold">
               {post.user?.username ? `@${post.user.username}` : ""}
             </span>{" "}
-            <span className="text-slate-600">{post.caption || ""}</span>
+            <CaptionWithLinks
+              text={post.caption || ""}
+              as="span"
+              className="text-slate-600"
+              linkClassName="text-primary"
+            />
           </p>
         </div>
 
@@ -535,14 +539,7 @@ export function PostCard({
             size="icon"
             className="h-10 w-10 rounded-xl hover:bg-slate-100"
             aria-label="Share"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`${window.location.origin}/trip/${post._id}`);
-                toast.success("Link copied");
-              } catch {
-                toast.message("Copy link manually");
-              }
-            }}
+            onClick={() => setShareModalOpen(true)}
           >
             <Share2 className="h-5 w-5 text-slate-600" />
           </Button>
@@ -554,6 +551,13 @@ export function PostCard({
         postId={post._id}
         onClose={() => setCollectionModalOpen(false)}
         onSuccess={() => qc.invalidateQueries({ queryKey: ["feed"] })}
+      />
+
+      <SharePostModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        post={post}
+        currentUserId={currentUser?._id}
       />
 
       {/* Report reason modal */}

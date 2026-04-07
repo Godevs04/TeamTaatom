@@ -578,5 +578,5 @@ For issues and questions:
 
 **Built with ❤️ using React Native, Express.js, MongoDB, and modern best practices.**
 
-**Last Updated**: November 2025  
+**Last Updated**: April 2026
 **Version**: 1.4.0
