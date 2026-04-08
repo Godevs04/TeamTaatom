@@ -45,7 +45,7 @@ const Modal = ({ isOpen, onClose, children, className, closeOnEscape = true, zIn
       />
       <div 
         className={cn(
-          'relative bg-white rounded-none sm:rounded-lg shadow-2xl w-full flex flex-col',
+          'relative bg-white rounded-none sm:rounded-lg shadow-2xl w-full flex flex-col min-h-0',
           'h-screen sm:h-auto max-h-screen sm:max-h-[90vh]',
           'max-w-full sm:max-w-md md:max-w-lg lg:max-w-2xl xl:max-w-3xl',
           'mx-0 sm:mx-auto my-0 sm:my-auto',
@@ -124,7 +124,6 @@ const ModalFooter = ({ children, className }) => {
     <div className={cn(
       'flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 sm:gap-3',
       'p-4 sm:p-6 border-t border-gray-200 flex-shrink-0 bg-white',
-      'sticky bottom-0 z-10 shadow-lg sm:shadow-none',
       'rounded-none sm:rounded-b-lg',
       className
     )}>

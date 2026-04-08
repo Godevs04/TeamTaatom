@@ -36,6 +36,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { searchPlace, geocodeAddress, areCoordinatesNearby, buildAddressString } from '../utils/geocoding'
 import LocalesWorldMap from '../components/LocalesWorldMap.jsx'
 
+// Search/filter uses z-[10052] to sit above the world map; modals must sit above that toolbar.
+const LOCALES_MODAL_Z_INDEX = 10500
+const LOCALES_DETECT_PLACE_Z_INDEX = 10600
+
 // Helper function to calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null
@@ -142,10 +146,13 @@ const Locales = () => {
     displayOrder: '0',
     spotTypes: [],
     travelInfo: 'Drivable',
-    file: null,
+    files: [],
     latitude: null,
     longitude: null
   })
+  const [editImageFiles, setEditImageFiles] = useState([])
+  const [editGalleryAppend, setEditGalleryAppend] = useState(false)
+  const [editExistingImageUrls, setEditExistingImageUrls] = useState([])
   const [editFormData, setEditFormData] = useState({
     name: '',
     country: '',
@@ -980,29 +987,80 @@ const Locales = () => {
     }
   }
 
+  const MAX_LOCALE_UPLOAD = 10
+
   const handleFileChange = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      // Validate file size (10MB)
+    const list = e.target.files ? Array.from(e.target.files) : []
+    if (!list.length) return
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+    const valid = []
+    for (const file of list.slice(0, MAX_LOCALE_UPLOAD)) {
       if (file.size > 10 * 1024 * 1024) {
-        toast.error('File size must be less than 10MB')
+        toast.error(`"${file.name}" must be less than 10MB`)
         return
       }
-      // Validate image type
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
       if (!allowedTypes.includes(file.type)) {
-        toast.error('Please select a valid image file (JPEG, PNG, WebP, GIF)')
+        toast.error(`"${file.name}" is not a valid image (JPEG, PNG, WebP, GIF)`)
         return
       }
-      setFormData({ ...formData, file })
+      valid.push(file)
     }
+    if (valid.length > MAX_LOCALE_UPLOAD) {
+      toast.error(`You can upload at most ${MAX_LOCALE_UPLOAD} images`)
+      return
+    }
+    setFormData({ ...formData, files: valid })
+    e.target.value = ''
+  }
+
+  const handleEditImagesChange = (e) => {
+    const list = e.target.files ? Array.from(e.target.files) : []
+    if (!list.length) {
+      setEditImageFiles([])
+      e.target.value = ''
+      return
+    }
+    const maxPick = editGalleryAppend
+      ? Math.max(0, MAX_LOCALE_UPLOAD - editExistingImageUrls.length)
+      : MAX_LOCALE_UPLOAD
+    if (maxPick === 0) {
+      toast.error(`Gallery is full (${MAX_LOCALE_UPLOAD} photos). Replace the gallery or remove photos first.`)
+      e.target.value = ''
+      return
+    }
+    if (list.length > maxPick) {
+      toast.error(
+        editGalleryAppend
+          ? `You can add at most ${maxPick} more image(s) (gallery limit ${MAX_LOCALE_UPLOAD})`
+          : `You can select at most ${MAX_LOCALE_UPLOAD} images at once`
+      )
+      e.target.value = ''
+      return
+    }
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+    const valid = []
+    for (const file of list) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error(`"${file.name}" must be less than 10MB`)
+        e.target.value = ''
+        return
+      }
+      if (!allowedTypes.includes(file.type)) {
+        toast.error(`"${file.name}" is not a valid image (JPEG, PNG, WebP, GIF)`)
+        e.target.value = ''
+        return
+      }
+      valid.push(file)
+    }
+    setEditImageFiles(valid)
+    e.target.value = ''
   }
 
   const handleUpload = async (e) => {
     e.preventDefault()
     
-    if (!formData.file) {
-      toast.error('Please select an image file')
+    if (!formData.files || formData.files.length === 0) {
+      toast.error('Please select at least one image')
       return
     }
 
@@ -1072,7 +1130,7 @@ const Locales = () => {
     setUploading(true)
     try {
       const uploadFormData = new FormData()
-      uploadFormData.append('image', formData.file)
+      formData.files.forEach((f) => uploadFormData.append('images', f))
       uploadFormData.append('name', name.trim())
       uploadFormData.append('country', country.trim())
       uploadFormData.append('countryCode', countryCode)
@@ -1113,7 +1171,7 @@ const Locales = () => {
           displayOrder: '0',
           spotTypes: [],
           travelInfo: 'Drivable',
-          file: null,
+          files: [],
           latitude: null,
           longitude: null
         })
@@ -1343,13 +1401,28 @@ const Locales = () => {
     // The optimistic updates already handle the UI, and cache is synced above
   }, [selectedLocales, locales])
 
+  const resolveLocaleGalleryUrls = (doc) => {
+    if (!doc) return []
+    if (Array.isArray(doc.imageUrls) && doc.imageUrls.length > 0) {
+      return doc.imageUrls.filter(Boolean)
+    }
+    if (doc.imageUrl) return [doc.imageUrl]
+    if (doc.cloudinaryUrl) return [doc.cloudinaryUrl]
+    return []
+  }
+
   const handlePreview = async (locale) => {
     // Fetch full locale data to ensure we have all fields (description, spotTypes, travelInfo, updatedAt, city)
     try {
       const fullLocale = await getLocaleById(locale._id)
+      const galleryUrls = resolveLocaleGalleryUrls(fullLocale).length
+        ? resolveLocaleGalleryUrls(fullLocale)
+        : resolveLocaleGalleryUrls(locale)
       setPreviewLocale({
         ...locale,
         ...fullLocale,
+        imageUrls: galleryUrls,
+        imageUrl: galleryUrls[0] || fullLocale.imageUrl || locale.imageUrl,
         city: fullLocale.city || locale.city || '',
         description: fullLocale.description || locale.description || null,
         spotTypes: Array.isArray(fullLocale.spotTypes) && fullLocale.spotTypes.length > 0 
@@ -1360,9 +1433,11 @@ const Locales = () => {
       })
     } catch (error) {
       logger.error('Error fetching locale details for preview:', error)
-      // Fallback to locale data from list
+      const fallbackUrls = resolveLocaleGalleryUrls(locale)
       setPreviewLocale({
         ...locale,
+        imageUrls: fallbackUrls,
+        imageUrl: fallbackUrls[0] || locale.imageUrl,
         city: locale.city || '',
         description: locale.description || null,
         spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes : [],
@@ -1375,10 +1450,13 @@ const Locales = () => {
 
   const handleEditClick = async (locale) => {
     setLocaleToEdit(locale)
+    setEditGalleryAppend(false)
+    setEditExistingImageUrls([])
     
     // Fetch full locale data to ensure we have spotTypes and travelInfo
     try {
       const fullLocale = await getLocaleById(locale._id)
+      setEditExistingImageUrls(resolveLocaleGalleryUrls(fullLocale))
       setEditFormData({
         name: fullLocale.name || locale.name || '',
         country: fullLocale.country || locale.country || '',
@@ -1394,6 +1472,7 @@ const Locales = () => {
       })
     } catch (error) {
       logger.error('Error fetching locale details for edit:', error)
+      setEditExistingImageUrls(resolveLocaleGalleryUrls(locale))
       // Fallback to locale data from list
       setEditFormData({
         name: locale.name || '',
@@ -1407,6 +1486,7 @@ const Locales = () => {
         travelInfo: locale.travelInfo || 'Drivable'
       })
     }
+    setEditImageFiles([])
     setShowEditModal(true)
   }
 
@@ -1518,7 +1598,12 @@ const Locales = () => {
         updateData.longitude = parseFloat(editFormData.longitude)
       }
       
-      const updatedLocale = await updateLocale(localeToEdit._id, updateData)
+      const updatedLocale = await updateLocale(
+        localeToEdit._id,
+        updateData,
+        editImageFiles.length ? editImageFiles : null,
+        { appendGallery: editGalleryAppend && editImageFiles.length > 0 }
+      )
       toast.success('Locale updated successfully')
       
       // Optimistically update the locale in the list with new data
@@ -1548,6 +1633,9 @@ const Locales = () => {
           spotTypes: [],
           travelInfo: 'Drivable'
         })
+        setEditImageFiles([])
+        setEditGalleryAppend(false)
+        setEditExistingImageUrls([])
       })
       // Force refresh after update - reset page to 1 and clear fetchKey to trigger fetch
       // This is intentional - locale updated, need to refresh list
@@ -1694,10 +1782,15 @@ const Locales = () => {
                   className="w-10 h-10 rounded-lg object-cover"
                 />
               )}
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-0.5 min-w-0">
                 <span className={`font-medium ${locale.isActive ? 'text-gray-900' : 'text-gray-500'}`}>
                   {locale.name}
                 </span>
+                {Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0 && (
+                  <span className="text-xs text-gray-500 font-normal">
+                    {locale.imageUrls.length} photo{locale.imageUrls.length !== 1 ? 's' : ''}
+                  </span>
+                )}
                 {hasDuplicates && (
                   <div className="flex items-center gap-1 mt-1">
                     <AlertTriangle className="w-3 h-3 text-orange-500" />
@@ -1763,7 +1856,7 @@ const Locales = () => {
               <button
                 onClick={() => onPreview(locale)}
                 className="p-2 hover:bg-green-100 rounded-lg transition-colors"
-                title="Preview"
+                title="View details and all photos"
               >
                 <Eye className="w-4 h-4 text-green-600" />
               </button>
@@ -2398,7 +2491,7 @@ const Locales = () => {
       )}
 
       {/* Upload Modal */}
-      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="bg-white">
+      <Modal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} className="bg-white min-h-0" zIndex={LOCALES_MODAL_Z_INDEX}>
         <ModalHeader onClose={() => setShowUploadModal(false)}>
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="p-1.5 sm:p-2 bg-green-100 rounded-lg flex-shrink-0">
@@ -2407,32 +2500,37 @@ const Locales = () => {
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Add New Locale</h2>
           </div>
         </ModalHeader>
-        <form onSubmit={handleUpload}>
-          <ModalContent className="space-y-5 sm:space-y-6">
+        <form onSubmit={handleUpload} className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+          <ModalContent className="space-y-5 sm:space-y-6 pb-2">
             <div className="space-y-2.5">
               <label className="block text-sm font-semibold text-gray-800">
-                Image <span className="text-red-500">*</span>
+                Images <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   onChange={handleFileChange}
                   className="w-full px-4 py-3 text-base bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all cursor-pointer hover:border-gray-400"
                   required
                 />
-                {formData.file && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600">
-                    <ImageIcon className="w-4 h-4" />
-                    <span>{formData.file.name}</span>
-                    <span className="text-gray-400">
-                      ({(formData.file.size / 1024 / 1024).toFixed(2)} MB)
-                    </span>
-                  </div>
+                {formData.files?.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                    {formData.files.map((f) => (
+                      <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                        <span className="text-gray-400 shrink-0">
+                          ({(f.size / 1024 / 1024).toFixed(2)} MB)
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Supported formats: JPEG, PNG, WebP, GIF (Max 10MB)
+                Select one or more images (up to {MAX_LOCALE_UPLOAD}). Order is preserved in the mobile carousel. JPEG, PNG, WebP, GIF (max 10MB each).
               </p>
             </div>
 
@@ -2659,7 +2757,7 @@ const Locales = () => {
         setShowDetectPlaceModal(false)
         setDetectPlaceName('')
         setDetectedPlace(null)
-      }} className="bg-white max-w-4xl" zIndex={60}>
+      }} className="bg-white max-w-4xl" zIndex={LOCALES_DETECT_PLACE_Z_INDEX}>
         <ModalHeader onClose={() => {
           setShowDetectPlaceModal(false)
           setDetectPlaceName('')
@@ -2815,7 +2913,7 @@ const Locales = () => {
       </Modal>
 
       {/* Delete Confirmation Modal */}
-      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="bg-white">
+      <Modal isOpen={showDeleteModal} onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)} className="bg-white" zIndex={LOCALES_MODAL_Z_INDEX}>
         <ModalHeader onClose={() => handleModalClose(setShowDeleteModal, setLocaleToDelete)}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-100 rounded-lg">
@@ -2860,6 +2958,9 @@ const Locales = () => {
 
       {/* Edit Modal */}
       <Modal isOpen={showEditModal} onClose={() => handleModalClose(setShowEditModal, setLocaleToEdit, () => {
+        setEditImageFiles([])
+        setEditGalleryAppend(false)
+        setEditExistingImageUrls([])
         setEditFormData({ 
           name: '', 
           country: '', 
@@ -2871,8 +2972,11 @@ const Locales = () => {
           spotTypes: [],
           travelInfo: 'Drivable'
         })
-      })} className="bg-white overflow-hidden">
+      })} className="bg-white min-h-0" zIndex={LOCALES_MODAL_Z_INDEX}>
         <ModalHeader onClose={() => handleModalClose(setShowEditModal, setLocaleToEdit, () => {
+          setEditImageFiles([])
+          setEditGalleryAppend(false)
+          setEditExistingImageUrls([])
           setEditFormData({ 
             name: '', 
             country: '', 
@@ -2880,7 +2984,9 @@ const Locales = () => {
             stateProvince: '', 
             city: '', 
             description: '', 
-            displayOrder: '0' 
+            displayOrder: '0',
+            spotTypes: [],
+            travelInfo: 'Drivable'
           })
         })}>
           <div className="flex items-center gap-3">
@@ -2890,8 +2996,8 @@ const Locales = () => {
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Edit Locale</h2>
           </div>
         </ModalHeader>
-        <form onSubmit={handleUpdate}>
-          <ModalContent className="space-y-5 sm:space-y-6">
+        <form onSubmit={handleUpdate} className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
+          <ModalContent className="space-y-5 sm:space-y-6 pb-2">
             <div className="space-y-2 mb-4">
               <div className="flex items-center justify-between">
                 <label className="block text-sm font-semibold text-gray-700">
@@ -3082,14 +3188,72 @@ const Locales = () => {
             </div>
 
             {localeToEdit && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <p className="text-sm text-blue-800">
-                  <span className="font-semibold">Note:</span> You can only edit locale metadata. The image cannot be changed. To replace the image, delete this locale and add a new one.
+              <div className="space-y-2.5">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Gallery images <span className="text-gray-400 text-xs font-normal">Optional photo updates</span>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-gray-200 bg-gray-50 p-3 hover:bg-gray-100/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={editGalleryAppend}
+                    onChange={(e) => setEditGalleryAppend(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">
+                    <span className="font-medium text-gray-900">Add to existing gallery</span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Keeps current photos and appends new uploads (max {MAX_LOCALE_UPLOAD} total). Leave unchecked to replace the whole gallery with only the files you select below.
+                    </span>
+                  </span>
+                </label>
+                {editExistingImageUrls.length > 0 && (
+                  <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-3">
+                    <p className="text-xs font-medium text-gray-600 mb-2">
+                      Current photos ({editExistingImageUrls.length})
+                    </p>
+                    <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+                      {editExistingImageUrls.map((url, idx) => (
+                        <img
+                          key={`${url.slice(0, 48)}-${idx}`}
+                          src={url}
+                          alt=""
+                          className="h-16 w-16 sm:h-20 sm:w-20 rounded-lg object-cover border border-gray-200 bg-white"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleEditImagesChange}
+                    className="w-full px-4 py-3 text-base bg-white border-2 border-dashed border-gray-300 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all cursor-pointer hover:border-gray-400"
+                  />
+                  {editImageFiles.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-sm text-gray-600">
+                      {editImageFiles.map((f) => (
+                        <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4 shrink-0" />
+                          <span className="truncate">{f.name}</span>
+                          <span className="text-gray-400 shrink-0">
+                            ({(f.size / 1024 / 1024).toFixed(2)} MB)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {editGalleryAppend
+                    ? `Select images to add (room for up to ${Math.max(0, MAX_LOCALE_UPLOAD - editExistingImageUrls.length)} more). Order is preserved in the app carousel. JPEG, PNG, WebP, GIF (max 10MB each).`
+                    : `Select one or more images (up to ${MAX_LOCALE_UPLOAD}). Order is preserved in the mobile carousel. Unchecked = replace all current photos with this selection only. JPEG, PNG, WebP, GIF (max 10MB each).`}
                 </p>
               </div>
             )}
           </ModalContent>
-          <ModalFooter className="sticky bottom-0 z-10">
+          <ModalFooter className="shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
             <button
               type="button"
               onClick={() => {
@@ -3105,6 +3269,9 @@ const Locales = () => {
                     spotTypes: [],
                     travelInfo: 'Drivable'
                   })
+                  setEditImageFiles([])
+                  setEditGalleryAppend(false)
+                  setEditExistingImageUrls([])
                 })
                 setLocaleToEdit(null)
                 setEditFormData({ 
@@ -3118,6 +3285,9 @@ const Locales = () => {
                   spotTypes: [],
                   travelInfo: 'Drivable'
                 })
+                setEditImageFiles([])
+                setEditGalleryAppend(false)
+                setEditExistingImageUrls([])
               }}
               className="w-full sm:w-auto px-4 sm:px-6 py-2.5 sm:py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl transition-colors font-medium shadow-sm text-sm sm:text-base"
             >
@@ -3153,6 +3323,7 @@ const Locales = () => {
           }
         }} 
         className="bg-white"
+        zIndex={LOCALES_MODAL_Z_INDEX}
       >
         <ModalHeader onClose={() => {
           if (!isBulkActionInProgress) {
@@ -3256,21 +3427,37 @@ const Locales = () => {
             <div className="p-2 bg-purple-100 rounded-lg">
               <Eye className="w-5 h-5 text-purple-600" />
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Locale Preview</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">View locale</h2>
           </div>
         </ModalHeader>
         <ModalContent>
           {previewLocale && (
             <div className="space-y-6">
-              {/* Header Section with Image */}
+              {/* Header Section with gallery */}
               <div className="text-center p-8 bg-gradient-to-br from-green-50 to-teal-50 rounded-xl">
-                {previewLocale.imageUrl && (
+                {Array.isArray(previewLocale.imageUrls) && previewLocale.imageUrls.length > 0 ? (
+                  <div className="mb-4">
+                    <p className="text-xs font-medium text-gray-600 mb-2">
+                      Photos ({previewLocale.imageUrls.length})
+                    </p>
+                    <div className="flex gap-2 overflow-x-auto pb-1 justify-start sm:justify-center max-h-52">
+                      {previewLocale.imageUrls.map((url, idx) => (
+                        <img
+                          key={`${url.slice(0, 40)}-${idx}`}
+                          src={url}
+                          alt=""
+                          className="h-36 w-36 shrink-0 rounded-xl object-cover shadow-lg border border-white/80"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : previewLocale.imageUrl ? (
                   <img 
                     src={previewLocale.imageUrl} 
                     alt={previewLocale.name}
                     className="w-32 h-32 rounded-xl object-cover mx-auto mb-4 shadow-lg"
                   />
-                )}
+                ) : null}
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{previewLocale.name}</h3>
                 <p className="text-gray-600 mb-4">{previewLocale.country}</p>
                 <div className="flex items-center justify-center gap-3 flex-wrap text-sm">
