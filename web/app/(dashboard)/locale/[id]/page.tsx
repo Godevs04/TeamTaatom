@@ -9,6 +9,7 @@ import { STORAGE_KEYS } from "../../../../lib/constants";
 import { Button } from "../../../../components/ui/button";
 import { MapPin, ArrowLeft, Navigation, Bookmark, BookmarkCheck } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
+import { cn } from "../../../../lib/utils";
 
 function getSavedLocales(): Locale[] {
   if (typeof window === "undefined") return [];
@@ -65,6 +66,29 @@ export default function LocaleDetailPage() {
   });
 
   const locale = data?.locale;
+
+  const galleryUrls = React.useMemo(() => {
+    const fromGallery = locale?.imageUrls?.filter((u): u is string => typeof u === "string" && u.length > 0);
+    if (fromGallery?.length) return fromGallery;
+    if (locale?.imageUrl) return [locale.imageUrl];
+    return [];
+  }, [locale?.imageUrls, locale?.imageUrl]);
+
+  const galleryKey = galleryUrls.join("|");
+
+  const [galleryIndex, setGalleryIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    setGalleryIndex(0);
+  }, [id, galleryKey]);
+
+  React.useEffect(() => {
+    if (galleryUrls.length <= 1) return;
+    const t = window.setInterval(() => {
+      setGalleryIndex((i) => (i + 1) % galleryUrls.length);
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [galleryUrls.length, galleryKey]);
 
   React.useEffect(() => {
     if (!locale?._id) return;
@@ -132,10 +156,32 @@ export default function LocaleDetailPage() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium">
-        <div className="aspect-[4/3] w-full bg-slate-100">
-          {locale.imageUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={locale.imageUrl} alt={locale.name} className="h-full w-full object-cover" />
+        <div className="relative aspect-[4/3] w-full bg-slate-100">
+          {galleryUrls.length > 0 ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={galleryUrls[galleryIndex] ?? galleryUrls[0]}
+                alt={locale.name}
+                className="h-full w-full object-cover"
+              />
+              {galleryUrls.length > 1 ? (
+                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                  {galleryUrls.map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setGalleryIndex(i)}
+                      aria-label={`Photo ${i + 1} of ${galleryUrls.length}`}
+                      className={cn(
+                        "h-2 w-2 rounded-full transition-colors",
+                        i === galleryIndex ? "bg-white shadow-sm" : "bg-white/50"
+                      )}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-slate-400">
               <MapPin className="h-16 w-16" />

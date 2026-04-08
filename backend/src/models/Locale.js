@@ -64,6 +64,11 @@ const localeSchema = new mongoose.Schema({
     type: String,
     sparse: true
   },
+  /** Ordered storage keys for gallery images (Sevalla). First key mirrors storageKey for backward compatibility. */
+  imageStorageKeys: {
+    type: [String],
+    default: []
+  },
   isActive: {
     type: Boolean,
     default: true

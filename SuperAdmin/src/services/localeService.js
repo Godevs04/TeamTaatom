@@ -37,11 +37,7 @@ export const getLocales = async (search = '', countryCode = '', page = 1, limit 
  */
 export const uploadLocale = async (formData) => {
   try {
-    const response = await api.post('/api/v1/locales/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await api.post('/api/v1/locales/upload', formData);
     return response.data;
   } catch (error) {
     logger.error('Error uploading locale:', error);
@@ -102,8 +98,38 @@ export const toggleLocaleStatus = async (id, isActive) => {
  * @param {object} data - Locale data to update (name, country, countryCode, etc.)
  * @returns {Promise} Updated locale data
  */
-export const updateLocale = async (id, data) => {
+export const updateLocale = async (id, data, imageFiles = null, options = {}) => {
   try {
+    if (imageFiles && imageFiles.length > 0) {
+      const fd = new FormData();
+      fd.append('name', data.name);
+      fd.append('country', data.country);
+      fd.append('countryCode', data.countryCode);
+      if (data.stateProvince != null) fd.append('stateProvince', data.stateProvince);
+      if (data.stateCode != null) fd.append('stateCode', data.stateCode);
+      fd.append('city', data.city);
+      if (data.description != null) fd.append('description', data.description);
+      fd.append('displayOrder', String(data.displayOrder ?? 0));
+      fd.append('spotTypes', JSON.stringify(data.spotTypes || []));
+      if (data.travelInfo) fd.append('travelInfo', data.travelInfo);
+      if (data.latitude != null && data.latitude !== '') fd.append('latitude', String(data.latitude));
+      if (data.longitude != null && data.longitude !== '') fd.append('longitude', String(data.longitude));
+      fd.append('replaceGallery', options.appendGallery ? 'false' : 'true');
+      imageFiles.forEach((f) => fd.append('images', f));
+      const response = await api.put(`/api/v1/locales/${id}`, fd, {
+        transformRequest: [
+          (data, headers) => {
+            if (typeof FormData !== 'undefined' && data instanceof FormData) {
+              if (headers && typeof headers.delete === 'function') {
+                headers.delete('Content-Type');
+              }
+            }
+            return data;
+          },
+        ],
+      });
+      return response.data;
+    }
     const response = await api.put(`/api/v1/locales/${id}`, data);
     return response.data;
   } catch (error) {
