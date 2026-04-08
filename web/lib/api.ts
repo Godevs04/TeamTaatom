@@ -343,6 +343,8 @@ export type Locale = {
   stateCode?: string;
   city?: string;
   imageUrl?: string;
+  /** Gallery signed URLs (same order as SuperAdmin upload). */
+  imageUrls?: string[];
   description?: string;
   spotTypes?: string[];
   latitude?: number;

@@ -25,16 +25,30 @@ const upload = multer({
   }
 });
 
-// Error handler for multer
-const handleMulterError = (err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    // File size limit errors removed - unlimited uploads
-    return sendError(res, 'FILE_4001', 'File upload error: ' + err.message);
+const MAX_LOCALE_IMAGES = 10;
+/** Upload: legacy single field `image` and/or multi field `images` (up to 10 total). */
+const uploadLocaleGallery = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'images', maxCount: MAX_LOCALE_IMAGES }
+]);
+
+// Supports express error form (err, req, res, next) and pass-through (req, res, next) after successful multer
+const handleMulterError = (a, b, c, d) => {
+  if (typeof d === 'function') {
+    const err = a;
+    const req = b;
+    const res = c;
+    const next = d;
+    if (err instanceof multer.MulterError) {
+      return sendError(res, 'FILE_4001', 'File upload error: ' + err.message);
+    }
+    if (err) {
+      return sendError(res, 'FILE_4003', err.message || 'Invalid file type');
+    }
+    return next();
   }
-  if (err) {
-    return sendError(res, 'FILE_4003', err.message || 'Invalid file type');
-  }
-  next();
+  const next = c;
+  return next();
 };
 
 // Validation rules for locale upload
@@ -207,7 +221,7 @@ router.get('/:id', getLocaleById);
 // Upload route with proper middleware order
 router.post('/upload', 
   verifySuperAdminToken, 
-  upload.single('image'), 
+  uploadLocaleGallery, 
   handleMulterError,
   ...uploadLocaleValidation,
   (req, res, next) => {
@@ -348,8 +362,21 @@ const updateLocaleValidation = [
  *       200:
  *         description: Locale updated successfully
  */
+const conditionalLocaleUpdateUpload = (req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.includes('multipart/form-data')) {
+    return uploadLocaleGallery(req, res, (err) => {
+      if (err) return handleMulterError(err, req, res, next);
+      return next();
+    });
+  }
+  return next();
+};
+
 router.put('/:id', 
   verifySuperAdminToken,
+  conditionalLocaleUpdateUpload,
+  handleMulterError,
   ...updateLocaleValidation,
   (req, res, next) => {
     const errors = validationResult(req);

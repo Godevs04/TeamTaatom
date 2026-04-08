@@ -129,6 +129,8 @@ Index: [`admin/README.md`](admin/README.md). Each menu has a `*-spec.md` (Dashbo
 
 Public mobile app routes use the **`/api/v1/`** prefix (see `backend/src/routes/v1/index.js`). Specs may abbreviate as `/api/v1/posts`, `/api/v1/shorts`, `/api/v1/locales`, etc.
 
+**Locale multi-image storage:** `backend/src/models/Locale.js` includes `imageStorageKeys` (ordered strings in object storage). `localeController` attaches `imageUrls` + `imageUrl` on list/get/upload/update responses. **PUT update** multipart field `replaceGallery`: default / `true` replaces the whole gallery; `false` appends new uploads up to the max (10). SuperAdmin: `superAdmin/src/pages/Locales.jsx` (multi upload; edit has “Add to existing gallery”). Mobile opens detail with `localeId` plus optional `galleryUrls` (`|||` joined) from `frontend/app/(tabs)/locale.tsx`; detail screen falls back to `getLocales` search + `getLocaleById` if needed. Carousel: `frontend/app/tripscore/countries/[country]/locations/[location].tsx` (`AdminLocaleHeroCarousel`). Web: `web/app/(dashboard)/locale/[id]/page.tsx`.
+
 ---
 
 ## 🔧 Major Fixes & Enhancements
