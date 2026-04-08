@@ -366,6 +366,8 @@ The Next.js app mirrors core journeys (feed, discover, locale, shorts, profile, 
 
 Shared REST API surface is mounted under `backend/src/routes/v1/` (for example posts, shorts, locales). Specs reference concrete controllers and routes in each document’s “Data Model & API” sections.
 
+**Locale place gallery:** SuperAdmin can upload multiple images per locale (up to 10, field `images` on `POST /api/v1/locales/upload`). On edit, multipart `PUT /api/v1/locales/:id` either **replaces** the whole gallery (default) or **appends** when `replaceGallery` is `false`, preserving existing photos up to the limit. The API returns ordered signed `imageUrls` plus `imageUrl` as the first image for older clients. SuperAdmin **View locale** (eye icon) shows every photo; the locales table shows a photo count. Mobile passes gallery hints on navigation and loads full data from the API so the hero carousel can show every image (swipe + ~3s autoplay when there are multiple), matching the web locale detail gallery UX.
+
 ---
 
 ## 👨‍💼 App Owner Guide
