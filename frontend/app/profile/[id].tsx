@@ -957,7 +957,7 @@ export default function UserProfileScreen() {
                   </Text>
                 </View>
               )
-            )}
+              }
             </View>
             {/* End Tab Content Container */}
           </View>
