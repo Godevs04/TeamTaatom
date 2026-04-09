@@ -492,7 +492,7 @@ export default function ProfileScreen() {
           abortControllerRef.current.abort();
         }
       };
-    }, [user?._id, loadUserData, activeTab])
+    }, [user?._id, loadUserData])
   );
 
   // Log posts when they change for debugging (development only)
@@ -1318,15 +1318,6 @@ export default function ProfileScreen() {
                         : { backgroundColor: 'transparent' }
                     ]} 
                     onPress={() => {
-                      // When switching tabs, keep the tabs row in a stable position instead of
-                      // snapping the whole profile to the very top. This avoids the "jump to top"
-                      // feeling when tapping "Shorts" on own profile.
-                      if (scrollViewRef.current && tabsOffsetRef.current >= 0) {
-                        scrollViewRef.current.scrollTo({
-                          y: Math.max(tabsOffsetRef.current - 16, 0),
-                          animated: true,
-                        });
-                      }
                       // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
                       if (isFetchingRef.current && activeTab !== tab) {
                         logger.debug('Tab switch blocked - fetch in progress');
@@ -1352,6 +1343,7 @@ export default function ProfileScreen() {
               
               <View style={styles.contentArea}>
             {/* Profile Tabs: Always rendered with height: 0 when hidden to prevent scroll reset */}
+            {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
             <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
               {posts.length > 0 ? (
                 <View style={styles.postsGrid}>
@@ -1428,6 +1420,7 @@ export default function ProfileScreen() {
                 </View>
               )
               }
+              )}
             </View>
             <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
               {userShorts.length > 0 ? (
@@ -1481,6 +1474,7 @@ export default function ProfileScreen() {
                 </View>
               )
               }
+              )}
             </View>
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
               {savedItems.length > 0 ? (
@@ -1557,6 +1551,7 @@ export default function ProfileScreen() {
                 </View>
               )
               }
+              )}
             </View>
               </View>
             </View>
@@ -2112,6 +2107,7 @@ const styles = StyleSheet.create({
   // Content Area
   contentArea: {
     marginTop: 20,
+    minHeight: 400,
   },
   postsGrid: {
     flexDirection: 'row',
@@ -2166,6 +2162,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 20,
+    minHeight: 400,
   },
   emptyIconContainer: {
     width: 120,
