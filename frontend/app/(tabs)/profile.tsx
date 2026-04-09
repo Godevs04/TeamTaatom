@@ -1351,9 +1351,9 @@ export default function ProfileScreen() {
               </View>
               
               <View style={styles.contentArea}>
-            {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
-            {activeTab === 'posts' && (
-              posts.length > 0 ? (
+            {/* Profile Tabs: Always rendered with height: 0 when hidden to prevent scroll reset */}
+            <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {posts.map((post) => {
                     // Try multiple possible image URL fields
@@ -1427,9 +1427,10 @@ export default function ProfileScreen() {
                   </Pressable>
                 </View>
               )
-            )}
-            {activeTab === 'shorts' && (
-              userShorts.length > 0 ? (
+              }
+            </View>
+            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {userShorts.map((s) => {
                     const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
@@ -1479,9 +1480,10 @@ export default function ProfileScreen() {
                   </Pressable>
                 </View>
               )
-            )}
-            {activeTab === 'saved' && (
-              savedItems.length > 0 ? (
+              }
+            </View>
+            <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
+              {savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {savedItems.map((item) => {
                     // Try multiple possible image URL fields
@@ -1554,7 +1556,8 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               )
-            )}
+              }
+            </View>
               </View>
             </View>
           </View>

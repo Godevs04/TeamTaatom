@@ -861,9 +861,11 @@ export default function UserProfileScreen() {
                 </View>
               )
             )}
+            </View>
 
             {/* Shorts Tab */}
-            {activeTab === 'shorts' && (
+            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
+            {
               loadingShorts ? (
                 <View style={styles.emptyState}>
                   <ActivityIndicator size="large" color={profileTheme.accent} />

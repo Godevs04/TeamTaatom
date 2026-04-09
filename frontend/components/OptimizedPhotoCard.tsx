@@ -706,8 +706,7 @@ function PhotoCard({
         if (postId) {
           // Expo Router's router.push() doesn't return a Promise
           // It's a synchronous navigation method, so we just call it directly
-          // Post detail page commented out - navigate to home with postId to scroll to specific post
-          router.push(`/(tabs)/home?postId=${postId}`);
+          router.push(`/post/${postId}`);
         } else {
           logger.warn('Cannot navigate: post._id is missing', { post });
         }

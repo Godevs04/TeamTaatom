@@ -1995,36 +1995,34 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     if (index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video) {
-                        // Small delay to ensure video is fully ready
-                        setTimeout(() => {
-                          video.getStatusAsync().then((currentStatus) => {
-                            if (currentStatus.isLoaded) {
-                              // If music exists, ensure video is muted
-                              const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
-                              if (hasMusic) {
-                                video.setIsMutedAsync(true).catch(() => {});
-                                video.setVolumeAsync(0.0).catch(() => {});
-                              }
-                              
-                              // Play video if it's not already playing
-                              if (!currentStatus.isPlaying) {
-                                activeVideoIdRef.current = item._id;
-                                video.playAsync().then(() => {
-                                  setVideoStates(prev => ({
-                                    ...prev,
-                                    [item._id]: true
-                                  }));
-                                  logger.debug(`Video ${item._id} started playing after load`);
-                                }).catch((error) => {
-                                  logger.error(`Video ${item._id} failed to play after load:`, error);
-                                });
-                              }
+                        // onLoad fires when video is ready — call play immediately (no setTimeout delay)
+                        video.getStatusAsync().then((currentStatus) => {
+                          if (currentStatus.isLoaded) {
+                            // If music exists, ensure video is muted
+                            const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                            if (hasMusic) {
+                              video.setIsMutedAsync(true).catch(() => {});
+                              video.setVolumeAsync(0.0).catch(() => {});
                             }
-                          }).catch(() => {
-                            // If status check fails, try to play anyway
-                            video.playAsync().catch(() => {});
-                          });
-                        }, 100);
+
+                            // Play video if it's not already playing
+                            if (!currentStatus.isPlaying) {
+                              activeVideoIdRef.current = item._id;
+                              video.playAsync().then(() => {
+                                setVideoStates(prev => ({
+                                  ...prev,
+                                  [item._id]: true
+                                }));
+                                logger.debug(`Video ${item._id} started playing after load`);
+                              }).catch((error) => {
+                                logger.error(`Video ${item._id} failed to play after load:`, error);
+                              });
+                            }
+                          }
+                        }).catch(() => {
+                          // If status check fails, try to play anyway
+                          video.playAsync().catch(() => {});
+                        });
                       }
                     }
                   }

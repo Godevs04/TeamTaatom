@@ -296,7 +296,15 @@ export default function HomeScreen() {
           return mergeLikedIntoPosts([...prev, ...newPosts]);
         });
       } else {
-        setPosts(mergeLikedIntoPosts(response.posts));
+        // Only update if data actually changed (prevent double-render on cache + fresh fetch)
+        setPosts(prev => {
+          if (prev.length > 0 && response.posts.length > 0 && prev[0]._id === response.posts[0]._id) {
+            // Data hasn't changed, skip update
+            logger.debug('Fresh posts match cached data, skipping update');
+            return prev;
+          }
+          return mergeLikedIntoPosts(response.posts);
+        });
       }
       
       setHasMore(response.pagination?.hasNextPage ?? false);
@@ -1053,14 +1061,16 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+        <StatusBar
+          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+          backgroundColor={theme.colors.background}
         />
         {renderHeader()}
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <PostSkeleton />
+          <PostSkeleton />
+          <PostSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
