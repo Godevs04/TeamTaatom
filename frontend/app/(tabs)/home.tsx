@@ -671,7 +671,8 @@ export default function HomeScreen() {
               const cacheAge = Date.now() - (parsed.timestamp || 0);
               if (cacheAge < 24 * 60 * 60 * 1000) {
                 logger.debug('Loading cached posts for instant display');
-                setPosts(mergeLikedIntoPosts(parsed.data));
+                const cachedPosts = mergeLikedIntoPosts(parsed.data);
+                setPosts(cachedPosts);
                 setHasMore(false);
                 setPage(1);
                 setLoading(false); // Show cached data immediately

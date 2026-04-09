@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
-import { useTheme } from '../context/ThemeContext';
 
 interface SkeletonProps {
   width?: number | string;
