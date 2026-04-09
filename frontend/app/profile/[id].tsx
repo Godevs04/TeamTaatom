@@ -823,8 +823,10 @@ export default function UserProfileScreen() {
               </Pressable>
             </View>
 
-            {/* Posts Tab */}
-            {activeTab === 'posts' && (
+            {/* Tab Content Container - maintains minimum height to prevent scroll reset on tab switch */}
+            <View style={{ minHeight: 400 }}>
+              {/* Posts Tab */}
+              {activeTab === 'posts' && (
               profile.posts && profile.posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {((profile.posts || [])
@@ -954,6 +956,8 @@ export default function UserProfileScreen() {
                 </View>
               )
             )}
+            </View>
+            {/* End Tab Content Container */}
           </View>
         )}
 
