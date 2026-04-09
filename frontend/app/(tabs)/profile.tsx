@@ -2100,6 +2100,7 @@ const styles = StyleSheet.create({
   // Content Area
   contentArea: {
     marginTop: 20,
+    minHeight: 400,
   },
   postsGrid: {
     flexDirection: 'row',
