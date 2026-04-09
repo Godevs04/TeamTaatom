@@ -1318,15 +1318,6 @@ export default function ProfileScreen() {
                         : { backgroundColor: 'transparent' }
                     ]} 
                     onPress={() => {
-                      // When switching tabs, keep the tabs row in a stable position instead of
-                      // snapping the whole profile to the very top. This avoids the "jump to top"
-                      // feeling when tapping "Shorts" on own profile.
-                      if (scrollViewRef.current && tabsOffsetRef.current >= 0) {
-                        scrollViewRef.current.scrollTo({
-                          y: Math.max(tabsOffsetRef.current - 16, 0),
-                          animated: true,
-                        });
-                      }
                       // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
                       if (isFetchingRef.current && activeTab !== tab) {
                         logger.debug('Tab switch blocked - fetch in progress');
