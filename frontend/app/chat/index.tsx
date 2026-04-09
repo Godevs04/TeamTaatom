@@ -230,15 +230,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           
           if (isShort) {
             // Navigate to shorts page with shortId parameter
-            router.replace(`/(tabs)/shorts?shortId=${postId}`);
+            router.push(`/(tabs)/shorts?shortId=${postId}`);
           } else {
             // Regular post - navigate to home with postId to scroll to specific post
-            router.replace(`/(tabs)/home?postId=${postId}`);
+            router.push(`/(tabs)/home?postId=${postId}`);
           }
         } catch (fetchError) {
           // If fetching post fails, try to determine from shareUrl or default to home
           logger.debug('Failed to fetch post details, defaulting to home:', fetchError);
-          router.replace(`/(tabs)/home?postId=${postId}`);
+          router.push(`/(tabs)/home?postId=${postId}`);
         }
       } else if (shareUrl) {
         // Fallback: Try deep link or web URL
