@@ -298,6 +298,13 @@ export default function HomeScreen() {
       } else {
         // Only update if data actually changed (prevent double-render on cache + fresh fetch)
         setPosts(prev => {
+          // Check if data has changed: compare post count or first post ID
+          // If counts differ, definitely update (post was deleted or new post added)
+          if (prev.length !== response.posts.length) {
+            logger.debug(`Post count changed from ${prev.length} to ${response.posts.length}, updating`);
+            return mergeLikedIntoPosts(response.posts);
+          }
+          // Same count: check if first post ID matches
           if (prev.length > 0 && response.posts.length > 0 && prev[0]._id === response.posts[0]._id) {
             // Data hasn't changed, skip update
             logger.debug('Fresh posts match cached data, skipping update');
