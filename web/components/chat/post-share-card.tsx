@@ -70,11 +70,16 @@ export function PostShareCard({ share, isSent }: PostShareCardProps) {
       className={cn(
         "block max-w-[min(100%,320px)] overflow-hidden rounded-2xl border shadow-md transition-opacity hover:opacity-95 focus-visible:outline focus-visible:ring-2 focus-visible:ring-offset-2",
         isSent
-          ? "border-white/40 bg-white text-slate-900 shadow-black/10 focus-visible:ring-white"
-          : "border-slate-200/90 bg-white text-slate-900 focus-visible:ring-primary"
+          ? "border-white/40 bg-white text-slate-900 shadow-black/10 focus-visible:ring-white dark:border-white/25 dark:bg-zinc-100 dark:text-slate-900"
+          : "border-slate-200/90 bg-white text-slate-900 focus-visible:ring-primary dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
       )}
     >
-      <div className={cn("relative aspect-[4/3] w-full bg-slate-100", isSent && "bg-slate-200")}>
+      <div
+        className={cn(
+          "relative aspect-[4/3] w-full bg-slate-100 dark:bg-zinc-800",
+          isSent && "bg-slate-200 dark:bg-zinc-700"
+        )}
+      >
         {!showPlaceholder && displayUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
@@ -87,7 +92,7 @@ export function PostShareCard({ share, isSent }: PostShareCardProps) {
             }}
           />
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400 dark:text-zinc-500">
             <ImageIcon className="h-10 w-10" aria-hidden />
             <span className="text-xs font-medium">Taatom post</span>
           </div>
@@ -95,19 +100,19 @@ export function PostShareCard({ share, isSent }: PostShareCardProps) {
       </div>
       <div className="space-y-1 px-3 py-2.5">
         {authorName ? (
-          <p className="text-xs font-semibold text-slate-600">{authorName}</p>
+          <p className="text-xs font-semibold text-slate-600 dark:text-zinc-300">{authorName}</p>
         ) : null}
         {caption ? (
-          <p className="line-clamp-3 text-sm leading-snug text-slate-800">{caption}</p>
+          <p className="line-clamp-3 text-sm leading-snug text-slate-800 dark:text-zinc-100">{caption}</p>
         ) : (
-          <p className="text-sm italic text-slate-500">Shared a post</p>
+          <p className="text-sm italic text-slate-500 dark:text-zinc-400">Shared a post</p>
         )}
-        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-zinc-700">
           <span className="flex items-center gap-1 text-xs font-semibold text-primary">
             <ExternalLink className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
             {brandingHost}
           </span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Open</span>
+          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-zinc-500">Open</span>
         </div>
       </div>
     </Link>

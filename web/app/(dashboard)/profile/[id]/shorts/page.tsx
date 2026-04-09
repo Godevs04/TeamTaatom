@@ -59,7 +59,7 @@ export default function ProfileShortsPage() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Shorts</h1>
+          <h1 className="text-xl font-bold tracking-tight dark:text-zinc-50 sm:text-2xl">Shorts</h1>
           <p className="text-sm text-muted-foreground">
             {totalShorts > 0 ? `${totalShorts} short${totalShorts === 1 ? "" : "s"}` : "Short videos"}
           </p>
@@ -91,7 +91,7 @@ export default function ProfileShortsPage() {
               <Link
                 key={s._id}
                 href={`/trip/${s._id}`}
-                className="group relative aspect-[9/16] overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100 shadow-soft transition-shadow hover:shadow-card"
+                className="group relative aspect-[9/16] overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100 shadow-soft transition-shadow hover:shadow-card dark:border-zinc-800 dark:bg-zinc-800"
               >
                 {thumb ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
@@ -101,8 +101,8 @@ export default function ProfileShortsPage() {
                     className="h-full w-full object-cover transition-transform group-hover:scale-105"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-slate-200">
-                    <Play className="h-10 w-10 text-slate-400" />
+                  <div className="flex h-full w-full items-center justify-center bg-slate-200 dark:bg-zinc-700">
+                    <Play className="h-10 w-10 text-slate-400 dark:text-zinc-500" />
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
