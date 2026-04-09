@@ -602,6 +602,21 @@ function PhotoCard({
             try {
               setIsMenuLoading(true);
               await deletePost(post._id);
+
+              // Clear AsyncStorage cache to prevent deleted post from reappearing
+              try {
+                const cached = await AsyncStorage.getItem('cachedPosts');
+                if (cached) {
+                  const parsed = JSON.parse(cached);
+                  if (parsed.data && Array.isArray(parsed.data)) {
+                    parsed.data = parsed.data.filter((p: any) => p._id !== post._id);
+                    await AsyncStorage.setItem('cachedPosts', JSON.stringify(parsed));
+                  }
+                }
+              } catch (cacheError) {
+                logger.warn('Failed to update cached posts after deletion', cacheError);
+              }
+
               showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
               if (onRefresh) onRefresh();
             } catch (error: any) {
