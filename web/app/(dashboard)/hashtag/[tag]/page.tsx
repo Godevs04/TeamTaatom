@@ -69,7 +69,7 @@ export default function HashtagPage() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Hash className="h-6 w-6 shrink-0 text-primary" aria-hidden />
-            <h1 className="truncate text-xl font-bold tracking-tight sm:text-2xl">#{tagSlug}</h1>
+            <h1 className="truncate text-xl font-bold tracking-tight dark:text-zinc-50 sm:text-2xl">#{tagSlug}</h1>
           </div>
           {meta ? (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -83,7 +83,7 @@ export default function HashtagPage() {
 
       {q.isError ? (
         <Card className="p-8 text-center">
-          <p className="text-sm font-medium text-slate-900">Hashtag not found</p>
+          <p className="text-sm font-medium text-slate-900 dark:text-zinc-50">Hashtag not found</p>
           <p className="mt-1 text-sm text-muted-foreground">
             There are no posts with this tag yet, or it has not been registered.
           </p>
@@ -136,16 +136,16 @@ export default function HashtagPage() {
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             transition={{ type: "spring", stiffness: 340, damping: 36 }}
-            className="absolute right-0 top-0 h-full w-full max-w-xl border-l border-slate-200/80 bg-white shadow-2xl"
+            className="absolute right-0 top-0 h-full w-full max-w-xl border-l border-slate-200/80 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 sm:px-5">
+              <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-zinc-800 sm:px-5">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">
+                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-50">
                     {commentsPost.caption || "Trip comments"}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-zinc-400">
                     {commentsPost.user?.fullName || commentsPost.user?.username || "Traveler"}
                   </p>
                 </div>

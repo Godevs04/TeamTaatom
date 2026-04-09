@@ -60,7 +60,7 @@ export default async function ProfileTripScorePage({
           <p className="text-sm text-muted-foreground">TripScore not available.</p>
           <Link
             href={`/profile/${params.id}`}
-            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline"
+            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
           >
             ← Back to profile
           </Link>
@@ -77,33 +77,33 @@ export default async function ProfileTripScorePage({
       <div className="flex items-center gap-4">
         <Link
           href={`/profile/${params.id}`}
-          className="text-sm font-medium text-slate-600 hover:text-slate-900"
+          className="text-sm font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
           ← Profile
         </Link>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium">
-        <h1 className="text-xl font-semibold text-slate-900">TripScore · {profileName}</h1>
-        <p className="mt-1 text-sm text-slate-500">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-zinc-50">TripScore · {profileName}</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
           Unique places visited (by continent)
         </p>
         <div className="mt-6 flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-sky-50 text-2xl font-bold text-sky-600">
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-sky-50 text-2xl font-bold text-sky-600 dark:bg-sky-950/50 dark:text-sky-400">
             {totalScore}
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-700">Total places</p>
-            <p className="text-xs text-slate-500">{continentsWithScore.length} continents</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">Total places</p>
+            <p className="text-xs text-slate-500 dark:text-zinc-400">{continentsWithScore.length} continents</p>
           </div>
         </div>
       </div>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">By continent</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-zinc-50">By continent</h2>
         {continentsWithScore.length === 0 ? (
-          <Card className="rounded-2xl border border-slate-200/80 p-8 text-center shadow-premium">
-            <p className="text-sm text-slate-500">No continents with visits yet.</p>
+          <Card className="rounded-2xl border border-slate-200/80 p-8 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+            <p className="text-sm text-slate-500 dark:text-zinc-400">No continents with visits yet.</p>
           </Card>
         ) : (
           <ul className="space-y-3">
@@ -111,19 +111,19 @@ export default async function ProfileTripScorePage({
               <li key={c.name}>
                 <Link
                   href={`/profile/${params.id}/tripscore/continents/${encodeURIComponent(c.name)}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover"
+                  className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover"
                 >
-                  <span className="font-medium text-slate-900">{c.name.replace(/_/g, " ")}</span>
+                  <span className="font-medium text-slate-900 dark:text-zinc-50">{c.name.replace(/_/g, " ")}</span>
                   <div className="flex items-center gap-4">
-                    <span className="text-sm text-slate-600">
+                    <span className="text-sm text-slate-600 dark:text-zinc-400">
                       {c.score} place{c.score !== 1 ? "s" : ""}
                     </span>
                     {c.distance > 0 && (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-500 dark:text-zinc-500">
                         ~{c.distance} km
                       </span>
                     )}
-                    <span className="text-slate-400">→</span>
+                    <span className="text-slate-400 dark:text-zinc-500">→</span>
                   </div>
                 </Link>
               </li>

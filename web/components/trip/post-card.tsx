@@ -299,11 +299,11 @@ export function PostCard({
   const avatarInitial = displayName.trim().charAt(0).toUpperCase();
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium">
+    <article className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium transition-shadow duration-200 hover:shadow-premium-hover border-premium dark:border-zinc-800/80 dark:bg-zinc-900/95">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
         <Link href={`/profile/${post.user?._id}`} className="group flex items-center gap-4">
-          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
+          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80">
             {post.user?.profilePic ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
@@ -319,10 +319,10 @@ export function PostCard({
             )}
           </div>
           <div className="leading-tight">
-            <div className="text-[15px] font-semibold text-slate-900 group-hover:underline">
+            <div className="text-[15px] font-semibold text-slate-900 group-hover:underline dark:text-zinc-50">
               {displayName}
             </div>
-            <div className="line-clamp-1 text-xs font-medium leading-snug text-slate-500">
+            <div className="line-clamp-1 text-xs font-medium leading-snug text-slate-500 dark:text-zinc-400">
               {getPostDisplayLocation(post)}
             </div>
           </div>
@@ -330,7 +330,7 @@ export function PostCard({
         <div className="flex items-center gap-1">
           <Link
             href={`/trip/${post._id}`}
-            className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+            className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           >
             View
           </Link>
@@ -339,7 +339,7 @@ export function PostCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-xl hover:bg-slate-100"
+                className="h-9 w-9 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
                 aria-label="More options"
                 onClick={(e) => {
                   e.preventDefault();
@@ -348,50 +348,50 @@ export function PostCard({
                 }}
                 disabled={menuLoading}
               >
-                <MoreHorizontal className="h-5 w-5 text-slate-600" />
+                <MoreHorizontal className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
               </Button>
               {menuOpen && (
                 <div
-                  className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                  className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {isOwnPost ? (
                     <>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleArchive}
                       >
-                        <Archive className="h-4 w-4 text-slate-500" />
+                        <Archive className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Archive
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleHide}
                       >
-                        <EyeOff className="h-4 w-4 text-slate-500" />
+                        <EyeOff className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Hide
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={openAddToCollection}
                       >
-                        <FolderPlus className="h-4 w-4 text-slate-500" />
+                        <FolderPlus className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Add to Collection
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleShare}
                       >
-                        <Share2 className="h-4 w-4 text-slate-500" />
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Share
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
                         onClick={handleDelete}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -402,26 +402,26 @@ export function PostCard({
                     <>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={() => setReportOpen(true)}
                       >
-                        <Flag className="h-4 w-4 text-slate-500" />
+                        <Flag className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Report
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={openAddToCollection}
                       >
-                        <FolderPlus className="h-4 w-4 text-slate-500" />
+                        <FolderPlus className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Add to Collection
                       </button>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleShare}
                       >
-                        <Share2 className="h-4 w-4 text-slate-500" />
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Share
                       </button>
                     </>
@@ -434,7 +434,7 @@ export function PostCard({
       </div>
 
       {/* Media */}
-      <Link href={`/trip/${post._id}`} className="block bg-slate-100/50">
+      <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
         <div className="relative aspect-[4/3] w-full overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -447,11 +447,11 @@ export function PostCard({
       </Link>
 
       {/* Caption & actions */}
-      <div className="space-y-4 border-t border-slate-100 px-4 py-3 sm:px-6 sm:py-4">
+      <div className="mt-auto space-y-4 border-t border-slate-100 px-4 py-3 dark:border-zinc-800 sm:px-6 sm:py-4">
         <div className="min-h-[72px]">
           <p
             className={cn(
-              "line-clamp-3 text-[15px] leading-6 text-slate-700",
+              "line-clamp-3 text-[15px] leading-6 text-slate-700 dark:text-zinc-200",
               post.caption ? "opacity-100" : "opacity-0"
             )}
           >
@@ -461,7 +461,7 @@ export function PostCard({
             <CaptionWithLinks
               text={post.caption || ""}
               as="span"
-              className="text-slate-600"
+              className="text-slate-600 dark:text-zinc-400"
               linkClassName="text-primary"
             />
           </p>
@@ -471,7 +471,7 @@ export function PostCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-xl hover:bg-slate-100"
+            className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
             onClick={() => likeMutation.mutate()}
             aria-label={post.isLiked ? "Unlike" : "Like"}
           >
@@ -479,12 +479,12 @@ export function PostCard({
               <Heart
                 className={cn(
                   "h-5 w-5",
-                  post.isLiked ? "fill-red-500 text-red-500" : "text-slate-600"
+                  post.isLiked ? "fill-red-500 text-red-500" : "text-slate-600 dark:text-zinc-300"
                 )}
               />
             </motion.span>
           </Button>
-          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700">
+          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200">
             {post.likesCount ?? 0}
           </span>
 
@@ -492,26 +492,26 @@ export function PostCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-xl hover:bg-slate-100"
+              className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
               aria-label="Comments"
               onClick={() => onOpenComments(post)}
             >
-              <MessageCircle className="h-5 w-5 text-slate-600" />
+              <MessageCircle className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
             </Button>
           ) : (
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-xl hover:bg-slate-100"
+              className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
               aria-label="Comments"
               asChild
             >
               <Link href={`/trip/${post._id}#comments`}>
-                <MessageCircle className="h-5 w-5 text-slate-600" />
+                <MessageCircle className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
               </Link>
             </Button>
           )}
-          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700">
+          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200">
             {post.commentsCount ?? 0}
           </span>
 
@@ -519,14 +519,14 @@ export function PostCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-xl hover:bg-slate-100"
+              className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
               aria-label={post.isSaved ? "Remove from saved" : "Save post"}
               onClick={handleSave}
             >
               <Bookmark
                 className={cn(
                   "h-5 w-5",
-                  post.isSaved ? "fill-sky-500 text-sky-500" : "text-slate-600"
+                  post.isSaved ? "fill-sky-500 text-sky-500" : "text-slate-600 dark:text-zinc-300"
                 )}
               />
             </Button>
@@ -537,11 +537,11 @@ export function PostCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-xl hover:bg-slate-100"
+            className="h-10 w-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800"
             aria-label="Share"
             onClick={() => setShareModalOpen(true)}
           >
-            <Share2 className="h-5 w-5 text-slate-600" />
+            <Share2 className="h-5 w-5 text-slate-600 dark:text-zinc-300" />
           </Button>
         </div>
       </div>
@@ -568,13 +568,13 @@ export function PostCard({
           role="presentation"
         >
           <div
-            className="w-full max-w-sm rounded-t-2xl border border-slate-200 bg-white p-4 shadow-xl sm:rounded-2xl"
+            className="w-full max-w-sm rounded-t-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Report post"
           >
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Report post</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">Report post</h3>
               <Button
                 variant="ghost"
                 size="icon"
@@ -585,13 +585,13 @@ export function PostCard({
                 <X className="h-5 w-5" />
               </Button>
             </div>
-            <p className="mb-4 text-sm text-slate-500">Choose a reason for your report</p>
+            <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">Choose a reason for your report</p>
             <ul className="space-y-1">
               {REPORT_REASONS.map((r) => (
                 <li key={r.id}>
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     onClick={() => handleReportSubmit(r.id)}
                   >
                     {r.label}
