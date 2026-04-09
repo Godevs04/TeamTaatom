@@ -1420,7 +1420,6 @@ export default function ProfileScreen() {
                 </View>
               )
               }
-              )}
             </View>
             <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
               {userShorts.length > 0 ? (
@@ -1474,7 +1473,6 @@ export default function ProfileScreen() {
                 </View>
               )
               }
-              )}
             </View>
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
               {savedItems.length > 0 ? (
@@ -1551,7 +1549,6 @@ export default function ProfileScreen() {
                 </View>
               )
               }
-              )}
             </View>
               </View>
             </View>
