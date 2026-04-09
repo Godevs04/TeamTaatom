@@ -1484,6 +1484,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 20,
+    minHeight: 400,
   },
   emptyIconContainer: {
     width: 120,

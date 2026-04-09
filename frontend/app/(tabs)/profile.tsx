@@ -492,7 +492,7 @@ export default function ProfileScreen() {
           abortControllerRef.current.abort();
         }
       };
-    }, [user?._id, loadUserData, activeTab])
+    }, [user?._id, loadUserData])
   );
 
   // Log posts when they change for debugging (development only)
@@ -1342,9 +1342,9 @@ export default function ProfileScreen() {
               </View>
               
               <View style={styles.contentArea}>
-            {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
-            {activeTab === 'posts' && (
-              posts.length > 0 ? (
+            {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
+            <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {posts.map((post) => {
                     // Try multiple possible image URL fields
@@ -1417,10 +1417,10 @@ export default function ProfileScreen() {
                     <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Post</Text>
                   </Pressable>
                 </View>
-              )
-            )}
-            {activeTab === 'shorts' && (
-              userShorts.length > 0 ? (
+              )}
+            </View>
+            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {userShorts.map((s) => {
                     const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
@@ -1469,10 +1469,10 @@ export default function ProfileScreen() {
                     <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Short</Text>
                   </Pressable>
                 </View>
-              )
-            )}
-            {activeTab === 'saved' && (
-              savedItems.length > 0 ? (
+              )}
+            </View>
+            <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
+              {savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {savedItems.map((item) => {
                     // Try multiple possible image URL fields
@@ -1544,8 +1544,8 @@ export default function ProfileScreen() {
                     Save posts you love to view later
                   </Text>
                 </View>
-              )
-            )}
+              )}
+            </View>
               </View>
             </View>
           </View>
@@ -2155,6 +2155,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 20,
+    minHeight: 400,
   },
   emptyIconContainer: {
     width: 120,
