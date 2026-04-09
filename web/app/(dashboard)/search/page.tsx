@@ -47,7 +47,7 @@ export default function SearchPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Search</h1>
+        <h1 className="text-2xl font-semibold tracking-tight dark:text-zinc-50 sm:text-3xl">Search</h1>
         <p className="mt-1 text-sm text-muted-foreground">Find travelers and trips.</p>
       </div>
 
@@ -59,7 +59,7 @@ export default function SearchPage() {
       {debounced.trim().length < 2 ? null : (
         <div className="grid gap-6 lg:grid-cols-3">
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold">Travelers</h2>
+            <h2 className="text-lg font-semibold dark:text-zinc-50">Travelers</h2>
             {usersQ.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -96,7 +96,7 @@ export default function SearchPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold">Hashtags</h2>
+            <h2 className="text-lg font-semibold dark:text-zinc-50">Hashtags</h2>
             {hashtagsQ.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -124,7 +124,7 @@ export default function SearchPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-lg font-semibold">Trips</h2>
+            <h2 className="text-lg font-semibold dark:text-zinc-50">Trips</h2>
             {postsQ.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (

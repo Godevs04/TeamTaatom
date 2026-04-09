@@ -66,10 +66,10 @@ export default function ProfileFollowersPage() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-zinc-50">
             {type === "followers" ? "Followers" : "Following"}
           </h1>
-          <p className="text-sm text-slate-500">{displayName}</p>
+          <p className="text-sm text-slate-500 dark:text-zinc-400">{displayName}</p>
         </div>
       </div>
 
@@ -105,8 +105,8 @@ export default function ProfileFollowersPage() {
           ))}
         </div>
       ) : users.length === 0 ? (
-        <Card className="rounded-2xl border border-slate-200/80 p-10 text-center shadow-premium">
-          <p className="text-sm text-slate-500">
+        <Card className="rounded-2xl border border-slate-200/80 p-10 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+          <p className="text-sm text-slate-500 dark:text-zinc-400">
             No {type} yet.
           </p>
         </Card>
@@ -114,12 +114,12 @@ export default function ProfileFollowersPage() {
         <ul className="space-y-2">
           {users.map((u: ProfileListUser) => (
             <li key={u._id}>
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-premium">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
                 <Link
                   href={`/profile/${u._id}`}
                   className="flex min-w-0 flex-1 items-center gap-3"
                 >
-                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-slate-100 dark:bg-zinc-800">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={u.profilePic || ""}
@@ -128,10 +128,10 @@ export default function ProfileFollowersPage() {
                     />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-900">
+                    <p className="truncate font-semibold text-slate-900 dark:text-zinc-50">
                       {u.fullName || u.username || "Traveler"}
                     </p>
-                    <p className="truncate text-xs text-slate-500">@{u.username || "user"}</p>
+                    <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{u.username || "user"}</p>
                   </div>
                 </Link>
                 {u._id !== id && (
@@ -164,7 +164,7 @@ export default function ProfileFollowersPage() {
       )}
 
       {pagination?.hasNextPage && (
-        <p className="text-center text-sm text-slate-500">
+        <p className="text-center text-sm text-slate-500 dark:text-zinc-400">
           More results available; pagination can be added later.
         </p>
       )}

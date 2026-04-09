@@ -191,14 +191,14 @@ export function CountryMapClient({
       <div className="mx-auto max-w-3xl space-y-4">
         <Link
           href={backHref}
-          className="inline-flex items-center text-sm font-medium text-sky-600 hover:underline"
+          className="inline-flex items-center text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
         >
           ← {backLabel}
         </Link>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
           <p className="font-medium">Map unavailable</p>
           <p className="mt-1 text-sm">
-            Configure <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to view the map.
+            Configure <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to view the map.
           </p>
         </div>
         {locations.length > 0 && (
@@ -212,10 +212,10 @@ export function CountryMapClient({
                     href={mapsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block rounded-xl border border-slate-200 bg-white p-3 text-slate-700 hover:bg-slate-50"
+                    className="block rounded-xl border border-slate-200 bg-white p-3 text-slate-700 hover:bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
                   >
                     <span className="font-medium">{loc.name}</span>
-                    <span className="ml-2 text-sm text-slate-500">
+                    <span className="ml-2 text-sm text-slate-500 dark:text-zinc-400">
                       Score: {loc.score}
                     </span>
                   </a>
@@ -232,11 +232,11 @@ export function CountryMapClient({
     <div className="mx-auto w-full max-w-4xl space-y-4">
       <Link
         href={backHref}
-        className="inline-flex items-center text-sm font-medium text-sky-600 hover:underline"
+        className="inline-flex items-center text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
       >
         ← {backLabel}
       </Link>
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/60">
         <div
           ref={mapRef}
           className="h-[min(70vh,600px)] w-full"

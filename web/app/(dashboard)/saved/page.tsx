@@ -40,10 +40,10 @@ export default function SavedPostsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-zinc-50 md:text-3xl">
           Saved
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
           Posts you saved to view later.
         </p>
       </div>
@@ -55,30 +55,30 @@ export default function SavedPostsPage() {
           ))}
         </div>
       ) : savedIds.length === 0 ? (
-        <Card className="rounded-[1.75rem] border border-slate-200/80 p-12 text-center shadow-premium sm:p-14">
+        <Card className="rounded-[1.75rem] border border-slate-200/80 p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90 sm:p-14">
           <motion.div
             initial={{ scale: 0.92, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 300, damping: 24 }}
-            className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-sky-500/10 ring-1 ring-slate-200/80"
+            className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-sky-500/10 ring-1 ring-slate-200/80 dark:ring-zinc-700/80"
           >
             <Bookmark className="h-8 w-8 text-primary/80" />
           </motion.div>
-          <h2 className="mt-5 font-display text-xl font-semibold tracking-tight text-slate-900">No saved posts yet</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+          <h2 className="mt-5 font-display text-xl font-semibold tracking-tight text-slate-900 dark:text-zinc-50">No saved posts yet</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-500 dark:text-zinc-400">
             Save moments from the feed to build your personal shortlist and revisit them anytime.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/feed"
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary/25 hover:opacity-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:opacity-95"
             >
               <Compass className="h-4 w-4" />
               Explore feed
             </Link>
             <Link
               href="/search"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               <Search className="h-4 w-4" />
               Find travelers
@@ -92,8 +92,8 @@ export default function SavedPostsPage() {
           ))}
         </div>
       ) : savedIds.length > 0 && posts.length === 0 ? (
-        <Card className="rounded-2xl border border-slate-200/80 p-12 text-center shadow-premium">
-          <p className="text-sm text-slate-500">Saved posts could not be loaded.</p>
+        <Card className="rounded-2xl border border-slate-200/80 p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+          <p className="text-sm text-slate-500 dark:text-zinc-400">Saved posts could not be loaded.</p>
         </Card>
       ) : (
         <div className="grid gap-8 xl:grid-cols-2">
