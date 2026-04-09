@@ -47,7 +47,7 @@ export default function ContactPage() {
     <div className="mx-auto w-full max-w-5xl space-y-6 px-3 py-6 sm:px-4 sm:py-10 md:px-6">
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Home
@@ -89,57 +89,57 @@ export default function ContactPage() {
 
       {/* Content */}
       <div className="grid gap-6 md:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)] md:items-start">
-        <section className="space-y-4 rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-7">
-          <h2 className="text-base font-semibold text-slate-900 md:text-lg">
+        <section className="space-y-4 rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-7">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-50 md:text-lg">
             How can we help you?
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 dark:text-zinc-400">
             Tell us what you need help with. The more detail you share, the better we can assist
             you.
           </p>
-          <div className="mt-2 grid gap-3 text-sm text-slate-700">
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-              <p className="font-medium text-slate-900">Product support &amp; bugs</p>
-              <p className="mt-1 text-xs text-slate-600">
+          <div className="mt-2 grid gap-3 text-sm text-slate-700 dark:text-zinc-300">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-800/40">
+              <p className="font-medium text-slate-900 dark:text-zinc-50">Product support &amp; bugs</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">
                 Issues with the app or web experience, account problems, or something not working as
                 expected.
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-              <p className="font-medium text-slate-900">Feedback &amp; feature ideas</p>
-              <p className="mt-1 text-xs text-slate-600">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-800/40">
+              <p className="font-medium text-slate-900 dark:text-zinc-50">Feedback &amp; feature ideas</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">
                 Suggestions that can make Taatom better for you and other travelers.
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-              <p className="font-medium text-slate-900">Partnerships &amp; business</p>
-              <p className="mt-1 text-xs text-slate-600">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-zinc-800/60 dark:bg-zinc-800/40">
+              <p className="font-medium text-slate-900 dark:text-zinc-50">Partnerships &amp; business</p>
+              <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">
                 Collaborations, brand partnerships, or media inquiries related to Taatom.
               </p>
             </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-7">
-          <h2 className="text-base font-semibold text-slate-900 md:text-lg">Send us a message</h2>
-          <p className="mt-1 text-xs text-slate-600">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft dark:border-zinc-800/80 dark:bg-zinc-900/95 md:p-7">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-50 md:text-lg">Send us a message</h2>
+          <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">
             Fields marked with <span className="text-rose-500">*</span> are required.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-5 space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-xs font-medium text-slate-700">Full Name</label>
+                <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">Full Name</label>
                 <input
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Enter your full name"
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2"
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-50 dark:placeholder:text-zinc-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700">
+                <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -148,13 +148,13 @@ export default function ContactPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your.email@example.com"
                   required
-                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2"
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-50 dark:placeholder:text-zinc-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700">
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
                 Subject <span className="text-rose-500">*</span>
               </label>
               <input
@@ -163,12 +163,12 @@ export default function ContactPage() {
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="What is this regarding?"
                 required
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-50 dark:placeholder:text-zinc-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700">
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300">
                 Message <span className="text-rose-500">*</span>
               </label>
               <textarea
@@ -177,9 +177,9 @@ export default function ContactPage() {
                 placeholder="Tell us more about your inquiry..."
                 rows={5}
                 required
-                className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2"
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-900 outline-none ring-primary/30 placeholder:text-slate-400 focus:border-primary focus:ring-2 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-50 dark:placeholder:text-zinc-500"
               />
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-zinc-500">
                 Minimum {minMessageLength} characters required (
                 {Math.max(0, minMessageLength - message.trim().length)} remaining).
               </p>
@@ -195,18 +195,18 @@ export default function ContactPage() {
             </button>
 
             {status === "success" && (
-              <p className="mt-2 text-xs font-medium text-emerald-600">
+              <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 Thank you! Your message has been sent.
               </p>
             )}
             {status === "error" && (
-              <p className="mt-2 text-xs font-medium text-red-600">
+              <p className="mt-2 text-xs font-medium text-red-600 dark:text-red-400">
                 Sorry, we couldn&apos;t send your message. Please try again in a moment.
               </p>
             )}
           </form>
 
-          <p className="mt-4 text-xs text-slate-500">
+          <p className="mt-4 text-xs text-slate-500 dark:text-zinc-500">
             You can also reach us directly at{" "}
             <a href="mailto:contact@taatom.com" className="font-medium text-primary hover:underline">
               contact@taatom.com

@@ -23,7 +23,7 @@ export default function DiscoverPage() {
       <div>
         <div className="flex items-center gap-2 text-primary">
           <Compass className="h-8 w-8" aria-hidden />
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Discover</h1>
+          <h1 className="text-2xl font-semibold tracking-tight dark:text-zinc-50 sm:text-3xl">Discover</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           Trending hashtags and quick ways to explore — same ideas as the app search experience.
@@ -37,7 +37,7 @@ export default function DiscoverPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-semibold dark:text-zinc-50">
           <Hash className="h-5 w-5 text-primary" aria-hidden />
           Trending hashtags
         </h2>
@@ -57,7 +57,7 @@ export default function DiscoverPage() {
               <Link
                 key={h.name}
                 href={`/hashtag/${encodeURIComponent(h.name)}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5"
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-primary/10"
               >
                 <span className="text-primary">#</span>
                 {h.name}

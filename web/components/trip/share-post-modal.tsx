@@ -180,13 +180,13 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       role="presentation"
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-3xl"
+        className="flex max-h-[90vh] w-full max-w-md flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900 sm:max-h-[85vh] sm:rounded-3xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-post-title"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-zinc-800 sm:px-5">
           {phase === "chat" ? (
             <Button
               type="button"
@@ -201,7 +201,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
           ) : (
             <span className="w-10" />
           )}
-          <h2 id="share-post-title" className="text-lg font-bold text-slate-900">
+          <h2 id="share-post-title" className="text-lg font-bold text-slate-900 dark:text-zinc-50">
             {phase === "chat" ? "Send to chat" : "Share post"}
           </h2>
           <Button type="button" variant="ghost" size="icon" className="rounded-xl" onClick={onClose} aria-label="Close">
@@ -211,20 +211,20 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
 
         {phase === "main" ? (
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-800/50">
               <div className="flex gap-3 p-3">
-                <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-slate-200 dark:bg-zinc-700">
                   {img ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={img} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">No preview</div>
+                    <div className="flex h-full w-full items-center justify-center text-xs text-slate-400 dark:text-zinc-500">No preview</div>
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-900">{author}</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-zinc-50">{author}</p>
                   {post.caption ? (
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">{post.caption}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-600 dark:text-zinc-400">{post.caption}</p>
                   ) : null}
                   <div className="mt-2 flex items-center gap-2">
                     <p className="truncate text-xs font-medium text-primary">{displayUrl}</p>
@@ -238,63 +238,63 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
               <button
                 type="button"
                 onClick={() => void systemShare()}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               >
                 <Share2 className="h-7 w-7 text-primary" />
-                <span className="text-[11px] font-semibold leading-tight text-slate-800">Share</span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">Share</span>
               </button>
               <button
                 type="button"
                 onClick={openFacebook}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               >
                 <span className="text-2xl leading-none" aria-hidden>
                   f
                 </span>
-                <span className="text-[11px] font-semibold leading-tight text-slate-800">Facebook</span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">Facebook</span>
               </button>
               <button
                 type="button"
                 onClick={openTwitter}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               >
-                <span className="text-xl font-bold leading-none text-slate-800" aria-hidden>
+                <span className="text-xl font-bold leading-none text-slate-800 dark:text-zinc-200" aria-hidden>
                   𝕏
                 </span>
-                <span className="text-[11px] font-semibold leading-tight text-slate-800">Twitter</span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">Twitter</span>
               </button>
               <button
                 type="button"
                 onClick={() => void copyLink()}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               >
                 <Link2 className="h-7 w-7 text-primary" />
-                <span className="text-[11px] font-semibold leading-tight text-slate-800">Copy link</span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">Copy link</span>
               </button>
               <button
                 type="button"
                 onClick={() => setPhase("chat")}
-                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100"
+                className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-4 text-center transition-colors hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
               >
                 <MessageCircle className="h-7 w-7 text-primary" />
-                <span className="text-[11px] font-semibold leading-tight text-slate-800">Send to chat</span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">Send to chat</span>
               </button>
             </div>
           </div>
         ) : (
           <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-slate-100 p-3">
+            <div className="shrink-0 border-b border-slate-100 p-3 dark:border-zinc-800">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" aria-hidden />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search users…"
-                  className="rounded-xl border-slate-200 pl-10"
+                  className="rounded-xl border-slate-200 pl-10 dark:border-zinc-700 dark:bg-zinc-800/60"
                 />
               </div>
               {debouncedSearch.length > 0 && debouncedSearch.length < 2 ? (
-                <p className="mt-2 text-center text-xs text-slate-500">Type at least 2 characters to search</p>
+                <p className="mt-2 text-center text-xs text-slate-500 dark:text-zinc-400">Type at least 2 characters to search</p>
               ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -303,31 +303,31 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : visibleUsers.length === 0 ? (
-                <p className="px-4 py-10 text-center text-sm text-slate-500">No users found</p>
+                <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-zinc-400">No users found</p>
               ) : (
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-slate-100 dark:divide-zinc-800">
                   {visibleUsers.map((u) => (
                     <li key={u._id}>
                       <button
                         type="button"
                         disabled={sendMutation.isPending}
                         onClick={() => sendMutation.mutate(u._id)}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:opacity-60"
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:opacity-60 dark:hover:bg-zinc-800/80"
                       >
-                        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
                           {u.profilePic ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img src={u.profilePic} alt="" className="h-full w-full object-cover" />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-400">
+                            <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-400 dark:text-zinc-500">
                               {(u.fullName || u.username || "?").charAt(0).toUpperCase()}
                             </div>
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-slate-900">{u.fullName || u.username || "User"}</p>
+                          <p className="truncate font-semibold text-slate-900 dark:text-zinc-50">{u.fullName || u.username || "User"}</p>
                           {u.username ? (
-                            <p className="truncate text-xs text-slate-500">@{u.username}</p>
+                            <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{u.username}</p>
                           ) : null}
                         </div>
                         {sendMutation.isPending ? (
@@ -343,7 +343,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
         )}
 
         {phase === "main" ? (
-          <div className="shrink-0 border-t border-slate-100 p-3">
+          <div className="shrink-0 border-t border-slate-100 p-3 dark:border-zinc-800">
             <Button type="button" variant="outline" className="w-full rounded-xl" onClick={onClose}>
               Cancel
             </Button>

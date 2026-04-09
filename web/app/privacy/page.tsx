@@ -6,7 +6,7 @@ export default function PrivacyPage() {
     <div className="mx-auto w-full max-w-5xl space-y-6 px-3 py-6 sm:px-4 sm:py-10 md:px-6">
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Home
@@ -31,18 +31,18 @@ export default function PrivacyPage() {
 
       <div className="space-y-6 md:space-y-8">
         {/* Information We Collect */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
             Information We Collect
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
             We collect different types of information to provide and improve Taatom.
           </p>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Personal Information</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-zinc-800/60 dark:bg-zinc-800/40">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Personal Information</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
                 <li>
                   <strong>Account Information</strong>: username, email address, full name, profile
                   picture.
@@ -62,11 +62,11 @@ export default function PrivacyPage() {
               </ul>
             </div>
 
-            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4">
-              <h3 className="text-sm font-semibold text-slate-900">
+            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-zinc-800/60 dark:bg-zinc-800/40">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-50">
                 Automatically Collected Information
               </h3>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
                 <li>
                   <strong>Usage Data</strong>: how you interact with the app, features used, time
                   spent.
@@ -82,7 +82,7 @@ export default function PrivacyPage() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-900">
+          <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/80 p-4 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-100">
             <p className="font-semibold">App Tracking Transparency (iOS)</p>
             <p className="mt-1">
               We do not track users across third‑party apps or external websites without explicit
@@ -92,30 +92,30 @@ export default function PrivacyPage() {
         </section>
 
         {/* How We Use Your Information */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
             How We Use Your Information
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
             We use the information we collect to operate and improve Taatom, including:
           </p>
-          <ul className="mt-4 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+          <ul className="mt-4 grid gap-2 text-sm text-slate-700 dark:text-zinc-300 md:grid-cols-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Provide, maintain, and improve our services.
             </li>
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Process and display your posts and content.
             </li>
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Enable social features (likes, comments, follows).
             </li>
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Send notifications about activity on your account.
             </li>
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Respond to your support requests.
             </li>
-            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+            <li className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 dark:border-zinc-800/60 dark:bg-zinc-800/40">
               ✓ Detect and prevent fraud or abuse, and comply with legal obligations.
             </li>
           </ul>
@@ -123,12 +123,12 @@ export default function PrivacyPage() {
 
         {/* Information Sharing & Security */}
         <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-            <h2 className="text-lg font-semibold text-slate-900 md:text-xl">Information Sharing</h2>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+            <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">Information Sharing</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
               We do <strong>not</strong> sell your personal information. We may share it:
             </p>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
               <li>
                 <strong>With Other Users</strong>: your public profile and posts are visible to
                 other users.
@@ -147,12 +147,12 @@ export default function PrivacyPage() {
             </ul>
           </div>
 
-          <div className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-            <h2 className="text-lg font-semibold text-slate-900 md:text-xl">Data Security</h2>
-            <p className="mt-2 text-sm text-slate-600">
+          <div className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+            <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">Data Security</h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
               We implement technical and organisational measures to protect your data:
             </p>
-            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
               <li>🔒 Encryption of data in transit (HTTPS).</li>
               <li>🔒 Secure authentication and authorization.</li>
               <li>🔒 Regular security audits and updates.</li>
@@ -162,12 +162,12 @@ export default function PrivacyPage() {
         </section>
 
         {/* Your Rights, Children, Transfers */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">Your Rights</h2>
-          <p className="mt-2 text-sm text-slate-600">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">Your Rights</h2>
+          <p className="mt-2 text-sm text-slate-600 dark:text-zinc-400">
             Depending on your region, you may have the right to:
           </p>
-          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>Access your personal data.</li>
             <li>Correct inaccurate data.</li>
             <li>Delete your account and data.</li>
@@ -176,35 +176,35 @@ export default function PrivacyPage() {
             <li>Withdraw consent where applicable.</li>
           </ul>
 
-          <h3 className="mt-5 text-sm font-semibold text-slate-900">Children&apos;s Privacy</h3>
-          <p className="mt-1 text-sm text-slate-700">
+          <h3 className="mt-5 text-sm font-semibold text-slate-900 dark:text-zinc-50">Children&apos;s Privacy</h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-zinc-300">
             Our app is not intended for users under 12 years of age. We do not knowingly collect
             personal information from children under 12. If you believe we have collected
             information from a child, please contact us immediately.
           </p>
 
-          <h3 className="mt-5 text-sm font-semibold text-slate-900">
+          <h3 className="mt-5 text-sm font-semibold text-slate-900 dark:text-zinc-50">
             International Data Transfers
           </h3>
-          <p className="mt-1 text-sm text-slate-700">
+          <p className="mt-1 text-sm text-slate-700 dark:text-zinc-300">
             Your information may be transferred to and processed in countries other than your
             country of residence. We ensure appropriate safeguards are in place for such transfers.
           </p>
 
-          <h3 className="mt-5 text-sm font-semibold text-slate-900">Changes to This Policy</h3>
-          <p className="mt-1 text-sm text-slate-700">
+          <h3 className="mt-5 text-sm font-semibold text-slate-900 dark:text-zinc-50">Changes to This Policy</h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-zinc-300">
             We may update this Privacy Policy from time to time. We will notify you of any changes
             by posting the new policy on this page and updating the &quot;Last Updated&quot; date.
           </p>
         </section>
 
         {/* Contact */}
-        <section className="rounded-3xl border border-emerald-200/80 bg-emerald-50/90 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-emerald-900 md:text-xl">Contact Us</h2>
-          <p className="mt-2 text-sm text-emerald-900">
+        <section className="rounded-3xl border border-emerald-200/80 bg-emerald-50/90 p-6 shadow-soft dark:border-emerald-900/40 dark:bg-emerald-950/35 md:p-8">
+          <h2 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100 md:text-xl">Contact Us</h2>
+          <p className="mt-2 text-sm text-emerald-900 dark:text-emerald-100/90">
             If you have questions about this Privacy Policy, please contact us at:
           </p>
-          <p className="mt-3 text-sm font-semibold text-emerald-900">
+          <p className="mt-3 text-sm font-semibold text-emerald-900 dark:text-emerald-100">
             Email:{" "}
             <a href="mailto:contact@taatom.com" className="underline">
               contact@taatom.com

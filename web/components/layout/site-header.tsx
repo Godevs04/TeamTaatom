@@ -8,6 +8,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
+import { SocialConnect } from "./social-connect";
 
 const nav = [
   { href: "/feed", label: "Feed" },
@@ -32,13 +33,13 @@ export function SiteHeader() {
       className={cn(
         "sticky top-0 z-40 w-full backdrop-blur-xl",
         softHeader
-          ? "border-b border-slate-200/35 bg-white/70 shadow-none"
-          : "border-b border-slate-200/60 bg-white/90 shadow-sm"
+          ? "border-b border-slate-200/35 bg-white/70 shadow-none dark:border-zinc-800/60 dark:bg-zinc-950/80"
+          : "border-b border-slate-200/60 bg-white/90 shadow-sm dark:border-zinc-800/70 dark:bg-zinc-950/90 dark:shadow-black/20"
       )}
     >
       <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
         <div className="flex min-w-0 flex-shrink items-center gap-3 sm:gap-6">
-          <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900">
+          <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.png?v=2" alt="Taatom" className="h-8 w-8 rounded-xl object-contain" />
             <span className="text-sm sm:text-base">Taatom</span>
@@ -59,13 +60,13 @@ export function SiteHeader() {
                     {active && (
                       <motion.span
                         layoutId="nav-pill"
-                        className="absolute inset-0 -z-10 rounded-full bg-slate-100"
+                        className="absolute inset-0 -z-10 rounded-full bg-slate-100 dark:bg-zinc-800"
                       />
                     )}
                     {active && !mounted && (
                       <span
                         aria-hidden
-                        className="absolute inset-0 -z-10 rounded-full bg-slate-100"
+                        className="absolute inset-0 -z-10 rounded-full bg-slate-100 dark:bg-zinc-800"
                       />
                     )}
                     {item.label}
@@ -76,9 +77,12 @@ export function SiteHeader() {
           )}
         </div>
 
-        <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
+        <div className="flex flex-shrink-0 items-center gap-1 sm:gap-2">
           {showAppNav ? (
             <>
+              <div className="hidden md:flex md:items-center md:pr-1">
+                <SocialConnect variant="toolbar" />
+              </div>
               <Link href="/create">
                 <Button className="gap-2 rounded-xl bg-primary px-3 text-white shadow-lg shadow-primary/20 hover:opacity-95 sm:px-4">
                   <PlusSquare className="h-4 w-4 shrink-0" />

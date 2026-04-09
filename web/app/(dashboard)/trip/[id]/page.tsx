@@ -74,7 +74,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           <CaptionWithLinks
             text={post.caption || "Trip"}
             as="h1"
-            className="text-balance text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl"
+            className="text-balance text-2xl font-semibold tracking-tight text-slate-900 dark:text-zinc-50 sm:text-3xl"
             linkClassName="text-primary"
           />
           <p className="mt-2 text-sm text-muted-foreground">{getPostDisplayLocation(post)}</p>

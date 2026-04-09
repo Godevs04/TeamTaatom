@@ -45,12 +45,15 @@ export default function CreateCollectionPage() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">New collection</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-zinc-50">New collection</h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90"
+      >
         <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Name</label>
+          <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-zinc-300">Name</label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -60,7 +63,7 @@ export default function CreateCollectionPage() {
           />
         </div>
         <div>
-          <label className="mb-2 block text-sm font-semibold text-slate-700">Description (optional)</label>
+          <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-zinc-300">Description (optional)</label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -75,9 +78,11 @@ export default function CreateCollectionPage() {
             id="isPublic"
             checked={isPublic}
             onChange={(e) => setIsPublic(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300"
+            className="h-4 w-4 rounded border-slate-300 dark:border-zinc-600"
           />
-          <label htmlFor="isPublic" className="text-sm text-slate-700">Public (others can see this collection)</label>
+          <label htmlFor="isPublic" className="text-sm text-slate-700 dark:text-zinc-300">
+            Public (others can see this collection)
+          </label>
         </div>
         <div className="flex gap-3">
           <Button type="submit" className="rounded-xl" disabled={create.isPending || !name.trim()}>
