@@ -1748,7 +1748,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onTouchMove={handlersRef.current.handleTouchMove}
             onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
           >
-            <TouchableWithoutFeedback 
+            <TouchableWithoutFeedback
               onPress={() => {
                 handlersRef.current.toggleVideoPlayback(item._id);
                 handlersRef.current.showPauseButtonTemporarily(item._id);
@@ -1759,6 +1759,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   handlersRef.current.handleDeleteShort(item._id);
                 }
               }}
+              accessible={true}
+              accessibilityLabel="Tap to play or pause video"
+              accessibilityRole="button"
             >
               {/* Conditional rendering: Only mount Video component if within 1 index of visible */}
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
@@ -2115,9 +2118,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           {/* Right Side Action Buttons - Outside TouchableWithoutFeedback to prevent pause button flexing */}
           <View style={styles.rightActions} pointerEvents="box-none">
             {/* Profile Picture */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.profileButton}
               onPress={() => handleProfilePress(item.user._id)}
+              accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+              accessibilityRole="button"
             >
               <Image
                 source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
@@ -2140,12 +2145,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </TouchableOpacity>
 
             {/* Like Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleLike(item._id);
               }}
               disabled={actionLoading === item._id}
+              accessibilityLabel={isLiked ? `Unlike, ${item.likesCount || 0} likes` : `Like, ${item.likesCount || 0} likes`}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: actionLoading === item._id }}
             >
               <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
                 <Ionicons 
@@ -2158,11 +2166,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Comment Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleComment(item._id);
               }}
+              accessibilityLabel={`Comment, ${item.commentsCount || 0} comments`}
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="chatbubble-outline" size={28} color="white" />
@@ -2171,11 +2181,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Share Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleShare(item);
               }}
+              accessibilityLabel="Share"
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="paper-plane-outline" size={28} color="white" />
@@ -2183,11 +2195,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Save Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleSave(item._id);
               }}
+              accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons 
@@ -2207,13 +2221,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             />
             
             <View style={styles.bottomContentInner}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.userProfileSection}
                 onPress={(e) => {
                   e.stopPropagation?.(); // Prevent event from bubbling
                   handlersRef.current.handleProfilePress(item.user._id);
                 }}
                 activeOpacity={0.7}
+                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+                accessibilityRole="button"
               >
                 <View style={styles.avatarContainer}>
                 <Image

@@ -3,7 +3,7 @@ import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, Activity
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from 'expo-router';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -2314,6 +2314,27 @@ export default function ChatModal() {
       setChatLoading(false);
     }
   };
+
+  // Prevent back navigation when ChatWindow is open
+  // Intercept back action (both swipe and button) to close chat instead of navigating away
+  const navigation = useNavigation<any>();
+  useFocusEffect(
+    useCallback(() => {
+      if (!activeChat) return; // Only intercept if chat is open
+
+      // Prevent default back behavior when chat is open
+      const unsubscribe = navigation?.addListener('beforeRemove', (e: any) => {
+        // Prevent default back navigation
+        e.preventDefault();
+        // Close the chat instead
+        setSelectedUser(null);
+        setActiveChat(null);
+        setActiveMessages([]);
+      });
+
+      return unsubscribe;
+    }, [activeChat, navigation])
+  );
 
   // If userId param is present, fetch that user directly
   useEffect(() => {
