@@ -267,8 +267,8 @@ export default function HomeScreen() {
     
     isFetchingRef.current = true;
     try {
-      logger.debug('Fetching posts for page:', pageNum);
-      
+      logger.debug(`Fetching posts for page: ${pageNum}`);
+
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
       const response = await getPosts(pageNum, postsPerPage);
@@ -296,22 +296,10 @@ export default function HomeScreen() {
           return mergeLikedIntoPosts([...prev, ...newPosts]);
         });
       } else {
-        // Only update if data actually changed (prevent double-render on cache + fresh fetch)
-        setPosts(prev => {
-          // Check if data has changed: compare post count or first post ID
-          // If counts differ, definitely update (post was deleted or new post added)
-          if (prev.length !== response.posts.length) {
-            logger.debug(`Post count changed from ${prev.length} to ${response.posts.length}, updating`);
-            return mergeLikedIntoPosts(response.posts);
-          }
-          // Same count: check if first post ID matches
-          if (prev.length > 0 && response.posts.length > 0 && prev[0]._id === response.posts[0]._id) {
-            // Data hasn't changed, skip update
-            logger.debug('Fresh posts match cached data, skipping update');
-            return prev;
-          }
-          return mergeLikedIntoPosts(response.posts);
-        });
+        // Always apply fresh API data — signed R2 image URLs expire after 5 minutes,
+        // so cached posts may have stale URLs that cause blank images.
+        // Fresh responses always carry valid signed URLs.
+        setPosts(mergeLikedIntoPosts(response.posts));
       }
       
       setHasMore(response.pagination?.hasNextPage ?? false);
@@ -993,9 +981,10 @@ export default function HomeScreen() {
     return result;
   }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
 
+  // Re-fetch when feedMode changes (after handleFeedModeChange clears posts)
   const renderHeader = () => (
-    <AnimatedHeader 
-      unseenMessageCount={unseenMessageCount} 
+    <AnimatedHeader
+      unseenMessageCount={unseenMessageCount}
       onRefresh={handleRefresh}
     />
   );
@@ -1179,4 +1168,4 @@ export default function HomeScreen() {
     </View>
     </ErrorBoundary>
   );
-}
+}

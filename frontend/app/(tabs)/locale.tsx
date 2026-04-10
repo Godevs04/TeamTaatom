@@ -1186,15 +1186,24 @@ export default function LocaleScreen() {
           const snapshot = createLocationSnapshot();
           
           if (!snapshot) {
-            // Location snapshot not ready - store unsorted, will sort when snapshot becomes ready
+            // Location snapshot not ready — show results immediately (unsorted) so screen isn't blank.
+            // The single-sort useEffect will re-sort once countryCode arrives from reverse geocode.
             if (shouldFetchAll) {
+              const firstPage = localesWithStraightLineDistance.slice(0, ITEMS_PER_PAGE);
+              allLocalesSortedRef.current = localesWithStraightLineDistance;
               setAllLocalesWithDistances(localesWithStraightLineDistance);
+              setAdminLocales(firstPage);
+              setDisplayedPage(1);
+              setHasMore(localesWithStraightLineDistance.length > ITEMS_PER_PAGE);
+              setTotalPages(Math.ceil(localesWithStraightLineDistance.length / ITEMS_PER_PAGE));
+              const filtered = applyFilters(firstPage, false);
+              setFilteredLocales(filtered);
               setLoadingLocales(false);
               setLoading(false);
               loadedOnceRef.current = true;
             }
             if (__DEV__) {
-              logger.debug('⏳ Location snapshot not ready, storing locales unsorted. Will sort when snapshot becomes available.');
+              logger.debug('⏳ Location snapshot not ready, showing unsorted results. Will re-sort when snapshot becomes available.');
             }
             return;
           }
@@ -1224,7 +1233,11 @@ export default function LocaleScreen() {
           if (__DEV__) {
             logger.debug('✅ STAGE 1 complete: Straight-line distances calculated, sorted, first page rendered');
           }
-          
+
+          // Release search lock after STAGE 1 so filter/search changes aren't dropped
+          // during the STAGE 2 driving-distance batch (which can take 10+ seconds)
+          isSearchingRef.current = false;
+
           // STAGE 2: Calculate driving distance ONLY for first N locales (background, non-blocking)
           // N = ITEMS_PER_PAGE * 2 (e.g., 40 locales for 20 per page)
           const STAGE2_LIMIT = ITEMS_PER_PAGE * 2;
@@ -3172,7 +3185,7 @@ export default function LocaleScreen() {
     }
     
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
           styles.locationCard,
           styles.wideCard,
@@ -3201,10 +3214,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityRole="button"
+        accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image 
-            source={{ uri: locale.imageUrl }} 
+          <Image
+            source={{ uri: locale.imageUrl }}
             style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
@@ -3341,7 +3357,7 @@ export default function LocaleScreen() {
       : '–';
     
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
           styles.locationCard,
           styles.wideCard,
@@ -3370,10 +3386,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityRole="button"
+        accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image 
-            source={{ uri: locale.imageUrl }} 
+          <Image
+            source={{ uri: locale.imageUrl }}
             style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
@@ -3418,11 +3437,13 @@ export default function LocaleScreen() {
             e.stopPropagation();
             unsaveLocale(locale._id);
           }}
+          accessibilityLabel={`Remove ${locale.name} from saved`}
+          accessibilityRole="button"
         >
-          <Ionicons 
-            name="bookmark" 
-            size={20} 
-            color="#FFD700" 
+          <Ionicons
+            name="bookmark"
+            size={20}
+            color="#FFD700"
           />
         </TouchableOpacity>
       </TouchableOpacity>
@@ -3759,14 +3780,17 @@ export default function LocaleScreen() {
       {/* Elegant Top Navigation */}
       <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
         <View style={styles.tabContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              styles.tabButton, 
+              styles.tabButton,
               activeTab === 'locale' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('locale')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel="Locale tab"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'locale' }}
           >
             <Ionicons 
               name="location-outline" 
@@ -3781,14 +3805,17 @@ export default function LocaleScreen() {
             </Text>
           </TouchableOpacity>
           
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              styles.tabButton, 
+              styles.tabButton,
               activeTab === 'saved' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('saved')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel="Saved tab"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'saved' }}
           >
             <Ionicons 
               name="bookmark-outline" 
@@ -3831,11 +3858,13 @@ export default function LocaleScreen() {
               }, SEARCH_DEBOUNCE_MS);
             }}
           />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.filterButton}
             onPress={() => setShowFilterModal(true)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
+            accessibilityRole="button"
           >
             <Ionicons name="options-outline" size={isTabletLocal ? 24 : 20} color={theme.colors.textSecondary} />
             {activeFilterCount > 0 && (
