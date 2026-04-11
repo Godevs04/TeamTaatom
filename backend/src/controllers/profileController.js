@@ -348,13 +348,17 @@ const getProfile = async (req, res) => {
       profilePicUrl = user.profilePic;
     }
 
+    // Respect showLocation privacy: hide post coordinates from other users when disabled
+    const showLocationEnabled = user.settings?.privacy?.showLocation !== false;
+    const visibleLocations = canViewLocations && (isOwnProfile || showLocationEnabled) ? locations : [];
+
     const profile = {
       ...user,
       profilePic: profilePicUrl, // Dynamically generated URL
       postsCount: posts.length,
       followersCount,
       followingCount,
-      locations: canViewLocations ? locations : [],
+      locations: visibleLocations,
       tripScore: tripScore,
       isFollowing,
       isOwnProfile,
@@ -1465,6 +1469,16 @@ const approveFollowRequest = async (req, res) => {
           // Don't fail the entire request if notification creation fails
         }
 
+    // Mark the follow_request notification as read and change type so it persists correctly after reload
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requesterId, type: 'follow_request' },
+        { $set: { isRead: true, type: 'follow_request_accepted' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking follow_request notification as read:', notifReadError);
+    }
+
     return sendSuccess(res, 200, 'Follow request approved', {
       followersCount: user.followers.length
     });
@@ -1513,6 +1527,16 @@ const rejectFollowRequest = async (req, res) => {
     }
 
     await Promise.all([user.save(), requester.save()]);
+
+    // Mark the follow_request notification as read and change type so it persists correctly after reload
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requesterId, type: 'follow_request' },
+        { $set: { isRead: true, type: 'follow_request_rejected' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking follow_request notification as read:', notifReadError);
+    }
 
     return sendSuccess(res, 200, 'Follow request rejected');
   } catch (error) {
