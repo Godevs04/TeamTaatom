@@ -143,14 +143,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat }: { 
-  otherUser: any, 
-  onClose: () => void, 
-  messages: any[], 
-  onSendMessage: (msg: any) => void, 
-  chatId: string, 
-  onVoiceCall: (user: any) => void, 
-  onVideoCall: (user: any) => void, 
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+  otherUser: any,
+  onClose: () => void,
+  messages: any[],
+  onSendMessage: (msg: any) => void,
+  chatId: string,
+  onVoiceCall: (user: any) => void,
+  onVideoCall: (user: any) => void,
   isCalling: boolean,
   showGlobalCallScreen: boolean,
   globalCallState: any,
@@ -159,7 +159,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   forceRender: number,
   setForceRender: (fn: (prev: number) => number) => void,
   router: any,
-  onClearChat?: () => void
+  onClearChat?: () => void,
+  onMessagesSeen?: (chatId: string, seenMessageIds: string[]) => void
 }) {
   // Render logging removed - too verbose, use React DevTools for component tracking
   
@@ -538,7 +539,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const messagesFirstId = messages.length > 0 ? normalizeId(messages[0]?._id) : '';
   const localMessagesLength = Array.isArray(localMessages) ? localMessages.length : 0;
   const localMessagesFirstId = localMessages.length > 0 ? normalizeId(localMessages[0]?._id) : '';
-  
+  const localMessagesSeenCount = localMessages.filter(m => m.seen === true).length;
+
   const allMessages = React.useMemo(() => {
     // No logging here - useMemo recalculating is normal behavior
     // Only log errors if something goes wrong
@@ -546,7 +548,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     // Create stable arrays to prevent unnecessary recalculations
     const messagesArray = Array.isArray(messages) ? messages : [];
     const localMessagesArray = Array.isArray(localMessages) ? localMessages : [];
-    const merged = [...messagesArray, ...localMessagesArray];
+    const merged = [...localMessagesArray, ...messagesArray];
     
     // Deduplicate by _id
     const seen = new Set<string>();
@@ -566,11 +568,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     });
     
     return sorted;
-  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId]); // Use stable primitives
+  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount]); // Use stable primitives
   
   // Sort messages ascending by timestamp (oldest first)
   // Use allMessages which is already sorted
   const sortedMessages = allMessages;
+
+  // Ref to always have current sortedMessages inside socket callbacks (avoids stale closure)
+  const sortedMessagesRef = React.useRef<any[]>([]);
+  sortedMessagesRef.current = sortedMessages;
 
   useEffect(() => {
     // CRITICAL: Ensure socket is connected and subscribed properly
@@ -733,16 +739,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     };
     const onSeen = (payload: any) => {
-      if (payload.from === otherUser._id) {
+      if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
         setLastSeenId(payload.messageId);
-        // Update seen status in local messages
+        const otherUserId = normalizeId(otherUser._id);
+
+        // Collect all own message IDs from current messages (via ref to avoid stale closure)
+        const ownMessageIds = sortedMessagesRef.current
+          .filter(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            return senderId && otherUserId && senderId !== otherUserId;
+          })
+          .map(m => normalizeId(m._id))
+          .filter(Boolean);
+
+        // Update localMessages for in-session messages
         setLocalMessages(prev =>
-          prev.map(m =>
-            normalizeId(m._id) === normalizeId(payload.messageId) 
-              ? { ...m, seen: true } 
-              : m
-          )
+          prev.map(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            if (senderId && otherUserId && senderId !== otherUserId && !m.seen) {
+              return { ...m, seen: true };
+            }
+            return m;
+          })
         );
+
+        // Update activeMessages in parent so seen status survives prop recomputes
+        if (onMessagesSeen && chatId && ownMessageIds.length > 0) {
+          onMessagesSeen(chatId, ownMessageIds);
+        }
       }
     };
     const onOnline = (payload: any) => {
@@ -912,7 +936,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               }
               return m;
             }));
-            
+
+            // Notify parent to update conversations badge
+            if (onMessagesSeen && chatId) {
+              onMessagesSeen(chatId, unseen.map(u => normalizeId(u._id)));
+            }
+
             hasMarkedAsSeenRef.current = true;
           }
         }, 3000); // 3 second delay - gives user time to view messages
@@ -963,9 +992,14 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         }
         return m;
       }));
-      
+
+      // Notify parent to update conversations badge
+      if (onMessagesSeen && chatId) {
+        onMessagesSeen(chatId, unseen.map(u => normalizeId(u._id)));
+      }
+
       hasMarkedAsSeenRef.current = true;
-      
+
       // Clear the timeout since we've already marked as seen
       if (markSeenTimeoutRef.current) {
         clearTimeout(markSeenTimeoutRef.current);
@@ -1695,7 +1729,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                     </Text>
                     {isOwn && (
                       <View style={{ marginLeft: 6 }}>
-                        {isLastOwn && item._id === lastSeenId ? (
+                        {item.seen === true ? (
                           <Ionicons name="checkmark-done" size={14} color="#fff" />
                         ) : (
                           <Ionicons name="checkmark" size={14} color="#fff" style={{ opacity: 0.7 }} />
@@ -2623,6 +2657,24 @@ export default function ChatModal() {
       forceRender={forceRender}
       setForceRender={setForceRender}
       router={router}
+      onMessagesSeen={(seenChatId, seenIds) => {
+        // Update badge count in conversations list
+        setConversations(prev => prev.map(conv => {
+          if (conv._id !== seenChatId) return conv;
+          const updatedMessages = (conv.messages || []).map((m: any) => {
+            const msgId = normalizeId(m._id);
+            if (seenIds.includes(msgId)) return { ...m, seen: true };
+            return m;
+          });
+          return { ...conv, messages: updatedMessages };
+        }));
+        // Update activeMessages so the read receipt ticks survive recomputes
+        setActiveMessages(prev => prev.map((m: any) => {
+          const msgId = normalizeId(m._id);
+          if (seenIds.includes(msgId)) return { ...m, seen: true };
+          return m;
+        }));
+      }}
       onClearChat={() => {
         // Clear active messages
         setActiveMessages([]);
