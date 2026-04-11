@@ -43,3 +43,7 @@ de/rules/byterover-rules.md
 # Claude setup
 .claude/
 claude/
+CLAUDE.md
+
+# Frontend app config (local only)
+frontend/app.json
