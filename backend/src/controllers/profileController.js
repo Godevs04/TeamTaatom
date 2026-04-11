@@ -348,17 +348,13 @@ const getProfile = async (req, res) => {
       profilePicUrl = user.profilePic;
     }
 
-    // Respect showLocation privacy: hide post coordinates from other users when disabled
-    const showLocationEnabled = user.settings?.privacy?.showLocation !== false;
-    const visibleLocations = canViewLocations && (isOwnProfile || showLocationEnabled) ? locations : [];
-
     const profile = {
       ...user,
       profilePic: profilePicUrl, // Dynamically generated URL
       postsCount: posts.length,
       followersCount,
       followingCount,
-      locations: visibleLocations,
+      locations: canViewLocations ? locations : [],
       tripScore: tripScore,
       isFollowing,
       isOwnProfile,
