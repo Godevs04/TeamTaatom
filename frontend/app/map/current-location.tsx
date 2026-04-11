@@ -167,6 +167,8 @@ export default function CurrentLocationMap() {
   const locationName = params.locationName as string || null; // For locale navigation
   const countryParam = params.country as string || null;
   const userIdParam = params.userId as string || null;
+  const isApproximate = params.isApproximate === 'true';
+  const approximateLabel = params.approximateLabel as string || null;
   
   // Check if this is TripScore flow (country is not 'general' and userId is not 'admin-locale')
   const isTripScoreFlow = countryParam && countryParam !== 'general' && userIdParam !== 'admin-locale';
@@ -583,7 +585,7 @@ export default function CurrentLocationMap() {
         
         <View style={styles.titleContainer}>
           <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            {isPostLocation ? (postAddress || 'Post Location') : 'Current Location'}
+            {isApproximate ? 'Approximate Location' : isPostLocation ? (postAddress || 'Post Location') : 'Current Location'}
           </Text>
           {isWatching && !isPostLocation && (
             <View style={styles.watchingIndicator}>
@@ -612,7 +614,15 @@ export default function CurrentLocationMap() {
             <View style={styles.locationRow}>
               <Ionicons name="location" size={20} color={theme.colors.primary} />
               <Text style={[styles.locationText, { color: theme.colors.text }]}>
-                Location: {postAddress}
+                {postAddress}
+              </Text>
+            </View>
+          )}
+          {isApproximate && approximateLabel && (
+            <View style={[styles.locationRow, { marginTop: 6, backgroundColor: theme.colors.primary + '15', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 }]}>
+              <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} />
+              <Text style={[styles.locationText, { color: theme.colors.primary, fontSize: 12, marginLeft: 6 }]}>
+                Exact address not found on maps. Showing nearest area: {approximateLabel}
               </Text>
             </View>
           )}

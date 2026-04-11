@@ -148,12 +148,16 @@ const fetchRealCoords = async (
         }
 
         // Use Places API Text Search to find tourist attractions
+        const placesParams: Record<string, string> = {
+          query: queryWithCountry,
+          key: GOOGLE_MAPS_API_KEY,
+        };
+        // Add region bias so Google prioritises results from the locale's country
+        if (countryCode) {
+          placesParams.region = countryCode.toLowerCase();
+        }
         const placesRes = await axios.get('https://maps.googleapis.com/maps/api/place/textsearch/json', {
-          params: {
-            query: queryWithCountry,
-            key: GOOGLE_MAPS_API_KEY,
-            // Don't restrict to tourist_attraction type - let it find any relevant place
-          },
+          params: placesParams,
           timeout: 5000,
         });
 

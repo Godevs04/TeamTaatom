@@ -346,17 +346,18 @@ const getPosts = async (req, res) => {
               post.song.songId.s3Url = songUrl;
               post.song.songId.cloudinaryUrl = songUrl;
             } catch (error) {
-              logger.warn('Failed to generate URL for song in post:', { 
-                postId: post._id, 
-                songId: post.song.songId._id, 
+              logger.warn('Failed to generate URL for song in post:', {
+                postId: post._id,
+                songId: post.song.songId._id,
                 storageKey,
-                error: error.message 
+                error: error.message
               });
               post.song.songId.s3Url = null;
               post.song.songId.cloudinaryUrl = null;
             }
           }
         }
+
         return post;
       }));
 
@@ -564,13 +565,13 @@ const getPostById = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { 
-                $project: { 
-                  fullName: 1, 
+              {
+                $project: {
+                  fullName: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: 1 // Include followers for follow status check
-                } 
+                }
               }
             ]
           }
@@ -1056,10 +1057,9 @@ const createPost = async (req, res) => {
       travelInfo: travelInfo || null,
       // Detected place data for admin review (from Google Maps API)
       // Check if any detected place field exists (handle empty strings from FormData)
-      // Save detected place data if ANY field is provided (even if some are empty)
-      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity || 
-                     detectedPlaceCountryCode || detectedPlaceStateProvince || 
-                     detectedPlaceLatitude || detectedPlaceLongitude || 
+      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity ||
+                     detectedPlaceCountryCode || detectedPlaceStateProvince ||
+                     detectedPlaceLatitude || detectedPlaceLongitude ||
                      detectedPlacePlaceId || detectedPlaceFormattedAddress) ? {
         name: (detectedPlaceName && detectedPlaceName.trim()) || null,
         country: (detectedPlaceCountry && detectedPlaceCountry.trim()) || null,
@@ -2030,11 +2030,11 @@ const getUserPosts = async (req, res) => {
             try {
               comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
             } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                postId: post._id, 
+              logger.warn('Failed to generate profile picture URL for comment user:', {
+                postId: post._id,
                 commentId: comment._id,
                 userId: comment.user._id,
-                error: error.message 
+                error: error.message
               });
               // Fallback to legacy URL if available
               comment.user.profilePic = comment.user.profilePic || null;

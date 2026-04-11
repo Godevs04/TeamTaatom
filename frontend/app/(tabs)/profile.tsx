@@ -27,7 +27,7 @@ import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, delete
 import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUnreadCount } from '../../services/notifications';
-import socketService from '../../services/socket';
+import { socketService } from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
