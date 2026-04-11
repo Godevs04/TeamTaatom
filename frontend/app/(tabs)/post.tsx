@@ -4546,7 +4546,7 @@ export default function PostScreen() {
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
             justifyContent: 'flex-end',
           }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={{
@@ -4562,6 +4562,7 @@ export default function PostScreen() {
               alignItems: 'center',
               justifyContent: 'space-between',
               paddingHorizontal: theme.spacing.lg,
+              paddingTop: theme.spacing.lg,
               marginBottom: theme.spacing.lg,
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>

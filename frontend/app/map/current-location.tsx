@@ -304,9 +304,9 @@ export default function CurrentLocationMap() {
       // Watch position for more accurate updates
       const subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 5000, // Update every 5 seconds
-          distanceInterval: 10, // Update every 10 meters
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10000, // Update every 10 seconds
+          distanceInterval: 20, // Update every 20 meters — reduces jitter from small GPS noise
         },
         (newLocation) => {
           setLocation(newLocation);
@@ -358,9 +358,11 @@ export default function CurrentLocationMap() {
               position: { lat: ${lat}, lng: ${lng} },
               map: map,
               title: '${title}',
+              animation: null,
               icon: {
-                url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF0000" stroke-width="2"/><text x="15" y="20" font-size="16" text-anchor="middle" fill="%23FF0000">🏳️</text></svg>',
+                url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF0000" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="%23FF0000"/></svg>',
                 scaledSize: new google.maps.Size(30, 30),
+                anchor: new google.maps.Point(15, 15),
               },
             });
             
