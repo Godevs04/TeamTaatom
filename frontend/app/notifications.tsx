@@ -19,6 +19,7 @@ import NavBar from '../components/NavBar';
 import FollowRequestPopup from '../components/FollowRequestPopup';
 import CustomAlert from '../components/CustomAlert';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, handleNotificationClick } from '../services/notifications';
+import socketService from '../services/socket';
 import { approveFollowRequest, rejectFollowRequest } from '../services/profile';
 import { Notification } from '../types/notification';
 import { triggerRefreshHaptic } from '../utils/hapticFeedback';
@@ -152,6 +153,22 @@ export default function NotificationsScreen() {
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  // Real-time: prepend new notifications as they arrive via socket
+  useEffect(() => {
+    const onNotification = (payload: any) => {
+      if (!payload) return;
+      setNotifications(prev => {
+        // Avoid duplicates
+        if (prev.some(n => n._id && payload._id && n._id === payload._id)) return prev;
+        return [payload as Notification, ...prev];
+      });
+    };
+    socketService.subscribe('notification', onNotification);
+    return () => {
+      socketService.unsubscribe('notification', onNotification);
+    };
+  }, []);
 
   const handleNotificationPress = async (notification: Notification) => {
     try {

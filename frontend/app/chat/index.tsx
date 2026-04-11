@@ -948,11 +948,26 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     }
     
-    // Cleanup timeout on unmount
+    // Cleanup: if timeout is still pending when chat closes, fire mark-as-seen immediately
     return () => {
       if (markSeenTimeoutRef.current) {
         clearTimeout(markSeenTimeoutRef.current);
         markSeenTimeoutRef.current = null;
+        // Fire immediately on close so the badge clears when returning to chat list
+        if (!hasMarkedAsSeenRef.current && chatId) {
+          const otherUserIdNorm = normalizeId(otherUser._id);
+          const unseenNow = sortedMessagesRef.current.filter(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            return senderId && otherUserIdNorm && senderId === otherUserIdNorm && !m.seen;
+          });
+          if (unseenNow.length > 0) {
+            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            if (onMessagesSeen && chatId) {
+              onMessagesSeen(chatId, unseenNow.map((u: any) => normalizeId(u._id)));
+            }
+            hasMarkedAsSeenRef.current = true;
+          }
+        }
       }
     };
   }, [sortedMessages, otherUser, chatId]);
@@ -2589,60 +2604,6 @@ export default function ChatModal() {
         setActiveChat(null);
         setActiveMessages([]);
         if (params.userId) router.back();
-        // Refresh chat list after closing chat
-        const reloadChats = async () => {
-          const token = await AsyncStorage.getItem('authToken');
-          const userData = await AsyncStorage.getItem('userData');
-          let myUserId = '';
-          if (userData) {
-            try { myUserId = JSON.parse(userData)._id; } catch {}
-          }
-          // Use dynamic API URL detection for web
-      const { getApiBaseUrl } = require('../../utils/config');
-      const API_BASE_URL = getApiBaseUrl();
-          const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
-          socket.on('connect', () => {
-            logger.debug('[SOCKET] connected to backend');
-            socket.emit('test', { hello: 'world' });
-          });
-          socket.on('connect_error', (err) => {
-            logger.debug('[SOCKET] connect_error:', err);
-          });
-          fetch(`${API_BASE_URL}/chat`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json'
-            }
-          })
-            .then(res => res.json())
-            .then(data => {
-              logger.debug('Reloaded /chat data:', JSON.stringify(data, null, 2));
-              let chats = data.chats || [];
-              chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
-              
-              // Frontend deduplication as safety measure
-              const chatMap = new Map<string, any>();
-              chats.forEach((chat: any) => {
-                const participantIds = chat.participants
-                  .map((p: any) => (p._id ? p._id.toString() : p.toString()))
-                  .sort()
-                  .join('_');
-                
-                if (!chatMap.has(participantIds) || 
-                    new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
-                  chatMap.set(participantIds, chat);
-                }
-              });
-              
-              const uniqueChats = Array.from(chatMap.values());
-              uniqueChats.sort((a: any, b: any) => 
-                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-              );
-              
-              setConversations(uniqueChats);
-            });
-        };
-        reloadChats();
       }} 
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
