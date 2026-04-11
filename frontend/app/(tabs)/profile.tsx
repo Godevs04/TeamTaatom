@@ -27,6 +27,7 @@ import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, delete
 import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUnreadCount } from '../../services/notifications';
+import socketService from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
@@ -391,7 +392,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     isMountedRef.current = true;
     loadUserData();
-    
+
     return () => {
       isMountedRef.current = false;
       // Cancel any pending requests
@@ -400,6 +401,17 @@ export default function ProfileScreen() {
       }
     };
   }, [loadUserData]);
+
+  // Real-time notification badge: increment count when a new notification arrives via socket
+  useEffect(() => {
+    const onNotification = () => {
+      setUnreadCount(prev => prev + 1);
+    };
+    socketService.subscribe('notification', onNotification);
+    return () => {
+      socketService.unsubscribe('notification', onNotification);
+    };
+  }, []);
   
   // Navigation Lifecycle Safety: Clear state on screen blur
   // Privacy & Settings Propagation: Refresh profile when screen is focused (e.g., after settings changes)
