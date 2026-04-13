@@ -8,7 +8,8 @@ export async function initializeAds(): Promise<void> {
   logger.debug('[AdMob] initializeAds noop (web/default build)');
 }
 
-export async function showConsentForm(): Promise<void> {
+export async function showConsentForm(): Promise<boolean> {
   // No-op on web; consent form is native-only.
   logger.debug('[AdMob] showConsentForm noop (web/default build)');
+  return false;
 }

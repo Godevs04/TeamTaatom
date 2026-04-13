@@ -50,6 +50,7 @@ export default function PrivacySettingsScreen() {
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
   });
   const [customOptionsVisible, setCustomOptionsVisible] = useState(false);
+  const [isOpeningConsentForm, setIsOpeningConsentForm] = useState(false);
   const [customOptionsConfig, setCustomOptionsConfig] = useState({
     title: '',
     message: '',
@@ -435,11 +436,25 @@ export default function PrivacySettingsScreen() {
           {(isIOS || isAndroid) && (
             <TouchableOpacity
               style={styles.settingItem}
+              disabled={isOpeningConsentForm}
               onPress={async () => {
+                if (isOpeningConsentForm) return;
                 try {
-                  await showConsentForm();
+                  setIsOpeningConsentForm(true);
+                  const opened = await showConsentForm();
+                  if (!opened) {
+                    showAlert(
+                      'Privacy options are not available right now for your region/session.',
+                      'Not Available',
+                      'info'
+                    );
+                  }
                 } catch {
                   showError('Unable to open privacy settings. Please try again.');
+                } finally {
+                  if (isMountedRef.current) {
+                    setIsOpeningConsentForm(false);
+                  }
                 }
               }}
             >
