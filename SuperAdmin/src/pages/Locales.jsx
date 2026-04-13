@@ -1009,8 +1009,7 @@ const Locales = () => {
       toast.error(`You can upload at most ${MAX_LOCALE_UPLOAD} images`)
       return
     }
-    setFormData({ ...formData, files: valid })
-    e.target.value = ''
+    setFormData((prev) => ({ ...prev, files: valid }))
   }
 
   const handleEditImagesChange = (e) => {
