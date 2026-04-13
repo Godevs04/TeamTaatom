@@ -141,6 +141,16 @@ api.interceptors.request.use(
         config.headers.Authorization = `Bearer ${token}`
       }
     }
+
+    // Ensure multipart uploads are not sent as JSON.
+    // Let the browser set the proper multipart/form-data boundary for FormData bodies.
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (config.headers && typeof config.headers.delete === 'function') {
+        config.headers.delete('Content-Type')
+      } else if (config.headers) {
+        delete config.headers['Content-Type']
+      }
+    }
     
     // Add CSRF token for state-changing requests (POST, PUT, PATCH, DELETE)
     // Only if user is authenticated
