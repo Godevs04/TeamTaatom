@@ -135,7 +135,7 @@ const getPosts = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1, 'settings.privacy.showLocation': 1 } }
             ]
           }
         },
@@ -418,10 +418,16 @@ const getPosts = async (req, res) => {
         ? post.likes.some(like => like.toString() === userId)
         : false;
 
+      const postOwnerId = post.user?._id?.toString();
+      const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
+      const { settings: _settings, ...userWithoutSettings } = post.user || {};
       return {
         ...post,
         imageUrl: optimizedImageUrl,
         isLiked,
+        location: hideLocation ? null : post.location,
+        detectedPlace: hideLocation ? null : post.detectedPlace,
+        user: userWithoutSettings,
         // likesCount and commentsCount already added by aggregation
       };
     });
@@ -570,7 +576,8 @@ const getPostById = async (req, res) => {
                   fullName: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
-                  followers: 1 // Include followers for follow status check
+                  followers: 1, // Include followers for follow status check
+                  'settings.privacy.showLocation': 1
                 }
               }
             ]
@@ -862,17 +869,22 @@ const getPostById = async (req, res) => {
       }
     }
 
+    const postOwnerId = post.user?._id?.toString();
+    const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
     const postWithDetails = {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
       viewsCount: finalViewsCount, // Always include views count
       views: finalViewsCount, // Also include views field for consistency
+      location: hideLocation ? null : post.location,
+      detectedPlace: hideLocation ? null : post.detectedPlace,
       // likesCount and commentsCount already added by aggregation
       user: {
         ...post.user,
         isFollowing,
-        followers: undefined // Remove followers array from response (not needed)
+        followers: undefined, // Remove followers array from response (not needed)
+        settings: undefined  // Remove settings from response
       }
     };
 
@@ -1780,7 +1792,7 @@ const getUserPosts = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Check if user exists and get privacy settings
-    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility settings.privacy.showLocation followers');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
@@ -2049,9 +2061,12 @@ const getUserPosts = async (req, res) => {
       return post;
     }));
 
+    const hideLocation = !isOwnProfile && user.settings?.privacy?.showLocation === false;
     const postsWithLikeStatus = postsWithProfilePics.map(post => ({
       ...post,
-      isLiked: post.isLiked || false
+      isLiked: post.isLiked || false,
+      location: hideLocation ? null : post.location,
+      detectedPlace: hideLocation ? null : post.detectedPlace,
     }));
 
     return sendSuccess(res, 200, 'User posts fetched successfully', {

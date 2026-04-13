@@ -200,6 +200,9 @@ export default function HomeScreen() {
   // Request guards for pull-to-refresh and pagination race safety
   const isRefreshingRef = useRef(false);
   const isPaginatingRef = useRef(false);
+
+  // Flag: scroll to top after the next feedData recompute (set on refresh, cleared by effect)
+  const scrollToTopOnNextFeedUpdateRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
   const lastViewedPostIdRef = useRef<string | null>(null);
@@ -299,6 +302,7 @@ export default function HomeScreen() {
         // Always apply fresh API data — signed R2 image URLs expire after 5 minutes,
         // so cached posts may have stale URLs that cause blank images.
         // Fresh responses always carry valid signed URLs.
+        scrollToTopOnNextFeedUpdateRef.current = true;
         setPosts(mergeLikedIntoPosts(response.posts));
       }
       
@@ -841,17 +845,6 @@ export default function HomeScreen() {
         fetchPosts(1, false),
         fetchUnseenMessageCount()
       ]);
-      
-      // Ensure scroll to top after posts are loaded
-      if (flatListRef.current) {
-        setTimeout(() => {
-          try {
-            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-          } catch (error) {
-            logger.debug('Error scrolling to top after refresh:', error);
-          }
-        }, 100);
-      }
     } finally {
       setRefreshing(false);
     }
@@ -980,6 +973,16 @@ export default function HomeScreen() {
     });
     return result;
   }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
+
+  // After a refresh replaces posts, scroll to top once FlatList has laid out the new data
+  useEffect(() => {
+    if (scrollToTopOnNextFeedUpdateRef.current && feedData.length > 0) {
+      scrollToTopOnNextFeedUpdateRef.current = false;
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      });
+    }
+  }, [feedData]);
 
   // Re-fetch when feedMode changes (after handleFeedModeChange clears posts)
   const renderHeader = () => (
