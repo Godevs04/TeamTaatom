@@ -37,7 +37,18 @@ export const getLocales = async (search = '', countryCode = '', page = 1, limit 
  */
 export const uploadLocale = async (formData) => {
   try {
-    const response = await api.post('/api/v1/locales/upload', formData);
+    const response = await api.post('/api/v1/locales/upload', formData, {
+      transformRequest: [
+        (data, headers) => {
+          if (typeof FormData !== 'undefined' && data instanceof FormData) {
+            if (headers && typeof headers.delete === 'function') {
+              headers.delete('Content-Type');
+            }
+          }
+          return data;
+        },
+      ],
+    });
     return response.data;
   } catch (error) {
     logger.error('Error uploading locale:', error);

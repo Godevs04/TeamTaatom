@@ -91,6 +91,8 @@ export interface PostsResponse {
   };
 }
 
+export type FeedMode = 'recents' | 'friends' | 'popular';
+
 export interface UserPostsResponse {
   posts: PostType[];
   user: {
@@ -151,9 +153,13 @@ export const getPostById = async (postId: string) => {
   }
 };
 
-export const getPosts = async (page: number = 1, limit: number = 20): Promise<PostsResponse> => {
+export const getPosts = async (
+  page: number = 1,
+  limit: number = 20,
+  feed: FeedMode = 'recents'
+): Promise<PostsResponse> => {
   try {
-    const response = await api.get(`/api/v1/posts?page=${page}&limit=${limit}`);
+    const response = await api.get(`/api/v1/posts?page=${page}&limit=${limit}&feed=${feed}`);
     return response.data;
   } catch (error: any) {
     if (isRateLimitError(error)) {
@@ -161,7 +167,7 @@ export const getPosts = async (page: number = 1, limit: number = 20): Promise<Po
       const rateLimitInfo = handleRateLimitError(error, 'getPosts');
       await sleep(500);
       try {
-        const retry = await api.get(`/api/v1/posts?page=${page}&limit=${limit}`);
+        const retry = await api.get(`/api/v1/posts?page=${page}&limit=${limit}&feed=${feed}`);
         return retry.data;
       } catch (e: any) {
         throw new Error(rateLimitInfo.message);
