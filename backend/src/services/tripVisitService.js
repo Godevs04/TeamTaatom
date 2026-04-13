@@ -329,27 +329,18 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     
     // If we have location object but coordinates are 0,0, treat as manual location (Scenario 3)
     // This will create TripVisit with pending_review status
-    
-    // Check if visit already exists (deduplication) - only if we have valid coordinates
-    let existingVisit = null;
-    if (hasValidCoords) {
-      existingVisit = await findExistingVisit(post.user, lat, lng);
-      if (existingVisit) {
-        logger.debug('Visit already exists for this location, updating instead');
-        return await updateTripVisitFromPost(post, metadata, existingVisit._id);
-      }
-    }
-    
+
     // Use detected place data if available (from Google Maps API)
     // This provides accurate city and country information
+    // IMPORTANT: Extract detectedPlace coords BEFORE dedup so the check uses the final stored coords
     let city = null;
     let country = 'Unknown';
-    
+
     if (post.detectedPlace) {
       // Priority: Use detected place data from Google Maps API
       city = post.detectedPlace.city || null;
       country = post.detectedPlace.country || getCountryFromLocation(address);
-      
+
       logger.debug('[TripVisit] Using detected place data:', {
         postId: post._id?.toString(),
         detectedCity: post.detectedPlace.city,
@@ -357,17 +348,13 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
         detectedCountryCode: post.detectedPlace.countryCode,
         detectedStateProvince: post.detectedPlace.stateProvince,
       });
-      
+
       // If detected place has coordinates, use them (more accurate)
       if (post.detectedPlace.latitude && post.detectedPlace.longitude) {
-        // Use detected place coordinates if they're different from post coordinates
-        // This ensures we use the most accurate location data
         const detectedLat = post.detectedPlace.latitude;
         const detectedLng = post.detectedPlace.longitude;
-        
         // Only override if detected place coordinates are valid
         if (detectedLat !== 0 && detectedLng !== 0) {
-          // Use detected place coordinates for more accurate continent detection
           lat = detectedLat;
           lng = detectedLng;
         }
@@ -375,6 +362,16 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     } else {
       // Fallback: Try to extract from address
       country = getCountryFromLocation(address);
+    }
+
+    // Check if visit already exists (deduplication) - uses final lat/lng (post or detectedPlace)
+    let existingVisit = null;
+    if (hasValidCoords || (lat !== 0 && lng !== 0)) {
+      existingVisit = await findExistingVisit(post.user, lat, lng);
+      if (existingVisit) {
+        logger.debug('Visit already exists for this location, updating instead');
+        return await updateTripVisitFromPost(post, metadata, existingVisit._id);
+      }
     }
     
     // Determine continent
@@ -518,6 +515,7 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     const tripVisit = new TripVisit({
       user: post.user,
       post: post._id,
+      posts: [post._id], // Track all posts at this location
       contentType: 'post',
       lat,
       lng,
@@ -731,6 +729,15 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
       }
     }
     
+    // Add this post to the posts array if not already tracked
+    if (post._id) {
+      const postIdStr = post._id.toString();
+      const existingIds = (tripVisit.posts || []).map(id => id.toString());
+      if (!existingIds.includes(postIdStr)) {
+        tripVisit.posts = [...(tripVisit.posts || []), post._id];
+      }
+    }
+
     // Update visit
     tripVisit.lat = lat;
     tripVisit.lng = lng;

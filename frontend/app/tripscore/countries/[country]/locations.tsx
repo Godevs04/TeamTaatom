@@ -59,7 +59,7 @@ export default function TripScoreLocationsScreen() {
       const countryParam = Array.isArray(country) ? country[0] : country;
       // Convert slug back to proper country name for API
       const countryName = countryParam.replace(/-/g, ' ');
-      const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}/locations`);
+      const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}/locations`);
       setData(response.data);
     } catch (error) {
       logger.error('Error loading locations:', error);
