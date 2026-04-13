@@ -63,7 +63,7 @@ export default function TripScoreCountriesScreen() {
       const continentParam = Array.isArray(continent) ? continent[0] : continent;
       // Convert slug back to proper continent name for API
       const continentName = continentParam.replace(/-/g, ' ').toUpperCase();
-      const response = await api.get(`/profile/${userId}/tripscore/continents/${continentName}/countries`);
+      const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents/${continentName}/countries`);
       setData(response.data);
     } catch (error) {
       logger.error('Error loading countries:', error);

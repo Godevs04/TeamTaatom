@@ -1076,7 +1076,8 @@ export default function LocaleScreen() {
         spotTypesParam,
             currentPage,
             BACKEND_LIMIT,
-            baseParams.includeInactive
+            baseParams.includeInactive,
+            searchAbortControllerRef.current?.signal
           );
           
           if (!isMountedRef.current) return;
@@ -1104,7 +1105,8 @@ export default function LocaleScreen() {
           spotTypesParam,
           currentPageRef.current,
           20,
-          baseParams.includeInactive
+          baseParams.includeInactive,
+          searchAbortControllerRef.current?.signal
       );
       
       if (!isMountedRef.current) return;
@@ -1136,13 +1138,11 @@ export default function LocaleScreen() {
         // Only clear locales if this is a search query (not initial load)
         if (newLocales.length === 0) {
           if (isMountedRef.current) {
-            // Only clear if there's an active search query, otherwise keep existing locales
-            if (searchQuery.trim()) {
-              // Search returned empty - clear results
+            // Clear if search query OR any filter is active (server returned 0 results deliberately)
+            if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
               setAdminLocales([]);
               setFilteredLocales([]);
             }
-            // If no search query, keep existing locales (don't clear on network issues)
             setCalculatingDistances(false);
             setLoadingLocales(false);
             setLoading(false);
@@ -1249,13 +1249,14 @@ export default function LocaleScreen() {
           
           if (localesToCalculate.length > 0 && shouldFetchAll) {
           setCalculatingDistances(true);
-          
+          const stage2FetchKey = lastFetchKeyRef.current;
+
             // Process in batches to avoid rate limiting
             const BATCH_SIZE = 5;
             const updatedLocales = new Map<string, Locale & { distanceKm?: number | null }>();
-            
+
             for (let i = 0; i < localesToCalculate.length; i += BATCH_SIZE) {
-              if (!isMountedRef.current) break;
+              if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
               
               const batch = localesToCalculate.slice(i, i + BATCH_SIZE);
             
@@ -1352,7 +1353,7 @@ export default function LocaleScreen() {
             }
           }
           
-          if (!isMountedRef.current) {
+          if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) {
             setCalculatingDistances(false);
             isSearchingRef.current = false;
             return;
@@ -1411,14 +1412,12 @@ export default function LocaleScreen() {
         }
       } else {
         // Response has no locales property or is empty
-        // Only clear if there's an active search query, otherwise keep existing locales
         if (isMountedRef.current) {
-          if (searchQuery.trim()) {
-            // Search returned empty - clear results
+          // Clear if search query OR any filter is active (server returned 0 results deliberately)
+          if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
             setAdminLocales([]);
             setFilteredLocales([]);
           }
-          // If no search query, keep existing locales (don't clear on network issues)
           setCalculatingDistances(false);
           setLoadingLocales(false);
           setLoading(false);
@@ -2177,7 +2176,7 @@ export default function LocaleScreen() {
         const localeWithDistance = locale as Locale & { distanceKm?: number | null };
         return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
       });
-      const shouldLoad = !hasLocales || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
+      const shouldLoad = (!hasLocales && !loadedOnceRef.current) || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
       
       // Guard: Prevent reload when only filters changed (load only on Search button or initial/focus restore)
       if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
@@ -2715,10 +2714,10 @@ export default function LocaleScreen() {
       
       // Reload locales without filters (only for locale tab) - use setTimeout to avoid blocking UI
       if (activeTab === 'locale') {
-        // Use setTimeout to ensure modal closes before reloading
+        // Use loadAdminLocalesRef so the call uses the latest version (with cleared filters)
         setTimeout(() => {
           if (isMountedRef.current) {
-            loadAdminLocales(true).catch(err => {
+            loadAdminLocalesRef.current(true).catch((err: any) => {
               logger.error('Error reloading locales after reset:', err);
             });
           }
@@ -2807,16 +2806,16 @@ export default function LocaleScreen() {
         currentPageRef.current = 1;
         // Reset fetch key to force new fetch
         lastFetchKeyRef.current = null;
-        loadAdminLocales(true);
+        loadAdminLocalesRef.current(true);
       }
     }, SEARCH_DEBOUNCE_MS);
-    
+
     return () => {
       if (searchDebounceTimerRef.current) {
         clearTimeout(searchDebounceTimerRef.current);
       }
     };
-  }, [searchQuery, loadAdminLocales]);
+  }, [searchQuery]);
 
   const filteredCountriesForFilter = useMemo(() => {
     const q = countrySearchQuery.trim().toLowerCase();

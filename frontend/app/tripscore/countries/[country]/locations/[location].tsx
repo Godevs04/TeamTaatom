@@ -34,6 +34,7 @@ interface LocationDetail {
     typeOfSpot: string;
   };
   imageUrl?: string;
+  photos?: string[]; // All photos taken at this location
   postType?: 'photo' | 'short';
   description?: string;
   coordinates?: {
@@ -880,17 +881,36 @@ export default function LocationDetailScreen() {
           <>
             {/* Hero Image Section with Glassmorphism Effect */}
             <View style={styles.heroSection}>
-              <Image
-                source={{ 
-                  uri: isTripScoreFlow && data?.imageUrl
-                    ? data.imageUrl // User-uploaded image or video thumbnail for TripScore flow
-                    : (isAdminLocale && localeData?.imageUrl 
-                      ? localeData.imageUrl 
-                      : (data?.imageUrl || getLocationImage(data?.name || ''))) // Admin locale or fallback
-                }}
-                style={styles.heroImage}
-                resizeMode="contain"
-              />
+              {/* Photo gallery: show all photos as horizontal scroll if multiple, else single image */}
+              {isTripScoreFlow && data?.photos && data.photos.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={StyleSheet.absoluteFill}
+                >
+                  {data.photos.map((photoUri, idx) => (
+                    <Image
+                      key={idx}
+                      source={{ uri: photoUri }}
+                      style={[styles.heroImage, { width: screenWidth }]}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </ScrollView>
+              ) : (
+                <Image
+                  source={{
+                    uri: isTripScoreFlow && data?.imageUrl
+                      ? data.imageUrl
+                      : (isAdminLocale && localeData?.imageUrl
+                        ? localeData.imageUrl
+                        : (data?.imageUrl || getLocationImage(data?.name || '')))
+                  }}
+                  style={styles.heroImage}
+                  resizeMode="contain"
+                />
+              )}
               {/* Glassmorphism overlay effect */}
               <View style={styles.glassmorphismOverlay} />
               <LinearGradient

@@ -2054,8 +2054,9 @@ const getTripScoreLocations = async (req, res) => {
         { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
       ]
     })
-    .select('lat lng address takenAt uploadedAt post contentType')
+    .select('lat lng address takenAt uploadedAt post posts contentType')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
+    .populate('posts', 'imageUrl images storageKey storageKeys type videoUrl')
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
@@ -2083,51 +2084,39 @@ const getTripScoreLocations = async (req, res) => {
         // Count unique places visited
         countryScore += 1;
         
-        // Get image URL from post (user-uploaded image)
-        let imageUrl = null;
-        let postType = null;
-        
-        if (visit.post) {
-          postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
-          
-          // For photos: use imageUrl or first image from images array
-          if (postType === 'photo') {
-            if (visit.post.storageKey) {
-              // Generate signed URL for single image
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              // Generate signed URL for first image in array
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
-            } else if (visit.post.imageUrl) {
-              // Fallback to existing imageUrl (if already signed)
-              imageUrl = visit.post.imageUrl;
-            } else if (visit.post.images && visit.post.images.length > 0) {
-              // Fallback to first image in images array
-              imageUrl = visit.post.images[0];
-            }
-          } 
-          // For shorts/videos: use thumbnail if available, otherwise use video storage key
-          else if (postType === 'short' || visit.post.videoUrl) {
-            // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
-            if (visit.post.imageUrl) {
-              imageUrl = visit.post.imageUrl;
-            } 
-            // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
-            else if (visit.post.images && visit.post.images.length > 0) {
-              imageUrl = visit.post.images[0];
-            }
-            // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
-            else if (visit.post.storageKey) {
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
-            } 
-            // Priority 4: Fallback to videoUrl
-            else if (visit.post.videoUrl) {
-              imageUrl = visit.post.videoUrl;
-            }
+        // Helper to extract signed image URL from a post object
+        const getPostImageUrl = async (p) => {
+          if (!p) return null;
+          const pType = p.type || (visit.contentType === 'short' ? 'short' : 'photo');
+          if (pType === 'photo') {
+            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
+            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
+            if (p.imageUrl) return p.imageUrl;
+            if (p.images && p.images.length > 0) return p.images[0];
+          } else {
+            if (p.imageUrl) return p.imageUrl;
+            if (p.images && p.images.length > 0) return p.images[0];
+            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
+            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
+            if (p.videoUrl) return p.videoUrl;
           }
+          return null;
+        };
+
+        // Collect all photos from all posts at this location
+        // Use the posts array (all photos) falling back to single post for legacy visits
+        const allPostsAtLocation = visit.posts && visit.posts.length > 0
+          ? visit.posts
+          : (visit.post ? [visit.post] : []);
+
+        const photos = [];
+        for (const p of allPostsAtLocation) {
+          const url = await getPostImageUrl(p);
+          if (url) photos.push(url);
         }
+
+        const imageUrl = photos[0] || null;
+        const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
         
         // Get spotType and travelInfo from TripVisit (copied from post) or post directly
         const spotType = visit.spotType || visit.post?.spotType || 'General';
@@ -2147,7 +2136,8 @@ const getTripScoreLocations = async (req, res) => {
             fromYou: travelInfo, // From post dropdown
             typeOfSpot: spotType // From post dropdown
           },
-          imageUrl: imageUrl, // User-uploaded image or video thumbnail
+          imageUrl: imageUrl, // Primary image (first photo)
+          photos: photos, // All photos taken at this location
           postType: postType, // 'photo' or 'short'
           coordinates: {
             latitude: visit.lat,
@@ -2376,7 +2366,32 @@ const normalizeCountryName = (country) => {
   if (!country || typeof country !== 'string') return country || 'Unknown';
   
   const countryLower = country.toLowerCase().trim();
-  
+
+  // ISO 2-letter country codes -> full country name
+  const isoCodes = {
+    'in': 'India', 'us': 'United States', 'gb': 'United Kingdom',
+    'au': 'Australia', 'ca': 'Canada', 'nz': 'New Zealand',
+    'fr': 'France', 'de': 'Germany', 'it': 'Italy', 'es': 'Spain',
+    'jp': 'Japan', 'cn': 'China', 'th': 'Thailand', 'sg': 'Singapore',
+    'my': 'Malaysia', 'id': 'Indonesia', 'za': 'South Africa',
+    'eg': 'Egypt', 'ng': 'Nigeria', 'ke': 'Kenya', 'ma': 'Morocco',
+    'br': 'Brazil', 'ar': 'Argentina', 'cl': 'Chile', 'pe': 'Peru',
+    'co': 'Colombia', 'mx': 'Mexico', 'ae': 'United Arab Emirates',
+    'sa': 'Saudi Arabia', 'pk': 'Pakistan', 'bd': 'Bangladesh',
+    'lk': 'Sri Lanka', 'np': 'Nepal', 'mm': 'Myanmar', 'vn': 'Vietnam',
+    'ph': 'Philippines', 'kr': 'South Korea', 'nl': 'Netherlands',
+    'be': 'Belgium', 'pt': 'Portugal', 'se': 'Sweden', 'no': 'Norway',
+    'dk': 'Denmark', 'fi': 'Finland', 'ch': 'Switzerland', 'at': 'Austria',
+    'pl': 'Poland', 'cz': 'Czech Republic', 'hu': 'Hungary', 'ro': 'Romania',
+    'gr': 'Greece', 'tr': 'Turkey', 'ru': 'Russia', 'ua': 'Ukraine',
+  };
+  if (isoCodes[countryLower]) return isoCodes[countryLower];
+
+  // Indian state 2-letter codes -> India (unambiguous codes only)
+  // Excluded: ga (Gabon), hr (Croatia), uk (United Kingdom), br (Brazil), as (American Samoa)
+  const indiaStateCodes = ['tn', 'ka', 'mh', 'gj', 'rj', 'up', 'wb', 'ap', 'ts', 'kl', 'pb', 'dl', 'mp', 'jh'];
+  if (indiaStateCodes.includes(countryLower)) return 'India';
+
   // United Kingdom regions -> United Kingdom
   if (countryLower === 'england' || countryLower === 'scotland' || 
       countryLower === 'wales' || countryLower === 'northern ireland' ||
@@ -2436,12 +2451,26 @@ const normalizeCountryName = (country) => {
     return 'China';
   }
   
-  // India states -> India (keep India as is since states are usually not stored as country)
-  // But handle common variations
-  if (countryLower === 'india' || countryLower === 'bharat') {
+  // India states/territories -> India
+  const indiaStates = [
+    'andhra pradesh', 'arunachal pradesh', 'assam', 'bihar', 'chhattisgarh', 'goa',
+    'gujarat', 'haryana', 'himachal pradesh', 'jharkhand', 'karnataka', 'kerala',
+    'madhya pradesh', 'maharashtra', 'manipur', 'meghalaya', 'mizoram', 'nagaland',
+    'odisha', 'punjab', 'rajasthan', 'sikkim', 'tamil nadu', 'telangana', 'tripura',
+    'uttar pradesh', 'uttarakhand', 'west bengal',
+    'andaman and nicobar', 'chandigarh', 'dadra and nagar haveli', 'daman and diu',
+    'lakshadweep', 'puducherry', 'ladakh', 'jammu and kashmir', 'bharat', 'india'
+  ];
+
+  if (indiaStates.includes(countryLower)) {
     return 'India';
   }
-  
+  for (const state of indiaStates) {
+    if (countryLower.includes(state)) {
+      return 'India';
+    }
+  }
+
   // Keep original if no normalization needed
   return country;
 };
