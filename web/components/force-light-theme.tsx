@@ -5,8 +5,8 @@ import { useTheme } from "next-themes";
 import { useEffect } from "react";
 
 /**
- * Forces light theme on landing (/) and auth routes. Other pages use the app default (light);
- * we do not switch to system theme so feed, settings, etc. stay light unless the user chooses dark in settings.
+ * Forces light theme on the marketing landing (/) and `/auth/*` only so those pages stay readable.
+ * Dashboard and settings respect the user's theme (light / dark / system) from next-themes.
  */
 export function ForceLightTheme() {
   const pathname = usePathname();

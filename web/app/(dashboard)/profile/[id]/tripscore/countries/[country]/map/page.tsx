@@ -65,7 +65,7 @@ export default async function ProfileTripScoreCountryMapPage({
           <p className="text-sm text-muted-foreground">Country details not available.</p>
           <Link
             href={`/profile/${params.id}/tripscore`}
-            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline"
+            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
           >
             ← Back to TripScore
           </Link>

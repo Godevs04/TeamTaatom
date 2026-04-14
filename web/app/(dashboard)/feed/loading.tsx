@@ -8,7 +8,7 @@ export default function FeedLoading() {
         <div className="absolute right-0 top-16 h-72 w-72 rounded-full bg-violet-500/[0.05] blur-3xl" />
       </div>
       <div className="relative z-10 space-y-5 sm:space-y-6 lg:space-y-8">
-        <div className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-5 shadow-premium backdrop-blur-sm sm:p-6 md:p-8">
+        <div className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-5 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 sm:p-6 md:p-8">
           <Skeleton className="h-3 w-20" />
           <Skeleton className="mt-3 h-9 w-56 max-w-full" />
           <Skeleton className="mt-2 h-4 w-full max-w-lg" />
@@ -17,7 +17,7 @@ export default function FeedLoading() {
             <Skeleton className="h-10 w-10 rounded-xl" />
           </div>
         </div>
-        <div className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-4 shadow-premium backdrop-blur-sm sm:p-6">
+        <div className="rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-4 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 sm:p-6">
           <Skeleton className="h-16 w-full rounded-2xl" />
         </div>
         <div className="grid gap-4 sm:gap-6">

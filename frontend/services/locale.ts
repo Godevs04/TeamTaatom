@@ -14,6 +14,8 @@ export interface Locale {
   city?: string;
   description?: string;
   imageUrl: string;
+  /** Signed URLs for admin locale gallery (same order as uploaded). */
+  imageUrls?: string[];
   spotTypes?: string[];
   travelInfo?: string;
   latitude?: number;
@@ -101,7 +103,12 @@ export const getLocales = async (
 export const getLocaleById = async (id: string): Promise<Locale> => {
   try {
     const response = await api.get(`/api/v1/locales/${id}`);
-    return response.data.locale;
+    const payload = response.data;
+    const loc = payload?.locale ?? payload;
+    if (!loc || typeof loc !== 'object') {
+      throw new Error('Invalid locale response');
+    }
+    return loc as Locale;
   } catch (error: any) {
     logger.error('Error fetching locale:', error);
     const parsedError = parseError(error);

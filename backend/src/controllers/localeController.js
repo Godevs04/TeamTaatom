@@ -5,6 +5,75 @@ const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
+const MAX_LOCALE_IMAGES = 10;
+
+/**
+ * Collect ordered storage keys for a locale doc (gallery + legacy single key).
+ */
+function collectLocaleImageKeys(localeDoc) {
+  const keys = [];
+  if (Array.isArray(localeDoc.imageStorageKeys) && localeDoc.imageStorageKeys.length > 0) {
+    for (const k of localeDoc.imageStorageKeys) {
+      if (k && typeof k === 'string' && !keys.includes(k)) keys.push(k);
+    }
+  }
+  if (keys.length === 0) {
+    const fallback = localeDoc.storageKey || localeDoc.cloudinaryKey || localeDoc.imageKey;
+    if (fallback) keys.push(fallback);
+  }
+  return keys;
+}
+
+async function buildLocaleImageUrls(localeDoc) {
+  const keys = collectLocaleImageKeys(localeDoc);
+  const imageUrls = [];
+  for (const key of keys) {
+    try {
+      const url = await generateSignedUrl(key, 'LOCALE');
+      if (url) imageUrls.push(url);
+    } catch (error) {
+      logger.warn('buildLocaleImageUrls: signed URL failed', {
+        key: key ? `${key.substring(0, 72)}…` : null,
+        error: error.message
+      });
+    }
+  }
+  const primary = imageUrls[0] || null;
+  return { imageUrls, imageUrl: primary, cloudinaryUrl: primary };
+}
+
+async function attachLocaleImagesToPlain(localeObj) {
+  const { imageUrls, imageUrl, cloudinaryUrl } = await buildLocaleImageUrls(localeObj);
+  localeObj.imageUrls = imageUrls;
+  localeObj.imageUrl = imageUrl;
+  localeObj.cloudinaryUrl = cloudinaryUrl;
+  return localeObj;
+}
+
+function gatherUploadFiles(req) {
+  const list = [];
+  if (req.files?.image?.length) list.push(...req.files.image);
+  if (req.files?.images?.length) list.push(...req.files.images);
+  return list.slice(0, MAX_LOCALE_IMAGES);
+}
+
+async function deleteAllLocaleStorageObjects(locale) {
+  const keys = collectLocaleImageKeys(locale);
+  const unique = [...new Set(keys.filter(Boolean))];
+  for (const keyToDelete of unique) {
+    try {
+      await deleteObject(keyToDelete);
+    } catch (storageError) {
+      logger.error('deleteAllLocaleStorageObjects: Sevalla delete failed', { key: keyToDelete?.substring?.(0, 80), storageError });
+      try {
+        await deleteLocaleImage(keyToDelete);
+      } catch (cloudinaryError) {
+        logger.error('deleteAllLocaleStorageObjects: legacy delete failed', cloudinaryError);
+      }
+    }
+  }
+}
+
 // @desc    Get all active locales (for mobile app)
 // @route   GET /api/v1/locales
 // @access  Public
@@ -132,37 +201,19 @@ const getLocales = async (req, res) => {
     // Exclude large fields that aren't needed: description (can be long), full country name
     // Note: country field removed from select to reduce payload (countryCode is sufficient)
     const locales = await Locale.find(query)
-      .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
       .sort({ displayOrder: 1, createdAt: -1 })
       .skip(skip)
       .limit(parsedLimit)
       .lean()
       .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
     
-    // Generate signed URLs dynamically for all locales
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
-      const storageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
-      let signedUrl = null;
-      
-      if (storageKey) {
-        try {
-          signedUrl = await generateSignedUrl(storageKey, 'LOCALE');
-        } catch (error) {
-          logger.warn('Failed to generate signed URL for locale:', { 
-            localeId: locale._id, 
-            storageKey, 
-            error: error.message 
-          });
-        }
-      } else {
+      const copy = { ...locale };
+      if (!collectLocaleImageKeys(copy).length) {
         logger.warn('Locale missing storage key:', { localeId: locale._id });
       }
-      
-      return {
-        ...locale,
-        imageUrl: signedUrl, // Dynamically generated URL
-        cloudinaryUrl: signedUrl // Backward compatibility
-      };
+      return attachLocaleImagesToPlain(copy);
     }));
 
     // OPTIMIZATION: Use countDocuments with timeout to prevent slow queries
@@ -216,34 +267,17 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
       .lean();
 
     if (!locale) {
       return sendError(res, 'RES_3001', 'Locale not found');
     }
 
-    // Generate signed URL dynamically
-    const storageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
-    let signedUrl = null;
-    
-    if (storageKey) {
-      try {
-        signedUrl = await generateSignedUrl(storageKey, 'LOCALE');
-      } catch (error) {
-        logger.warn('Failed to generate signed URL for locale:', { 
-          localeId: locale._id, 
-          storageKey, 
-          error: error.message 
-        });
-      }
-    } else {
+    if (!collectLocaleImageKeys(locale).length) {
       logger.warn('Locale missing storage key:', { localeId: locale._id });
     }
-    
-    // Add dynamically generated URLs
-    locale.imageUrl = signedUrl;
-    locale.cloudinaryUrl = signedUrl; // Backward compatibility
+    await attachLocaleImagesToPlain(locale);
 
     return sendSuccess(res, 200, 'Locale fetched successfully', { locale });
   } catch (error) {
@@ -257,16 +291,16 @@ const getLocaleById = async (req, res) => {
 // @access  Private (SuperAdmin)
 const uploadLocale = async (req, res) => {
   try {
+    const _uploadFiles = gatherUploadFiles(req);
     logger.debug('Upload locale request received:', {
-      hasFile: !!req.file,
-      fileMimetype: req.file?.mimetype,
-      fileSize: req.file?.size,
+      fileCount: _uploadFiles.length,
       bodyKeys: req.body ? Object.keys(req.body) : [],
     });
 
-    if (!req.file) {
-      logger.error('No file in request');
-      return sendError(res, 'FILE_4001', 'Please upload an image file');
+    const files = gatherUploadFiles(req);
+    if (files.length === 0) {
+      logger.error('No files in request');
+      return sendError(res, 'FILE_4001', 'Please upload at least one image file');
     }
 
     const { name, country, countryCode, stateProvince, stateCode, city, description, displayOrder, spotTypes, travelInfo, latitude, longitude } = req.body;
@@ -276,30 +310,33 @@ const uploadLocale = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Name, country, country code, and city are required');
     }
 
-    // Validate image file
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowedTypes.includes(req.file.mimetype)) {
-      logger.error('Invalid file type:', req.file.mimetype);
-      return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
+    for (const f of files) {
+      if (!allowedTypes.includes(f.mimetype)) {
+        logger.error('Invalid file type:', f.mimetype);
+        return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
+      }
     }
 
-    // Check storage configuration
     if (!process.env.SEVALLA_STORAGE_BUCKET || !process.env.SEVALLA_STORAGE_ENDPOINT) {
       logger.error('Sevalla storage configuration missing');
       return sendError(res, 'SRV_6002', 'Storage is not configured. Please check environment variables.');
     }
 
-    logger.debug('Uploading to Sevalla Object Storage...');
-    // Upload to Sevalla Object Storage
-    const extension = req.file.originalname.split('.').pop() || 'jpg';
-    const storageKey = buildMediaKey({
-      type: 'locale',
-      filename: req.file.originalname,
-      extension
-    });
-    
-    await uploadObject(req.file.buffer, storageKey, req.file.mimetype);
-    logger.debug('Storage upload successful:', { key: storageKey });
+    logger.debug('Uploading locale gallery to Sevalla Object Storage...', { count: files.length });
+    const imageStorageKeys = [];
+    for (const file of files) {
+      const extension = file.originalname.split('.').pop() || 'jpg';
+      const storageKey = buildMediaKey({
+        type: 'locale',
+        filename: file.originalname,
+        extension
+      });
+      await uploadObject(file.buffer, storageKey, file.mimetype);
+      imageStorageKeys.push(storageKey);
+    }
+    const primaryKey = imageStorageKeys[0];
+    logger.debug('Storage upload successful:', { keys: imageStorageKeys.length });
 
     // Display order is optional and can be duplicated - no validation needed
     const requestedOrder = parseInt(displayOrder) || 0;
@@ -350,7 +387,6 @@ const uploadLocale = async (req, res) => {
       }
     }
 
-    // Save to database - ONLY store storage key, NOT signed URL
     const locale = new Locale({
       name: name.trim(),
       country: country.trim(),
@@ -359,13 +395,13 @@ const uploadLocale = async (req, res) => {
       stateCode: stateCode ? stateCode.trim() : '',
       city: cityTrimmed,
       description: description ? description.trim() : '',
-      storageKey: storageKey, // Store ONLY storage key
-      cloudinaryKey: storageKey, // Backward compatibility
-      imageKey: storageKey, // Set imageKey for backward compatibility (prevents null duplicate key error)
-      // DO NOT store cloudinaryUrl or imageUrl - they will be generated dynamically
+      storageKey: primaryKey,
+      cloudinaryKey: primaryKey,
+      imageKey: primaryKey,
+      imageStorageKeys,
       createdBy: req.superAdmin._id,
       displayOrder: requestedOrder,
-      isActive: true, // Explicitly set to active
+      isActive: true,
       spotTypes: processedSpotTypes,
       travelInfo: processedTravelInfo,
       latitude: processedLatitude,
@@ -376,30 +412,11 @@ const uploadLocale = async (req, res) => {
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
       .lean();
-    
-    // Generate signed URL dynamically
+
     if (localeResponse) {
-      const storageKeyForUrl = localeResponse.storageKey || localeResponse.cloudinaryKey || localeResponse.imageKey;
-      if (storageKeyForUrl) {
-        try {
-          const signedUrl = await generateSignedUrl(storageKeyForUrl, 'LOCALE');
-          localeResponse.imageUrl = signedUrl;
-          localeResponse.cloudinaryUrl = signedUrl; // Backward compatibility
-        } catch (error) {
-          logger.warn('Failed to generate signed URL for locale response:', { 
-            localeId: locale._id, 
-            error: error.message 
-          });
-          localeResponse.imageUrl = null;
-          localeResponse.cloudinaryUrl = null;
-        }
-      } else {
-        logger.warn('Locale missing storage key:', { localeId: locale._id });
-        localeResponse.imageUrl = null;
-        localeResponse.cloudinaryUrl = null;
-      }
+      await attachLocaleImagesToPlain(localeResponse);
     }
 
     return sendSuccess(res, 201, 'Locale uploaded successfully', { locale: localeResponse });
@@ -444,24 +461,10 @@ const deleteLocaleById = async (req, res) => {
       return sendError(res, 'RES_3001', 'Locale not found');
     }
 
-    // Delete from storage (Sevalla R2)
     try {
-      const keyToDelete = locale.storageKey || locale.cloudinaryKey || locale.imageKey; // Priority: storageKey > cloudinaryKey > imageKey
-      if (keyToDelete) {
-        await deleteObject(keyToDelete);
-      }
+      await deleteAllLocaleStorageObjects(locale);
     } catch (storageError) {
-      logger.error('Error deleting from storage:', storageError);
-      // Try legacy Cloudinary delete as fallback
-      try {
-        const legacyKey = locale.cloudinaryKey || locale.imageKey;
-        if (legacyKey) {
-          await deleteLocaleImage(legacyKey);
-        }
-      } catch (cloudinaryError) {
-        logger.error('Error deleting from Cloudinary (legacy):', cloudinaryError);
-      }
-      // Continue with database deletion even if storage deletion fails
+      logger.error('Error deleting locale media from storage:', storageError);
     }
 
     // Delete from database
@@ -523,12 +526,23 @@ const updateLocale = async (req, res) => {
       return sendError(res, 'SRV_6001', 'Locale not found');
     }
 
-    // Preserve storage keys - check storageKey first (new), then fallback to legacy fields
-    // Priority: storageKey > cloudinaryKey > imageKey
-    const hasStorageKey = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
-    
-    if (!hasStorageKey) {
-      logger.error(`Locale ${id} is missing storage key (storageKey, cloudinaryKey, or imageKey)`);
+    const newFiles = gatherUploadFiles(req);
+    const replaceGalleryRaw = req.body.replaceGallery;
+    const appendGallery =
+      replaceGalleryRaw === false ||
+      replaceGalleryRaw === 'false' ||
+      replaceGalleryRaw === '0' ||
+      (typeof replaceGalleryRaw === 'string' &&
+        ['append', 'add'].includes(String(replaceGalleryRaw).trim().toLowerCase()));
+
+    const hasStorageKey =
+      locale.storageKey ||
+      locale.cloudinaryKey ||
+      locale.imageKey ||
+      (Array.isArray(locale.imageStorageKeys) && locale.imageStorageKeys.length > 0);
+
+    if (!hasStorageKey && (!newFiles || newFiles.length === 0)) {
+      logger.error(`Locale ${id} is missing image data and no replacement files were uploaded`);
       return sendError(res, 'SRV_6001', 'Locale is missing required image data. Please contact support.');
     }
 
@@ -656,44 +670,87 @@ const updateLocale = async (req, res) => {
       if (!locale.imageKey) locale.imageKey = primaryStorageKey;
     }
 
+    if (newFiles && newFiles.length > 0) {
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      for (const file of newFiles) {
+        if (!allowedTypes.includes(file.mimetype)) {
+          return sendError(res, 'FILE_4002', 'Invalid image file format. Supported formats: JPEG, PNG, WebP, GIF');
+        }
+      }
+      if (appendGallery) {
+        const existingKeys = collectLocaleImageKeys(locale);
+        const room = MAX_LOCALE_IMAGES - existingKeys.length;
+        if (room <= 0) {
+          return sendError(
+            res,
+            'VAL_2001',
+            `Gallery already has the maximum of ${MAX_LOCALE_IMAGES} images. Replace the gallery or remove images first.`
+          );
+        }
+        const toAdd = newFiles.slice(0, room);
+        const mergedKeys = [...existingKeys];
+        for (const file of toAdd) {
+          const extension = file.originalname.split('.').pop() || 'jpg';
+          const storageKeyNew = buildMediaKey({
+            type: 'locale',
+            filename: file.originalname,
+            extension
+          });
+          await uploadObject(file.buffer, storageKeyNew, file.mimetype);
+          mergedKeys.push(storageKeyNew);
+        }
+        const primary = mergedKeys[0];
+        locale.storageKey = primary;
+        locale.cloudinaryKey = primary;
+        locale.imageKey = primary;
+        locale.imageStorageKeys = mergedKeys;
+      } else {
+        await deleteAllLocaleStorageObjects(locale);
+        const imageStorageKeys = [];
+        for (const file of newFiles) {
+          const extension = file.originalname.split('.').pop() || 'jpg';
+          const storageKeyNew = buildMediaKey({
+            type: 'locale',
+            filename: file.originalname,
+            extension
+          });
+          await uploadObject(file.buffer, storageKeyNew, file.mimetype);
+          imageStorageKeys.push(storageKeyNew);
+        }
+        const primary = imageStorageKeys[0];
+        locale.storageKey = primary;
+        locale.cloudinaryKey = primary;
+        locale.imageKey = primary;
+        locale.imageStorageKeys = imageStorageKeys;
+      }
+    }
+
     await locale.save();
 
     logger.info(`Locale ${id} updated successfully`);
 
-    // Generate signed URL for the updated locale
-    const storageKeyForUrl = locale.storageKey || locale.cloudinaryKey || locale.imageKey;
-    let signedUrl = null;
-    
-    if (storageKeyForUrl) {
-      try {
-        signedUrl = await generateSignedUrl(storageKeyForUrl, 'LOCALE');
-      } catch (error) {
-        logger.warn('Failed to generate signed URL for updated locale:', { 
-          localeId: locale._id, 
-          storageKey: storageKeyForUrl, 
-          error: error.message 
-        });
-      }
-    }
+    const updatedLean = await Locale.findById(id).lean();
+    await attachLocaleImagesToPlain(updatedLean);
 
     return sendSuccess(res, 200, 'Locale updated successfully', {
       locale: {
-        _id: locale._id,
-        name: locale.name,
-        country: locale.country,
-        countryCode: locale.countryCode,
-        stateProvince: locale.stateProvince,
-        stateCode: locale.stateCode,
-        city: locale.city,
-        description: locale.description,
-        displayOrder: locale.displayOrder,
-        isActive: locale.isActive,
-        spotTypes: locale.spotTypes || [],
-        travelInfo: locale.travelInfo || 'Drivable',
-        latitude: locale.latitude,
-        longitude: locale.longitude,
-        imageUrl: signedUrl,
-        cloudinaryUrl: signedUrl
+        _id: updatedLean._id,
+        name: updatedLean.name,
+        country: updatedLean.country,
+        countryCode: updatedLean.countryCode,
+        stateProvince: updatedLean.stateProvince,
+        stateCode: updatedLean.stateCode,
+        city: updatedLean.city,
+        description: updatedLean.description,
+        displayOrder: updatedLean.displayOrder,
+        isActive: updatedLean.isActive,
+        spotTypes: updatedLean.spotTypes || [],
+        travelInfo: updatedLean.travelInfo || 'Drivable',
+        latitude: updatedLean.latitude,
+        longitude: updatedLean.longitude,
+        imageUrl: updatedLean.imageUrl,
+        imageUrls: updatedLean.imageUrls,
+        cloudinaryUrl: updatedLean.cloudinaryUrl
       }
     });
   } catch (error) {

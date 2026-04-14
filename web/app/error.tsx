@@ -11,8 +11,8 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   }, [error]);
 
   return (
-    <html>
-      <body>
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <div className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-4 py-16">
           <p className="text-lg font-semibold text-primary">Taatom</p>
           <Card className="mt-6 w-full p-8 text-center">

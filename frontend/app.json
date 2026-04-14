@@ -1,0 +1,177 @@
+{
+  "expo": {
+    "name": "Taatom",
+    "slug": "taatom",
+    "version": "1.0.14",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "taatom",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": [
+      "**/*",
+      "policies/**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.taatom.app",
+      "buildNumber": "14",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
+        "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone for video recording.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "taatom",
+              "com.taatom.app"
+            ]
+          }
+        ],
+        "LSApplicationQueriesSchemes": [
+          "mailto",
+          "tel",
+          "sms"
+        ],
+        "NSPrivacyPolicyURL": "https://taatom.com/privacy"
+      },
+      "config": {
+        "usesNonExemptEncryption": false,
+        "googleMapsApiKey": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "android": {
+      "package": "com.taatom.app",
+      "versionCode": 14,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyARLEQKzcslC-romTHz5DE3lFT9GHW3lQY"
+        }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "taatom",
+              "host": "*"
+            },
+            {
+              "scheme": "https",
+              "host": "*.taatom.com"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "name": "Taatom",
+      "shortName": "Taatom",
+      "lang": "en",
+      "scope": "/",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "display": "standalone",
+      "orientation": "portrait",
+      "startUrl": "/",
+      "description": "Taatom - Social Media App"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends.",
+          "cameraPermission": "The app accesses your camera to let you take photos for posts."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "taatom-mobile",
+          "organization": "godevs"
+        }
+      ],
+      [
+        "expo-updates",
+        {
+          "username": "taatom"
+        }
+      ],
+      "expo-font",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-6362359854686661~6880786152",
+          "iosAppId": "ca-app-pub-6362359854606661~9610954911",
+          "delayAppMeasurementInit": true
+        }
+      ]
+    ],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "extra": {
+      "API_BASE_URL": "https://api.taatom.com",
+      "WEB_SHARE_URL": "https://taatom.com",
+      "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
+      "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
+      "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
+      "GOOGLE_CLIENT_ID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
+      "GOOGLE_CLIENT_ID_IOS": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
+      "GOOGLE_CLIENT_ID_ANDROID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
+      "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
+      "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
+      "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
+      "SUPPORT_URL": "https://taatom.com/contact",
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+    },
+    "owner": "taatom-technologies"
+  }
+}

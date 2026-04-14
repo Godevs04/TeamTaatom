@@ -33,6 +33,16 @@ const MAX_IMAGES = 10;
 const CREATE_DRAFT_STORAGE_KEY = "taatom:web:create-draft:v1";
 
 const easeOut = [0.22, 1, 0.36, 1] as const;
+const springSoft = { type: "spring" as const, stiffness: 320, damping: 34, mass: 0.85 };
+
+const createHeroVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.03 } },
+};
+const createHeroItem = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.48, ease: easeOut } },
+};
 
 type CropSession =
   | { kind: "post"; index: number; src: string; baseName: string }
@@ -488,100 +498,121 @@ export default function CreateTripPage() {
   if (authLoading || !user) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium">
-          <p className="text-slate-600">Loading…</p>
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+          <p className="text-slate-600 dark:text-zinc-400">Loading…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative mx-auto w-full max-w-3xl space-y-6 sm:space-y-8">
-      <div className="pointer-events-none absolute inset-x-0 -top-8 h-72 overflow-hidden opacity-90" aria-hidden>
-        <div className="absolute -left-24 top-0 h-64 w-64 rounded-full bg-primary/[0.08] blur-3xl" />
-        <div className="absolute right-0 top-20 h-72 w-72 rounded-full bg-violet-500/[0.07] blur-3xl" />
-        <div className="absolute left-1/3 top-40 h-48 w-48 rounded-full bg-sky-400/[0.06] blur-3xl" />
+    <div className="relative mx-auto w-full max-w-4xl space-y-6 sm:space-y-8">
+      <div className="pointer-events-none absolute inset-x-0 -top-8 h-80 overflow-hidden" aria-hidden>
+        <div className="feed-orb absolute -left-28 top-0 h-72 w-72 rounded-full bg-primary/[0.06] blur-3xl" />
+        <div className="feed-orb-delayed absolute right-0 top-16 h-72 w-72 rounded-full bg-violet-500/[0.05] blur-3xl" />
+        <div className="feed-orb-late absolute left-1/4 top-36 h-52 w-52 rounded-full bg-sky-400/[0.04] blur-3xl" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#f8fafc]/80 dark:to-zinc-950/90" />
       </div>
 
       <motion.header
-        initial={{ opacity: 0, y: -12 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: easeOut }}
         className="relative z-10"
       >
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          New story
-        </p>
-        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-slate-950 sm:text-[2rem]">Create</h1>
-        <p className="mt-2 max-w-lg text-sm leading-relaxed text-slate-600">
-          Compose a photo trip with framing and crop, or upload a short. Add a place and details when you&apos;re ready.
-        </p>
+        <motion.div variants={createHeroVariants} initial="hidden" animate="show" className="space-y-3">
+          <motion.p
+            variants={createHeroItem}
+            className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400 dark:text-zinc-500"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden />
+            New story
+          </motion.p>
+          <motion.h1
+            variants={createHeroItem}
+            className="font-display text-[1.85rem] font-semibold leading-tight tracking-[-0.02em] sm:text-[2.125rem] dark:text-zinc-50"
+          >
+            <span className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-zinc-100 dark:via-zinc-200 dark:to-zinc-400">
+              Create
+            </span>
+          </motion.h1>
+          <motion.p variants={createHeroItem} className="max-w-xl text-sm leading-[1.65] text-slate-600 dark:text-zinc-400 sm:text-[15px]">
+            Compose a photo trip with framing and crop, or upload a short. Add a place and details when you&apos;re ready.
+          </motion.p>
+        </motion.div>
       </motion.header>
 
       {/* Mode tabs */}
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: easeOut, delay: 0.04 }}
-        className="relative z-10 inline-flex flex-wrap gap-2 rounded-[1.25rem] bg-slate-100/90 p-1.5 ring-1 ring-slate-200/70"
+        transition={{ duration: 0.44, ease: easeOut, delay: 0.05 }}
+        className="relative z-10 inline-flex flex-wrap gap-1 rounded-2xl bg-slate-100/85 p-1.5 shadow-inner shadow-slate-200/50 ring-1 ring-slate-200/60 dark:bg-zinc-800/90 dark:shadow-black/40 dark:ring-zinc-700/80"
       >
         <button
           type="button"
           onClick={() => setMode("post")}
-          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${
-            mode === "post" ? "text-slate-900" : "text-slate-600 hover:text-slate-900"
+          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors duration-300 ${
+            mode === "post" ? "text-slate-900 dark:text-zinc-50" : "text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
           }`}
         >
           {mode === "post" && (
             <motion.span
               layoutId="create-mode-pill"
-              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80"
-              transition={{ type: "spring", stiffness: 400, damping: 32 }}
+              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/70 dark:bg-zinc-800 dark:shadow-black/30 dark:ring-zinc-600/80"
+              transition={springSoft}
             />
           )}
-          <ImagePlus className="h-4 w-4 shrink-0" />
+          <ImagePlus className="h-4 w-4 shrink-0" aria-hidden />
           Photo post
         </button>
         <button
           type="button"
           onClick={() => setMode("short")}
-          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${
-            mode === "short" ? "text-slate-900" : "text-slate-600 hover:text-slate-900"
+          className={`relative flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors duration-300 ${
+            mode === "short" ? "text-slate-900 dark:text-zinc-50" : "text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
           }`}
         >
           {mode === "short" && (
             <motion.span
               layoutId="create-mode-pill"
-              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80"
-              transition={{ type: "spring", stiffness: 400, damping: 32 }}
+              className="absolute inset-0 -z-10 rounded-xl bg-white shadow-[0_2px_12px_-4px_rgba(15,23,42,0.12)] ring-1 ring-slate-200/70 dark:bg-zinc-800 dark:shadow-black/30 dark:ring-zinc-600/80"
+              transition={springSoft}
             />
           )}
-          <Film className="h-4 w-4 shrink-0" />
+          <Film className="h-4 w-4 shrink-0" aria-hidden />
           Short
         </button>
       </motion.div>
 
-      <Card className="relative z-10 rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm overflow-visible">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {mode === "post" ? <ImagePlus className="h-5 w-5 text-primary" /> : <Video className="h-5 w-5 text-primary" />}
-            {mode === "post" ? "Trip details" : "Short video"}
-          </CardTitle>
-          <CardDescription>
-            {mode === "post"
-              ? "At least one photo is required. Caption and location are optional."
-              : "One video is required. Caption and location are optional. You must have rights to any audio."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6 overflow-visible">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: easeOut, delay: 0.06 }}
+        className="relative z-10 rounded-[1.75rem] border border-slate-200/70 bg-white/75 p-[1px] shadow-[0_20px_50px_-28px_rgba(15,23,42,0.16)] backdrop-blur-md dark:border-zinc-800/70 dark:bg-zinc-900/50 dark:shadow-[0_20px_50px_-28px_rgba(0,0,0,0.45)] sm:rounded-[1.85rem]"
+      >
+        <Card className="overflow-visible rounded-[1.7rem] border-0 bg-gradient-to-br from-white via-white to-slate-50/50 shadow-none dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-950 sm:rounded-[1.8rem]">
+          <CardHeader className="space-y-1 border-b border-slate-100/90 dark:border-zinc-800/90 px-5 pb-5 pt-6 dark:border-zinc-800/90 sm:px-8 sm:pb-6 sm:pt-8">
+            <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-zinc-50 sm:text-xl">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
+                {mode === "post" ? <ImagePlus className="h-5 w-5" aria-hidden /> : <Video className="h-5 w-5" aria-hidden />}
+              </span>
+              {mode === "post" ? "Trip details" : "Short video"}
+            </CardTitle>
+            <CardDescription className="text-[15px] leading-relaxed text-slate-600 dark:text-zinc-400">
+              {mode === "post"
+                ? "At least one photo is required. Caption and location are optional."
+                : "One video is required. Caption and location are optional. You must have rights to any audio."}
+            </CardDescription>
+          </CardHeader>
+        <CardContent className="space-y-0 overflow-visible px-5 pb-6 sm:px-8 sm:pb-8">
           {mode === "post" ? (
-            <>
+            <section className="space-y-4 border-b border-slate-100/90 dark:border-zinc-800/90 pb-8">
               <div className="grid gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <ImagePlus className="h-4 w-4 text-primary" />
-                  <label className="text-sm font-semibold">Photos</label>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                  <ImagePlus className="h-4 w-4 text-primary shrink-0" aria-hidden />
+                  <span className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Photos</span>
+                  <span className="rounded-full bg-slate-100/90 px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200/60 dark:bg-zinc-800/80 dark:text-zinc-300 dark:ring-zinc-700/70">
                     Up to {MAX_IMAGES} · drag to reorder · crop optional
                   </span>
                 </div>
@@ -593,37 +624,39 @@ export default function CreateTripPage() {
                   className="hidden"
                   onChange={(e) => addFiles(e.target.files)}
                 />
-                <div
+                <motion.div
                   onDragOver={onDragOver}
                   onDragLeave={onDragLeave}
                   onDrop={onDrop}
-                  className={`rounded-2xl border-2 border-dashed transition-all ${
+                  animate={{ scale: isDragOver ? 1.01 : 1 }}
+                  transition={springSoft}
+                  className={`rounded-2xl border-2 border-dashed transition-colors duration-300 ${
                     isDragOver
-                      ? "border-primary bg-primary/[0.06] ring-2 ring-primary/20"
-                      : "border-slate-200/90 bg-gradient-to-br from-slate-50/80 to-white hover:border-slate-300"
-                  } p-6 sm:p-8`}
+                      ? "border-primary/60 bg-primary/[0.05] ring-2 ring-primary/15"
+                      : "border-slate-200/80 bg-gradient-to-br from-slate-50/60 via-white to-slate-50/30 hover:border-slate-300/90 dark:border-zinc-700 dark:from-zinc-900/80 dark:via-zinc-900 dark:to-zinc-950 dark:hover:border-zinc-600"
+                  } p-5 sm:p-6`}
                 >
-                  <div className="flex flex-col items-center justify-center gap-4 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
-                      <Upload className="h-7 w-7" />
+                  <div className="flex flex-col items-center justify-center gap-3 text-center sm:gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/12 to-violet-500/10 text-primary shadow-sm ring-1 ring-primary/10 sm:h-14 sm:w-14">
+                      <Upload className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">Drop images here</p>
-                      <p className="mt-1 text-xs text-slate-500">or browse — JPG, PNG, WebP</p>
+                      <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Drop images here</p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400 sm:text-[13px]">or browse — JPG, PNG, WebP</p>
                     </div>
                     {files.length < MAX_IMAGES && (
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => fileInputRef.current?.click()}
-                        className="gap-2 rounded-xl border-slate-200 bg-white shadow-sm"
+                        className="gap-2 rounded-xl border-slate-200/80 bg-white/95 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/90"
                       >
-                        <ImagePlus className="h-4 w-4" />
+                        <ImagePlus className="h-4 w-4" aria-hidden />
                         {files.length === 0 ? "Choose photos" : "Add more"}
                       </Button>
                     )}
                   </div>
-                </div>
+                </motion.div>
                 {isReadingExif && (
                   <p className="text-xs text-slate-500">Reading GPS metadata from first photo…</p>
                 )}
@@ -720,18 +753,17 @@ export default function CreateTripPage() {
                   </div>
                 )}
                 {files.length > 0 && (
-                  <p className="text-xs text-slate-500">
-                    <span className="font-medium text-slate-700">{files.length}</span> photo{files.length !== 1 ? "s" : ""} ·
-                    Drag the <span className="font-medium">grip</span> to reorder ·{" "}
-                    <span className="font-medium">Crop</span> is optional.
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    <span className="font-semibold text-slate-700">{files.length}</span> photo{files.length !== 1 ? "s" : ""}{" "}
+                    · Drag the grip to reorder · Crop is optional.
                   </p>
                 )}
               </div>
-            </>
+            </section>
           ) : (
-            <>
-              <div className="grid gap-2">
-                <label className="text-sm font-semibold">Video (required)</label>
+            <section className="space-y-5 border-b border-slate-100/90 dark:border-zinc-800/90 pb-8">
+              <div className="grid gap-3">
+                <label className="text-sm font-semibold text-slate-900">Video (required)</label>
                 <input
                   ref={videoInputRef}
                   type="file"
@@ -772,7 +804,7 @@ export default function CreateTripPage() {
                   </div>
                 )}
               </div>
-              <div className="flex items-start gap-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-4">
+              <div className="flex items-start gap-3 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 ring-1 ring-slate-100/80 transition-colors hover:bg-slate-50/90">
                 <input
                   type="checkbox"
                   id="copyright"
@@ -780,24 +812,24 @@ export default function CreateTripPage() {
                   onChange={(e) => setCopyrightAccepted(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-slate-300"
                 />
-                <label htmlFor="copyright" className="text-sm text-slate-700">
+                <label htmlFor="copyright" className="text-sm leading-relaxed text-slate-700">
                   I have the rights to the audio in this short (or it is original / no music).
                 </label>
               </div>
-            </>
+            </section>
           )}
 
           {/* Caption */}
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-semibold">Caption</label>
-              <span className="text-xs text-muted-foreground">(Optional, max {CAPTION_MAX})</span>
+          <section className="space-y-3 border-b border-slate-100/90 dark:border-zinc-800/90 py-8">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Caption</label>
+              <span className="text-xs font-medium text-muted-foreground tabular-nums">Optional · max {CAPTION_MAX}</span>
             </div>
             <textarea
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="What's happening? Use @ to mention someone or # for hashtags"
-              className="min-h-[100px] w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-100 dark:placeholder:text-zinc-500"
               maxLength={CAPTION_MAX}
             />
             {caption.length > 0 && (
@@ -806,33 +838,42 @@ export default function CreateTripPage() {
               </p>
             )}
             {captionError && <p className="text-xs text-destructive">{captionError}</p>}
-          </div>
+          </section>
 
           {/* Place name / Location + Detect place */}
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
+          <section className="space-y-3 border-b border-slate-100/90 dark:border-zinc-800/90 py-8">
+            <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-primary" />
-                <label className="text-sm font-semibold">Place name / Location</label>
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
+                  <MapPin className="h-4 w-4" aria-hidden />
+                </span>
+                <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Place name / Location</label>
               </div>
-              <span className="text-xs text-muted-foreground">(Optional, max {PLACE_NAME_MAX})</span>
+              <span className="text-xs font-medium text-muted-foreground tabular-nums">Optional · max {PLACE_NAME_MAX}</span>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+            <div
+              className={`flex overflow-hidden rounded-2xl border bg-white shadow-sm transition-[box-shadow,border-color] focus-within:border-primary/35 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/15 dark:bg-zinc-900/70 ${
+                placeNameError
+                  ? "border-destructive ring-2 ring-destructive/20"
+                  : "border-slate-200/85 dark:border-zinc-700 dark:bg-zinc-900/70"
+              }`}
+            >
               <Input
                 value={placeName}
                 onChange={(e) => setPlaceName(e.target.value)}
                 placeholder="Add a place name or address"
                 maxLength={PLACE_NAME_MAX}
-                className={`min-w-0 flex-1 ${placeNameError ? "border-destructive rounded-xl" : "rounded-xl"}`}
+                className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none px-4 py-3.5 h-11 sm:h-12"
               />
+              <span className="hidden w-px shrink-0 self-stretch bg-slate-200/90 dark:bg-zinc-600/60 sm:block" aria-hidden />
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 onClick={() => setShowDetectPlaceModal(true)}
-                className="shrink-0 rounded-xl gap-1.5"
+                className="h-auto shrink-0 gap-1.5 rounded-none px-4 py-3 text-primary hover:bg-primary/[0.06] hover:text-primary sm:px-5"
               >
-                <Search className="h-4 w-4" />
-                Detect place
+                <Search className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="whitespace-nowrap text-sm font-semibold">Detect place</span>
               </Button>
             </div>
             {detectedPlace && (
@@ -852,107 +893,114 @@ export default function CreateTripPage() {
               </div>
             )}
             {placeNameError && <p className="text-xs text-destructive">{placeNameError}</p>}
-          </div>
 
-          {/* Map preview when we have coordinates */}
-          {detectedPlace && typeof detectedPlace.lat === "number" && typeof detectedPlace.lng === "number" && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
+            {/* Map preview when we have coordinates */}
+            {detectedPlace && typeof detectedPlace.lat === "number" && typeof detectedPlace.lng === "number" && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
+              <div className="grid gap-2 pt-2">
+                <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Map</label>
+                <div className="overflow-hidden rounded-2xl border border-slate-200/85 bg-muted shadow-sm ring-1 ring-slate-100/80 dark:border-zinc-700 dark:ring-zinc-800/80">
+                  <iframe
+                    title="Location map"
+                    className="h-48 w-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                    src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(detectedPlace.lat + "," + detectedPlace.lng)}&zoom=14`}
+                  />
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Spot type + travel */}
+          <section className="grid gap-6 py-8 md:grid-cols-2 md:gap-8">
             <div className="grid gap-2">
-              <label className="text-sm font-semibold">Map</label>
-              <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-muted">
-                <iframe
-                  title="Location map"
-                  className="h-48 w-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                  src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(detectedPlace.lat + "," + detectedPlace.lng)}&zoom=14`}
-                />
+              <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Spot type</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSpotTypeDropdown((v) => !v);
+                    setShowTravelInfoDropdown(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/85 bg-white px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900/80 dark:hover:border-zinc-600"
+                >
+                  <span className={spotType ? "font-medium text-foreground" : "text-muted-foreground"}>
+                    {SPOT_TYPE_OPTIONS.find((o) => o.value === spotType)?.label ?? "Select spot type"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                </button>
+                {showSpotTypeDropdown && (
+                  <>
+                    <div
+                      className="absolute z-30 mt-1.5 w-full max-h-56 overflow-y-auto rounded-2xl border border-slate-200/90 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                      role="listbox"
+                    >
+                      {SPOT_TYPE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value || "none"}
+                          type="button"
+                          role="option"
+                          aria-selected={spotType === opt.value}
+                          onClick={() => {
+                            setSpotType(opt.value);
+                            setShowSpotTypeDropdown(false);
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="fixed inset-0 z-20" aria-hidden onClick={() => setShowSpotTypeDropdown(false)} />
+                  </>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Spot type dropdown */}
-          <div className="grid gap-2">
-            <label className="text-sm font-semibold">Spot type</label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSpotTypeDropdown((v) => !v);
-                  setShowTravelInfoDropdown(false);
-                }}
-                className="flex w-full items-center justify-between rounded-xl border border-input bg-background px-4 py-3 text-sm"
-              >
-                <span className={spotType ? "text-foreground" : "text-muted-foreground"}>
-                  {SPOT_TYPE_OPTIONS.find((o) => o.value === spotType)?.label ?? "Select spot type"}
-                </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {showSpotTypeDropdown && (
-                <>
-                  <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900" role="listbox">
-                    {SPOT_TYPE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value || "none"}
-                        type="button"
-                        role="option"
-                        aria-selected={spotType === opt.value}
-                        onClick={() => {
-                          setSpotType(opt.value);
-                          setShowSpotTypeDropdown(false);
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-100 dark:hover:bg-zinc-800"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="fixed inset-0 z-20" aria-hidden onClick={() => setShowSpotTypeDropdown(false)} />
-                </>
-              )}
+            <div className="grid gap-2">
+              <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Travel method</label>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTravelInfoDropdown((v) => !v);
+                    setShowSpotTypeDropdown(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/85 bg-white px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900/80 dark:hover:border-zinc-600"
+                >
+                  <span className={travelInfo ? "font-medium text-foreground" : "text-muted-foreground"}>
+                    {TRAVEL_INFO_OPTIONS.find((o) => o.value === travelInfo)?.label ?? "Select travel method"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                </button>
+                {showTravelInfoDropdown && (
+                  <>
+                    <div
+                      className="absolute z-30 mt-1.5 w-full max-h-56 overflow-y-auto rounded-2xl border border-slate-200/90 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                      role="listbox"
+                    >
+                      {TRAVEL_INFO_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value || "none"}
+                          type="button"
+                          role="option"
+                          aria-selected={travelInfo === opt.value}
+                          onClick={() => {
+                            setTravelInfo(opt.value);
+                            setShowTravelInfoDropdown(false);
+                          }}
+                          className="w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="fixed inset-0 z-20" aria-hidden onClick={() => setShowTravelInfoDropdown(false)} />
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Travel method dropdown */}
-          <div className="grid gap-2">
-            <label className="text-sm font-semibold">Travel method</label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowTravelInfoDropdown((v) => !v);
-                  setShowSpotTypeDropdown(false);
-                }}
-                className="flex w-full items-center justify-between rounded-xl border border-input bg-background px-4 py-3 text-sm"
-              >
-                <span className={travelInfo ? "text-foreground" : "text-muted-foreground"}>
-                  {TRAVEL_INFO_OPTIONS.find((o) => o.value === travelInfo)?.label ?? "Select travel method"}
-                </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {showTravelInfoDropdown && (
-                <>
-                  <div className="absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900" role="listbox">
-                    {TRAVEL_INFO_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value || "none"}
-                        type="button"
-                        role="option"
-                        aria-selected={travelInfo === opt.value}
-                        onClick={() => {
-                          setTravelInfo(opt.value);
-                          setShowTravelInfoDropdown(false);
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-100 dark:hover:bg-zinc-800"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="fixed inset-0 z-20" aria-hidden onClick={() => setShowTravelInfoDropdown(false)} />
-                </>
-              )}
-            </div>
-          </div>
+          </section>
 
           {progress !== null && (
             <div className="space-y-2">
@@ -966,22 +1014,23 @@ export default function CreateTripPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-end justify-end gap-2 pt-2 sm:gap-3">
+          <div className="flex flex-wrap items-end justify-end gap-2 border-t border-slate-100/90 pt-6 dark:border-zinc-800/90 sm:gap-3 sm:pt-8">
             <Button variant="outline" onClick={() => router.back()} disabled={submitting} className="rounded-xl">
               Cancel
             </Button>
             {mode === "post" ? (
-              <Button onClick={onSubmitPost} disabled={!canSubmitPost} className="rounded-xl">
+              <Button onClick={onSubmitPost} disabled={!canSubmitPost} className="rounded-xl shadow-md shadow-primary/20 transition-[box-shadow,transform] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]">
                 {submitting ? "Publishing…" : "Publish"}
               </Button>
             ) : (
-              <Button onClick={onSubmitShort} disabled={!canSubmitShort} className="rounded-xl">
+              <Button onClick={onSubmitShort} disabled={!canSubmitShort} className="rounded-xl shadow-md shadow-primary/20 transition-[box-shadow,transform] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]">
                 {submitting ? "Uploading…" : "Upload short"}
               </Button>
             )}
           </div>
         </CardContent>
       </Card>
+      </motion.div>
 
       <ImageCropModal
         open={!!cropSession}

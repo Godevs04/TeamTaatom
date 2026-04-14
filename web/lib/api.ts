@@ -228,6 +228,23 @@ export async function searchUsers(q: string, limit = 20) {
   return res.data as { users: User[] };
 }
 
+export async function getSuggestedUsers(limit = 50) {
+  const res = await api.get("/profile/suggested-users", { params: { limit } });
+  return res.data as { users: User[] };
+}
+
+/** Returns a taatom.com (or configured) short link such as https://taatom.com/s/xxxxx */
+export async function createPostShortUrl(postId: string): Promise<string | null> {
+  try {
+    const res = await api.post("/short-url/create", { postId });
+    const body = res.data as { data?: { shortUrl?: string } };
+    const url = body.data?.shortUrl;
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createPost(form: FormData, onUploadProgress?: (pct: number) => void) {
   const res = await api.post("/posts", form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,
@@ -258,6 +275,65 @@ export async function searchPosts(q: string, page = 1, limit = 20) {
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
 }
 
+// Hashtags (parity with mobile services/hashtags)
+export type HashtagInfo = {
+  name: string;
+  postCount: number;
+  lastUsedAt?: string;
+};
+
+export async function searchHashtags(q: string, limit = 20): Promise<HashtagInfo[]> {
+  const res = await api.get("/hashtags/search", { params: { q, limit } });
+  const data = res.data as { hashtags?: HashtagInfo[] };
+  return data.hashtags ?? [];
+}
+
+export async function getTrendingHashtags(
+  limit = 20,
+  timeRange: "1h" | "24h" | "7d" | "30d" = "24h"
+): Promise<HashtagInfo[]> {
+  const res = await api.get("/hashtags/trending", { params: { limit, timeRange } });
+  const data = res.data as { hashtags?: HashtagInfo[] };
+  return data.hashtags ?? [];
+}
+
+export async function getHashtagDetails(name: string): Promise<HashtagInfo> {
+  const slug = name.replace(/^#/, "").toLowerCase();
+  const res = await api.get(`/hashtags/${encodeURIComponent(slug)}`);
+  const data = res.data as { hashtag: HashtagInfo };
+  return data.hashtag;
+}
+
+export type HashtagPostsPayload = {
+  hashtag: HashtagInfo;
+  posts: Post[];
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    totalPosts: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+    limit: number;
+  };
+};
+
+export async function getHashtagPosts(hashtag: string, page = 1, limit = 20): Promise<HashtagPostsPayload> {
+  const slug = hashtag.replace(/^#/, "").toLowerCase();
+  const res = await api.get(`/hashtags/${encodeURIComponent(slug)}/posts`, {
+    params: { page, limit },
+  });
+  return res.data as HashtagPostsPayload;
+}
+
+export async function getUserShorts(userId: string, page = 1, limit = 20) {
+  const res = await api.get(`/shorts/user/${userId}`, { params: { page, limit } });
+  const data = res.data as { shorts?: Post[]; totalShorts?: number };
+  return {
+    shorts: data.shorts ?? [],
+    totalShorts: typeof data.totalShorts === "number" ? data.totalShorts : 0,
+  };
+}
+
 // Locale type (places) - aligned with app/backend
 export type Locale = {
   _id: string;
@@ -267,6 +343,8 @@ export type Locale = {
   stateCode?: string;
   city?: string;
   imageUrl?: string;
+  /** Gallery signed URLs (same order as SuperAdmin upload). */
+  imageUrls?: string[];
   description?: string;
   spotTypes?: string[];
   latitude?: number;

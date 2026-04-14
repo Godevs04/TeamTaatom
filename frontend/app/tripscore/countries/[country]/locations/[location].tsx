@@ -11,6 +11,8 @@ import {
   Alert,
   Platform,
   Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +22,7 @@ import api from '../../../../../services/api';
 import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Locale } from '../../../../../services/locale';
+import { Locale, getLocaleById, getLocales } from '../../../../../services/locale';
 import { savedEvents } from '../../../../../utils/savedEvents';
 import logger from '../../../../../utils/logger';
 
@@ -34,7 +36,7 @@ interface LocationDetail {
     typeOfSpot: string;
   };
   imageUrl?: string;
-  photos?: string[]; // All photos taken at this location
+  imageUrls?: string[];
   postType?: 'photo' | 'short';
   description?: string;
   coordinates?: {
@@ -43,6 +45,93 @@ interface LocationDetail {
   };
   travelInfo?: string;
   distanceFromCurrent?: number; // Distance from current location in km (for nearby locations)
+}
+
+const ADMIN_LOCALE_CAROUSEL_MS = 3000;
+
+function AdminLocaleHeroCarousel({
+  urls,
+  height,
+  width,
+  resizeMode,
+}: {
+  urls: string[];
+  height: number;
+  width: number;
+  resizeMode: 'contain' | 'cover';
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [index, setIndex] = useState(0);
+  const key = urls.join('|');
+
+  useEffect(() => {
+    if (urls.length <= 1) return;
+    const t = setInterval(() => {
+      setIndex((prev) => {
+        const next = (prev + 1) % urls.length;
+        scrollRef.current?.scrollTo({ x: next * width, animated: true });
+        return next;
+      });
+    }, ADMIN_LOCALE_CAROUSEL_MS);
+    return () => clearInterval(t);
+  }, [urls.length, width, key]);
+
+  const onMomentumEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const i = Math.round(x / Math.max(width, 1));
+      if (i >= 0 && i < urls.length) setIndex(i);
+    },
+    [urls.length, width]
+  );
+
+  if (!urls.length) return null;
+  if (urls.length === 1) {
+    return <Image source={{ uri: urls[0] }} style={{ width: '100%', height }} resizeMode={resizeMode} />;
+  }
+
+  return (
+    <View style={{ height, position: 'relative' }}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onMomentumEnd}
+        decelerationRate="fast"
+        keyboardShouldPersistTaps="handled"
+      >
+        {urls.map((uri) => (
+          <Image key={uri} source={{ uri }} style={{ width, height }} resizeMode={resizeMode} />
+        ))}
+      </ScrollView>
+      <View
+        style={{
+          position: 'absolute',
+          bottom: 56,
+          left: 0,
+          right: 0,
+          flexDirection: 'row',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+        pointerEvents="none"
+      >
+        {urls.map((_, i) => (
+          <View
+            key={`dot-${i}`}
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              marginHorizontal: 3,
+              backgroundColor: i === index ? '#ffffff' : 'rgba(255,255,255,0.45)',
+            }}
+          />
+        ))}
+      </View>
+    </View>
+  );
 }
 
 export default function LocationDetailScreen() {
@@ -73,7 +162,7 @@ export default function LocationDetailScreen() {
   
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -532,7 +621,56 @@ export default function LocationDetailScreen() {
       
       // Check if this is an admin locale
       if (isAdminLocale) {
-        // Handle admin locale - use params passed from navigation
+        const localeIdRaw = Array.isArray(localeId) ? localeId[0] : localeId;
+        let idStr = localeIdRaw ? String(localeIdRaw).trim() : '';
+        if (idStr && !/^[a-f0-9]{24}$/i.test(idStr)) {
+          idStr = '';
+        }
+        const rawGalleryJoined = Array.isArray(galleryUrlsParam) ? galleryUrlsParam[0] : galleryUrlsParam;
+        const galleryFromParams =
+          typeof rawGalleryJoined === 'string' && rawGalleryJoined.length > 0
+            ? rawGalleryJoined.split('|||').map((u) => u.trim()).filter(Boolean)
+            : [];
+
+        let fetchedLocale: Locale | null = null;
+        if (idStr) {
+          try {
+            fetchedLocale = await getLocaleById(idStr);
+          } catch (e) {
+            logger.warn('Admin locale: getLocaleById failed, will try list fallback', e);
+          }
+        }
+
+        if ((!fetchedLocale || !(fetchedLocale.imageUrls && fetchedLocale.imageUrls.length > 0)) && locationName) {
+          try {
+            const cc =
+              countryParam && countryParam !== 'general'
+                ? String(countryParam).toUpperCase().slice(0, 10)
+                : '';
+            const res = await getLocales(locationName, cc, '', '', 1, 40, false);
+            const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+            const want = norm(locationName);
+            const locSlug = String(locationParam || '').toLowerCase();
+            const match = res.locales?.find((l) => {
+              const n = norm(l?.name || '');
+              const c = norm(l?.city || '');
+              return n === want || c === want || n.replace(/\s+/g, '-') === locSlug.replace(/\s+/g, '-');
+            });
+            if (match?._id) {
+              const detail = await getLocaleById(String(match._id));
+              if (
+                detail &&
+                (!fetchedLocale ||
+                  (detail.imageUrls?.length || 0) >= (fetchedLocale.imageUrls?.length || 0))
+              ) {
+                fetchedLocale = detail;
+              }
+            }
+          } catch (fallbackErr) {
+            logger.warn('Admin locale: getLocales fallback failed', fallbackErr);
+          }
+        }
+
         const localeImageUrl = Array.isArray(imageUrl) ? imageUrl[0] : imageUrl;
         const localeLatStr = Array.isArray(latitude) ? latitude[0] : latitude;
         const localeLngStr = Array.isArray(longitude) ? longitude[0] : longitude;
@@ -595,39 +733,64 @@ export default function LocationDetailScreen() {
           }
         }
         
-        // Create locale object
+        const fallbackImg = localeImageUrl || getLocationImage(locationName);
+        const galleryUrls: string[] = (() => {
+          const fromApi = fetchedLocale?.imageUrls?.filter((u) => typeof u === 'string' && u.length > 0);
+          if (fromApi && fromApi.length > 0) return fromApi;
+          if (galleryFromParams.length > 0) return galleryFromParams;
+          const single = (fetchedLocale?.imageUrl && String(fetchedLocale.imageUrl)) || fallbackImg;
+          return single ? [single] : [];
+        })();
+
+        const displayName = fetchedLocale?.name || locationName;
+        const descFinal =
+          (fetchedLocale?.description != null && String(fetchedLocale.description).trim() !== ''
+            ? fetchedLocale.description
+            : localeDesc) ||
+          `${displayName} is a beautiful destination with unique attractions and natural beauty.`;
+
         const locale: Locale = {
-          _id: `admin-${locationName.toLowerCase().replace(/\s+/g, '-')}`,
-          name: locationName,
-          countryCode: countryParam.toUpperCase(),
-          imageUrl: localeImageUrl || getLocationImage(locationName),
-          description: localeDesc,
-          spotTypes: localeSpotTypes,
-          travelInfo: localeTravelInfo,
-          latitude: finalLat,
-          longitude: finalLng,
+          _id: fetchedLocale?._id || `admin-${locationName.toLowerCase().replace(/\s+/g, '-')}`,
+          name: displayName,
+          countryCode: fetchedLocale?.countryCode || countryParam.toUpperCase(),
+          imageUrl: galleryUrls[0] || '',
+          imageUrls: galleryUrls,
+          description: typeof descFinal === 'string' ? descFinal : localeDesc,
+          spotTypes:
+            fetchedLocale?.spotTypes?.length ? fetchedLocale.spotTypes : localeSpotTypes,
+          travelInfo: fetchedLocale?.travelInfo || localeTravelInfo,
+          latitude: fetchedLocale?.latitude ?? finalLat,
+          longitude: fetchedLocale?.longitude ?? finalLng,
           isActive: true,
-          createdAt: new Date().toISOString(),
+          createdAt: fetchedLocale?.createdAt || new Date().toISOString(),
         };
         
         setLocaleData(locale);
         
-        // Set data for display
-        const coordinates = finalLat && finalLng ? { latitude: finalLat, longitude: finalLng } : undefined;
-        logger.debug('Setting data with coordinates:', { finalLat, finalLng, coordinates });
+        const coordinates =
+          locale.latitude != null &&
+          locale.longitude != null &&
+          !Number.isNaN(locale.latitude) &&
+          !Number.isNaN(locale.longitude)
+            ? { latitude: locale.latitude, longitude: locale.longitude }
+            : finalLat && finalLng
+              ? { latitude: finalLat, longitude: finalLng }
+              : undefined;
+        logger.debug('Setting data with coordinates:', { coordinates });
         
         setData({
-          name: locationName,
+          name: displayName,
           score: 1,
           date: new Date().toISOString(),
-          caption: `Visit ${locationName}`,
+          caption: `Visit ${displayName}`,
           category: {
-            fromYou: localeTravelInfo,
-            typeOfSpot: localeSpotTypes[0] || 'Natural'
+            fromYou: locale.travelInfo || localeTravelInfo,
+            typeOfSpot: (locale.spotTypes && locale.spotTypes[0]) || localeSpotTypes[0] || 'Natural'
           },
-          travelInfo: localeTravelInfo,
-          description: localeDesc || `${locationName} is a beautiful destination with unique attractions and natural beauty.`,
-          imageUrl: localeImageUrl || getLocationImage(locationName),
+          travelInfo: locale.travelInfo || localeTravelInfo,
+          description: descFinal,
+          imageUrl: galleryUrls[0],
+          imageUrls: galleryUrls,
           coordinates: coordinates
         });
         
@@ -881,31 +1044,21 @@ export default function LocationDetailScreen() {
           <>
             {/* Hero Image Section with Glassmorphism Effect */}
             <View style={styles.heroSection}>
-              {/* Photo gallery: show all photos as horizontal scroll if multiple, else single image */}
-              {isTripScoreFlow && data?.photos && data.photos.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  style={StyleSheet.absoluteFill}
-                >
-                  {data.photos.map((photoUri, idx) => (
-                    <Image
-                      key={idx}
-                      source={{ uri: photoUri }}
-                      style={[styles.heroImage, { width: screenWidth }]}
-                      resizeMode="cover"
-                    />
-                  ))}
-                </ScrollView>
+              {isAdminLocale && data?.imageUrls && data.imageUrls.length > 0 ? (
+                <AdminLocaleHeroCarousel
+                  urls={data.imageUrls}
+                  height={280}
+                  width={screenWidth}
+                  resizeMode="contain"
+                />
               ) : (
                 <Image
                   source={{
                     uri: isTripScoreFlow && data?.imageUrl
                       ? data.imageUrl
-                      : (isAdminLocale && localeData?.imageUrl
+                      : isAdminLocale && localeData?.imageUrl
                         ? localeData.imageUrl
-                        : (data?.imageUrl || getLocationImage(data?.name || '')))
+                        : data?.imageUrl || getLocationImage(data?.name || ''),
                   }}
                   style={styles.heroImage}
                   resizeMode="contain"
