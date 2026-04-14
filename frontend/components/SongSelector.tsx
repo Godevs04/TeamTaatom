@@ -1178,6 +1178,21 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 <Text style={styles.limitWarningText}>Minimum 0.5s</Text>
               </View>
             )}
+
+            {/* Loop Indicator — shown when selection is shorter than video */}
+            {videoDuration && videoDuration > 0 && selectionDuration < videoDuration - 0.5 && (() => {
+              const loopCount = videoDuration / selectionDuration;
+              const isExact = Math.abs(loopCount - Math.round(loopCount)) < 0.05;
+              const label = isExact
+                ? `Repeats ${Math.round(loopCount)}× to fill ${formatDuration(videoDuration)} video`
+                : `Loops to fill ${formatDuration(videoDuration)} video`;
+              return (
+                <View style={[styles.loopIndicator, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="repeat" size={13} color={theme.colors.primary} />
+                  <Text style={[styles.loopIndicatorText, { color: theme.colors.primary }]}>{label}</Text>
+                </View>
+              );
+            })()}
           </View>
 
           {/* Simplified Help Text - Instagram Style */}
@@ -1830,6 +1845,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  loopIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 5,
+  },
+  loopIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   trimBarLeft: {
     position: 'absolute',

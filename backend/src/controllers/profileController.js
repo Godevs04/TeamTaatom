@@ -234,12 +234,20 @@ const getProfile = async (req, res) => {
       }
     });
 
-    // Check if current user is following this profile
-    const isFollowing = req.user && user.followers ? 
+    // Check if current user is following this profile (requester is in profile's followers)
+    const isFollowing = req.user && user.followers ?
       user.followers.some(follower => {
         const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
         return followerId === req.user._id.toString();
-      }) : 
+      }) :
+      false;
+
+    // Check if profile owner follows the current user (requester is in profile's following list)
+    const isFollowedBy = req.user && user.following ?
+      user.following.some(following => {
+        const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+        return followingId === req.user._id.toString();
+      }) :
       false;
 
     // Check if current user has sent a follow request
@@ -283,10 +291,10 @@ const getProfile = async (req, res) => {
           break;
           
         case 'private':
-          // Private (Require Approval): Only approved followers can see details
+          // Private: Only people the profile owner follows can see details
           canViewProfile = true;
-          canViewPosts = isFollowing;
-          canViewLocations = isFollowing;
+          canViewPosts = isFollowedBy;
+          canViewLocations = isFollowedBy;
           followRequestSent = hasSentFollowRequest;
           break;
           
@@ -295,6 +303,11 @@ const getProfile = async (req, res) => {
           canViewProfile = true;
           canViewPosts = true;
           canViewLocations = true;
+      }
+
+      // Respect showLocation toggle — overrides profileVisibility
+      if (user.settings?.privacy?.showLocation === false) {
+        canViewLocations = false;
       }
     }
 
@@ -2167,6 +2180,49 @@ const getTravelMapData = async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
+    }
+
+    // Privacy check: respect showLocation toggle and profileVisibility
+    const targetUser = await User.findById(id).select('settings.privacy followers following').lean();
+    if (!targetUser) {
+      return sendError(res, 'RES_3001', 'User does not exist');
+    }
+    const isOwnProfile = req.user ? req.user._id.toString() === id : false;
+    if (!isOwnProfile) {
+      const showLocation = targetUser.settings?.privacy?.showLocation !== false;
+      const profileVisibility = targetUser.settings?.privacy?.profileVisibility || 'public';
+      const emptyResponse = { locations: [], statistics: { totalLocations: 0, totalDistance: 0, totalDays: 0 } };
+
+      if (!showLocation) {
+        return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+      }
+      if (profileVisibility === 'followers') {
+        // Followers: requester must be in the profile owner's followers list
+        if (!req.user) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+        const requesterId = req.user._id.toString();
+        const isFollower = (targetUser.followers || []).some(f => {
+          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
+          return fId === requesterId;
+        });
+        if (!isFollower) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+      } else if (profileVisibility === 'private') {
+        // Private: requester must be in the profile owner's following list
+        if (!req.user) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+        const requesterId = req.user._id.toString();
+        const isFollowedBy = (targetUser.following || []).some(f => {
+          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
+          return fId === requesterId;
+        });
+        if (!isFollowedBy) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+      }
     }
 
     // Get verified TripVisits (only verified trip locations)

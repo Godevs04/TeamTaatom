@@ -294,9 +294,8 @@ export default function UserProfileScreen() {
       
       setProfile(userProfile);
       
-      // Fetch verified locations count (for all users, regardless of privacy)
-      // This runs in parallel with posts/shorts fetching for better performance
-      getTravelMapData(id as string)
+      // Fetch verified locations count only if viewer is allowed to see locations
+      if (userProfile.canViewLocations) getTravelMapData(id as string)
         .then((res) => {
           const locs = Array.isArray(res?.locations) ? res.locations : [];
           const total = res?.statistics?.totalLocations ?? locs.length;
