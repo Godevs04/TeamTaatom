@@ -1562,10 +1562,31 @@ export default function LocaleScreen() {
       });
     }
     
+    // Bug: nearest locale should be shown on top when location is on.
+    // Pure distance-first sort — same-city/state/country tiers previously
+    // demoted closer out-of-region locales below farther in-region ones.
+    const hasUserLocation = typeof snapshot.lat === 'number' && typeof snapshot.lon === 'number';
+    if (hasUserLocation) {
+      const INFINITY = Number.POSITIVE_INFINITY;
+      sorted.sort((a, b) => {
+        const dA = (a as any).distanceKm;
+        const dB = (b as any).distanceKm;
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
+      if (__DEV__ && sorted.length > 0) {
+        logger.debug('✅ Pure distance sort - first 5 locales:', sorted.slice(0, 5).map(l => ({
+          name: l.name, distance: (l as any).distanceKm
+        })));
+      }
+      return sorted;
+    }
+
     sorted.sort((a, b) => {
       const distanceA = (a as any).distanceKm;
       const distanceB = (b as any).distanceKm;
-      
+
       // Get locale location details
       const aCity = a.city || '';
       const bCity = b.city || '';
