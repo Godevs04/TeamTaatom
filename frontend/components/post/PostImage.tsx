@@ -193,8 +193,29 @@ export default function PostImage({
     }
   }, [post._id, post.song?.songId, post.song?.volume]); // Removed isCurrentlyVisible - not needed in deps
 
+  // Measure natural aspect for 'full' display mode (only when needed).
+  const [naturalAspect, setNaturalAspect] = useState<number | null>(null);
+  useEffect(() => {
+    if (post.aspectRatio !== 'full' || !imageUri) return;
+    let cancelled = false;
+    Image.getSize(
+      imageUri,
+      (w, h) => { if (!cancelled && w && h) setNaturalAspect(w / h); },
+      () => { /* ignore — falls back to 1 */ },
+    );
+    return () => { cancelled = true; };
+  }, [post.aspectRatio, imageUri]);
+
+  // 16:9 is portrait (1080×1920) → container aspectRatio = 9/16 (taller than wide).
+  const aspectRatioValue =
+    post.aspectRatio === '16:9'
+      ? 9 / 16
+      : post.aspectRatio === 'full'
+        ? (naturalAspect ?? 1)
+        : 1;
+
   return (
-    <View style={styles.imageContainer}>
+    <View style={[styles.imageContainer, { aspectRatio: aspectRatioValue }]}>
       {imageLoading && (
         <View style={styles.imageLoader} pointerEvents="none">
           <ActivityIndicator color={theme.colors.primary} size="large" />
