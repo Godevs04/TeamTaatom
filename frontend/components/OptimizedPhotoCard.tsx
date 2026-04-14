@@ -603,16 +603,24 @@ function PhotoCard({
               setIsMenuLoading(true);
               await deletePost(post._id);
 
-              // Clear AsyncStorage cache to prevent deleted post from reappearing
+              // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
+              // from reappearing after pull-to-refresh / app restart. TAATOM-044 keys the
+              // home feed cache by feed mode — we must strip the post from every variant.
               try {
-                const cached = await AsyncStorage.getItem('cachedPosts');
-                if (cached) {
-                  const parsed = JSON.parse(cached);
-                  if (parsed.data && Array.isArray(parsed.data)) {
-                    parsed.data = parsed.data.filter((p: any) => p._id !== post._id);
-                    await AsyncStorage.setItem('cachedPosts', JSON.stringify(parsed));
+                const cacheKeys = ['cachedPosts_recents', 'cachedPosts_friends', 'cachedPosts_popular', 'cachedPosts'];
+                await Promise.all(cacheKeys.map(async (key) => {
+                  const cached = await AsyncStorage.getItem(key);
+                  if (!cached) return;
+                  try {
+                    const parsed = JSON.parse(cached);
+                    if (parsed?.data && Array.isArray(parsed.data)) {
+                      parsed.data = parsed.data.filter((p: any) => p._id !== post._id);
+                      await AsyncStorage.setItem(key, JSON.stringify(parsed));
+                    }
+                  } catch {
+                    /* ignore malformed cache entry */
                   }
-                }
+                }));
               } catch (cacheError) {
                 logger.warn('Failed to update cached posts after deletion', cacheError);
               }

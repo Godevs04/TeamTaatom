@@ -37,6 +37,8 @@ interface LocationDetail {
   };
   imageUrl?: string;
   imageUrls?: string[];
+  /** Bug 18b: all photos taken at this same TripScore pin (returned by backend). */
+  photos?: string[];
   postType?: 'photo' | 'short';
   description?: string;
   coordinates?: {
@@ -1047,6 +1049,14 @@ export default function LocationDetailScreen() {
               {isAdminLocale && data?.imageUrls && data.imageUrls.length > 0 ? (
                 <AdminLocaleHeroCarousel
                   urls={data.imageUrls}
+                  height={280}
+                  width={screenWidth}
+                  resizeMode="contain"
+                />
+              ) : isTripScoreFlow && Array.isArray((data as any)?.photos) && ((data as any).photos as string[]).length > 1 ? (
+                // Bug 18b: multi-photo swipe for TripScore locations with multiple posts at the same pin
+                <AdminLocaleHeroCarousel
+                  urls={(data as any).photos as string[]}
                   height={280}
                   width={screenWidth}
                   resizeMode="contain"
