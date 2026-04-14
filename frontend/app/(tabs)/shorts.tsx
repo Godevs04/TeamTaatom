@@ -1760,7 +1760,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     // Reel item
     const distanceFromVisible = Math.abs(index - currentVisibleIndex);
-    const shouldRenderVideo = distanceFromVisible <= 1;
+    // Preload 2 ahead/behind so the next short is already buffered when the
+    // user scrolls — reduces cold-load lag that caused inconsistent playback.
+    const shouldRenderVideo = distanceFromVisible <= 2;
 
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
@@ -1770,7 +1772,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
     // Don't show pause button if like animation is showing
-    const shouldShowPauseButton = !showLikeAnimation[item._id] && (showPauseButton[item._id] || !videoStates[item._id]);
+    // Only show play/pause overlay when the user explicitly taps. Previously
+    // `!videoStates[item._id]` also triggered it, which flashed a "play"
+    // button during the brief load/transition window on scroll.
+    const shouldShowPauseButton = !showLikeAnimation[item._id] && !!showPauseButton[item._id];
     const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
     const shouldShowLikeAnimation = showLikeAnimation[item._id] || false;
     
@@ -1998,9 +2003,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       }
                     }
                     
-                    // Ensure only one video plays at a time
-                    // If this video started playing but it's not the active one, pause it
-                    if (isNowPlaying && activeVideoIdRef.current !== item._id && activeVideoIdRef.current !== null) {
+                    // Ensure only one video plays at a time.
+                    // Gate by the source of truth (currentVisibleIndex) rather
+                    // than the ref — the ref can lag during scroll transitions
+                    // and falsely pause the video that just became visible,
+                    // causing intermittent "won't play" behaviour.
+                    if (isNowPlaying && index !== currentVisibleIndex) {
                       videoRefs.current[item._id]?.pauseAsync().catch(() => {
                         // Silently handle pause errors
                       });
@@ -2471,9 +2479,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           .catch(() => {
             setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
           });
-        if (Math.abs(previousIndex - newVisibleIndex) > 1) {
-          stopAndUnloadVideo(previousVideoId);
-        }
+        // Do NOT call stopAndUnloadVideo here: the Video component may still
+        // be mounted in the FlatList window, and unloadAsync leaves it in a
+        // black/unloaded state with no trigger to reload when the user
+        // scrolls back. Unmounting (via shouldRenderVideo / windowSize) is
+        // what frees resources — pauseAsync above is enough to stop playback.
       }
     }
 
@@ -2620,7 +2630,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         removeClippedSubviews={true}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
-        windowSize={3}
+        windowSize={5}
         updateCellsBatchingPeriod={50} // Batch updates every 50ms for better performance
         onScroll={handleScroll}
         scrollEventThrottle={16}
