@@ -869,7 +869,7 @@ const getPostById = async (req, res) => {
       }
     }
 
-    const postOwnerId = post.user?._id?.toString();
+    postOwnerId = post.user?._id?.toString();
     const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
     const postWithDetails = {
       ...post,
@@ -2896,18 +2896,19 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'songData',
           pipeline: [
-            { 
-              $project: { 
-                title: 1, 
-                artist: 1, 
-                duration: 1, 
-                s3Url: 1, 
-                thumbnailUrl: 1, 
+            {
+              $project: {
+                title: 1,
+                artist: 1,
+                duration: 1,
+                s3Url: 1,
+                cloudinaryUrl: 1,
+                thumbnailUrl: 1,
                 storageKey: 1,
                 cloudinaryKey: 1,
                 s3Key: 1,
-                _id: 1 
-              } 
+                _id: 1
+              }
             }
           ]
         }
@@ -3021,10 +3022,13 @@ const getShorts = async (req, res) => {
       
       // Generate signed URL for song if present (same logic as getPosts)
       if (short.song?.songId) {
-        logger.info('getShorts - Processing song for short:', {
-          shortId: short._id,
-          songId: short.song.songId._id || short.song.songId,
-          hasStorageKey: !!(short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key)
+        console.warn('[SHORTS-SONG] Processing song for short:', {
+          shortId: String(short._id),
+          songId: String(short.song.songId._id || short.song.songId),
+          storageKey: short.song.songId.storageKey || null,
+          cloudinaryKey: short.song.songId.cloudinaryKey || null,
+          s3Key: short.song.songId.s3Key || null,
+          title: short.song.songId.title || null,
         });
         const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
         if (storageKey) {
@@ -3032,27 +3036,29 @@ const getShorts = async (req, res) => {
             const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
             short.song.songId.s3Url = songUrl;
             short.song.songId.cloudinaryUrl = songUrl; // Backward compatibility
-            logger.info('getShorts - Generated song URL:', {
-              shortId: short._id,
-              songUrl: songUrl.substring(0, 50) + '...'
+            console.warn('[SHORTS-SONG] Generated song URL:', {
+              shortId: String(short._id),
+              storageKey,
+              songUrl: songUrl ? (String(songUrl).substring(0, 80) + '...') : 'NULL',
             });
           } catch (error) {
-            logger.warn('Failed to generate song URL for short:', { 
-              shortId: short._id, 
-              songId: short.song.songId._id, 
-              error: error.message 
+            console.warn('[SHORTS-SONG] Failed to generate song URL:', {
+              shortId: String(short._id),
+              songId: String(short.song.songId._id),
+              error: error.message,
             });
             short.song.songId.s3Url = null;
             short.song.songId.cloudinaryUrl = null;
           }
         } else {
-          logger.warn('Short song missing storage key:', { 
-            shortId: short._id, 
+          // No storageKey — keep existing s3Url/cloudinaryUrl from DB (legacy songs)
+          logger.warn('Short song missing storage key, using stored URL if available:', {
+            shortId: short._id,
             songId: short.song.songId._id,
-            songData: short.song.songId
+            hasS3Url: !!short.song.songId.s3Url,
+            hasCloudinaryUrl: !!short.song.songId.cloudinaryUrl
           });
-          short.song.songId.s3Url = null;
-          short.song.songId.cloudinaryUrl = null;
+          // Do NOT set to null — legacy songs store the URL directly in the Song document
         }
       } else {
         logger.debug('getShorts - No song data for short:', { shortId: short._id });

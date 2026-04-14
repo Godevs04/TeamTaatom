@@ -219,6 +219,10 @@ function RootLayoutInner() {
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
+      // 🔴 Allow Audio.Sound (song) to play alongside Video component in Shorts.
+      // Without this, muted Video holds the audio session and Audio.Sound is silenced.
+      interruptionModeIOS: 0, // MIX_WITH_OTHERS = 0
+      interruptionModeAndroid: 1, // DO_NOT_MIX = 1 (default; Android handles mixing via Video's audioFocus)
     }).catch(err => logger.error('Error setting audio mode:', err));
   }, []);
 
