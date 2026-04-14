@@ -39,6 +39,7 @@ import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
 import { flushPendingLikes } from '../../utils/likePersistence';
+import type { FeedMode } from '../../services/posts';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
 export type FeedItem = PostType | { type: 'ad'; adIndex: number };
@@ -185,6 +186,7 @@ export default function HomeScreen() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
+  const [feedMode, setFeedMode] = useState<FeedMode>('recents');
   const { theme, mode } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
@@ -200,9 +202,6 @@ export default function HomeScreen() {
   // Request guards for pull-to-refresh and pagination race safety
   const isRefreshingRef = useRef(false);
   const isPaginatingRef = useRef(false);
-
-  // Flag: scroll to top after the next feedData recompute (set on refresh, cleared by effect)
-  const scrollToTopOnNextFeedUpdateRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
   const lastViewedPostIdRef = useRef<string | null>(null);
@@ -225,6 +224,15 @@ export default function HomeScreen() {
 
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
+
+  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap }> = useMemo(
+    () => [
+      { id: 'recents', label: 'Recent', icon: 'time-outline' },
+      { id: 'friends', label: 'Friends', icon: 'people-outline' },
+      { id: 'popular', label: 'Popular', icon: 'flame-outline' },
+    ],
+    []
+  );
 
   const mergeLikedIntoPosts = useCallback((list: PostType[]): PostType[] => {
     if (list.length === 0) return list;
@@ -270,11 +278,11 @@ export default function HomeScreen() {
     
     isFetchingRef.current = true;
     try {
-      logger.debug(`Fetching posts for page: ${pageNum}`);
-
+      logger.debug('Fetching posts for page:', pageNum);
+      
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
-      const response = await getPosts(pageNum, postsPerPage);
+      const response = await getPosts(pageNum, postsPerPage, feedMode);
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -299,10 +307,6 @@ export default function HomeScreen() {
           return mergeLikedIntoPosts([...prev, ...newPosts]);
         });
       } else {
-        // Always apply fresh API data — signed R2 image URLs expire after 5 minutes,
-        // so cached posts may have stale URLs that cause blank images.
-        // Fresh responses always carry valid signed URLs.
-        scrollToTopOnNextFeedUpdateRef.current = true;
         setPosts(mergeLikedIntoPosts(response.posts));
       }
       
@@ -351,7 +355,7 @@ export default function HomeScreen() {
       // Cache posts for offline support
       if (pageNum === 1 && !shouldAppend) {
         try {
-          await AsyncStorage.setItem('cachedPosts', JSON.stringify({
+          await AsyncStorage.setItem(`cachedPosts_${feedMode}`, JSON.stringify({
             data: response.posts,
             timestamp: Date.now()
           }));
@@ -459,7 +463,7 @@ export default function HomeScreen() {
         isRefreshingRef.current = false;
       }
     }
-  }, [isOnline]);
+  }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
 
   const fetchUnseenMessageCount = useCallback(async () => {
     // Prevent duplicate calls within 2 seconds
@@ -662,7 +666,7 @@ export default function HomeScreen() {
         
         // Try to load cached posts first for instant display
         try {
-          const cachedData = await AsyncStorage.getItem('cachedPosts');
+          const cachedData = await AsyncStorage.getItem(`cachedPosts_${feedMode}`);
           if (cachedData) {
             const parsed = JSON.parse(cachedData);
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
@@ -670,8 +674,7 @@ export default function HomeScreen() {
               const cacheAge = Date.now() - (parsed.timestamp || 0);
               if (cacheAge < 24 * 60 * 60 * 1000) {
                 logger.debug('Loading cached posts for instant display');
-                const cachedPosts = mergeLikedIntoPosts(parsed.data);
-                setPosts(cachedPosts);
+                setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false);
                 setPage(1);
                 setLoading(false); // Show cached data immediately
@@ -708,7 +711,7 @@ export default function HomeScreen() {
     
     // Track screen view
     trackScreenView('home');
-  }, []); // Empty deps - only run once on mount
+  }, [feedMode]); // Re-run when feed mode changes
 
   // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
   useFocusEffect(
@@ -845,10 +848,32 @@ export default function HomeScreen() {
         fetchPosts(1, false),
         fetchUnseenMessageCount()
       ]);
+      
+      // Ensure scroll to top after posts are loaded
+      if (flatListRef.current) {
+        setTimeout(() => {
+          try {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+          } catch (error) {
+            logger.debug('Error scrolling to top after refresh:', error);
+          }
+        }, 100);
+      }
     } finally {
       setRefreshing(false);
     }
   }, [fetchPosts, fetchUnseenMessageCount, posts.length]);
+
+  const handleFeedTabPress = useCallback((mode: FeedMode) => {
+    if (mode === feedMode) return;
+    setFeedMode(mode);
+    setPosts([]);
+    setPage(1);
+    setHasMore(true);
+    setLoading(true);
+    hasInitializedRef.current = false;
+    hasScrolledToPostIdRef.current = null;
+  }, [feedMode]);
 
   // Throttle load more for web performance
   // Request guard: prevent pagination if already paginating or refreshing
@@ -931,6 +956,42 @@ export default function HomeScreen() {
     postsContainer: {
       flex: 1,
     },
+    feedTabsContainer: {
+      marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
+      marginTop: theme.spacing.sm,
+      marginBottom: theme.spacing.md,
+      borderRadius: 18,
+      padding: 6,
+      flexDirection: 'row',
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      ...theme.shadows.small,
+    },
+    feedTabButton: {
+      flex: 1,
+      borderRadius: 14,
+      paddingVertical: isTablet ? 11 : 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 6,
+    },
+    feedTabButtonActive: {
+      backgroundColor: theme.colors.primary + '16',
+      borderWidth: 1,
+      borderColor: theme.colors.primary + '2E',
+      ...theme.shadows.small,
+    },
+    feedTabText: {
+      fontSize: isTablet ? theme.typography.body.fontSize : 13,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
+      letterSpacing: 0.2,
+      ...(isWeb && {
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      } as any),
+    },
     postsList: {
       paddingHorizontal: 0,
       // Add padding for tab bar (88px mobile, 70px web) + extra spacing
@@ -974,22 +1035,41 @@ export default function HomeScreen() {
     return result;
   }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
 
-  // After a refresh replaces posts, scroll to top once FlatList has laid out the new data
-  useEffect(() => {
-    if (scrollToTopOnNextFeedUpdateRef.current && feedData.length > 0) {
-      scrollToTopOnNextFeedUpdateRef.current = false;
-      requestAnimationFrame(() => {
-        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-      });
-    }
-  }, [feedData]);
-
-  // Re-fetch when feedMode changes (after handleFeedModeChange clears posts)
-  const renderHeader = () => (
+  const renderTopHeader = () => (
     <AnimatedHeader
       unseenMessageCount={unseenMessageCount}
       onRefresh={handleRefresh}
     />
+  );
+
+  const renderFeedTabs = () => (
+    <View style={styles.feedTabsContainer}>
+      {feedTabs.map((tab) => {
+        const active = feedMode === tab.id;
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            activeOpacity={0.85}
+            onPress={() => handleFeedTabPress(tab.id)}
+            style={[styles.feedTabButton, active && styles.feedTabButtonActive]}
+          >
+            <Text
+              style={[
+                styles.feedTabText,
+                { color: active ? theme.colors.primary : theme.colors.textSecondary },
+              ]}
+            >
+              <Ionicons
+                name={tab.icon}
+                size={14}
+                color={active ? theme.colors.primary : theme.colors.textSecondary}
+              />{' '}
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
@@ -1061,16 +1141,14 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-          backgroundColor={theme.colors.background}
+        <StatusBar 
+          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
+          backgroundColor={theme.colors.background} 
         />
-        {renderHeader()}
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <PostSkeleton />
-          <PostSkeleton />
-          <PostSkeleton />
-        </ScrollView>
+        {renderTopHeader()}
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </SafeAreaView>
     );
   }
@@ -1082,7 +1160,8 @@ export default function HomeScreen() {
           barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
           backgroundColor={theme.colors.background} 
         />
-        {renderHeader()}
+        {renderTopHeader()}
+        {renderFeedTabs()}
         <EmptyState
           icon="camera-outline"
           title="No Content Yet"
@@ -1104,15 +1183,7 @@ export default function HomeScreen() {
         backgroundColor={theme.colors.background} 
       />
       <SafeAreaView style={styles.safeArea}>
-        {renderHeader()}
-        
-        {!isOnline && (
-          <View style={styles.offlineBanner}>
-            <Text style={styles.offlineText}>
-              You're offline. Some features may be limited.
-            </Text>
-          </View>
-        )}
+        {renderTopHeader()}
         
         <FlatList
         ref={flatListRef}
@@ -1137,6 +1208,18 @@ export default function HomeScreen() {
         }
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.1}
+        ListHeaderComponent={
+          <>
+            {renderFeedTabs()}
+            {!isOnline && (
+              <View style={styles.offlineBanner}>
+                <Text style={styles.offlineText}>
+                  You're offline. Some features may be limited.
+                </Text>
+              </View>
+            )}
+          </>
+        }
         ListFooterComponent={
           hasMore ? (
             <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
@@ -1171,4 +1254,4 @@ export default function HomeScreen() {
     </View>
     </ErrorBoundary>
   );
-}
+}

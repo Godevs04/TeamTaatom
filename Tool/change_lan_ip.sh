@@ -120,9 +120,9 @@ fi
 WEB_ENV_LOCAL="$ROOT_DIR/../web/.env.local"
 if [ -f "$WEB_ENV_LOCAL" ]; then
   echo "Updating web/.env.local BACKEND_ORIGIN , NEXT_PUBLIC_WEB_URL and BACKEND_PROXY_TARGET..."
-  sed -i '' -E "s|^(BACKEND_ORIGIN=)http://[0-9.]+(:3001)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
+  sed -i '' -E "s|^(BACKEND_ORIGIN=)http://[0-9.]+(:3000)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
   sed -i '' -E "s|^(NEXT_PUBLIC_WEB_URL=)http://[0-9.]+(:3001)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
-  sed -i '' -E "s|^(BACKEND_PROXY_TARGET=)http://[0-9.]+(:3001)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
+  sed -i '' -E "s|^(BACKEND_PROXY_TARGET=)http://[0-9.]+(:3000)(.*)$|\1http://$NEW_IP\2\3|" "$WEB_ENV_LOCAL"
 else
   echo "web/.env.local not found"
 fi

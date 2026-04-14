@@ -3204,7 +3204,12 @@ export default function LocaleScreen() {
                 country: locale.countryCode.toLowerCase(),
                 location: locale.name.toLowerCase().replace(/\s+/g, '-'),
                 userId: 'admin-locale',
+                localeId: String(locale._id),
                 imageUrl: locale.imageUrl || '',
+                galleryUrls:
+                  Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
+                    ? locale.imageUrls.join('|||')
+                    : '',
                 latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: locale.description || '',
@@ -3376,7 +3381,12 @@ export default function LocaleScreen() {
                 country: locale.countryCode.toLowerCase(),
                 location: locale.name.toLowerCase().replace(/\s+/g, '-'),
                 userId: 'admin-locale',
+                localeId: String(locale._id),
                 imageUrl: locale.imageUrl || '',
+                galleryUrls:
+                  Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
+                    ? locale.imageUrls.join('|||')
+                    : '',
                 latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: locale.description || '',

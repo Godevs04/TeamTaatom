@@ -19,6 +19,8 @@ import { Input } from "../../../../components/ui/input";
 import { ArrowLeft, Send, User } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
+import { parsePostShareMessage } from "../../../../lib/post-share-chat";
+import { PostShareCard } from "../../../../components/chat/post-share-card";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -87,34 +89,34 @@ export default function ChatConversationPage() {
 
   if (!myId) {
     return (
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium">
-        <p className="text-slate-600">Sign in to chat.</p>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <p className="text-slate-600 dark:text-zinc-400">Sign in to chat.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-slate-200/80 bg-white shadow-premium">
+    <div className="flex h-[calc(100vh-8rem)] flex-col rounded-2xl border border-slate-200/80 bg-white shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
       {/* Header */}
-      <div className="flex items-center gap-4 border-b border-slate-100 px-4 py-3">
+      <div className="flex items-center gap-4 border-b border-slate-100 px-4 py-3 dark:border-zinc-800">
         <Button variant="ghost" size="icon" className="rounded-xl" asChild>
           <Link href="/chat">
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
-        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-slate-100 dark:bg-zinc-800">
           {otherUser?.profilePic ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={otherUser.profilePic} alt="" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-slate-400">
+            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
               <User className="h-5 w-5" />
             </div>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-semibold text-slate-900">{displayName}</h1>
-          <p className="truncate text-xs text-slate-500">@{otherUser?.username ?? "user"}</p>
+          <h1 className="truncate font-semibold text-slate-900 dark:text-zinc-50">{displayName}</h1>
+          <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{otherUser?.username ?? "user"}</p>
         </div>
         <Button variant="outline" size="sm" className="rounded-xl" asChild>
           <Link href={`/profile/${userId}`}>Profile</Link>
@@ -131,26 +133,36 @@ export default function ChatConversationPage() {
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-sm text-slate-500">No messages yet. Say hello!</p>
+            <p className="text-sm text-slate-500 dark:text-zinc-400">No messages yet. Say hello!</p>
           </div>
         ) : (
           messages.map((msg) => {
             const isMe = normalizeSenderId(msg.sender) === myId;
+            const text = msg.text ?? "";
+            const postShare = parsePostShareMessage(text);
             return (
               <div
                 key={msg._id}
                 className={`flex ${isMe ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
-                    isMe
-                      ? "bg-primary text-white"
-                      : "bg-slate-100 text-slate-900"
+                  className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
+                    postShare
+                      ? isMe
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
+                      : isMe
+                        ? "bg-primary px-4 py-2.5 text-primary-foreground"
+                        : "bg-slate-100 px-4 py-2.5 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
                   }`}
                 >
-                  <p className="text-[15px] leading-snug">{msg.text}</p>
+                  {postShare ? (
+                    <PostShareCard share={postShare} isSent={isMe} />
+                  ) : (
+                    <p className="text-[15px] leading-snug">{text}</p>
+                  )}
                   {msg.createdAt && (
-                    <p className={`mt-1 text-xs ${isMe ? "text-white/80" : "text-slate-500"}`}>
+                    <p className={`mt-1.5 px-1 text-xs ${isMe ? "text-primary-foreground/80" : "text-slate-500 dark:text-zinc-400"}`}>
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   )}
@@ -163,13 +175,13 @@ export default function ChatConversationPage() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-slate-100 p-4">
+      <form onSubmit={handleSubmit} className="border-t border-slate-100 p-4 dark:border-zinc-800">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type a message…"
-            className="flex-1 rounded-xl border-slate-200/80"
+            className="flex-1 rounded-xl border-slate-200/80 bg-background dark:border-zinc-700"
             maxLength={2000}
           />
           <Button

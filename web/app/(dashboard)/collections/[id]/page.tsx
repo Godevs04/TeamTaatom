@@ -59,8 +59,8 @@ export default function CollectionDetailPage() {
 
   if (isError || !collection) {
     return (
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium">
-        <p className="text-slate-600">Collection not found.</p>
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <p className="text-slate-600 dark:text-zinc-400">Collection not found.</p>
         <Button asChild className="mt-4 rounded-xl">
           <Link href="/collections">Back to Collections</Link>
         </Button>
@@ -80,14 +80,16 @@ export default function CollectionDetailPage() {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{collection.name}</h1>
-            {collection.description && <p className="mt-1 text-sm text-slate-500">{collection.description}</p>}
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-zinc-50">{collection.name}</h1>
+            {collection.description && (
+              <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">{collection.description}</p>
+            )}
           </div>
         </div>
         <Button
           variant="outline"
           size="sm"
-          className="rounded-xl text-red-600 hover:bg-red-50 hover:text-red-700"
+          className="rounded-xl text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
           onClick={() => window.confirm("Delete this collection?") && deleteCol.mutate()}
           disabled={deleteCol.isPending}
         >
@@ -96,13 +98,13 @@ export default function CollectionDetailPage() {
         </Button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium">
-        <div className="aspect-[3/1] w-full bg-slate-100">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <div className="aspect-[3/1] w-full bg-slate-100 dark:bg-zinc-800">
           {coverUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={coverUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-slate-400">
+            <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
               <ImageIcon className="h-16 w-16" />
             </div>
           )}
@@ -110,10 +112,10 @@ export default function CollectionDetailPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">Posts ({posts.length})</h2>
+        <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-zinc-50">Posts ({posts.length})</h2>
         {posts.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium">
-            <p className="text-slate-500">No posts in this collection yet.</p>
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+            <p className="text-slate-500 dark:text-zinc-400">No posts in this collection yet.</p>
             <Link href="/feed" className="mt-4 inline-block">
               <Button className="rounded-xl">Browse feed to add posts</Button>
             </Link>
@@ -121,8 +123,11 @@ export default function CollectionDetailPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
             {posts.map((p) => (
-              <div key={p._id} className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium">
-                <Link href={`/trip/${p._id}`} className="block aspect-square bg-slate-100">
+              <div
+                key={p._id}
+                className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90"
+              >
+                <Link href={`/trip/${p._id}`} className="block aspect-square bg-slate-100 dark:bg-zinc-800">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={p.imageUrl || p.thumbnailUrl || p.mediaUrl || ""}

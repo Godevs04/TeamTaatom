@@ -6,7 +6,7 @@ export default function CopyrightsPage() {
     <div className="mx-auto w-full max-w-5xl space-y-6 px-3 py-6 sm:px-4 sm:py-10 md:px-6">
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+        className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Home
@@ -30,16 +30,16 @@ export default function CopyrightsPage() {
 
       <div className="space-y-6 md:space-y-8">
         {/* Your responsibilities */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
             Your Copyright Responsibilities
           </h2>
 
-          <h3 className="mt-3 text-sm font-semibold text-slate-900">When Posting Content</h3>
-          <p className="mt-1 text-sm text-slate-700">
+          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-zinc-50">When Posting Content</h3>
+          <p className="mt-1 text-sm text-slate-700 dark:text-zinc-300">
             By uploading content to Taatom, you confirm that:
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>You own the content you upload, or have obtained all necessary rights.</li>
             <li>
               Any music, audio, or media in your posts is your original creation, licensed for your
@@ -53,19 +53,19 @@ export default function CopyrightsPage() {
         </section>
 
         {/* Taatom's position */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">Taatom&apos;s Position</h2>
-          <h3 className="mt-3 text-sm font-semibold text-slate-900">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">Taatom&apos;s Position</h2>
+          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-zinc-50">
             We Do Not Provide Copyrighted Music
           </h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>Taatom does not provide or license copyrighted music for use in your posts.</li>
             <li>Taatom currently does not provide a licensed music library.</li>
             <li>You are responsible for ensuring you have rights to any audio you use.</li>
           </ul>
 
-          <h3 className="mt-4 text-sm font-semibold text-slate-900">Platform Responsibility</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-zinc-50">Platform Responsibility</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>
               Taatom is not responsible for copyright violations in user‑uploaded content and does
               not pre‑review content for copyright compliance.
@@ -75,12 +75,12 @@ export default function CopyrightsPage() {
         </section>
 
         {/* Violations & reporting */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
             What Happens If You Violate Copyright
           </h2>
-          <h3 className="mt-3 text-sm font-semibold text-slate-900">Content Removal</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-zinc-50">Content Removal</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>
               If we receive a valid copyright complaint (for example, a DMCA takedown notice), we
               may remove the infringing content.
@@ -89,8 +89,8 @@ export default function CopyrightsPage() {
             <li>Repeated infringement may result in suspension or termination of your account.</li>
           </ul>
 
-          <h3 className="mt-4 text-sm font-semibold text-slate-900">Legal Consequences</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <h3 className="mt-4 text-sm font-semibold text-slate-900 dark:text-zinc-50">Legal Consequences</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>Copyright holders may pursue legal action directly against you.</li>
             <li>
               You may be liable for damages, legal fees, and other costs related to infringement.
@@ -100,14 +100,14 @@ export default function CopyrightsPage() {
         </section>
 
         {/* Reporting & best practices */}
-        <section className="rounded-3xl border border-slate-200/80 bg-white/95 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-slate-900 md:text-xl">
+        <section className="rounded-3xl border border-slate-200/80 bg-white/95 dark:border-zinc-800/80 dark:bg-zinc-900/95 p-6 shadow-soft md:p-8">
+          <h2 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-50">
             How to Report Copyright Infringement
           </h2>
-          <p className="mt-2 text-sm text-slate-700">
+          <p className="mt-2 text-sm text-slate-700 dark:text-zinc-300">
             If you believe your copyright has been infringed on Taatom:
           </p>
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>
               <strong>Contact Us</strong> at{" "}
               <a href="mailto:contact@taatom.com" className="text-primary underline">
@@ -126,8 +126,8 @@ export default function CopyrightsPage() {
             </li>
           </ol>
 
-          <h3 className="mt-5 text-sm font-semibold text-slate-900">Best Practices</h3>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <h3 className="mt-5 text-sm font-semibold text-slate-900 dark:text-zinc-50">Best Practices</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700 dark:text-zinc-300">
             <li>Use original content whenever possible.</li>
             <li>
               Use properly licensed content (for example, royalty‑free or Creative Commons
@@ -138,12 +138,12 @@ export default function CopyrightsPage() {
         </section>
 
         {/* Contact */}
-        <section className="rounded-3xl border border-rose-200/80 bg-rose-50/90 p-6 shadow-soft md:p-8">
-          <h2 className="text-lg font-semibold text-rose-900 md:text-xl">Contact</h2>
-          <p className="mt-2 text-sm text-rose-900">
+        <section className="rounded-3xl border border-rose-200/80 bg-rose-50/90 p-6 shadow-soft dark:border-rose-900/40 dark:bg-rose-950/35 md:p-8">
+          <h2 className="text-lg font-semibold text-rose-900 dark:text-rose-100 md:text-xl">Contact</h2>
+          <p className="mt-2 text-sm text-rose-900 dark:text-rose-100/90">
             For copyright communication or questions about this page, contact:
           </p>
-          <p className="mt-3 text-sm font-semibold text-rose-900">
+          <p className="mt-3 text-sm font-semibold text-rose-900 dark:text-rose-100">
             Email:{" "}
             <a href="mailto:contact@taatom.com" className="underline">
               contact@taatom.com

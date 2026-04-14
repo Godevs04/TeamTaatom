@@ -68,7 +68,7 @@ export default async function ProfileTripScoreContinentPage({
           <p className="text-sm text-muted-foreground">TripScore data not available.</p>
           <Link
             href={`/profile/${params.id}/tripscore`}
-            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline"
+            className="mt-4 inline-block text-sm font-medium text-sky-600 hover:underline dark:text-sky-400"
           >
             ← Back to TripScore
           </Link>
@@ -85,27 +85,27 @@ export default async function ProfileTripScoreContinentPage({
       <div className="flex items-center gap-4 text-sm">
         <Link
           href={`/profile/${params.id}/tripscore`}
-          className="font-medium text-slate-600 hover:text-slate-900"
+          className="font-medium text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-100"
         >
           ← TripScore
         </Link>
-        <span className="text-slate-400">/</span>
-        <span className="font-medium text-slate-900">{continentName}</span>
+        <span className="text-slate-400 dark:text-zinc-500">/</span>
+        <span className="font-medium text-slate-900 dark:text-zinc-50">{continentName}</span>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium">
-        <h1 className="text-xl font-semibold text-slate-900">{continentName}</h1>
-        <p className="mt-1 text-sm text-slate-500">
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <h1 className="text-xl font-semibold text-slate-900 dark:text-zinc-50">{continentName}</h1>
+        <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">
           {profileName} · {data.continentScore} place{data.continentScore !== 1 ? "s" : ""} in{" "}
           {visitedCountries.length} countr{visitedCountries.length !== 1 ? "ies" : "y"}
         </p>
       </div>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold text-slate-900">Countries</h2>
+        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-zinc-50">Countries</h2>
         {visitedCountries.length === 0 ? (
-          <Card className="rounded-2xl border border-slate-200/80 p-8 text-center shadow-premium">
-            <p className="text-sm text-slate-500">No countries with visits in this continent.</p>
+          <Card className="rounded-2xl border border-slate-200/80 p-8 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+            <p className="text-sm text-slate-500 dark:text-zinc-400">No countries with visits in this continent.</p>
           </Card>
         ) : (
           <ul className="space-y-3">
@@ -113,10 +113,10 @@ export default async function ProfileTripScoreContinentPage({
               <li key={c.name}>
                 <Link
                   href={`/profile/${params.id}/tripscore/countries/${encodeURIComponent(c.name)}`}
-                  className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover"
+                  className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover"
                 >
-                  <span className="font-medium text-slate-900">{c.name}</span>
-                  <span className="text-sm text-slate-600">
+                  <span className="font-medium text-slate-900 dark:text-zinc-50">{c.name}</span>
+                  <span className="text-sm text-slate-600 dark:text-zinc-400">
                     {c.score} place{c.score !== 1 ? "s" : ""}
                   </span>
                 </Link>
