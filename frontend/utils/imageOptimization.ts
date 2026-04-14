@@ -113,6 +113,85 @@ export const optimizeImageForUpload = async (
 };
 
 /**
+ * Optional user transform from the in-app cropper.
+ *
+ * `userScale` is a multiplier on top of the cover-fit scale (1 = no extra zoom).
+ * `viewportTx`/`viewportTy` are pixel translations in viewport space — positive
+ * means the image was dragged right/down, exposing the left/top portion.
+ * `viewportW`/`viewportH` are the on-screen viewport dimensions used to map
+ * those translations into output-pixel space.
+ */
+export interface UserCropTransform {
+  userScale: number;
+  viewportTx: number;
+  viewportTy: number;
+  viewportW: number;
+  viewportH: number;
+}
+
+/**
+ * Resize/crop an image to a fixed aspect ratio with cover-fit (zoom-to-fill).
+ * 1:1 → 1080×1080. 16:9 (portrait) → 1080×1920. Full → original, no processing.
+ *
+ * If `transform` is provided, the user's in-app pinch + pan from the cropper
+ * is applied: scale multiplies the cover-fit zoom, translation shifts the crop
+ * window away from center. Translations are clamped so the crop window can
+ * never extend outside the scaled image (no empty edges).
+ */
+export const processImageToAspect = async (
+  imageUri: string,
+  aspect: '1:1' | '16:9' | 'full',
+  transform?: UserCropTransform
+): Promise<string> => {
+  if (aspect === 'full') return imageUri;
+
+  // 16:9 here is portrait (1080 wide × 1920 tall) per product spec.
+  const target = aspect === '1:1'
+    ? { w: 1080, h: 1080 }
+    : { w: 1080, h: 1920 };
+
+  const src = await ImageManipulator.manipulateAsync(imageUri, [], {
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+
+  if (!src.width || !src.height) return imageUri;
+
+  const coverScale = Math.max(target.w / src.width, target.h / src.height);
+  const userScale = Math.max(1, transform?.userScale ?? 1);
+  const finalScale = coverScale * userScale;
+
+  const scaledW = Math.round(src.width * finalScale);
+  const scaledH = Math.round(src.height * finalScale);
+
+  // Default center-crop origin.
+  let originX = Math.max(0, Math.round((scaledW - target.w) / 2));
+  let originY = Math.max(0, Math.round((scaledH - target.h) / 2));
+
+  if (transform && transform.viewportW > 0 && transform.viewportH > 0) {
+    // Map viewport-pixel translation → output-pixel translation.
+    // Viewport box represents the target frame on screen.
+    const pxPerViewportX = target.w / transform.viewportW;
+    const pxPerViewportY = target.h / transform.viewportH;
+    const dx = Math.round(transform.viewportTx * pxPerViewportX);
+    const dy = Math.round(transform.viewportTy * pxPerViewportY);
+    // Image dragged right (positive tx) → crop window shifts left.
+    originX = Math.max(0, Math.min(scaledW - target.w, originX - dx));
+    originY = Math.max(0, Math.min(scaledH - target.h, originY - dy));
+  }
+
+  const result = await ImageManipulator.manipulateAsync(
+    imageUri,
+    [
+      { resize: { width: scaledW, height: scaledH } },
+      { crop: { originX, originY, width: target.w, height: target.h } },
+    ],
+    { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+  );
+
+  return result.uri;
+};
+
+/**
  * Get optimal image dimensions for mobile with high quality
  */
 export const getOptimalImageDimensions = (originalWidth: number, originalHeight: number) => {
