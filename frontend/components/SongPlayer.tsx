@@ -12,16 +12,20 @@ interface SongPlayerProps {
   isVisible?: boolean;
   autoPlay?: boolean;
   showPlayPause?: boolean; // Show play/pause button (for home page)
+  /** External mute control — when true, mutes the song (for shorts mute button) */
+  externalMuted?: boolean;
   /** Called when this instance becomes the active player or stops (for Shorts to pause on tab/focus change) */
   onPlayingChange?: (sound: Audio.Sound | null) => void;
 }
 
-export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false, onPlayingChange }: SongPlayerProps) {
+export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // URL fetched dynamically when getShorts URL generation failed (storage issues, etc.)
+  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const soundRef = useRef<Audio.Sound | null>(null);
   const isInitializedRef = useRef(false);
@@ -36,16 +40,41 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // Debug: Log song data
   useEffect(() => {
     if (post.song) {
-      logger.debug('SongPlayer - Post song data:', {
+      console.warn('[SONGPLAYER] Mount/update:', {
+        postId: String(post._id),
         hasSong: !!post.song,
         hasSongId: !!post.song.songId,
-        songId: post.song.songId,
-        s3Url: post.song.songId?.s3Url,
-        title: post.song.songId?.title,
-        artist: post.song.songId?.artist,
+        songIdType: typeof post.song.songId,
+        songId_id: (post.song.songId as any)?._id,
+        title: (post.song.songId as any)?.title,
+        s3Url: (post.song.songId as any)?.s3Url ? String((post.song.songId as any).s3Url).substring(0, 60) + '...' : 'NULL',
+        cloudinaryUrl: (post.song.songId as any)?.cloudinaryUrl ? String((post.song.songId as any).cloudinaryUrl).substring(0, 60) + '...' : 'NULL',
+        isVisible,
+        autoPlay,
       });
     }
-  }, [post.song]);
+  }, [post.song, isVisible, autoPlay, post._id]);
+
+  // If backend URL generation failed (s3Url/cloudinaryUrl missing), fetch a fresh URL via API
+  useEffect(() => {
+    const staticUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
+    if (staticUrl || !song?._id) return; // already have URL or no song ID to fetch with
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getSongById } = await import('../services/songs');
+        const freshSong = await getSongById(song._id);
+        const url = freshSong?.s3Url || (freshSong as any)?.cloudinaryUrl || null;
+        if (!cancelled && url) {
+          setFetchedUrl(url);
+          logger.debug('SongPlayer - fetched fresh URL for missing song URL:', { songId: song._id });
+        }
+      } catch (e) {
+        logger.warn('SongPlayer - failed to fetch fresh song URL:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [song?._id, song?.s3Url, (song as any)?.cloudinaryUrl]);
 
   // Audio mode is now set globally in _layout.tsx
 
@@ -77,6 +106,15 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     };
   }, [post._id, onPlayingChange]);
 
+  // Sync external mute prop → internal mute state + live sound volume
+  useEffect(() => {
+    if (externalMuted === undefined) return;
+    setIsMuted(externalMuted);
+    if (soundRef.current) {
+      soundRef.current.setVolumeAsync(externalMuted ? 0 : volume).catch(() => {});
+    }
+  }, [externalMuted, volume]);
+
   // Helper function to fetch fresh signed URL if needed
   const fetchFreshSignedUrl = useCallback(async (): Promise<string | null> => {
     if (!song?._id) return null;
@@ -92,11 +130,19 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   }, [song?._id]);
 
   const loadAndPlaySong = useCallback(async (forcePlay: boolean = false, retryCount: number = 0) => {
-    // Get audio URL - try s3Url first, then cloudinaryUrl as fallback
-    let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl;
-    
+    // Get audio URL - try s3Url first, then cloudinaryUrl, then dynamically fetched URL
+    let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
+
+    console.warn('[SONGPLAYER] loadAndPlaySong called:', {
+      postId: String(post._id),
+      hasAudioUrl: !!audioUrlRaw,
+      audioUrl: audioUrlRaw ? String(audioUrlRaw).substring(0, 60) + '...' : 'NULL',
+      autoPlay,
+      forcePlay,
+    });
+
     if (!audioUrlRaw) {
-      logger.debug('No song URL available', { song });
+      console.warn('[SONGPLAYER] ❌ No URL — cannot play');
       return;
     }
 
@@ -212,8 +258,11 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       if (shouldPlayNow) {
         setIsPlaying(true);
       }
-      
-      logger.debug('✅ Audio streaming started successfully');
+
+      console.warn('[SONGPLAYER] ✅ loadAsync returned — sound loaded:', {
+        postId: String(post._id),
+        shouldPlayNow,
+      });
     } catch (error: any) {
       setIsLoading(false);
       setIsPlaying(false);
@@ -252,22 +301,23 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       }
       
       // Log error details for debugging (only for actual errors, not cancellations)
-      logger.error('❌ Error loading song:', {
+      console.warn('[SONGPLAYER] ❌ Error loading song:', {
+        postId: String(post._id),
         message: errorMessage,
         code: errorCode,
         domain: errorDomain,
-        url: audioUrlRaw
+        url: audioUrlRaw ? String(audioUrlRaw).substring(0, 80) + '...' : 'NULL',
       });
       
       throw error;
     }
-  }, [song?.s3Url, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
+  }, [song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
 
   // Auto-play when component becomes visible and autoPlay is true (for shorts and home page)
   // For home page (showPlayPause=true), don't auto-play
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
-    const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
+    const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
     if (isVisible && !showPlayPause && audioUrl) {
       if (autoPlay) {
         // Should play - play song
@@ -377,7 +427,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       setSound(null);
       setIsPlaying(false);
     }
-  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, loadAndPlaySong, post._id, onPlayingChange]);
+  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
@@ -487,17 +537,12 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     return null;
   }
 
-  // Check if song has required data - try s3Url first, then cloudinaryUrl as fallback
-  const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl;
+  // Check if song has required data - try s3Url, cloudinaryUrl, then dynamically fetched URL
+  const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
   if (!audioUrl) {
-    // Only log in development - this is expected when a post has a song reference but no audio URL
-    // Don't send to Sentry as this is not an error condition
-    if (__DEV__) {
-      logger.debug('SongPlayer: Song missing audio URL (expected for posts without audio)', {
-        postId: post._id,
-        hasSong: !!song,
-        songId: song?._id
-      });
+    // No URL yet — if we have a song ID, the fetch useEffect is running; show nothing for now
+    if (__DEV__ && song?._id) {
+      logger.debug('SongPlayer: Waiting for song URL fetch', { postId: post._id, songId: song._id });
     }
     return null;
   }
