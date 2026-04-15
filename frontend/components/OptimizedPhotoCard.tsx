@@ -602,6 +602,29 @@ function PhotoCard({
             try {
               setIsMenuLoading(true);
               await deletePost(post._id);
+
+              // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
+              // from reappearing after pull-to-refresh / app restart. TAATOM-044 keys the
+              // home feed cache by feed mode — we must strip the post from every variant.
+              try {
+                const cacheKeys = ['cachedPosts_recents', 'cachedPosts_friends', 'cachedPosts_popular', 'cachedPosts'];
+                await Promise.all(cacheKeys.map(async (key) => {
+                  const cached = await AsyncStorage.getItem(key);
+                  if (!cached) return;
+                  try {
+                    const parsed = JSON.parse(cached);
+                    if (parsed?.data && Array.isArray(parsed.data)) {
+                      parsed.data = parsed.data.filter((p: any) => p._id !== post._id);
+                      await AsyncStorage.setItem(key, JSON.stringify(parsed));
+                    }
+                  } catch {
+                    /* ignore malformed cache entry */
+                  }
+                }));
+              } catch (cacheError) {
+                logger.warn('Failed to update cached posts after deletion', cacheError);
+              }
+
               showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
               if (onRefresh) onRefresh();
             } catch (error: any) {
@@ -706,8 +729,7 @@ function PhotoCard({
         if (postId) {
           // Expo Router's router.push() doesn't return a Promise
           // It's a synchronous navigation method, so we just call it directly
-          // Post detail page commented out - navigate to home with postId to scroll to specific post
-          router.push(`/(tabs)/home?postId=${postId}`);
+          router.push(`/post/${postId}`);
         } else {
           logger.warn('Cannot navigate: post._id is missing', { post });
         }
