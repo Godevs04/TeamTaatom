@@ -14,6 +14,7 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
+const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
@@ -234,12 +235,20 @@ const getProfile = async (req, res) => {
       }
     });
 
-    // Check if current user is following this profile
-    const isFollowing = req.user && user.followers ? 
+    // Check if current user is following this profile (requester is in profile's followers)
+    const isFollowing = req.user && user.followers ?
       user.followers.some(follower => {
         const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
         return followerId === req.user._id.toString();
-      }) : 
+      }) :
+      false;
+
+    // Check if profile owner follows the current user (requester is in profile's following list)
+    const isFollowedBy = req.user && user.following ?
+      user.following.some(following => {
+        const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+        return followingId === req.user._id.toString();
+      }) :
       false;
 
     // Check if current user has sent a follow request
@@ -283,10 +292,10 @@ const getProfile = async (req, res) => {
           break;
           
         case 'private':
-          // Private (Require Approval): Only approved followers can see details
+          // Private: Only people the profile owner follows can see details
           canViewProfile = true;
-          canViewPosts = isFollowing;
-          canViewLocations = isFollowing;
+          canViewPosts = isFollowedBy;
+          canViewLocations = isFollowedBy;
           followRequestSent = hasSentFollowRequest;
           break;
           
@@ -295,6 +304,11 @@ const getProfile = async (req, res) => {
           canViewProfile = true;
           canViewPosts = true;
           canViewLocations = true;
+      }
+
+      // Respect showLocation toggle — overrides profileVisibility
+      if (user.settings?.privacy?.showLocation === false) {
+        canViewLocations = false;
       }
     }
 
@@ -1465,6 +1479,16 @@ const approveFollowRequest = async (req, res) => {
           // Don't fail the entire request if notification creation fails
         }
 
+    // Mark the follow_request notification as read and change type so it persists correctly after reload
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requesterId, type: 'follow_request' },
+        { $set: { isRead: true, type: 'follow_request_accepted' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking follow_request notification as read:', notifReadError);
+    }
+
     return sendSuccess(res, 200, 'Follow request approved', {
       followersCount: user.followers.length
     });
@@ -1513,6 +1537,16 @@ const rejectFollowRequest = async (req, res) => {
     }
 
     await Promise.all([user.save(), requester.save()]);
+
+    // Mark the follow_request notification as read and change type so it persists correctly after reload
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requesterId, type: 'follow_request' },
+        { $set: { isRead: true, type: 'follow_request_rejected' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking follow_request notification as read:', notifReadError);
+    }
 
     return sendSuccess(res, 200, 'Follow request rejected');
   } catch (error) {
@@ -1616,9 +1650,14 @@ const getTripScoreContinents = async (req, res) => {
       // Only count each unique location once (TripScore v2 deduplication with tolerance)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
-        
-        // Normalize continent name to ensure consistent matching
-        const continentKey = normalizeContinentName(visit.continent);
+
+        // Derive continent from coordinates (source of truth used by the global map).
+        // Stored visit.continent is unreliable because it was computed via fragile
+        // address-substring matching at write time. Coords always match the map pin.
+        const coordHit = lookupByCoords(visit.lat, visit.lng);
+        const continentKey = coordHit
+          ? coordHit.continent
+          : normalizeContinentName(visit.continent);
         
         // Initialize continent scores and location arrays if needed
         if (!continentScores[continentKey]) {
@@ -1711,17 +1750,16 @@ const getTripScoreCountries = async (req, res) => {
 
     // URL decode continent name in case it has spaces or special characters
     const continentName = decodeURIComponent(continent).toUpperCase();
-    
-    // Get verified visits for this continent (TripScore v2.1 - unique places only)
+
+    // Fetch ALL verified visits — we filter by coords-derived continent below
+    // because the stored continent field was computed via fragile address matching
+    // and cannot be trusted (must match the global map, which uses lat/lng).
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      // IMPORTANT: Use case-insensitive match for continent to handle values like 'Asia' vs 'ASIA'
-      // This keeps TripScore consistent between the overall continents view and per-continent view
-      continent: { $regex: new RegExp(`^${continentName}$`, 'i') }
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng country address')
+    .select('lat lng country continent address')
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
@@ -1745,23 +1783,31 @@ const getTripScoreCountries = async (req, res) => {
         return;
       }
       
+      // Derive continent + country from coords (matches the global map).
+      const coordHit = lookupByCoords(visit.lat, visit.lng);
+      const visitContinent = coordHit
+        ? coordHit.continent
+        : (visit.continent || '').toUpperCase();
+
+      // Skip visits not in the requested continent
+      if (visitContinent !== continentName) return;
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
+
       // Only count each unique location once (groups nearby locations together)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
-        
-        // CRITICAL: Normalize country name to prevent duplicates
-        // Maps regions/states to parent countries (e.g., "England" -> "United Kingdom")
-        const rawCountry = visit.country || 'Unknown';
-        const normalizedCountry = normalizeCountryName(rawCountry);
-        
-        // Count unique places visited using normalized country name
-        if (!countryScores[normalizedCountry]) {
-          countryScores[normalizedCountry] = 0;
+
+        // Prefer coords-derived country; fall back to normalized stored country.
+        const country = coordHit
+          ? coordHit.country
+          : normalizeCountryName(visit.country || 'Unknown');
+
+        if (!countryScores[country]) {
+          countryScores[country] = 0;
         }
-        countryScores[normalizedCountry] += 1;
+        countryScores[country] += 1;
       }
     });
 
@@ -1821,25 +1867,26 @@ const getTripScoreCountryDetails = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
-    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
-    // This ensures we find all locations even if stored with different country names
-    const normalizedCountryParam = normalizeCountryName(country);
-    
-    // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Search for both normalized and original country names to handle legacy data
-    const trustedVisits = await TripVisit.find({
+    // Country grouping is now driven by coords (matches the global map). The
+    // stored country field is unreliable, so we fetch all verified visits and
+    // filter by the coords-derived country below.
+    const normalizedCountryParam = normalizeCountryName(decodeURIComponent(country));
+
+    const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      $or: [
-        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
-        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
-      ]
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
-    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
+    .sort({ takenAt: 1, uploadedAt: 1 })
     .lean();
+
+    const trustedVisits = allVisits.filter(v => {
+      const hit = lookupByCoords(v.lat, v.lng);
+      const visitCountry = hit ? hit.country : normalizeCountryName(v.country || '');
+      return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
+    });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     const roundCoordinate = (coord, precision = 2) => {
@@ -2019,24 +2066,25 @@ const getTripScoreLocations = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
-    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
-    // This ensures we find all locations even if stored with different country names
-    const normalizedCountryParam = normalizeCountryName(country);
-    
-    // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Search for both normalized and original country names to handle legacy data
-    const trustedVisits = await TripVisit.find({
+    // Country grouping is driven by coords (matches the global map). Fetch all
+    // verified visits and filter by coords-derived country below.
+    const normalizedCountryParam = normalizeCountryName(decodeURIComponent(country));
+
+    const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      $or: [
-        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
-        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
-      ]
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType')
+    .select('lat lng address takenAt uploadedAt post posts contentType country')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
+    .populate('posts', 'imageUrl images storageKey storageKeys type videoUrl')
     .lean();
+
+    const trustedVisits = allVisits.filter(v => {
+      const hit = lookupByCoords(v.lat, v.lng);
+      const visitCountry = hit ? hit.country : normalizeCountryName(v.country || '');
+      return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
+    });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     const roundCoordinate = (coord, precision = 2) => {
@@ -2063,51 +2111,39 @@ const getTripScoreLocations = async (req, res) => {
         // Count unique places visited
         countryScore += 1;
         
-        // Get image URL from post (user-uploaded image)
-        let imageUrl = null;
-        let postType = null;
-        
-        if (visit.post) {
-          postType = visit.post.type || (visit.contentType === 'short' ? 'short' : 'photo');
-          
-          // For photos: use imageUrl or first image from images array
-          if (postType === 'photo') {
-            if (visit.post.storageKey) {
-              // Generate signed URL for single image
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'IMAGE');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              // Generate signed URL for first image in array
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'IMAGE');
-            } else if (visit.post.imageUrl) {
-              // Fallback to existing imageUrl (if already signed)
-              imageUrl = visit.post.imageUrl;
-            } else if (visit.post.images && visit.post.images.length > 0) {
-              // Fallback to first image in images array
-              imageUrl = visit.post.images[0];
-            }
-          } 
-          // For shorts/videos: use thumbnail if available, otherwise use video storage key
-          else if (postType === 'short' || visit.post.videoUrl) {
-            // Priority 1: Check if imageUrl exists (might be thumbnail for shorts)
-            if (visit.post.imageUrl) {
-              imageUrl = visit.post.imageUrl;
-            } 
-            // Priority 2: Check if there's a thumbnail in images array (first image might be thumbnail)
-            else if (visit.post.images && visit.post.images.length > 0) {
-              imageUrl = visit.post.images[0];
-            }
-            // Priority 3: Generate signed URL from storage key (video file, frontend can extract thumbnail)
-            else if (visit.post.storageKey) {
-              imageUrl = await generateSignedUrl(visit.post.storageKey, 'VIDEO');
-            } else if (visit.post.storageKeys && visit.post.storageKeys.length > 0) {
-              imageUrl = await generateSignedUrl(visit.post.storageKeys[0], 'VIDEO');
-            } 
-            // Priority 4: Fallback to videoUrl
-            else if (visit.post.videoUrl) {
-              imageUrl = visit.post.videoUrl;
-            }
+        // Helper to extract signed image URL from a post object
+        const getPostImageUrl = async (p) => {
+          if (!p) return null;
+          const pType = p.type || (visit.contentType === 'short' ? 'short' : 'photo');
+          if (pType === 'photo') {
+            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
+            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
+            if (p.imageUrl) return p.imageUrl;
+            if (p.images && p.images.length > 0) return p.images[0];
+          } else {
+            if (p.imageUrl) return p.imageUrl;
+            if (p.images && p.images.length > 0) return p.images[0];
+            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
+            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
+            if (p.videoUrl) return p.videoUrl;
           }
+          return null;
+        };
+
+        // Collect all photos from all posts at this location
+        // Use the posts array (all photos) falling back to single post for legacy visits
+        const allPostsAtLocation = visit.posts && visit.posts.length > 0
+          ? visit.posts
+          : (visit.post ? [visit.post] : []);
+
+        const photos = [];
+        for (const p of allPostsAtLocation) {
+          const url = await getPostImageUrl(p);
+          if (url) photos.push(url);
         }
+
+        const imageUrl = photos[0] || null;
+        const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
         
         // Get spotType and travelInfo from TripVisit (copied from post) or post directly
         const spotType = visit.spotType || visit.post?.spotType || 'General';
@@ -2127,7 +2163,8 @@ const getTripScoreLocations = async (req, res) => {
             fromYou: travelInfo, // From post dropdown
             typeOfSpot: spotType // From post dropdown
           },
-          imageUrl: imageUrl, // User-uploaded image or video thumbnail
+          imageUrl: imageUrl, // Primary image (first photo)
+          photos: photos, // All photos taken at this location
           postType: postType, // 'photo' or 'short'
           coordinates: {
             latitude: visit.lat,
@@ -2157,6 +2194,49 @@ const getTravelMapData = async (req, res) => {
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
+    }
+
+    // Privacy check: respect showLocation toggle and profileVisibility
+    const targetUser = await User.findById(id).select('settings.privacy followers following').lean();
+    if (!targetUser) {
+      return sendError(res, 'RES_3001', 'User does not exist');
+    }
+    const isOwnProfile = req.user ? req.user._id.toString() === id : false;
+    if (!isOwnProfile) {
+      const showLocation = targetUser.settings?.privacy?.showLocation !== false;
+      const profileVisibility = targetUser.settings?.privacy?.profileVisibility || 'public';
+      const emptyResponse = { locations: [], statistics: { totalLocations: 0, totalDistance: 0, totalDays: 0 } };
+
+      if (!showLocation) {
+        return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+      }
+      if (profileVisibility === 'followers') {
+        // Followers: requester must be in the profile owner's followers list
+        if (!req.user) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+        const requesterId = req.user._id.toString();
+        const isFollower = (targetUser.followers || []).some(f => {
+          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
+          return fId === requesterId;
+        });
+        if (!isFollower) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+      } else if (profileVisibility === 'private') {
+        // Private: requester must be in the profile owner's following list
+        if (!req.user) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+        const requesterId = req.user._id.toString();
+        const isFollowedBy = (targetUser.following || []).some(f => {
+          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
+          return fId === requesterId;
+        });
+        if (!isFollowedBy) {
+          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
+        }
+      }
     }
 
     // Get verified TripVisits (only verified trip locations)
@@ -2356,7 +2436,32 @@ const normalizeCountryName = (country) => {
   if (!country || typeof country !== 'string') return country || 'Unknown';
   
   const countryLower = country.toLowerCase().trim();
-  
+
+  // ISO 2-letter country codes -> full country name
+  const isoCodes = {
+    'in': 'India', 'us': 'United States', 'gb': 'United Kingdom',
+    'au': 'Australia', 'ca': 'Canada', 'nz': 'New Zealand',
+    'fr': 'France', 'de': 'Germany', 'it': 'Italy', 'es': 'Spain',
+    'jp': 'Japan', 'cn': 'China', 'th': 'Thailand', 'sg': 'Singapore',
+    'my': 'Malaysia', 'id': 'Indonesia', 'za': 'South Africa',
+    'eg': 'Egypt', 'ng': 'Nigeria', 'ke': 'Kenya', 'ma': 'Morocco',
+    'br': 'Brazil', 'ar': 'Argentina', 'cl': 'Chile', 'pe': 'Peru',
+    'co': 'Colombia', 'mx': 'Mexico', 'ae': 'United Arab Emirates',
+    'sa': 'Saudi Arabia', 'pk': 'Pakistan', 'bd': 'Bangladesh',
+    'lk': 'Sri Lanka', 'np': 'Nepal', 'mm': 'Myanmar', 'vn': 'Vietnam',
+    'ph': 'Philippines', 'kr': 'South Korea', 'nl': 'Netherlands',
+    'be': 'Belgium', 'pt': 'Portugal', 'se': 'Sweden', 'no': 'Norway',
+    'dk': 'Denmark', 'fi': 'Finland', 'ch': 'Switzerland', 'at': 'Austria',
+    'pl': 'Poland', 'cz': 'Czech Republic', 'hu': 'Hungary', 'ro': 'Romania',
+    'gr': 'Greece', 'tr': 'Turkey', 'ru': 'Russia', 'ua': 'Ukraine',
+  };
+  if (isoCodes[countryLower]) return isoCodes[countryLower];
+
+  // Indian state 2-letter codes -> India (unambiguous codes only)
+  // Excluded: ga (Gabon), hr (Croatia), uk (United Kingdom), br (Brazil), as (American Samoa)
+  const indiaStateCodes = ['tn', 'ka', 'mh', 'gj', 'rj', 'up', 'wb', 'ap', 'ts', 'kl', 'pb', 'dl', 'mp', 'jh'];
+  if (indiaStateCodes.includes(countryLower)) return 'India';
+
   // United Kingdom regions -> United Kingdom
   if (countryLower === 'england' || countryLower === 'scotland' || 
       countryLower === 'wales' || countryLower === 'northern ireland' ||
@@ -2416,12 +2521,26 @@ const normalizeCountryName = (country) => {
     return 'China';
   }
   
-  // India states -> India (keep India as is since states are usually not stored as country)
-  // But handle common variations
-  if (countryLower === 'india' || countryLower === 'bharat') {
+  // India states/territories -> India
+  const indiaStates = [
+    'andhra pradesh', 'arunachal pradesh', 'assam', 'bihar', 'chhattisgarh', 'goa',
+    'gujarat', 'haryana', 'himachal pradesh', 'jharkhand', 'karnataka', 'kerala',
+    'madhya pradesh', 'maharashtra', 'manipur', 'meghalaya', 'mizoram', 'nagaland',
+    'odisha', 'punjab', 'rajasthan', 'sikkim', 'tamil nadu', 'telangana', 'tripura',
+    'uttar pradesh', 'uttarakhand', 'west bengal',
+    'andaman and nicobar', 'chandigarh', 'dadra and nagar haveli', 'daman and diu',
+    'lakshadweep', 'puducherry', 'ladakh', 'jammu and kashmir', 'bharat', 'india'
+  ];
+
+  if (indiaStates.includes(countryLower)) {
     return 'India';
   }
-  
+  for (const state of indiaStates) {
+    if (countryLower.includes(state)) {
+      return 'India';
+    }
+  }
+
   // Keep original if no normalization needed
   return country;
 };

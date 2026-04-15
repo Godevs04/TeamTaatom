@@ -37,6 +37,8 @@ interface LocationDetail {
   };
   imageUrl?: string;
   imageUrls?: string[];
+  /** Bug 18b: all photos taken at this same TripScore pin (returned by backend). */
+  photos?: string[];
   postType?: 'photo' | 'short';
   description?: string;
   coordinates?: {
@@ -1051,6 +1053,14 @@ export default function LocationDetailScreen() {
                   width={screenWidth}
                   resizeMode="contain"
                 />
+              ) : isTripScoreFlow && Array.isArray((data as any)?.photos) && ((data as any).photos as string[]).length > 1 ? (
+                // Bug 18b: multi-photo swipe for TripScore locations with multiple posts at the same pin
+                <AdminLocaleHeroCarousel
+                  urls={(data as any).photos as string[]}
+                  height={280}
+                  width={screenWidth}
+                  resizeMode="contain"
+                />
               ) : (
                 <Image
                   source={{
@@ -1181,32 +1191,103 @@ export default function LocationDetailScreen() {
                     // For tripscore flow, use coordinates from data
                     let coords: { latitude: number; longitude: number } | undefined = undefined;
                     
+                    // Helper: validate coordinate sanity
+                    const isValidCoord = (lat?: number, lng?: number) =>
+                      !!lat && !!lng && lat !== 0 && lng !== 0 &&
+                      !isNaN(lat) && !isNaN(lng) &&
+                      lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
                     if (isAdminLocale && localeData) {
-                      // Locale flow: Use EXACT coordinates from database (localeData)
-                      // These are the coordinates saved in the database from admin locale
-                      if (localeData.latitude && localeData.longitude && 
-                          localeData.latitude !== 0 && localeData.longitude !== 0 &&
-                          !isNaN(localeData.latitude) && !isNaN(localeData.longitude) &&
-                          localeData.latitude >= -90 && localeData.latitude <= 90 &&
-                          localeData.longitude >= -180 && localeData.longitude <= 180) {
-                        coords = {
-                          latitude: localeData.latitude,
-                          longitude: localeData.longitude
-                        };
-                        logger.debug('✅ Using EXACT database coordinates from localeData:', coords);
-                      } else {
-                        logger.warn('⚠️ Invalid coordinates in localeData:', {
-                          latitude: localeData.latitude,
-                          longitude: localeData.longitude
-                        });
+                      // Bug: stored DB coords sometimes don't match the locale name (e.g. Mysore Palace
+                      // pinned in Chennai). Always geocode by name+country first so the map matches the
+                      // displayed name. Fall back to DB coords only if geocoding fails.
+                      const dbHasCoords = isValidCoord(localeData.latitude, localeData.longitude);
+                      const dbCoords = dbHasCoords ? {
+                        latitude: localeData.latitude!,
+                        longitude: localeData.longitude!
+                      } : null;
+
+                      try {
+                        const nameQuery = [
+                          localeData.name,
+                          localeData.city,
+                          localeData.stateProvince,
+                          localeData.country
+                        ].filter(Boolean).join(', ');
+                        const ccForGeocode = (localeData.countryCode || countryParam || 'IN').toUpperCase();
+                        const geocoded = await geocodeAddress(nameQuery || localeData.name, ccForGeocode);
+
+                        if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
+                          // If DB has coords AND they're close to geocoded (<50km), trust the DB
+                          // (admin may have refined the pin). Otherwise prefer geocoded result.
+                          if (dbCoords) {
+                            const drift = calculateDistance(
+                              dbCoords.latitude, dbCoords.longitude,
+                              geocoded.latitude, geocoded.longitude
+                            );
+                            if (drift <= 50) {
+                              coords = dbCoords;
+                              logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
+                            } else {
+                              coords = geocoded;
+                              logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords for accuracy:', coords);
+                            }
+                          } else {
+                            coords = geocoded;
+                            logger.debug('✅ Using geocoded coordinates (no DB coords):', coords);
+                          }
+                        } else if (dbCoords) {
+                          coords = dbCoords;
+                          logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
+                        }
+                      } catch (e) {
+                        if (dbCoords) {
+                          coords = dbCoords;
+                          logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
+                        }
                       }
-                    } else if (data?.coordinates) {
-                      // Tripscore flow: Use coordinates from data
-                      if (data.coordinates.latitude && data.coordinates.longitude &&
-                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0 &&
-                          !isNaN(data.coordinates.latitude) && !isNaN(data.coordinates.longitude)) {
-                        coords = data.coordinates;
-                        logger.debug('Using tripscore coordinates:', coords);
+                    } else if (data?.coordinates || data?.name) {
+                      // Tripscore flow: some posts were saved with wrong coords (e.g. a photo
+                      // tagged with the wrong place). Geocode the stored address first and
+                      // only trust DB coords when they agree with the geocoded result.
+                      const dbCoords = (data?.coordinates && isValidCoord(data.coordinates.latitude, data.coordinates.longitude))
+                        ? { latitude: data.coordinates.latitude, longitude: data.coordinates.longitude }
+                        : null;
+
+                      if (data?.name) {
+                        try {
+                          const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
+                          const geocoded = await geocodeAddress(data.name, ccForGeocode);
+
+                          if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
+                            if (dbCoords) {
+                              const drift = calculateDistance(
+                                dbCoords.latitude, dbCoords.longitude,
+                                geocoded.latitude, geocoded.longitude
+                              );
+                              if (drift <= 50) {
+                                coords = dbCoords;
+                                logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
+                              } else {
+                                coords = geocoded;
+                                logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords:', coords);
+                              }
+                            } else {
+                              coords = geocoded;
+                              logger.debug('✅ Using geocoded coordinates (no DB coords):', coords);
+                            }
+                          } else if (dbCoords) {
+                            coords = dbCoords;
+                            logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
+                          }
+                        } catch {
+                          if (dbCoords) {
+                            coords = dbCoords;
+                            logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
+                          }
+                        }
+                      } else if (dbCoords) {
+                        coords = dbCoords;
                       }
                     }
                     

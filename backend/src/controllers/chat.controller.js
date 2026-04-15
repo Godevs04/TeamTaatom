@@ -948,14 +948,23 @@ exports.markAllMessagesSeen = async (req, res) => {
   const { otherUserId } = req.params;
   const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
   if (!chat) return sendError(res, 'RES_3001', 'Chat not found');
-  let updated = false;
+  const seenMessageIds = [];
   chat.messages.forEach(msg => {
     if (msg.sender.toString() === otherUserId && !msg.seen) {
       msg.seen = true;
-      updated = true;
+      seenMessageIds.push(msg._id.toString());
     }
   });
-  if (updated) await chat.save();
+  if (seenMessageIds.length > 0) {
+    await chat.save();
+    // Notify the sender via socket so their read receipts update in real-time
+    if (global.socketIO) {
+      const nsp = global.socketIO.of('/app');
+      seenMessageIds.forEach(messageId => {
+        nsp.to(`user:${otherUserId}`).emit('seen', { from: userId.toString(), messageId });
+      });
+    }
+  }
   return sendSuccess(res, 200, 'Messages marked as seen');
 };
 

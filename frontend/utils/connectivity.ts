@@ -17,9 +17,9 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
       method: 'GET',
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (response.ok) {
       logger.debug('API connectivity test: SUCCESS');
       return true;
@@ -28,7 +28,8 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
       return false;
     }
   } catch (error) {
-    logger.error('API connectivity test: FAILED', error);
+    clearTimeout(timeoutId);
+    logger.warn('API connectivity test: FAILED');
     return false;
   }
 };

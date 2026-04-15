@@ -19,6 +19,11 @@ const tripVisitSchema = new mongoose.Schema({
     required: false, // Can be null if derived from short
     sparse: true
   },
+  // All posts taken at this location (accumulates over time)
+  posts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post'
+  }],
   contentType: {
     type: String,
     enum: ['post', 'short'],

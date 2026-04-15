@@ -34,7 +34,7 @@ import { getUserFromStorage, getCurrentUser } from "../../services/auth";
 import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
-import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality } from "../../utils/imageOptimization";
+import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
@@ -53,6 +53,7 @@ import { validateAndSanitizeCaption } from '../../utils/sanitize';
 import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
 import { trackFeatureUsage } from '../../services/analytics';
 import ImageEditModal, { ImageFilterType } from '../../components/ImageEditModal';
+import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 
 const logger = createLogger('PostScreen');
 
@@ -110,6 +111,9 @@ export default function PostScreen() {
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'1:1' | '16:9' | 'full'>('full');
+  const [naturalImageAspect, setNaturalImageAspect] = useState<number | null>(null);
+  const [cropTransform, setCropTransform] = useState<CropTransform | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [songStartTime, setSongStartTime] = useState(0);
   const [songEndTime, setSongEndTime] = useState(60);
@@ -1017,8 +1021,9 @@ export default function PostScreen() {
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
+        // Non-destructive: capture full image — user picks 1:1 or 16:9 display frame
+        // on the post creation screen; cover-fit preserves the full image.
+        allowsEditing: false,
         quality: 0.8,
         exif: true, // Preserve EXIF data including location
       });
@@ -1537,9 +1542,25 @@ export default function PostScreen() {
         })
       );
 
+      // Apply chosen aspect ratio (1:1 1080×1080, 16:9 1080×1920 portrait) via cover-fit + crop.
+      // For single-image posts we honor the user's pinch+pan from the cropper; multi-image posts
+      // and 'full' fall through to default center-crop / no-op.
+      const aspectProcessed = await Promise.all(
+        imagesData.map(async (img, idx) => {
+          try {
+            const tx = imagesData.length === 1 && idx === 0 ? cropTransform ?? undefined : undefined;
+            const processedUri = await processImageToAspect(img.uri, selectedAspectRatio, tx);
+            return { ...img, uri: processedUri };
+          } catch (e) {
+            logger.warn('Aspect-ratio processing failed, uploading original:', e);
+            return img;
+          }
+        })
+      );
+
       // Upload with progress tracking for multiple images
       // Progress is now 50% optimization + 50% upload
-      const totalImages = imagesData.length;
+      const totalImages = aspectProcessed.length;
       let uploadedCount = 0;
 
       // Determine source for TripScore v2
@@ -1567,7 +1588,7 @@ export default function PostScreen() {
       const finalAddress = values.placeName || address || detectedPlaceData?.name;
 
       const response = await createPostWithProgress({
-        images: imagesData,
+        images: aspectProcessed,
         caption: sanitizedCaption || '',
         address: finalAddress,
         latitude: finalLatitude,
@@ -1582,6 +1603,7 @@ export default function PostScreen() {
         songVolume: 0.5,
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
+        aspectRatio: selectedAspectRatio,
         // Include detected place data for admin review
         detectedPlace: detectedPlaceData ? {
           name: detectedPlaceData.name,
@@ -2585,24 +2607,46 @@ export default function PostScreen() {
             </View>
           </>
         ) : (
-          <View style={{ 
-            position: "relative", 
+          <View style={{
+            width: '100%',
+            position: "relative",
             marginVertical: theme.spacing.md,
             borderRadius: theme.borderRadius.xl,
             overflow: 'hidden',
             ...theme.shadows.large
           }}>
             {selectedImages.length > 0 ? (
-              <View>
+              <View style={{ width: '100%' }}>
                 {/* Elegant Image Preview - Grid Layout for Multiple Images */}
                 {selectedImages.length === 1 ? (
-                  // Single image - full width, left aligned
-                  <View style={{ width: '100%', aspectRatio: 1, borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
-                    <Image 
-                      source={{ uri: selectedImages[0].uri }} 
-                      style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
+                  // Single image — aspect chosen in Edit Photos chips. For 1:1 / 16:9 we render
+                  // the AspectImageCropper inline (pinch + pan); for 'full' we just show the image.
+                  selectedAspectRatio === 'full' ? (
+                    <View style={{
+                      width: '100%',
+                      aspectRatio: naturalImageAspect ?? 1,
+                      borderRadius: theme.borderRadius.xl,
+                      overflow: 'hidden',
+                    }}>
+                      <Image
+                        source={{ uri: selectedImages[0].uri }}
+                        onLoad={(e) => {
+                          const src = e.nativeEvent.source as { width: number; height: number };
+                          if (src?.width && src?.height) setNaturalImageAspect(src.width / src.height);
+                        }}
+                        style={{ width: "100%", height: "100%", resizeMode: "cover" }}
+                      />
+                    </View>
+                  ) : (
+                    <AspectImageCropper
+                      uri={selectedImages[0].uri}
+                      aspectRatio={selectedAspectRatio === '16:9' ? 9 / 16 : 1}
+                      borderRadius={theme.borderRadius.xl}
+                      showHint={false}
+                      showReset={true}
+                      onTransformChange={setCropTransform}
                     />
-                  </View>
+                  )
                 ) : selectedImages.length === 2 ? (
                   // 2 images - side by side
                   <View style={{ flexDirection: 'row', gap: theme.spacing.xs, borderRadius: theme.borderRadius.xl, overflow: 'hidden' }}>
@@ -2743,50 +2787,57 @@ export default function PostScreen() {
                   </View>
                 )}
                 
-                {/* Edit photos: crop & filter */}
-                <TouchableOpacity
-                  onPress={() => setShowImageEditModal(true)}
-                  activeOpacity={0.8}
-                  style={{ 
-                    position: 'absolute', 
-                    bottom: theme.spacing.md, 
-                    left: theme.spacing.md, 
-                    backgroundColor: 'rgba(0,0,0,0.75)', 
-                    paddingHorizontal: theme.spacing.lg, 
-                    paddingVertical: theme.spacing.md, 
-                    borderRadius: theme.borderRadius.full,
+                {/* Bottom action bar — anchored to preview edges so buttons stay inside the
+                    layout regardless of which grid variant is rendered (1, 2, 3, 4+ images). */}
+                <View
+                  pointerEvents="box-none"
+                  style={{
+                    position: 'absolute',
+                    bottom: theme.spacing.md,
+                    left: theme.spacing.md,
+                    right: theme.spacing.md,
                     flexDirection: 'row',
+                    justifyContent: 'space-between',
                     alignItems: 'center',
-                    gap: 6,
-                    ...theme.shadows.medium
                   }}
                 >
-                  <Ionicons name="create" size={18} color="white" />
-                  <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Edit</Text>
-                </TouchableOpacity>
-                {/* Add more photos button */}
-                {selectedImages.length < 10 && (
                   <TouchableOpacity
-                    onPress={pickImages}
+                    onPress={() => setShowImageEditModal(true)}
                     activeOpacity={0.8}
-                    style={{ 
-                      position: 'absolute', 
-                      bottom: theme.spacing.md, 
-                      right: theme.spacing.md, 
-                      backgroundColor: theme.colors.primary, 
-                      paddingHorizontal: theme.spacing.lg, 
-                      paddingVertical: theme.spacing.md, 
+                    style={{
+                      backgroundColor: 'rgba(0,0,0,0.75)',
+                      paddingHorizontal: theme.spacing.lg,
+                      paddingVertical: theme.spacing.md,
                       borderRadius: theme.borderRadius.full,
                       flexDirection: 'row',
                       alignItems: 'center',
                       gap: 6,
-                      ...theme.shadows.medium
+                      ...theme.shadows.medium,
                     }}
                   >
-                    <Ionicons name="add" size={20} color="white" />
-                    <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Add More</Text>
+                    <Ionicons name="create" size={18} color="white" />
+                    <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Edit</Text>
                   </TouchableOpacity>
-                )}
+                  {selectedImages.length < 10 && (
+                    <TouchableOpacity
+                      onPress={pickImages}
+                      activeOpacity={0.8}
+                      style={{
+                        backgroundColor: theme.colors.primary,
+                        paddingHorizontal: theme.spacing.lg,
+                        paddingVertical: theme.spacing.md,
+                        borderRadius: theme.borderRadius.full,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        ...theme.shadows.medium,
+                      }}
+                    >
+                      <Ionicons name="add" size={20} color="white" />
+                      <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Add More</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             ) : selectedVideo && selectedVideo.trim() ? (
               <View>
@@ -4546,7 +4597,7 @@ export default function PostScreen() {
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
             justifyContent: 'flex-end',
           }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={{
@@ -4562,6 +4613,7 @@ export default function PostScreen() {
               alignItems: 'center',
               justifyContent: 'space-between',
               paddingHorizontal: theme.spacing.lg,
+              paddingTop: theme.spacing.lg,
               marginBottom: theme.spacing.lg,
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
@@ -4775,7 +4827,7 @@ export default function PostScreen() {
           onAgree={handleCopyrightAgree}
         />
 
-        {/* Image edit: crop & filter */}
+        {/* Image edit: aspect ratio & filter */}
         <ImageEditModal
           visible={showImageEditModal}
           onClose={() => setShowImageEditModal(false)}
@@ -4783,6 +4835,8 @@ export default function PostScreen() {
           onImagesChange={(next) => setSelectedImages(next)}
           selectedFilter={selectedFilter}
           onFilterChange={setSelectedFilter}
+          selectedAspectRatio={selectedAspectRatio}
+          onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
         />
       </View>
     </KeyboardAvoidingView>
