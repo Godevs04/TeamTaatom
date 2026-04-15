@@ -1246,13 +1246,48 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
                         }
                       }
-                    } else if (data?.coordinates) {
-                      // Tripscore flow: Use coordinates from data
-                      if (data.coordinates.latitude && data.coordinates.longitude &&
-                          data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0 &&
-                          !isNaN(data.coordinates.latitude) && !isNaN(data.coordinates.longitude)) {
-                        coords = data.coordinates;
-                        logger.debug('Using tripscore coordinates:', coords);
+                    } else if (data?.coordinates || data?.name) {
+                      // Tripscore flow: some posts were saved with wrong coords (e.g. a photo
+                      // tagged with the wrong place). Geocode the stored address first and
+                      // only trust DB coords when they agree with the geocoded result.
+                      const dbCoords = (data?.coordinates && isValidCoord(data.coordinates.latitude, data.coordinates.longitude))
+                        ? { latitude: data.coordinates.latitude, longitude: data.coordinates.longitude }
+                        : null;
+
+                      if (data?.name) {
+                        try {
+                          const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
+                          const geocoded = await geocodeAddress(data.name, ccForGeocode);
+
+                          if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
+                            if (dbCoords) {
+                              const drift = calculateDistance(
+                                dbCoords.latitude, dbCoords.longitude,
+                                geocoded.latitude, geocoded.longitude
+                              );
+                              if (drift <= 50) {
+                                coords = dbCoords;
+                                logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
+                              } else {
+                                coords = geocoded;
+                                logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords:', coords);
+                              }
+                            } else {
+                              coords = geocoded;
+                              logger.debug('✅ Using geocoded coordinates (no DB coords):', coords);
+                            }
+                          } else if (dbCoords) {
+                            coords = dbCoords;
+                            logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
+                          }
+                        } catch {
+                          if (dbCoords) {
+                            coords = dbCoords;
+                            logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
+                          }
+                        }
+                      } else if (dbCoords) {
+                        coords = dbCoords;
                       }
                     }
                     

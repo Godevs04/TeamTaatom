@@ -19,6 +19,7 @@ import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
 import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { calculateDistance } from '../../utils/locationUtils';
 import logger from '../../utils/logger';
 
 const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView() ?? Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
@@ -155,6 +156,9 @@ export default function CurrentLocationMap() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isWatching, setIsWatching] = useState(false);
+  // User's live GPS — used to show distance to the destination pin when
+  // this screen is opened with preset post/locale coordinates.
+  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
@@ -233,6 +237,22 @@ export default function CurrentLocationMap() {
       setLoading(false);
       // Don't watch location when showing a specific locale location
       setIsWatching(false);
+
+      // Still fetch the user's current GPS in the background so we can show
+      // distance from here to the destination pin.
+      (async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setUserCoords({
+            latitude: current.coords.latitude,
+            longitude: current.coords.longitude,
+          });
+        } catch (e) {
+          logger.info('Unable to fetch user coords for distance readout');
+        }
+      })();
     } else {
       // Only get current location if no coordinates were passed
       // This is for the "current location" flow, not locale navigation
@@ -332,8 +352,17 @@ export default function CurrentLocationMap() {
     
     const lat = location.coords.latitude;
     const lng = location.coords.longitude;
-    const title = isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location';
-    const description = isPostLocation ? 'Post Location' : 'You are here';
+    const rawTitle = isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location';
+    const rawDescription = isPostLocation ? 'Post Location' : 'You are here';
+    // JSON.stringify safely escapes quotes, backslashes, and newlines so names
+    // like "Jatayu Earth's Center" don't break the injected JS and render blank.
+    const title = JSON.stringify(rawTitle);
+    // Build the InfoWindow HTML in JS land and JSON.stringify the whole thing so
+    // apostrophes (e.g. "Jatayu Earth's Center") can't break the injected script.
+    const htmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const infoHtml = JSON.stringify(
+      `<div style="padding: 8px;"><strong>${htmlEscape(rawTitle)}</strong><br/>${htmlEscape(rawDescription)}</div>`
+    );
     
     return `
       <!DOCTYPE html>
@@ -359,7 +388,7 @@ export default function CurrentLocationMap() {
             const marker = new google.maps.Marker({
               position: { lat: ${lat}, lng: ${lng} },
               map: map,
-              title: '${title}',
+              title: ${title},
               animation: null,
               icon: {
                 url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF0000" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="%23FF0000"/></svg>',
@@ -369,7 +398,7 @@ export default function CurrentLocationMap() {
             });
             
             const infoWindow = new google.maps.InfoWindow({
-              content: '<div style="padding: 8px;"><strong>${title}</strong><br/>${description}</div>',
+              content: ${infoHtml},
             });
             
             marker.addListener('click', function() {
@@ -615,6 +644,24 @@ export default function CurrentLocationMap() {
               <Ionicons name="location" size={20} color={theme.colors.primary} />
               <Text style={[styles.locationText, { color: theme.colors.text }]}>
                 {postAddress}
+              </Text>
+            </View>
+          )}
+          {isPostLocation && userCoords && (
+            <View style={styles.locationRow}>
+              <Ionicons name="navigate" size={20} color={theme.colors.primary} />
+              <Text style={[styles.locationText, { color: theme.colors.text }]}>
+                {(() => {
+                  const km = calculateDistance(
+                    userCoords.latitude,
+                    userCoords.longitude,
+                    postLatitude!,
+                    postLongitude!
+                  );
+                  return km < 1
+                    ? `${Math.round(km * 1000)} m from your current location`
+                    : `${km.toFixed(1)} km from your current location`;
+                })()}
               </Text>
             </View>
           )}
