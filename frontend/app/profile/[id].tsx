@@ -294,9 +294,8 @@ export default function UserProfileScreen() {
       
       setProfile(userProfile);
       
-      // Fetch verified locations count (for all users, regardless of privacy)
-      // This runs in parallel with posts/shorts fetching for better performance
-      getTravelMapData(id as string)
+      // Fetch verified locations count only if viewer is allowed to see locations
+      if (userProfile.canViewLocations) getTravelMapData(id as string)
         .then((res) => {
           const locs = Array.isArray(res?.locations) ? res.locations : [];
           const total = res?.statistics?.totalLocations ?? locs.length;
@@ -823,8 +822,10 @@ export default function UserProfileScreen() {
               </Pressable>
             </View>
 
-            {/* Posts Tab */}
-            {activeTab === 'posts' && (
+            {/* Tab Content Container - maintains minimum height to prevent scroll reset on tab switch */}
+            <View style={{ minHeight: 400 }}>
+              {/* Posts Tab */}
+              {activeTab === 'posts' && (
               profile.posts && profile.posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {((profile.posts || [])
@@ -861,9 +862,11 @@ export default function UserProfileScreen() {
                 </View>
               )
             )}
+            </View>
 
             {/* Shorts Tab */}
-            {activeTab === 'shorts' && (
+            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
+            {
               loadingShorts ? (
                 <View style={styles.emptyState}>
                   <ActivityIndicator size="large" color={profileTheme.accent} />
@@ -953,7 +956,9 @@ export default function UserProfileScreen() {
                   </Text>
                 </View>
               )
-            )}
+              }
+            </View>
+            {/* End Tab Content Container */}
           </View>
         )}
 
@@ -1480,6 +1485,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 20,
+    minHeight: 400,
   },
   emptyIconContainer: {
     width: 120,

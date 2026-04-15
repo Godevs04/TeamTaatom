@@ -3,7 +3,7 @@ import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, Activity
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from 'expo-router';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -143,14 +143,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat }: { 
-  otherUser: any, 
-  onClose: () => void, 
-  messages: any[], 
-  onSendMessage: (msg: any) => void, 
-  chatId: string, 
-  onVoiceCall: (user: any) => void, 
-  onVideoCall: (user: any) => void, 
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+  otherUser: any,
+  onClose: () => void,
+  messages: any[],
+  onSendMessage: (msg: any) => void,
+  chatId: string,
+  onVoiceCall: (user: any) => void,
+  onVideoCall: (user: any) => void,
   isCalling: boolean,
   showGlobalCallScreen: boolean,
   globalCallState: any,
@@ -159,7 +159,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   forceRender: number,
   setForceRender: (fn: (prev: number) => number) => void,
   router: any,
-  onClearChat?: () => void
+  onClearChat?: () => void,
+  onMessagesSeen?: (chatId: string, seenMessageIds: string[]) => void
 }) {
   // Render logging removed - too verbose, use React DevTools for component tracking
   
@@ -230,15 +231,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           
           if (isShort) {
             // Navigate to shorts page with shortId parameter
-            router.replace(`/(tabs)/shorts?shortId=${postId}`);
+            router.push(`/(tabs)/shorts?shortId=${postId}`);
           } else {
             // Regular post - navigate to home with postId to scroll to specific post
-            router.replace(`/(tabs)/home?postId=${postId}`);
+            router.push(`/(tabs)/home?postId=${postId}`);
           }
         } catch (fetchError) {
           // If fetching post fails, try to determine from shareUrl or default to home
           logger.debug('Failed to fetch post details, defaulting to home:', fetchError);
-          router.replace(`/(tabs)/home?postId=${postId}`);
+          router.push(`/(tabs)/home?postId=${postId}`);
         }
       } else if (shareUrl) {
         // Fallback: Try deep link or web URL
@@ -538,7 +539,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const messagesFirstId = messages.length > 0 ? normalizeId(messages[0]?._id) : '';
   const localMessagesLength = Array.isArray(localMessages) ? localMessages.length : 0;
   const localMessagesFirstId = localMessages.length > 0 ? normalizeId(localMessages[0]?._id) : '';
-  
+  const localMessagesSeenCount = localMessages.filter(m => m.seen === true).length;
+
   const allMessages = React.useMemo(() => {
     // No logging here - useMemo recalculating is normal behavior
     // Only log errors if something goes wrong
@@ -546,7 +548,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     // Create stable arrays to prevent unnecessary recalculations
     const messagesArray = Array.isArray(messages) ? messages : [];
     const localMessagesArray = Array.isArray(localMessages) ? localMessages : [];
-    const merged = [...messagesArray, ...localMessagesArray];
+    const merged = [...localMessagesArray, ...messagesArray];
     
     // Deduplicate by _id
     const seen = new Set<string>();
@@ -566,11 +568,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     });
     
     return sorted;
-  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId]); // Use stable primitives
+  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount]); // Use stable primitives
   
   // Sort messages ascending by timestamp (oldest first)
   // Use allMessages which is already sorted
   const sortedMessages = allMessages;
+
+  // Ref to always have current sortedMessages inside socket callbacks (avoids stale closure)
+  const sortedMessagesRef = React.useRef<any[]>([]);
+  sortedMessagesRef.current = sortedMessages;
 
   useEffect(() => {
     // CRITICAL: Ensure socket is connected and subscribed properly
@@ -733,16 +739,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     };
     const onSeen = (payload: any) => {
-      if (payload.from === otherUser._id) {
+      if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
         setLastSeenId(payload.messageId);
-        // Update seen status in local messages
+        const otherUserId = normalizeId(otherUser._id);
+
+        // Collect all own message IDs from current messages (via ref to avoid stale closure)
+        const ownMessageIds = sortedMessagesRef.current
+          .filter(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            return senderId && otherUserId && senderId !== otherUserId;
+          })
+          .map(m => normalizeId(m._id))
+          .filter(Boolean);
+
+        // Update localMessages for in-session messages
         setLocalMessages(prev =>
-          prev.map(m =>
-            normalizeId(m._id) === normalizeId(payload.messageId) 
-              ? { ...m, seen: true } 
-              : m
-          )
+          prev.map(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            if (senderId && otherUserId && senderId !== otherUserId && !m.seen) {
+              return { ...m, seen: true };
+            }
+            return m;
+          })
         );
+
+        // Update activeMessages in parent so seen status survives prop recomputes
+        if (onMessagesSeen && chatId && ownMessageIds.length > 0) {
+          onMessagesSeen(chatId, ownMessageIds);
+        }
       }
     };
     const onOnline = (payload: any) => {
@@ -912,18 +936,38 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               }
               return m;
             }));
-            
+
+            // Notify parent to update conversations badge
+            if (onMessagesSeen && chatId) {
+              onMessagesSeen(chatId, unseen.map(u => normalizeId(u._id)));
+            }
+
             hasMarkedAsSeenRef.current = true;
           }
         }, 3000); // 3 second delay - gives user time to view messages
       }
     }
     
-    // Cleanup timeout on unmount
+    // Cleanup: if timeout is still pending when chat closes, fire mark-as-seen immediately
     return () => {
       if (markSeenTimeoutRef.current) {
         clearTimeout(markSeenTimeoutRef.current);
         markSeenTimeoutRef.current = null;
+        // Fire immediately on close so the badge clears when returning to chat list
+        if (!hasMarkedAsSeenRef.current && chatId) {
+          const otherUserIdNorm = normalizeId(otherUser._id);
+          const unseenNow = sortedMessagesRef.current.filter(m => {
+            const senderId = normalizeId(m.sender?._id || m.sender);
+            return senderId && otherUserIdNorm && senderId === otherUserIdNorm && !m.seen;
+          });
+          if (unseenNow.length > 0) {
+            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            if (onMessagesSeen && chatId) {
+              onMessagesSeen(chatId, unseenNow.map((u: any) => normalizeId(u._id)));
+            }
+            hasMarkedAsSeenRef.current = true;
+          }
+        }
       }
     };
   }, [sortedMessages, otherUser, chatId]);
@@ -963,9 +1007,14 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         }
         return m;
       }));
-      
+
+      // Notify parent to update conversations badge
+      if (onMessagesSeen && chatId) {
+        onMessagesSeen(chatId, unseen.map(u => normalizeId(u._id)));
+      }
+
       hasMarkedAsSeenRef.current = true;
-      
+
       // Clear the timeout since we've already marked as seen
       if (markSeenTimeoutRef.current) {
         clearTimeout(markSeenTimeoutRef.current);
@@ -1695,7 +1744,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                     </Text>
                     {isOwn && (
                       <View style={{ marginLeft: 6 }}>
-                        {isLastOwn && item._id === lastSeenId ? (
+                        {item.seen === true ? (
                           <Ionicons name="checkmark-done" size={14} color="#fff" />
                         ) : (
                           <Ionicons name="checkmark" size={14} color="#fff" style={{ opacity: 0.7 }} />
@@ -2315,6 +2364,27 @@ export default function ChatModal() {
     }
   };
 
+  // Prevent back navigation when ChatWindow is open
+  // Intercept back action (both swipe and button) to close chat instead of navigating away
+  const navigation = useNavigation<any>();
+  useFocusEffect(
+    useCallback(() => {
+      if (!activeChat) return; // Only intercept if chat is open
+
+      // Prevent default back behavior when chat is open
+      const unsubscribe = navigation?.addListener('beforeRemove', (e: any) => {
+        // Prevent default back navigation
+        e.preventDefault();
+        // Close the chat instead
+        setSelectedUser(null);
+        setActiveChat(null);
+        setActiveMessages([]);
+      });
+
+      return unsubscribe;
+    }, [activeChat, navigation])
+  );
+
   // If userId param is present, fetch that user directly
   useEffect(() => {
     if (params.userId) {
@@ -2534,60 +2604,6 @@ export default function ChatModal() {
         setActiveChat(null);
         setActiveMessages([]);
         if (params.userId) router.back();
-        // Refresh chat list after closing chat
-        const reloadChats = async () => {
-          const token = await AsyncStorage.getItem('authToken');
-          const userData = await AsyncStorage.getItem('userData');
-          let myUserId = '';
-          if (userData) {
-            try { myUserId = JSON.parse(userData)._id; } catch {}
-          }
-          // Use dynamic API URL detection for web
-      const { getApiBaseUrl } = require('../../utils/config');
-      const API_BASE_URL = getApiBaseUrl();
-          const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
-          socket.on('connect', () => {
-            logger.debug('[SOCKET] connected to backend');
-            socket.emit('test', { hello: 'world' });
-          });
-          socket.on('connect_error', (err) => {
-            logger.debug('[SOCKET] connect_error:', err);
-          });
-          fetch(`${API_BASE_URL}/chat`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json'
-            }
-          })
-            .then(res => res.json())
-            .then(data => {
-              logger.debug('Reloaded /chat data:', JSON.stringify(data, null, 2));
-              let chats = data.chats || [];
-              chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
-              
-              // Frontend deduplication as safety measure
-              const chatMap = new Map<string, any>();
-              chats.forEach((chat: any) => {
-                const participantIds = chat.participants
-                  .map((p: any) => (p._id ? p._id.toString() : p.toString()))
-                  .sort()
-                  .join('_');
-                
-                if (!chatMap.has(participantIds) || 
-                    new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
-                  chatMap.set(participantIds, chat);
-                }
-              });
-              
-              const uniqueChats = Array.from(chatMap.values());
-              uniqueChats.sort((a: any, b: any) => 
-                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-              );
-              
-              setConversations(uniqueChats);
-            });
-        };
-        reloadChats();
       }} 
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
@@ -2602,6 +2618,24 @@ export default function ChatModal() {
       forceRender={forceRender}
       setForceRender={setForceRender}
       router={router}
+      onMessagesSeen={(seenChatId, seenIds) => {
+        // Update badge count in conversations list
+        setConversations(prev => prev.map(conv => {
+          if (conv._id !== seenChatId) return conv;
+          const updatedMessages = (conv.messages || []).map((m: any) => {
+            const msgId = normalizeId(m._id);
+            if (seenIds.includes(msgId)) return { ...m, seen: true };
+            return m;
+          });
+          return { ...conv, messages: updatedMessages };
+        }));
+        // Update activeMessages so the read receipt ticks survive recomputes
+        setActiveMessages(prev => prev.map((m: any) => {
+          const msgId = normalizeId(m._id);
+          if (seenIds.includes(msgId)) return { ...m, seen: true };
+          return m;
+        }));
+      }}
       onClearChat={() => {
         // Clear active messages
         setActiveMessages([]);

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_OPTIONS=--no-deprecation next dev -p 3001",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "prestart": "node -e \"var fs=require('fs'); if(!fs.existsSync('.next/BUILD_ID')){ require('child_process').execSync('npm run build', {stdio:'inherit'}); }\"",

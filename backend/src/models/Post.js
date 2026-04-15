@@ -84,6 +84,14 @@ const postSchema = new mongoose.Schema({
     enum: ['photo', 'short'],
     default: 'photo'
   },
+  // Display aspect ratio chosen at post creation — used by feed to render container.
+  // Original image is stored untouched; aspect ratio only affects display box (cover fit).
+  // 'full' = render at the image's natural aspect ratio (measured on load).
+  aspectRatio: {
+    type: String,
+    enum: ['1:1', '16:9', 'full'],
+    default: '1:1'
+  },
   location: {
     address: {
       type: String,

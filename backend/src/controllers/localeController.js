@@ -145,6 +145,7 @@ const getLocales = async (req, res) => {
     if (search) {
       searchConditions.push(
         { name: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
         { country: { $regex: search, $options: 'i' } },
         { stateProvince: { $regex: search, $options: 'i' } }
       );

@@ -59,7 +59,7 @@ export default function TripScoreCountryDetailScreen() {
       const countryParam = Array.isArray(country) ? country[0] : country;
       // Convert slug back to proper country name for API
       const countryName = countryParam.replace(/-/g, ' ');
-      const response = await api.get(`/profile/${userId}/tripscore/countries/${countryName}`);
+      const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
       
       setData(response.data);
     } catch (error) {
