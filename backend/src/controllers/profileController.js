@@ -14,6 +14,7 @@ const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } 
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
+const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
@@ -1649,9 +1650,14 @@ const getTripScoreContinents = async (req, res) => {
       // Only count each unique location once (TripScore v2 deduplication with tolerance)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
-        
-        // Normalize continent name to ensure consistent matching
-        const continentKey = normalizeContinentName(visit.continent);
+
+        // Derive continent from coordinates (source of truth used by the global map).
+        // Stored visit.continent is unreliable because it was computed via fragile
+        // address-substring matching at write time. Coords always match the map pin.
+        const coordHit = lookupByCoords(visit.lat, visit.lng);
+        const continentKey = coordHit
+          ? coordHit.continent
+          : normalizeContinentName(visit.continent);
         
         // Initialize continent scores and location arrays if needed
         if (!continentScores[continentKey]) {
@@ -1744,17 +1750,16 @@ const getTripScoreCountries = async (req, res) => {
 
     // URL decode continent name in case it has spaces or special characters
     const continentName = decodeURIComponent(continent).toUpperCase();
-    
-    // Get verified visits for this continent (TripScore v2.1 - unique places only)
+
+    // Fetch ALL verified visits — we filter by coords-derived continent below
+    // because the stored continent field was computed via fragile address matching
+    // and cannot be trusted (must match the global map, which uses lat/lng).
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      // IMPORTANT: Use case-insensitive match for continent to handle values like 'Asia' vs 'ASIA'
-      // This keeps TripScore consistent between the overall continents view and per-continent view
-      continent: { $regex: new RegExp(`^${continentName}$`, 'i') }
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng country address')
+    .select('lat lng country continent address')
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
@@ -1778,23 +1783,31 @@ const getTripScoreCountries = async (req, res) => {
         return;
       }
       
+      // Derive continent + country from coords (matches the global map).
+      const coordHit = lookupByCoords(visit.lat, visit.lng);
+      const visitContinent = coordHit
+        ? coordHit.continent
+        : (visit.continent || '').toUpperCase();
+
+      // Skip visits not in the requested continent
+      if (visitContinent !== continentName) return;
+
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
+
       // Only count each unique location once (groups nearby locations together)
       if (!uniqueLocationKeys.has(locationKey)) {
         uniqueLocationKeys.add(locationKey);
-        
-        // CRITICAL: Normalize country name to prevent duplicates
-        // Maps regions/states to parent countries (e.g., "England" -> "United Kingdom")
-        const rawCountry = visit.country || 'Unknown';
-        const normalizedCountry = normalizeCountryName(rawCountry);
-        
-        // Count unique places visited using normalized country name
-        if (!countryScores[normalizedCountry]) {
-          countryScores[normalizedCountry] = 0;
+
+        // Prefer coords-derived country; fall back to normalized stored country.
+        const country = coordHit
+          ? coordHit.country
+          : normalizeCountryName(visit.country || 'Unknown');
+
+        if (!countryScores[country]) {
+          countryScores[country] = 0;
         }
-        countryScores[normalizedCountry] += 1;
+        countryScores[country] += 1;
       }
     });
 
@@ -1854,25 +1867,26 @@ const getTripScoreCountryDetails = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
-    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
-    // This ensures we find all locations even if stored with different country names
-    const normalizedCountryParam = normalizeCountryName(country);
-    
-    // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Search for both normalized and original country names to handle legacy data
-    const trustedVisits = await TripVisit.find({
+    // Country grouping is now driven by coords (matches the global map). The
+    // stored country field is unreliable, so we fetch all verified visits and
+    // filter by the coords-derived country below.
+    const normalizedCountryParam = normalizeCountryName(decodeURIComponent(country));
+
+    const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      $or: [
-        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
-        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
-      ]
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
-    .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
+    .sort({ takenAt: 1, uploadedAt: 1 })
     .lean();
+
+    const trustedVisits = allVisits.filter(v => {
+      const hit = lookupByCoords(v.lat, v.lng);
+      const visitCountry = hit ? hit.country : normalizeCountryName(v.country || '');
+      return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
+    });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     const roundCoordinate = (coord, precision = 2) => {
@@ -2052,25 +2066,25 @@ const getTripScoreLocations = async (req, res) => {
 
     const { generateSignedUrl } = require('../services/mediaService');
 
-    // CRITICAL: Normalize country name for query (e.g., "England" -> "United Kingdom")
-    // This ensures we find all locations even if stored with different country names
-    const normalizedCountryParam = normalizeCountryName(country);
-    
-    // Get verified visits for this country (TripScore v2.1 - unique places only)
-    // Search for both normalized and original country names to handle legacy data
-    const trustedVisits = await TripVisit.find({
+    // Country grouping is driven by coords (matches the global map). Fetch all
+    // verified visits and filter by coords-derived country below.
+    const normalizedCountryParam = normalizeCountryName(decodeURIComponent(country));
+
+    const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
-      $or: [
-        { country: { $regex: new RegExp(`^${country}$`, 'i') } }, // Original country name
-        { country: { $regex: new RegExp(`^${normalizedCountryParam}$`, 'i') } } // Normalized country name
-      ]
+      verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post posts contentType')
+    .select('lat lng address takenAt uploadedAt post posts contentType country')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
     .populate('posts', 'imageUrl images storageKey storageKeys type videoUrl')
     .lean();
+
+    const trustedVisits = allVisits.filter(v => {
+      const hit = lookupByCoords(v.lat, v.lng);
+      const visitCountry = hit ? hit.country : normalizeCountryName(v.country || '');
+      return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
+    });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     const roundCoordinate = (coord, precision = 2) => {

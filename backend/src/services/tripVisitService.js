@@ -364,15 +364,9 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       country = getCountryFromLocation(address);
     }
 
-    // Check if visit already exists (deduplication) - uses final lat/lng (post or detectedPlace)
-    let existingVisit = null;
-    if (hasValidCoords || (lat !== 0 && lng !== 0)) {
-      existingVisit = await findExistingVisit(post.user, lat, lng);
-      if (existingVisit) {
-        logger.debug('Visit already exists for this location, updating instead');
-        return await updateTripVisitFromPost(post, metadata, existingVisit._id);
-      }
-    }
+    // Dedup intentionally disabled: every uploaded photo creates its own TripVisit
+    // and goes through admin review. Two photos at the same location are two
+    // independent pending_review visits — admin approves/rejects each one.
     
     // Determine continent
     let continent = getContinentFromLocation(address);
