@@ -30,3 +30,6 @@ keys/google-play.json
 keys/
 ios/
 android/
+
+# Build output - local only
+dist/

@@ -34,6 +34,7 @@ export interface CreatePostData {
   songVolume?: number;
   spotType?: string;
   travelInfo?: string;
+  aspectRatio?: '1:1' | '16:9' | 'full';
   detectedPlace?: {          // Detected place data for admin review
     name?: string;
     country?: string;
@@ -237,6 +238,7 @@ export const createPostWithProgress = async (
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
     
     // Add detected place data for admin review
     // Always send all fields if detectedPlace exists (even if some are empty strings)
@@ -357,6 +359,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
     
     // Add detected place data for admin review
     // Always send all fields if detectedPlace exists (even if some are empty strings)
@@ -937,6 +940,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     // Add TripScore metadata
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
+    if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
     
     // Add copyright compliance fields
     if (data.audioSource) {

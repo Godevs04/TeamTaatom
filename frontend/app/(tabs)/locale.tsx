@@ -148,12 +148,16 @@ const fetchRealCoords = async (
         }
 
         // Use Places API Text Search to find tourist attractions
+        const placesParams: Record<string, string> = {
+          query: queryWithCountry,
+          key: GOOGLE_MAPS_API_KEY,
+        };
+        // Add region bias so Google prioritises results from the locale's country
+        if (countryCode) {
+          placesParams.region = countryCode.toLowerCase();
+        }
         const placesRes = await axios.get('https://maps.googleapis.com/maps/api/place/textsearch/json', {
-          params: {
-            query: queryWithCountry,
-            key: GOOGLE_MAPS_API_KEY,
-            // Don't restrict to tourist_attraction type - let it find any relevant place
-          },
+          params: placesParams,
           timeout: 5000,
         });
 
@@ -1072,7 +1076,8 @@ export default function LocaleScreen() {
         spotTypesParam,
             currentPage,
             BACKEND_LIMIT,
-            baseParams.includeInactive
+            baseParams.includeInactive,
+            searchAbortControllerRef.current?.signal
           );
           
           if (!isMountedRef.current) return;
@@ -1100,7 +1105,8 @@ export default function LocaleScreen() {
           spotTypesParam,
           currentPageRef.current,
           20,
-          baseParams.includeInactive
+          baseParams.includeInactive,
+          searchAbortControllerRef.current?.signal
       );
       
       if (!isMountedRef.current) return;
@@ -1132,13 +1138,11 @@ export default function LocaleScreen() {
         // Only clear locales if this is a search query (not initial load)
         if (newLocales.length === 0) {
           if (isMountedRef.current) {
-            // Only clear if there's an active search query, otherwise keep existing locales
-            if (searchQuery.trim()) {
-              // Search returned empty - clear results
+            // Clear if search query OR any filter is active (server returned 0 results deliberately)
+            if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
               setAdminLocales([]);
               setFilteredLocales([]);
             }
-            // If no search query, keep existing locales (don't clear on network issues)
             setCalculatingDistances(false);
             setLoadingLocales(false);
             setLoading(false);
@@ -1186,15 +1190,24 @@ export default function LocaleScreen() {
           const snapshot = createLocationSnapshot();
           
           if (!snapshot) {
-            // Location snapshot not ready - store unsorted, will sort when snapshot becomes ready
+            // Location snapshot not ready — show results immediately (unsorted) so screen isn't blank.
+            // The single-sort useEffect will re-sort once countryCode arrives from reverse geocode.
             if (shouldFetchAll) {
+              const firstPage = localesWithStraightLineDistance.slice(0, ITEMS_PER_PAGE);
+              allLocalesSortedRef.current = localesWithStraightLineDistance;
               setAllLocalesWithDistances(localesWithStraightLineDistance);
+              setAdminLocales(firstPage);
+              setDisplayedPage(1);
+              setHasMore(localesWithStraightLineDistance.length > ITEMS_PER_PAGE);
+              setTotalPages(Math.ceil(localesWithStraightLineDistance.length / ITEMS_PER_PAGE));
+              const filtered = applyFilters(firstPage, false);
+              setFilteredLocales(filtered);
               setLoadingLocales(false);
               setLoading(false);
               loadedOnceRef.current = true;
             }
             if (__DEV__) {
-              logger.debug('⏳ Location snapshot not ready, storing locales unsorted. Will sort when snapshot becomes available.');
+              logger.debug('⏳ Location snapshot not ready, showing unsorted results. Will re-sort when snapshot becomes available.');
             }
             return;
           }
@@ -1224,7 +1237,11 @@ export default function LocaleScreen() {
           if (__DEV__) {
             logger.debug('✅ STAGE 1 complete: Straight-line distances calculated, sorted, first page rendered');
           }
-          
+
+          // Release search lock after STAGE 1 so filter/search changes aren't dropped
+          // during the STAGE 2 driving-distance batch (which can take 10+ seconds)
+          isSearchingRef.current = false;
+
           // STAGE 2: Calculate driving distance ONLY for first N locales (background, non-blocking)
           // N = ITEMS_PER_PAGE * 2 (e.g., 40 locales for 20 per page)
           const STAGE2_LIMIT = ITEMS_PER_PAGE * 2;
@@ -1232,13 +1249,14 @@ export default function LocaleScreen() {
           
           if (localesToCalculate.length > 0 && shouldFetchAll) {
           setCalculatingDistances(true);
-          
+          const stage2FetchKey = lastFetchKeyRef.current;
+
             // Process in batches to avoid rate limiting
             const BATCH_SIZE = 5;
             const updatedLocales = new Map<string, Locale & { distanceKm?: number | null }>();
-            
+
             for (let i = 0; i < localesToCalculate.length; i += BATCH_SIZE) {
-              if (!isMountedRef.current) break;
+              if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
               
               const batch = localesToCalculate.slice(i, i + BATCH_SIZE);
             
@@ -1335,7 +1353,7 @@ export default function LocaleScreen() {
             }
           }
           
-          if (!isMountedRef.current) {
+          if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) {
             setCalculatingDistances(false);
             isSearchingRef.current = false;
             return;
@@ -1394,14 +1412,12 @@ export default function LocaleScreen() {
         }
       } else {
         // Response has no locales property or is empty
-        // Only clear if there's an active search query, otherwise keep existing locales
         if (isMountedRef.current) {
-          if (searchQuery.trim()) {
-            // Search returned empty - clear results
+          // Clear if search query OR any filter is active (server returned 0 results deliberately)
+          if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
             setAdminLocales([]);
             setFilteredLocales([]);
           }
-          // If no search query, keep existing locales (don't clear on network issues)
           setCalculatingDistances(false);
           setLoadingLocales(false);
           setLoading(false);
@@ -1546,10 +1562,31 @@ export default function LocaleScreen() {
       });
     }
     
+    // Bug: nearest locale should be shown on top when location is on.
+    // Pure distance-first sort — same-city/state/country tiers previously
+    // demoted closer out-of-region locales below farther in-region ones.
+    const hasUserLocation = typeof snapshot.lat === 'number' && typeof snapshot.lon === 'number';
+    if (hasUserLocation) {
+      const INFINITY = Number.POSITIVE_INFINITY;
+      sorted.sort((a, b) => {
+        const dA = (a as any).distanceKm;
+        const dB = (b as any).distanceKm;
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
+      if (__DEV__ && sorted.length > 0) {
+        logger.debug('✅ Pure distance sort - first 5 locales:', sorted.slice(0, 5).map(l => ({
+          name: l.name, distance: (l as any).distanceKm
+        })));
+      }
+      return sorted;
+    }
+
     sorted.sort((a, b) => {
       const distanceA = (a as any).distanceKm;
       const distanceB = (b as any).distanceKm;
-      
+
       // Get locale location details
       const aCity = a.city || '';
       const bCity = b.city || '';
@@ -2160,7 +2197,7 @@ export default function LocaleScreen() {
         const localeWithDistance = locale as Locale & { distanceKm?: number | null };
         return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
       });
-      const shouldLoad = !hasLocales || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
+      const shouldLoad = (!hasLocales && !loadedOnceRef.current) || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
       
       // Guard: Prevent reload when only filters changed (load only on Search button or initial/focus restore)
       if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
@@ -2698,10 +2735,10 @@ export default function LocaleScreen() {
       
       // Reload locales without filters (only for locale tab) - use setTimeout to avoid blocking UI
       if (activeTab === 'locale') {
-        // Use setTimeout to ensure modal closes before reloading
+        // Use loadAdminLocalesRef so the call uses the latest version (with cleared filters)
         setTimeout(() => {
           if (isMountedRef.current) {
-            loadAdminLocales(true).catch(err => {
+            loadAdminLocalesRef.current(true).catch((err: any) => {
               logger.error('Error reloading locales after reset:', err);
             });
           }
@@ -2790,16 +2827,16 @@ export default function LocaleScreen() {
         currentPageRef.current = 1;
         // Reset fetch key to force new fetch
         lastFetchKeyRef.current = null;
-        loadAdminLocales(true);
+        loadAdminLocalesRef.current(true);
       }
     }, SEARCH_DEBOUNCE_MS);
-    
+
     return () => {
       if (searchDebounceTimerRef.current) {
         clearTimeout(searchDebounceTimerRef.current);
       }
     };
-  }, [searchQuery, loadAdminLocales]);
+  }, [searchQuery]);
 
   const filteredCountriesForFilter = useMemo(() => {
     const q = countrySearchQuery.trim().toLowerCase();
@@ -3172,7 +3209,7 @@ export default function LocaleScreen() {
     }
     
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
           styles.locationCard,
           styles.wideCard,
@@ -3206,10 +3243,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityRole="button"
+        accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image 
-            source={{ uri: locale.imageUrl }} 
+          <Image
+            source={{ uri: locale.imageUrl }}
             style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
@@ -3346,7 +3386,7 @@ export default function LocaleScreen() {
       : '–';
     
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
           styles.locationCard,
           styles.wideCard,
@@ -3380,10 +3420,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityRole="button"
+        accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image 
-            source={{ uri: locale.imageUrl }} 
+          <Image
+            source={{ uri: locale.imageUrl }}
             style={styles.cardImage as ImageStyle}
             resizeMode="cover"
           />
@@ -3428,11 +3471,13 @@ export default function LocaleScreen() {
             e.stopPropagation();
             unsaveLocale(locale._id);
           }}
+          accessibilityLabel={`Remove ${locale.name} from saved`}
+          accessibilityRole="button"
         >
-          <Ionicons 
-            name="bookmark" 
-            size={20} 
-            color="#FFD700" 
+          <Ionicons
+            name="bookmark"
+            size={20}
+            color="#FFD700"
           />
         </TouchableOpacity>
       </TouchableOpacity>
@@ -3769,14 +3814,17 @@ export default function LocaleScreen() {
       {/* Elegant Top Navigation */}
       <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
         <View style={styles.tabContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              styles.tabButton, 
+              styles.tabButton,
               activeTab === 'locale' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('locale')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel="Locale tab"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'locale' }}
           >
             <Ionicons 
               name="location-outline" 
@@ -3791,14 +3839,17 @@ export default function LocaleScreen() {
             </Text>
           </TouchableOpacity>
           
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              styles.tabButton, 
+              styles.tabButton,
               activeTab === 'saved' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
             ]}
             onPress={() => setActiveTab('saved')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel="Saved tab"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === 'saved' }}
           >
             <Ionicons 
               name="bookmark-outline" 
@@ -3841,11 +3892,13 @@ export default function LocaleScreen() {
               }, SEARCH_DEBOUNCE_MS);
             }}
           />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.filterButton}
             onPress={() => setShowFilterModal(true)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
+            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
+            accessibilityRole="button"
           >
             <Ionicons name="options-outline" size={isTabletLocal ? 24 : 20} color={theme.colors.textSecondary} />
             {activeFilterCount > 0 && (

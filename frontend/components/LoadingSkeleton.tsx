@@ -1,6 +1,8 @@
 import React from 'react';
-import { View, StyleSheet, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 interface SkeletonProps {
   width?: number | string;
@@ -73,7 +75,7 @@ export const PostSkeleton: React.FC = () => {
       </View>
 
       {/* Image */}
-      <Skeleton width="100%" height={400} borderRadius={0} style={{ marginTop: 12 }} />
+      <Skeleton width="100%" height={screenWidth} borderRadius={0} style={{ marginTop: 12 }} />
 
       {/* Actions */}
       <View style={styles.actions}>
@@ -135,8 +137,8 @@ export const NotificationSkeleton: React.FC = () => {
 
 const styles = StyleSheet.create({
   postContainer: {
-    padding: 12,
-    marginBottom: 12,
+    padding: 0,
+    marginBottom: 24,
     borderRadius: 8,
   },
   postHeader: {

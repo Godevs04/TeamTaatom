@@ -135,7 +135,7 @@ const getPosts = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
+              { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1, 'settings.privacy.showLocation': 1 } }
             ]
           }
         },
@@ -346,17 +346,18 @@ const getPosts = async (req, res) => {
               post.song.songId.s3Url = songUrl;
               post.song.songId.cloudinaryUrl = songUrl;
             } catch (error) {
-              logger.warn('Failed to generate URL for song in post:', { 
-                postId: post._id, 
-                songId: post.song.songId._id, 
+              logger.warn('Failed to generate URL for song in post:', {
+                postId: post._id,
+                songId: post.song.songId._id,
                 storageKey,
-                error: error.message 
+                error: error.message
               });
               post.song.songId.s3Url = null;
               post.song.songId.cloudinaryUrl = null;
             }
           }
         }
+
         return post;
       }));
 
@@ -417,10 +418,16 @@ const getPosts = async (req, res) => {
         ? post.likes.some(like => like.toString() === userId)
         : false;
 
+      const postOwnerId = post.user?._id?.toString();
+      const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
+      const { settings: _settings, ...userWithoutSettings } = post.user || {};
       return {
         ...post,
         imageUrl: optimizedImageUrl,
         isLiked,
+        location: hideLocation ? null : post.location,
+        detectedPlace: hideLocation ? null : post.detectedPlace,
+        user: userWithoutSettings,
         // likesCount and commentsCount already added by aggregation
       };
     });
@@ -564,13 +571,14 @@ const getPostById = async (req, res) => {
             foreignField: '_id',
             as: 'user',
             pipeline: [
-              { 
-                $project: { 
-                  fullName: 1, 
+              {
+                $project: {
+                  fullName: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
-                  followers: 1 // Include followers for follow status check
-                } 
+                  followers: 1, // Include followers for follow status check
+                  'settings.privacy.showLocation': 1
+                }
               }
             ]
           }
@@ -861,17 +869,22 @@ const getPostById = async (req, res) => {
       }
     }
 
+    postOwnerId = post.user?._id?.toString();
+    const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
     const postWithDetails = {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
       viewsCount: finalViewsCount, // Always include views count
       views: finalViewsCount, // Also include views field for consistency
+      location: hideLocation ? null : post.location,
+      detectedPlace: hideLocation ? null : post.detectedPlace,
       // likesCount and commentsCount already added by aggregation
       user: {
         ...post.user,
         isFollowing,
-        followers: undefined // Remove followers array from response (not needed)
+        followers: undefined, // Remove followers array from response (not needed)
+        settings: undefined  // Remove settings from response
       }
     };
 
@@ -917,13 +930,14 @@ const createPost = async (req, res) => {
       address, 
       latitude, 
       longitude, 
-      tags, 
-      songId, 
-      songStartTime, 
-      songEndTime, 
-      songVolume, 
-      spotType, 
+      tags,
+      songId,
+      songStartTime,
+      songEndTime,
+      songVolume,
+      spotType,
       travelInfo,
+      aspectRatio,
       // Detected place data from Google Maps API
       detectedPlaceName,
       detectedPlaceCountry,
@@ -1033,6 +1047,7 @@ const createPost = async (req, res) => {
       tags: allHashtags,
       mentions: mentionUserIds,
       type: 'photo',
+      aspectRatio: aspectRatio === '16:9' ? '16:9' : aspectRatio === 'full' ? 'full' : '1:1',
       location: {
         address: address || 'Unknown Location',
         coordinates: {
@@ -1056,10 +1071,9 @@ const createPost = async (req, res) => {
       travelInfo: travelInfo || null,
       // Detected place data for admin review (from Google Maps API)
       // Check if any detected place field exists (handle empty strings from FormData)
-      // Save detected place data if ANY field is provided (even if some are empty)
-      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity || 
-                     detectedPlaceCountryCode || detectedPlaceStateProvince || 
-                     detectedPlaceLatitude || detectedPlaceLongitude || 
+      detectedPlace: (detectedPlaceName || detectedPlaceCountry || detectedPlaceCity ||
+                     detectedPlaceCountryCode || detectedPlaceStateProvince ||
+                     detectedPlaceLatitude || detectedPlaceLongitude ||
                      detectedPlacePlaceId || detectedPlaceFormattedAddress) ? {
         name: (detectedPlaceName && detectedPlaceName.trim()) || null,
         country: (detectedPlaceCountry && detectedPlaceCountry.trim()) || null,
@@ -1272,7 +1286,7 @@ const getUserShorts = async (req, res) => {
     const safeSkip = Math.max(skip, 0);
 
     // Check if user exists and get privacy settings
-    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers following');
     if (!user) {
       return sendError(res, 'RES_3002', 'User not found');
     }
@@ -1280,18 +1294,17 @@ const getUserShorts = async (req, res) => {
     // Check privacy settings for "followers only" profile
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
-    
-    // For "followers only" profiles, check if current user is following
+
+    // For "followers only" profiles, requester must be in profile owner's followers list
     if (!isOwnProfile && profileVisibility === 'followers') {
-      const isFollowing = req.user && user.followers ? 
+      const isFollowing = req.user && user.followers ?
         user.followers.some(follower => {
           const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
           return followerId === req.user._id.toString();
-        }) : 
+        }) :
         false;
-      
+
       if (!isFollowing) {
-        // User is not following, return empty shorts array
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
           shorts: [],
           totalShorts: 0,
@@ -1300,18 +1313,18 @@ const getUserShorts = async (req, res) => {
         });
       }
     }
-    
-    // For "private" profiles, check if current user is following (approved)
+
+    // For "private" profiles, requester must be in profile owner's following list
+    // (i.e. the profile owner follows the viewer) — matches getProfile/getTravelMapData.
     if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowing = req.user && user.followers ? 
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) : 
+      const isFollowedBy = req.user && user.following ?
+        user.following.some(following => {
+          const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+          return followingId === req.user._id.toString();
+        }) :
         false;
-      
-      if (!isFollowing) {
-        // User is not following, return empty shorts array
+
+      if (!isFollowedBy) {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
           shorts: [],
           totalShorts: 0,
@@ -1780,7 +1793,7 @@ const getUserPosts = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Check if user exists and get privacy settings
-    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers');
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility settings.privacy.showLocation followers following');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
@@ -1791,18 +1804,17 @@ const getUserPosts = async (req, res) => {
     // Check privacy settings for "followers only" profile
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
-    
-    // For "followers only" profiles, check if current user is following
+
+    // For "followers only" profiles, requester must be in profile owner's followers list
     if (!isOwnProfile && profileVisibility === 'followers') {
-      const isFollowing = req.user && user.followers ? 
+      const isFollowing = req.user && user.followers ?
         user.followers.some(follower => {
           const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
           return followerId === req.user._id.toString();
-        }) : 
+        }) :
         false;
-      
+
       if (!isFollowing) {
-        // User is not following, return empty posts array
         return sendSuccess(res, 200, 'Posts fetched successfully', {
           posts: [],
           totalPosts: 0,
@@ -1811,18 +1823,18 @@ const getUserPosts = async (req, res) => {
         });
       }
     }
-    
-    // For "private" profiles, check if current user is following (approved)
+
+    // For "private" profiles, requester must be in profile owner's following list
+    // (i.e. the profile owner follows the viewer) — matches getProfile/getTravelMapData.
     if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowing = req.user && user.followers ? 
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) : 
+      const isFollowedBy = req.user && user.following ?
+        user.following.some(following => {
+          const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
+          return followingId === req.user._id.toString();
+        }) :
         false;
-      
-      if (!isFollowing) {
-        // User is not following, return empty posts array
+
+      if (!isFollowedBy) {
         return sendSuccess(res, 200, 'Posts fetched successfully', {
           posts: [],
           totalPosts: 0,
@@ -2030,11 +2042,11 @@ const getUserPosts = async (req, res) => {
             try {
               comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
             } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                postId: post._id, 
+              logger.warn('Failed to generate profile picture URL for comment user:', {
+                postId: post._id,
                 commentId: comment._id,
                 userId: comment.user._id,
-                error: error.message 
+                error: error.message
               });
               // Fallback to legacy URL if available
               comment.user.profilePic = comment.user.profilePic || null;
@@ -2049,9 +2061,12 @@ const getUserPosts = async (req, res) => {
       return post;
     }));
 
+    const hideLocation = !isOwnProfile && user.settings?.privacy?.showLocation === false;
     const postsWithLikeStatus = postsWithProfilePics.map(post => ({
       ...post,
-      isLiked: post.isLiked || false
+      isLiked: post.isLiked || false,
+      location: hideLocation ? null : post.location,
+      detectedPlace: hideLocation ? null : post.detectedPlace,
     }));
 
     return sendSuccess(res, 200, 'User posts fetched successfully', {
@@ -2170,11 +2185,11 @@ const toggleLike = async (req, res) => {
             }
           }).catch(err => logger.error('Error sending push notification for like:', err));
 
-          // Emit real-time notification
+          // Emit real-time notification to recipient only
           const io = getIO();
           if (io) {
             const nsp = io.of('/app');
-            nsp.emit('notification', {
+            nsp.to(`user:${post.user._id}`).emit('notification', {
               type: 'like',
               fromUser: {
                 _id: req.user._id,
@@ -2373,11 +2388,11 @@ const addComment = async (req, res) => {
           }
         }).catch(err => logger.error('Error sending push notification for comment:', err));
 
-        // Emit real-time notification
+        // Emit real-time notification to recipient only
         const io = getIO();
         if (io) {
           const nsp = io.of('/app');
-          nsp.emit('notification', {
+          nsp.to(`user:${post.user._id}`).emit('notification', {
             type: 'comment',
             fromUser: {
               _id: req.user._id,
@@ -2881,18 +2896,19 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'songData',
           pipeline: [
-            { 
-              $project: { 
-                title: 1, 
-                artist: 1, 
-                duration: 1, 
-                s3Url: 1, 
-                thumbnailUrl: 1, 
+            {
+              $project: {
+                title: 1,
+                artist: 1,
+                duration: 1,
+                s3Url: 1,
+                cloudinaryUrl: 1,
+                thumbnailUrl: 1,
                 storageKey: 1,
                 cloudinaryKey: 1,
                 s3Key: 1,
-                _id: 1 
-              } 
+                _id: 1
+              }
             }
           ]
         }
@@ -3006,10 +3022,13 @@ const getShorts = async (req, res) => {
       
       // Generate signed URL for song if present (same logic as getPosts)
       if (short.song?.songId) {
-        logger.info('getShorts - Processing song for short:', {
-          shortId: short._id,
-          songId: short.song.songId._id || short.song.songId,
-          hasStorageKey: !!(short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key)
+        console.warn('[SHORTS-SONG] Processing song for short:', {
+          shortId: String(short._id),
+          songId: String(short.song.songId._id || short.song.songId),
+          storageKey: short.song.songId.storageKey || null,
+          cloudinaryKey: short.song.songId.cloudinaryKey || null,
+          s3Key: short.song.songId.s3Key || null,
+          title: short.song.songId.title || null,
         });
         const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
         if (storageKey) {
@@ -3017,27 +3036,29 @@ const getShorts = async (req, res) => {
             const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
             short.song.songId.s3Url = songUrl;
             short.song.songId.cloudinaryUrl = songUrl; // Backward compatibility
-            logger.info('getShorts - Generated song URL:', {
-              shortId: short._id,
-              songUrl: songUrl.substring(0, 50) + '...'
+            console.warn('[SHORTS-SONG] Generated song URL:', {
+              shortId: String(short._id),
+              storageKey,
+              songUrl: songUrl ? (String(songUrl).substring(0, 80) + '...') : 'NULL',
             });
           } catch (error) {
-            logger.warn('Failed to generate song URL for short:', { 
-              shortId: short._id, 
-              songId: short.song.songId._id, 
-              error: error.message 
+            console.warn('[SHORTS-SONG] Failed to generate song URL:', {
+              shortId: String(short._id),
+              songId: String(short.song.songId._id),
+              error: error.message,
             });
             short.song.songId.s3Url = null;
             short.song.songId.cloudinaryUrl = null;
           }
         } else {
-          logger.warn('Short song missing storage key:', { 
-            shortId: short._id, 
+          // No storageKey — keep existing s3Url/cloudinaryUrl from DB (legacy songs)
+          logger.warn('Short song missing storage key, using stored URL if available:', {
+            shortId: short._id,
             songId: short.song.songId._id,
-            songData: short.song.songId
+            hasS3Url: !!short.song.songId.s3Url,
+            hasCloudinaryUrl: !!short.song.songId.cloudinaryUrl
           });
-          short.song.songId.s3Url = null;
-          short.song.songId.cloudinaryUrl = null;
+          // Do NOT set to null — legacy songs store the URL directly in the Song document
         }
       } else {
         logger.debug('getShorts - No song data for short:', { shortId: short._id });

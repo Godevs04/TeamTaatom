@@ -27,6 +27,7 @@ import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, delete
 import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUnreadCount } from '../../services/notifications';
+import { socketService } from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
@@ -391,7 +392,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     isMountedRef.current = true;
     loadUserData();
-    
+
     return () => {
       isMountedRef.current = false;
       // Cancel any pending requests
@@ -400,6 +401,17 @@ export default function ProfileScreen() {
       }
     };
   }, [loadUserData]);
+
+  // Real-time notification badge: increment count when a new notification arrives via socket
+  useEffect(() => {
+    const onNotification = () => {
+      setUnreadCount(prev => prev + 1);
+    };
+    socketService.subscribe('notification', onNotification);
+    return () => {
+      socketService.unsubscribe('notification', onNotification);
+    };
+  }, []);
   
   // Navigation Lifecycle Safety: Clear state on screen blur
   // Privacy & Settings Propagation: Refresh profile when screen is focused (e.g., after settings changes)
@@ -492,7 +504,7 @@ export default function ProfileScreen() {
           abortControllerRef.current.abort();
         }
       };
-    }, [user?._id, loadUserData, activeTab])
+    }, [user?._id, loadUserData])
   );
 
   // Log posts when they change for debugging (development only)
@@ -1318,15 +1330,6 @@ export default function ProfileScreen() {
                         : { backgroundColor: 'transparent' }
                     ]} 
                     onPress={() => {
-                      // When switching tabs, keep the tabs row in a stable position instead of
-                      // snapping the whole profile to the very top. This avoids the "jump to top"
-                      // feeling when tapping "Shorts" on own profile.
-                      if (scrollViewRef.current && tabsOffsetRef.current >= 0) {
-                        scrollViewRef.current.scrollTo({
-                          y: Math.max(tabsOffsetRef.current - 16, 0),
-                          animated: true,
-                        });
-                      }
                       // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
                       if (isFetchingRef.current && activeTab !== tab) {
                         logger.debug('Tab switch blocked - fetch in progress');
@@ -1351,9 +1354,10 @@ export default function ProfileScreen() {
               </View>
               
               <View style={styles.contentArea}>
-            {/* Profile Tabs Lifecycle Safety: Conditional rendering prevents unnecessary re-renders */}
-            {activeTab === 'posts' && (
-              posts.length > 0 ? (
+            {/* Profile Tabs: Always rendered with height: 0 when hidden to prevent scroll reset */}
+            {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
+            <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {posts.map((post) => {
                     // Try multiple possible image URL fields
@@ -1427,9 +1431,10 @@ export default function ProfileScreen() {
                   </Pressable>
                 </View>
               )
-            )}
-            {activeTab === 'shorts' && (
-              userShorts.length > 0 ? (
+              }
+            </View>
+            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {userShorts.map((s) => {
                     const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
@@ -1479,9 +1484,10 @@ export default function ProfileScreen() {
                   </Pressable>
                 </View>
               )
-            )}
-            {activeTab === 'saved' && (
-              savedItems.length > 0 ? (
+              }
+            </View>
+            <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
+              {savedItems.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {savedItems.map((item) => {
                     // Try multiple possible image URL fields
@@ -1554,7 +1560,8 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               )
-            )}
+              }
+            </View>
               </View>
             </View>
           </View>
@@ -2109,6 +2116,7 @@ const styles = StyleSheet.create({
   // Content Area
   contentArea: {
     marginTop: 20,
+    minHeight: 400,
   },
   postsGrid: {
     flexDirection: 'row',
@@ -2163,6 +2171,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 60,
     paddingHorizontal: 20,
+    minHeight: 400,
   },
   emptyIconContainer: {
     width: 120,

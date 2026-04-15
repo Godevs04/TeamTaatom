@@ -38,4 +38,12 @@ de/rules/byterover-rules.md
 
 # Exclude superAdmin from git to fix EAS build casing issues
 # superAdmin/
-# superAdmin/**                 
+# superAdmin/**
+
+# Claude setup
+.claude/
+claude/
+CLAUDE.md
+
+# Frontend app config (local only)
+frontend/app.json

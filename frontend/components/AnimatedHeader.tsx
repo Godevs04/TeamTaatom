@@ -13,13 +13,13 @@ interface AnimatedHeaderProps {
   onRefresh?: () => void;
 }
 
-export default function AnimatedHeader({ 
-  showSearch = true, 
-  showChat = true, 
+export default function AnimatedHeader({
+  showSearch = true,
+  showChat = true,
   rightComponent,
   adjustRightComponent = false,
   unseenMessageCount = 0,
-  onRefresh
+  onRefresh,
 }: AnimatedHeaderProps) {
   const router = useRouter();
   const { theme, mode } = useTheme();
@@ -131,10 +131,12 @@ export default function AnimatedHeader({
   return (
     <View style={[styles.header, { backgroundColor: 'transparent' }]}>
       {(showSearch || showChat) && (
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={handleLogoPress}
           activeOpacity={0.7}
           style={styles.logoContainer}
+          accessibilityLabel="Taatom, tap to refresh feed"
+          accessibilityRole="button"
         >
           <Animated.View
             style={[
@@ -170,7 +172,12 @@ export default function AnimatedHeader({
       
       <View style={[(showSearch || showChat) ? styles.headerIcons : styles.headerIconsRight, adjustRightComponent && styles.headerIconsAdjusted]}>
         {showSearch && (
-          <TouchableOpacity onPress={handleSearch} style={styles.iconButton}>
+          <TouchableOpacity
+            onPress={handleSearch}
+            style={styles.iconButton}
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+          >
             <Animated.View style={{ transform: [{ scale: searchIconAnim }] }}>
               <Ionicons name="search" size={20} color={theme.colors.text} />
             </Animated.View>
@@ -178,7 +185,12 @@ export default function AnimatedHeader({
         )}
         
         {showChat && (
-          <TouchableOpacity onPress={handleChat} style={styles.iconButton}>
+          <TouchableOpacity
+            onPress={handleChat}
+            style={styles.iconButton}
+            accessibilityLabel={unseenMessageCount > 0 ? `Messages, ${unseenMessageCount} unread` : 'Messages'}
+            accessibilityRole="button"
+          >
             <Animated.View style={{ transform: [{ scale: chatIconAnim }] }}>
               <View style={styles.chatIconContainer}>
                 <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.text} />
