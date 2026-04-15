@@ -55,7 +55,8 @@ export const getLocales = async (
   spotTypes: string | string[] = '',
   page: number = 1,
   limit: number = 50,
-  includeInactive: boolean = false
+  includeInactive: boolean = false,
+  signal?: AbortSignal
 ): Promise<LocalesResponse> => {
   try {
     const params = new URLSearchParams();
@@ -82,9 +83,12 @@ export const getLocales = async (
       params.append('includeInactive', 'true');
     }
 
-    const response = await api.get(`/api/v1/locales?${params.toString()}`);
+    const response = await api.get(`/api/v1/locales?${params.toString()}`, { signal });
     return response.data;
   } catch (error: any) {
+    if (error.name === 'AbortError' || error.name === 'CanceledError') {
+      throw error;
+    }
     logger.error('Error fetching locales:', error);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);

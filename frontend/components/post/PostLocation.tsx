@@ -26,23 +26,67 @@ export default function PostLocation({ post }: PostLocationProps) {
 
     try {
       const address = post.location?.address;
-      if (address) {
-        const coordinates = await geocodeAddress(address);
-        if (coordinates) {
+      const storedLat = post.location?.coordinates?.latitude;
+      const storedLng = post.location?.coordinates?.longitude;
+      const hasStoredCoords = storedLat && storedLng &&
+        storedLat !== 0 && storedLng !== 0 &&
+        !isNaN(storedLat) && !isNaN(storedLng);
+
+      // Use stored coordinates from the post first — most accurate, no API call needed
+      if (hasStoredCoords) {
+        router.push({
+          pathname: '/map/current-location',
+          params: {
+            latitude: storedLat!.toString(),
+            longitude: storedLng!.toString(),
+            address: address || '',
+          }
+        });
+        return;
+      }
+
+      if (!address) {
+        router.push('/map/current-location');
+        return;
+      }
+
+      // No stored coords — geocode the address text
+      const coordinates = await geocodeAddress(address);
+      if (coordinates) {
+        router.push({
+          pathname: '/map/current-location',
+          params: {
+            latitude: coordinates.latitude.toString(),
+            longitude: coordinates.longitude.toString(),
+            address,
+          }
+        });
+        return;
+      }
+
+      // Exact address not found — try progressively broader queries by stripping
+      // the most specific parts (house number, street name) from the front
+      const parts = address.split(',').map((p: string) => p.trim()).filter(Boolean);
+      for (let i = 1; i < parts.length; i++) {
+        const broaderQuery = parts.slice(i).join(', ');
+        const fallbackCoords = await geocodeAddress(broaderQuery);
+        if (fallbackCoords) {
           router.push({
             pathname: '/map/current-location',
             params: {
-              latitude: coordinates.latitude.toString(),
-              longitude: coordinates.longitude.toString(),
+              latitude: fallbackCoords.latitude.toString(),
+              longitude: fallbackCoords.longitude.toString(),
               address,
+              approximateLabel: broaderQuery,
+              isApproximate: 'true',
             }
           });
-        } else {
-          router.push('/map/current-location');
+          return;
         }
-      } else {
-        router.push('/map/current-location');
       }
+
+      // Nothing worked — open map without coordinates (shows current device location)
+      router.push('/map/current-location');
     } finally {
       setIsGeocoding(false);
     }

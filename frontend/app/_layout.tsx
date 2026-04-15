@@ -219,6 +219,10 @@ function RootLayoutInner() {
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
+      // 🔴 Allow Audio.Sound (song) to play alongside Video component in Shorts.
+      // Without this, muted Video holds the audio session and Audio.Sound is silenced.
+      interruptionModeIOS: 0, // MIX_WITH_OTHERS = 0
+      interruptionModeAndroid: 1, // DO_NOT_MIX = 1 (default; Android handles mixing via Video's audioFocus)
     }).catch(err => logger.error('Error setting audio mode:', err));
   }, []);
 
@@ -525,9 +529,9 @@ function RootLayoutInner() {
       
       // Check if we're on any valid authenticated route (not just home)
       // Include all possible route formats and nested routes
-      const isOnValidRoute = segments[0] === '(tabs)' || 
+      const isOnValidRoute = segments[0] === '(tabs)' ||
                               segments[0] === 'settings' ||
-                              // segments[0] === 'post' || // Post detail page commented out
+                              segments[0] === 'post' ||
                               segments[0] === 'profile' ||
                               segments[0] === 'chat' ||
                               segments[0] === 'search' ||
@@ -545,7 +549,7 @@ function RootLayoutInner() {
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
                               segments[0] === 'help' ||
-                              // normalizedPath.startsWith('/post/') || // Post detail page commented out 
+                              normalizedPath.startsWith('/post/') ||
                               normalizedPath.startsWith('/profile/') || 
                               normalizedPath.startsWith('/chat') ||
                               normalizedPath.startsWith('/search') ||
@@ -862,8 +866,7 @@ function RootLayoutInner() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
-          {/* Post detail page commented out - navigation routes to home instead */}
-          {/* <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} /> */}
+          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
           <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />

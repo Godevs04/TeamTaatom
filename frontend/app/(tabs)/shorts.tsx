@@ -129,6 +129,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
+  const [mutedShorts, setMutedShorts] = useState<Set<string>>(new Set());
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
@@ -236,6 +237,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
       activeVideoIdRef.current = null;
     }
+  }, []);
+
+  /**
+   * Stable callback for SongPlayer's onPlayingChange.
+   * MUST be memoized — if this is an inline function, SongPlayer's effect fires
+   * on every render and interrupts sound loading mid-flight.
+   */
+  const handleSongPlayingChange = useCallback((s: Audio.Sound | null) => {
+    currentPlayerRef.current = s;
   }, []);
 
   /**
@@ -813,24 +823,64 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const loadShorts = useCallback(async () => {
     try {
       setLoading(true);
-      
-      // CRITICAL: If userId is provided in params, filter to show only that user's shorts
-      // This ensures when clicking from another user's profile, only their shorts are shown
+
       const shouldFilterByUser = !!effectiveUserId;
-      
+
+      // When a specific shortId is provided (opened from notification / feed tap)
+      // without a userId filter, show that short immediately then load the full feed.
+      if (effectiveShortId && !shouldFilterByUser) {
+        try {
+          const raw = await getPostById(effectiveShortId);
+          const singleShort: PostType | null = raw?.post || raw || null;
+          if (singleShort) {
+            const fromStorage = likedShortIdsRef.current.has(singleShort._id);
+            const isLiked = singleShort.isLiked || fromStorage;
+            const likesCount = isLiked && fromStorage && !singleShort.isLiked
+              ? Math.max(singleShort.likesCount ?? 0, 1)
+              : (singleShort.likesCount ?? 0);
+            setShorts([{ ...singleShort, isLiked, likesCount }]);
+            setLoading(false);
+          }
+        } catch (e) {
+          logger.warn('Failed to load specific short, falling back to feed:', e);
+        }
+        // Load the full feed in background; merge so the specific short stays at position 0
+        try {
+          const response = await getShorts(1, 20);
+          videoCacheRef.current.clear();
+          const merged = (response.shorts || []).map((s: PostType) => {
+            const fromStorage = likedShortIdsRef.current.has(s._id);
+            const isLiked = s.isLiked || fromStorage;
+            const likesCount = isLiked && fromStorage && !s.isLiked
+              ? Math.max(s.likesCount ?? 0, 1)
+              : (s.likesCount ?? 0);
+            return { ...s, isLiked, likesCount };
+          });
+          setShorts(prev => {
+            const ids = new Set(merged.map((s: PostType) => s._id));
+            const kept = prev.filter(s => !ids.has(s._id)); // specific short, deduped
+            return [...kept, ...merged];
+          });
+          const followStatesMap: { [key: string]: boolean } = {};
+          response.shorts.forEach((short: PostType) => {
+            followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
+          });
+          setFollowStates(followStatesMap);
+        } catch (e) {
+          logger.warn('Failed to load full feed in background:', e);
+        }
+        return;
+      }
+
       let response;
       if (shouldFilterByUser) {
-        // Load only the specified user's shorts (from profile page)
         logger.debug(`Loading shorts for specific user: ${effectiveUserId}`);
-        response = await getUserShorts(effectiveUserId, 1, 100); // Get more shorts for user-specific view
+        response = await getUserShorts(effectiveUserId, 1, 100);
       } else {
-        // Load all shorts (general feed)
         response = await getShorts(1, 20);
       }
-      
-      // Clear video cache when loading new shorts (old URLs might be expired)
+
       videoCacheRef.current.clear();
-      // Merge with persisted liked IDs so likes survive app restart (server may omit isLiked if auth not yet attached)
       const merged = (response.shorts || []).map((s: PostType) => {
         const fromStorage = likedShortIdsRef.current.has(s._id);
         const isLiked = s.isLiked || fromStorage;
@@ -841,10 +891,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       setShorts(merged);
 
-      // Initialize follow states
       const followStatesMap: { [key: string]: boolean } = {};
       response.shorts.forEach((short: PostType) => {
-        // Check if the user object has isFollowing property, otherwise default to false
         followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
       });
       setFollowStates(followStatesMap);
@@ -956,8 +1004,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       
       // Find the current short to check for music
       const currentShort = shorts.find(s => s._id === videoId);
-      const hasMusic = !!(currentShort?.song?.songId?.s3Url);
-      
+      const hasMusic = !!(currentShort?.song?.songId?._id);
+
       // If starting playback, pause all other videos first
       if (newPlayState) {
         pauseAllVideosExcept(videoId);
@@ -1586,12 +1634,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const visibleItem = shortsData[currentVisibleIndex] as ShortsItem | undefined;
     const isReel = visibleItem && !isAdItem(visibleItem);
     previousVisibleIndexRef.current = currentVisibleIndex;
-    audioManager.stopAll().catch(() => {});
+    // NOTE: Do NOT call audioManager.stopAll() here.
+    // SongPlayer handles its own lifecycle via isVisible/autoPlay props,
+    // and audioManager.playSound() already calls stopAll() before playing a new sound.
+    // Calling stopAll() here creates a race condition that destroys audio before SongPlayer can play.
 
     if (!isReel) {
       Object.keys(videoRefs.current).forEach(id => {
         videoRefs.current[id]?.pauseAsync().catch(() => {});
-        setVideoStates(prev => ({ ...prev, [id]: false }));
       });
       activeVideoIdRef.current = null;
       return;
@@ -1599,10 +1649,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const currentShortId = (visibleItem as PostType)._id.toString();
     const currentVideo = videoRefs.current[currentShortId];
+    // Pause non-current videos but do NOT reset their videoStates to false.
+    // videoStates tracks whether the user intentionally paused a video.
+    // When returning to a video, its previous state is preserved so the song
+    // auto-plays if the video was playing when the user scrolled away.
     Object.keys(videoRefs.current).forEach(id => {
       if (id !== currentShortId) {
         videoRefs.current[id]?.pauseAsync().catch(() => {});
-        setVideoStates(prev => ({ ...prev, [id]: false }));
       }
     });
 
@@ -1610,7 +1663,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       activeVideoIdRef.current = currentShortId;
       currentVideo.getStatusAsync().then((status) => {
         if (status.isLoaded) {
-          const hasMusic = !!((visibleItem as PostType)?.song?.songId?.s3Url);
+          const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id);
           if (hasMusic) {
             currentVideo.setIsMutedAsync(true).catch(() => {});
             currentVideo.setVolumeAsync(0.0).catch(() => {});
@@ -1707,7 +1760,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     // Reel item
     const distanceFromVisible = Math.abs(index - currentVisibleIndex);
-    const shouldRenderVideo = distanceFromVisible <= 1;
+    // Preload 2 ahead/behind so the next short is already buffered when the
+    // user scrolls — reduces cold-load lag that caused inconsistent playback.
+    const shouldRenderVideo = distanceFromVisible <= 2;
 
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
@@ -1717,7 +1772,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
     // Don't show pause button if like animation is showing
-    const shouldShowPauseButton = !showLikeAnimation[item._id] && (showPauseButton[item._id] || !videoStates[item._id]);
+    // Only show play/pause overlay when the user explicitly taps. Previously
+    // `!videoStates[item._id]` also triggered it, which flashed a "play"
+    // button during the brief load/transition window on scroll.
+    const shouldShowPauseButton = !showLikeAnimation[item._id] && !!showPauseButton[item._id];
     const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
     const shouldShowLikeAnimation = showLikeAnimation[item._id] || false;
     
@@ -1748,7 +1806,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onTouchMove={handlersRef.current.handleTouchMove}
             onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
           >
-            <TouchableWithoutFeedback 
+            <TouchableWithoutFeedback
               onPress={() => {
                 handlersRef.current.toggleVideoPlayback(item._id);
                 handlersRef.current.showPauseButtonTemporarily(item._id);
@@ -1759,6 +1817,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   handlersRef.current.handleDeleteShort(item._id);
                 }
               }}
+              accessible={true}
+              accessibilityLabel="Tap to play or pause video"
+              accessibilityRole="button"
             >
               {/* Conditional rendering: Only mount Video component if within 1 index of visible */}
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
@@ -1779,7 +1840,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 // If song exists with valid s3Url, video must be muted so only music plays
                 // Also mute videos that are not in focus to save audio resources
                 isMuted={(() => {
-                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  const hasMusic = !!(item.song?.songId?._id);
                   const shouldMute = index !== currentVisibleIndex || hasMusic;
                   if (__DEV__ && index === currentVisibleIndex) {
                     logger.info('Video mute check:', {
@@ -1792,7 +1853,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   return shouldMute;
                 })()}
                 volume={(() => {
-                  const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                  const hasMusic = !!(item.song?.songId?._id);
                   return hasMusic ? 0.0 : 1.0;
                 })()}
                 // Use onLoadStart to ensure video starts playing when it loads and is properly muted
@@ -1801,8 +1862,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
-                      // If music exists, ensure video is muted
-                      const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                      // If music exists (by songId), ensure video is muted so only SongPlayer audio plays
+                      const hasMusic = !!(item.song?.songId?._id);
                       if (hasMusic) {
                         video.setIsMutedAsync(true).catch(() => {
                           // Silently handle mute errors
@@ -1932,7 +1993,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const isNowPlaying = status.isPlaying;
                     
                     // CRITICAL: If music exists, ensure video stays muted
-                    const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
+                    const hasMusic = !!(item.song?.songId?._id);
                     if (hasMusic && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
@@ -1942,9 +2003,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       }
                     }
                     
-                    // Ensure only one video plays at a time
-                    // If this video started playing but it's not the active one, pause it
-                    if (isNowPlaying && activeVideoIdRef.current !== item._id && activeVideoIdRef.current !== null) {
+                    // Ensure only one video plays at a time.
+                    // Gate by the source of truth (currentVisibleIndex) rather
+                    // than the ref — the ref can lag during scroll transitions
+                    // and falsely pause the video that just became visible,
+                    // causing intermittent "won't play" behaviour.
+                    if (isNowPlaying && index !== currentVisibleIndex) {
                       videoRefs.current[item._id]?.pauseAsync().catch(() => {
                         // Silently handle pause errors
                       });
@@ -1995,36 +2059,34 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     if (index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video) {
-                        // Small delay to ensure video is fully ready
-                        setTimeout(() => {
-                          video.getStatusAsync().then((currentStatus) => {
-                            if (currentStatus.isLoaded) {
-                              // If music exists, ensure video is muted
-                              const hasMusic = !!(item.song?.songId && item.song.songId.s3Url);
-                              if (hasMusic) {
-                                video.setIsMutedAsync(true).catch(() => {});
-                                video.setVolumeAsync(0.0).catch(() => {});
-                              }
-                              
-                              // Play video if it's not already playing
-                              if (!currentStatus.isPlaying) {
-                                activeVideoIdRef.current = item._id;
-                                video.playAsync().then(() => {
-                                  setVideoStates(prev => ({
-                                    ...prev,
-                                    [item._id]: true
-                                  }));
-                                  logger.debug(`Video ${item._id} started playing after load`);
-                                }).catch((error) => {
-                                  logger.error(`Video ${item._id} failed to play after load:`, error);
-                                });
-                              }
+                        // onLoad fires when video is ready — call play immediately (no setTimeout delay)
+                        video.getStatusAsync().then((currentStatus) => {
+                          if (currentStatus.isLoaded) {
+                            // If music exists (by songId), ensure video is muted
+                            const hasMusic = !!(item.song?.songId?._id);
+                            if (hasMusic) {
+                              video.setIsMutedAsync(true).catch(() => {});
+                              video.setVolumeAsync(0.0).catch(() => {});
                             }
-                          }).catch(() => {
-                            // If status check fails, try to play anyway
-                            video.playAsync().catch(() => {});
-                          });
-                        }, 100);
+
+                            // Play video if it's not already playing
+                            if (!currentStatus.isPlaying) {
+                              activeVideoIdRef.current = item._id;
+                              video.playAsync().then(() => {
+                                setVideoStates(prev => ({
+                                  ...prev,
+                                  [item._id]: true
+                                }));
+                                logger.debug(`Video ${item._id} started playing after load`);
+                              }).catch((error) => {
+                                logger.error(`Video ${item._id} failed to play after load:`, error);
+                              });
+                            }
+                          }
+                        }).catch(() => {
+                          // If status check fails, try to play anyway
+                          video.playAsync().catch(() => {});
+                        });
                       }
                     }
                   }
@@ -2117,9 +2179,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           {/* Right Side Action Buttons - Outside TouchableWithoutFeedback to prevent pause button flexing */}
           <View style={styles.rightActions} pointerEvents="box-none">
             {/* Profile Picture */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.profileButton}
               onPress={() => handleProfilePress(item.user._id)}
+              accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+              accessibilityRole="button"
             >
               <Image
                 source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
@@ -2142,12 +2206,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </TouchableOpacity>
 
             {/* Like Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleLike(item._id);
               }}
               disabled={actionLoading === item._id}
+              accessibilityLabel={isLiked ? `Unlike, ${item.likesCount || 0} likes` : `Like, ${item.likesCount || 0} likes`}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: actionLoading === item._id }}
             >
               <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
                 <Ionicons 
@@ -2160,11 +2227,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Comment Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleComment(item._id);
               }}
+              accessibilityLabel={`Comment, ${item.commentsCount || 0} comments`}
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="chatbubble-outline" size={28} color="white" />
@@ -2173,11 +2242,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Share Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleShare(item);
               }}
+              accessibilityLabel="Share"
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons name="paper-plane-outline" size={28} color="white" />
@@ -2185,11 +2256,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Pressable>
 
             {/* Save Button */}
-            <Pressable 
+            <Pressable
               style={styles.actionButton}
               onPress={() => {
                 handlersRef.current.handleSave(item._id);
               }}
+              accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
+              accessibilityRole="button"
             >
               <View style={styles.actionIconContainer}>
                 <Ionicons 
@@ -2209,13 +2282,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             />
             
             <View style={styles.bottomContentInner}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.userProfileSection}
                 onPress={(e) => {
                   e.stopPropagation?.(); // Prevent event from bubbling
                   handlersRef.current.handleProfilePress(item.user._id);
                 }}
                 activeOpacity={0.7}
+                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+                accessibilityRole="button"
               >
                 <View style={styles.avatarContainer}>
                 <Image
@@ -2314,18 +2389,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {/* Song Player - Hidden but active for audio playback */}
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
               {(() => {
-                const hasSong = !!item.song?.songId;
-                const hasS3Url = !!item.song?.songId?.s3Url;
-                const shouldRender = hasSong && hasS3Url;
+                const hasSong = !!(item.song?.songId && item.song.songId._id);
+                // Render whenever a populated song object exists — even if the URL is missing.
+                // SongPlayer will fetch a fresh URL via getSongById if s3Url/cloudinaryUrl are null.
+                const shouldRender = hasSong;
                 
                 if (__DEV__ && index === currentVisibleIndex) {
                   logger.info('SongPlayer render check:', {
                     shortId: item._id,
                     hasSong,
-                    hasS3Url,
                     shouldRender,
                     songId: item.song?.songId?._id || item.song?.songId,
-                    s3Url: item.song?.songId?.s3Url ? 'EXISTS' : 'MISSING'
+                    s3Url: item.song?.songId?.s3Url ? 'EXISTS' : 'MISSING',
+                    cloudinaryUrl: (item.song?.songId as any)?.cloudinaryUrl ? 'EXISTS' : 'MISSING'
                   });
                 }
                 
@@ -2335,9 +2411,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       post={item}
                       isVisible={index === currentVisibleIndex}
                       autoPlay={isVideoPlaying}
-                      onPlayingChange={(s) => {
-                        currentPlayerRef.current = s;
-                      }}
+                      externalMuted={mutedShorts.has(item._id)}
+                      onPlayingChange={handleSongPlayingChange}
                     />
                   </View>
                 ) : null;
@@ -2346,7 +2421,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2368,7 +2443,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
 
-    // Pause previous short's audio when user scrolls to another video
+    // Pause previous short's audio immediately when user scrolls to another video.
+    // NOTE: Only pause here — do NOT call audioManager.stopAll() which destructively
+    // unloads the sound. SongPlayer handles full stop + unload when isVisible becomes false,
+    // and audioManager.playSound() calls stopAll() before playing the next sound.
     if (currentPlayerRef.current) {
       try {
         currentPlayerRef.current.pauseAsync?.();
@@ -2377,7 +2455,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
       currentPlayerRef.current = null;
     }
-    audioManager.stopAll().catch(() => {});
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
@@ -2402,9 +2479,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           .catch(() => {
             setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
           });
-        if (Math.abs(previousIndex - newVisibleIndex) > 1) {
-          stopAndUnloadVideo(previousVideoId);
-        }
+        // Do NOT call stopAndUnloadVideo here: the Video component may still
+        // be mounted in the FlatList window, and unloadAsync leaves it in a
+        // black/unloaded state with no trigger to reload when the user
+        // scrolls back. Unmounting (via shouldRenderVideo / windowSize) is
+        // what frees resources — pauseAsync above is enough to stop playback.
       }
     }
 
@@ -2495,6 +2574,32 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         </View>
       )}
 
+      {/* Mute / Unmute Button — top-right, shown when current short has a song */}
+      {(() => {
+        const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
+        const hasSong = !!(currentShort?.song?.songId && currentShort.song.songId._id);
+        if (!hasSong) return null;
+        const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
+        return (
+          <Pressable
+            style={styles.muteButton}
+            onPress={() => {
+              if (!currentShort) return;
+              setMutedShorts(prev => {
+                const next = new Set(prev);
+                if (next.has(currentShort._id)) next.delete(currentShort._id);
+                else next.add(currentShort._id);
+                return next;
+              });
+            }}
+            accessibilityLabel={isMuted ? 'Unmute song' : 'Mute song'}
+            accessibilityRole="button"
+          >
+            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#fff" />
+          </Pressable>
+        );
+      })()}
+
       <FlatList
         ref={flatListRef}
         data={shortsData}
@@ -2525,7 +2630,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         removeClippedSubviews={true}
         initialNumToRender={3}
         maxToRenderPerBatch={3}
-        windowSize={3}
+        windowSize={5}
         updateCellsBatchingPeriod={50} // Batch updates every 50ms for better performance
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -3043,6 +3148,18 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  muteButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 16,
+    zIndex: 100,
     width: 40,
     height: 40,
     borderRadius: 20,

@@ -102,6 +102,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const timelinePaddingRef = useRef<number>(28); // Padding from timelineWrapper
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isDraggingRef = useRef<boolean>(false); // Sync ref to avoid stale closure in PanResponder
 
   useEffect(() => {
     if (visible) {
@@ -562,22 +563,23 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onPanResponderGrant: (evt) => {
       // Extract values immediately to avoid synthetic event reuse
       const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current 
+      const initialX = timelineLayoutRef.current
         ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
         : locationX;
-      
+
       hapticMedium();
+      isDraggingRef.current = true;
       setIsDragging(true);
       setDragType('start');
       lastDragXRef.current = initialX;
-      
+
       // Animate floating badge in
       Animated.timing(floatingBadgeAnim, {
         toValue: 1,
         duration: 150,
         useNativeDriver: true,
       }).start();
-      
+
       // Update floating badge position
       if (timelineLayoutRef.current && currentSong) {
         const { width } = timelineLayoutRef.current;
@@ -587,7 +589,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
+      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
       
       // Extract values immediately to avoid synthetic event reuse
       const { pageX, locationX } = evt.nativeEvent;
@@ -637,18 +639,19 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     },
     onPanResponderRelease: async () => {
       hapticLight();
+      isDraggingRef.current = false;
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
       setLimitState('normal');
-      
+
       // Animate floating badge out
       Animated.timing(floatingBadgeAnim, {
         toValue: 0,
         duration: 200,
         useNativeDriver: true,
       }).start();
-      
+
       // ✅ Play 500ms preview at new position
       if (soundRef.current && currentSong) {
         try {
@@ -656,10 +659,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           if (previewTimeoutRef.current) {
             clearTimeout(previewTimeoutRef.current);
           }
-          
+
           await soundRef.current.setPositionAsync(startTime * 1000);
           await soundRef.current.playAsync();
-          
+
           // Stop after 500ms
           previewTimeoutRef.current = setTimeout(async () => {
             if (soundRef.current) {
@@ -679,22 +682,23 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onPanResponderGrant: (evt) => {
       // Extract values immediately to avoid synthetic event reuse
       const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current 
+      const initialX = timelineLayoutRef.current
         ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
         : locationX;
-      
+
       hapticMedium();
+      isDraggingRef.current = true;
       setIsDragging(true);
       setDragType('end');
       lastDragXRef.current = initialX;
-      
+
       // Animate floating badge in
       Animated.timing(floatingBadgeAnim, {
         toValue: 1,
         duration: 150,
         useNativeDriver: true,
       }).start();
-      
+
       // Update floating badge position
       if (timelineLayoutRef.current && currentSong) {
         const { width } = timelineLayoutRef.current;
@@ -704,47 +708,48 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
-      
-      // Calculate drag delta from initial touch position
-      const currentX = evt.nativeEvent.locationX;
+      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
+
+      // Use pageX for consistent absolute positioning (same as start/selection handles)
+      const { pageX } = evt.nativeEvent;
+      const currentX = pageX - timelineLayoutRef.current.x - timelinePaddingRef.current;
       const lastX = lastDragXRef.current;
-      
+
       if (lastX === null) {
         lastDragXRef.current = currentX;
         return;
       }
-      
+
       const deltaX = currentX - lastX;
       if (Math.abs(deltaX) < MIN_DRAG_DELTA) {
         return;
       }
       lastDragXRef.current = currentX;
-      
+
       // Convert current position to time
       const duration = currentSong.duration || 0;
       const { width } = timelineLayoutRef.current;
       const relativeX = Math.max(0, Math.min(currentX, width));
       const time = (relativeX / width) * duration;
       const snappedTime = snapToPrecision(time);
-      
+
       // Clamp end handle: cannot go before startTime + minDuration
       const MIN_DURATION = 0.5;
       const minEnd = startTime + MIN_DURATION;
       const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
       const maxEnd = Math.min(duration, startTime + maxDuration);
       const newEnd = Math.max(minEnd, Math.min(snappedTime, maxEnd));
-      
+
       // Check limits
       const limitCheck = checkLimitsAndProvideFeedback(startTime, newEnd);
       setLimitState(limitCheck.type);
       setDragTime(newEnd);
-      
+
       if (!limitCheck.canMove || newEnd <= startTime) {
         hapticMedium();
         return;
       }
-      
+
       // Update end time and handle position
       setEndTime(newEnd);
       const endX = (newEnd / duration) * width;
@@ -752,28 +757,29 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     },
     onPanResponderRelease: async () => {
       hapticLight();
+      isDraggingRef.current = false;
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
       setLimitState('normal');
-      
+
       // Animate floating badge out
       Animated.timing(floatingBadgeAnim, {
         toValue: 0,
         duration: 200,
         useNativeDriver: true,
       }).start();
-      
+
       // ✅ Play 500ms preview at new position
       if (soundRef.current && currentSong) {
         try {
           if (previewTimeoutRef.current) {
             clearTimeout(previewTimeoutRef.current);
           }
-          
+
           await soundRef.current.setPositionAsync(endTime * 1000);
           await soundRef.current.playAsync();
-          
+
           previewTimeoutRef.current = setTimeout(async () => {
             if (soundRef.current) {
               await soundRef.current.pauseAsync();
@@ -792,31 +798,32 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     onPanResponderGrant: (evt) => {
       // Extract values immediately to avoid synthetic event reuse
       const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current 
+      const initialX = timelineLayoutRef.current
         ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
         : locationX;
-      
+
+      hapticMedium();
+      isDraggingRef.current = true;
       setIsDragging(true);
       setDragType('both');
       lastDragXRef.current = initialX;
-      
+
       // Animate floating badge in
       Animated.timing(floatingBadgeAnim, {
         toValue: 1,
         duration: 150,
         useNativeDriver: true,
       }).start();
-      
-      // Update floating badge position
+
+      // Position badge above the start of the selection window
       if (timelineLayoutRef.current && currentSong) {
         const { width } = timelineLayoutRef.current;
-        const badgePercent = (endTime - startTime) / (currentSong.duration || 1) * 100;
-        const badgeX = (badgePercent / 100) * width - 28;
-        floatingBadgeXAnim.setValue(badgeX);
+        const startX = (startTime / (currentSong.duration || 1)) * width;
+        startHandleAnim.setValue(startX);
       }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDragging || !timelineLayoutRef.current) return;
+      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
       
       // Extract values immediately to avoid synthetic event reuse
       const { pageX, locationX } = evt.nativeEvent;
@@ -843,29 +850,26 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       const snappedTime = snapToPrecision(time);
       
       const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
+      // Preserve current selection duration when dragging center
       const selectionDuration = Math.min(endTime - startTime, maxDuration);
       const newStart = Math.max(0, Math.min(snappedTime, duration - selectionDuration));
       const newEnd = Math.min(duration, newStart + selectionDuration);
-      
-      // Check limits
-      const limitCheck = checkLimitsAndProvideFeedback(newStart, newEnd);
-      setLimitState(limitCheck.type);
-      setDragTime(newEnd - newStart); // Show duration for 'both' drag
-      
-      if (!limitCheck.canMove) {
-        hapticMedium();
-        return;
-      }
-      
+
       setStartTime(newStart);
       setEndTime(newEnd);
+      setDragTime(newStart); // Show start position in badge
+
+      // Update badge tracker
+      const startX = (newStart / duration) * width;
+      startHandleAnim.setValue(startX);
     },
     onPanResponderRelease: () => {
+      isDraggingRef.current = false;
       setIsDragging(false);
       setDragType(null);
       lastDragXRef.current = null;
       setLimitState('normal');
-      
+
       // Animate floating badge out
       Animated.timing(floatingBadgeAnim, {
         toValue: 0,
@@ -1014,38 +1018,63 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               }}
               style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40', overflow: 'visible' }]}
             >
-              {/* Selection Area - Draggable */}
-              <View 
+              {/* Selection Fill — center area drags whole window */}
+              <View
                 style={[
                   styles.timelineSelection,
                   {
                     left: `${startPercent}%`,
                     width: `${endPercent - startPercent}%`,
                   },
-                  limitState === 'atMinimum' && {
-                    borderWidth: 2,
-                    borderColor: theme.colors.error,
-                    borderStyle: 'solid',
-                  },
-                  limitState === 'approachingMin' && {
-                    borderWidth: 2,
-                    borderColor: theme.colors.warning,
-                    borderStyle: 'dashed',
-                  },
-                  limitState === 'atMaximum' && {
-                    borderWidth: 2,
-                    borderColor: theme.colors.warning,
-                    borderStyle: 'dashed',
-                  },
                 ]}
                 {...selectionPanResponder.panHandlers}
               >
                 <LinearGradient
-                  colors={[theme.colors.primary, theme.colors.secondary]}
+                  colors={[theme.colors.primary + 'BB', theme.colors.secondary + 'BB']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}
                 />
+              </View>
+
+              {/* Left Bar Handle — drag to set start time */}
+              <View
+                style={[
+                  styles.trimBarLeft,
+                  {
+                    left: `${startPercent}%`,
+                    backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
+                  },
+                  isDragging && dragType === 'start' && styles.trimBarActive,
+                ]}
+                {...startHandlePanResponder.panHandlers}
+                hitSlop={{ top: 10, bottom: 10, left: 12, right: 6 }}
+              >
+                <View style={styles.barGrabIndicator}>
+                  <View style={styles.barGrabDot} />
+                  <View style={styles.barGrabDot} />
+                  <View style={styles.barGrabDot} />
+                </View>
+              </View>
+
+              {/* Right Bar Handle — drag to set end time */}
+              <View
+                style={[
+                  styles.trimBarRight,
+                  {
+                    left: `${endPercent}%`,
+                    backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
+                  },
+                  isDragging && dragType === 'end' && styles.trimBarActive,
+                ]}
+                {...endHandlePanResponder.panHandlers}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 12 }}
+              >
+                <View style={styles.barGrabIndicator}>
+                  <View style={styles.barGrabDot} />
+                  <View style={styles.barGrabDot} />
+                  <View style={styles.barGrabDot} />
+                </View>
               </View>
 
               {/* Progress Indicator */}
@@ -1082,125 +1111,6 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 />
               </View>
 
-              {/* Start Handle - Edge-style vertical bar */}
-              <View
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: -18,
-                  width: 44, // Touch hit area (accessibility safe)
-                  height: 60,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Animated.View
-                  style={[
-                    {
-                      width: 4, // Slim vertical bar (edge-style)
-                      height: 24,
-                      borderRadius: 2,
-                      backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
-                      transform: [
-                        {
-                          // translateX positions handle at edge of selected region
-                          // Using pixel values directly (not percentages) for native driver compatibility
-                          translateX: startHandleAnim.interpolate({
-                            inputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
-                            outputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
-                            extrapolate: 'clamp',
-                          }),
-                        },
-                        {
-                          scale: isDragging && dragType === 'start' ? 1.2 : 1,
-                        },
-                      ],
-                    },
-                    isDragging && dragType === 'start' && {
-                      shadowColor: theme.colors.primary,
-                      shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 1.0,
-                      shadowRadius: 12,
-                      elevation: 12,
-                    },
-                  ]}
-                  {...startHandlePanResponder.panHandlers}
-                  hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-                >
-                  {/* Small grab dot indicator at top */}
-                  <View
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      backgroundColor: theme.colors.primary,
-                      position: 'absolute',
-                      top: -3,
-                      alignSelf: 'center',
-                    }}
-                  />
-                </Animated.View>
-              </View>
-
-              {/* End Handle - Edge-style vertical bar */}
-              <View
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: -18,
-                  width: 44, // Touch hit area (accessibility safe)
-                  height: 60,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Animated.View
-                  style={[
-                    {
-                      width: 4, // Slim vertical bar (edge-style)
-                      height: 24,
-                      borderRadius: 2,
-                      backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
-                      transform: [
-                        {
-                          // translateX positions handle at edge of selected region
-                          // Using pixel values directly (not percentages) for native driver compatibility
-                          translateX: endHandleAnim.interpolate({
-                            inputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
-                            outputRange: [0, timelineLayoutRef.current ? timelineLayoutRef.current.width : SCREEN_WIDTH - 64],
-                            extrapolate: 'clamp',
-                          }),
-                        },
-                        {
-                          scale: isDragging && dragType === 'end' ? 1.2 : 1,
-                        },
-                      ],
-                    },
-                    isDragging && dragType === 'end' && {
-                      shadowColor: theme.colors.primary,
-                      shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 1.0,
-                      shadowRadius: 12,
-                      elevation: 12,
-                    },
-                  ]}
-                  {...endHandlePanResponder.panHandlers}
-                  hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-                >
-                  {/* Small grab dot indicator at top */}
-                  <View
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: 3,
-                      backgroundColor: theme.colors.primary,
-                      position: 'absolute',
-                      top: -3,
-                      alignSelf: 'center',
-                    }}
-                  />
-                </Animated.View>
-              </View>
             </TouchableOpacity>
 
             {/* Floating Timestamp Badge (only when dragging) */}
@@ -1218,20 +1128,13 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                     {
                       opacity: floatingBadgeAnim,
                       transform: [
-                        { 
-                          // Position badge above the dragged handle using translateX
-                          // Subtract 28px to center badge (56px width / 2)
-                          translateX: dragType === 'start' 
-                            ? startHandleAnim.interpolate({
-                                inputRange: [0, timelineLayoutRef.current.width],
-                                outputRange: [-28, timelineLayoutRef.current.width - 28],
-                                extrapolate: 'clamp',
-                              })
-                            : endHandleAnim.interpolate({
-                                inputRange: [0, timelineLayoutRef.current.width],
-                                outputRange: [-28, timelineLayoutRef.current.width - 28],
-                                extrapolate: 'clamp',
-                              })
+                        {
+                          // Badge follows the start position of the selection window
+                          translateX: startHandleAnim.interpolate({
+                            inputRange: [0, timelineLayoutRef.current.width],
+                            outputRange: [-28, timelineLayoutRef.current.width - 28],
+                            extrapolate: 'clamp',
+                          }),
                         },
                         { translateY: -44 }, // 12px above handle + 32px badge height
                       ],
@@ -1275,12 +1178,27 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 <Text style={styles.limitWarningText}>Minimum 0.5s</Text>
               </View>
             )}
+
+            {/* Loop Indicator — shown when selection is shorter than video */}
+            {videoDuration && videoDuration > 0 && selectionDuration < videoDuration - 0.5 && (() => {
+              const loopCount = videoDuration / selectionDuration;
+              const isExact = Math.abs(loopCount - Math.round(loopCount)) < 0.05;
+              const label = isExact
+                ? `Repeats ${Math.round(loopCount)}× to fill ${formatDuration(videoDuration)} video`
+                : `Loops to fill ${formatDuration(videoDuration)} video`;
+              return (
+                <View style={[styles.loopIndicator, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="repeat" size={13} color={theme.colors.primary} />
+                  <Text style={[styles.loopIndicatorText, { color: theme.colors.primary }]}>{label}</Text>
+                </View>
+              );
+            })()}
           </View>
 
           {/* Simplified Help Text - Instagram Style */}
           <View style={styles.helpTextContainer}>
             <Text style={[styles.helpText, { color: theme.colors.textSecondary + '80' }]}>
-              Drag the handles to select your favorite part
+              Drag bars to trim · Drag center to reposition
             </Text>
           </View>
         </View>
@@ -1630,11 +1548,11 @@ const styles = StyleSheet.create({
     marginHorizontal: 1,
   },
   timelineTrack: {
-    height: 12, // Increased height for easier dragging (Instagram style)
-    borderRadius: 6,
+    height: 8,
+    borderRadius: 4,
     position: 'relative',
     marginBottom: 20,
-    overflow: 'visible', // Ensure handles extending beyond track are visible
+    overflow: 'visible',
     width: '100%',
   },
   timelineSelection: {
@@ -1927,5 +1845,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  loopIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 5,
+  },
+  loopIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  trimBarLeft: {
+    position: 'absolute',
+    top: -16,
+    width: 14,
+    height: 40,
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 6,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trimBarRight: {
+    position: 'absolute',
+    top: -16,
+    width: 14,
+    height: 40,
+    borderTopLeftRadius: 2,
+    borderBottomLeftRadius: 2,
+    borderTopRightRadius: 6,
+    borderBottomRightRadius: 6,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    transform: [{ translateX: -14 }],
+  },
+  trimBarActive: {
+    transform: [{ scaleY: 1.1 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  barGrabIndicator: {
+    gap: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  barGrabDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
 });
