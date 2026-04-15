@@ -14,6 +14,7 @@ export interface PostType {
   cloudinaryPublicIds?: string[]; // Multiple public IDs
   tags?: string[];
   type?: 'photo' | 'short';
+  aspectRatio?: '1:1' | '16:9' | 'full';
   location?: {
     address: string;
     coordinates: {

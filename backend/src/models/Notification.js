@@ -8,7 +8,7 @@ require('./Comment');
 const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['like', 'comment', 'follow', 'follow_request', 'follow_approved', 'post_mention'],
+    enum: ['like', 'comment', 'follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected', 'post_mention'],
     required: true
   },
   fromUser: {

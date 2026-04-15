@@ -57,7 +57,7 @@ export default function TripScoreContinentsScreen() {
   const loadContinents = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/profile/${userId}/tripscore/continents`);
+      const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents`);
       setData(response.data);
     } catch (error) {
       logger.error('Error loading continents:', error);

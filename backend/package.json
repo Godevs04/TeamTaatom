@@ -55,7 +55,7 @@
     "mongoose": "^8.0.3",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
-    "nodemailer": "^7.0.11",
+    "nodemailer": "^8.0.5",
     "socket.io": "^4.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
@@ -70,6 +70,6 @@
   },
   "overrides": {
     "fast-xml-parser": "^5.3.4",
-    "lodash": "^4.17.23"
+    "lodash": "^4.18.1"
   }
 }

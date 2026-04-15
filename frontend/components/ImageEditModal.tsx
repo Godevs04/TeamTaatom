@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,36 +7,28 @@ import {
   ScrollView,
   Image,
   StyleSheet,
-  ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
-/** MIME type from normalized URI so upload extension matches (avoids Android upload failures). */
-const getMimeFromUri = (uri: string): string => {
-  const ext = uri.split('.').pop()?.toLowerCase();
-  if (ext === 'png') return 'image/png';
-  if (ext === 'webp') return 'image/webp';
-  return 'image/jpeg';
-};
-
-/** Validate cropped image has valid dimensions. */
-const getSize = (uri: string): Promise<{ width: number; height: number }> =>
-  new Promise((resolve, reject) => {
-    Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
-  });
+// Re-exported for callers that previously imported CropTransform from here.
+export type { CropTransform } from './post/AspectImageCropper';
 
 export type ImageFilterType = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
+export type AspectRatioChoice = '1:1' | '16:9' | 'full';
 
 export interface SelectedImageItem {
   uri: string;
   type: string;
   name: string;
 }
+
+const ASPECT_OPTIONS: { id: AspectRatioChoice; label: string; icon: string }[] = [
+  { id: '1:1', label: '1:1', icon: 'square-outline' },
+  { id: '16:9', label: '16:9', icon: 'tablet-portrait-outline' },
+  { id: 'full', label: 'Full Image', icon: 'expand-outline' },
+];
 
 const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
   { id: 'original', label: 'Original', icon: 'image' },
@@ -53,6 +45,8 @@ interface ImageEditModalProps {
   onImagesChange: (images: SelectedImageItem[]) => void;
   selectedFilter: ImageFilterType;
   onFilterChange: (filter: ImageFilterType) => void;
+  selectedAspectRatio?: AspectRatioChoice;
+  onAspectRatioChange?: (ratio: AspectRatioChoice) => void;
 }
 
 export default function ImageEditModal({
@@ -62,9 +56,10 @@ export default function ImageEditModal({
   onImagesChange,
   selectedFilter,
   onFilterChange,
+  selectedAspectRatio = '1:1',
+  onAspectRatioChange,
 }: ImageEditModalProps) {
   const { theme } = useTheme();
-  const [croppingIndex, setCroppingIndex] = useState<number | null>(null);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -74,57 +69,6 @@ export default function ImageEditModal({
       }
     };
   }, []);
-
-  const handleCropImage = async (index: number) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== ImagePicker.PermissionStatus.GRANTED) {
-      Alert.alert('Permission needed', 'Please grant photo library access to crop.');
-      return;
-    }
-    setCroppingIndex(index);
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 1,
-        exif: false,
-        base64: false,
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset?.uri) {
-        if (__DEV__) console.warn('Image picker returned invalid asset');
-        return;
-      }
-      // Android may still be writing the crop file when we run; short wait avoids partial crop.
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      const normalized = await ImageManipulator.manipulateAsync(asset.uri, [], {
-        compress: 0.92,
-        format: ImageManipulator.SaveFormat.JPEG,
-      });
-      const size = await getSize(normalized.uri);
-      if (!size.width || !size.height) {
-        throw new Error('Invalid cropped image size');
-      }
-      if (__DEV__) {
-        console.log('Cropped Image URI:', asset.uri);
-        console.log('Normalized Image URI:', normalized.uri);
-      }
-      const finalImage: SelectedImageItem = {
-        uri: normalized.uri,
-        type: getMimeFromUri(normalized.uri),
-        name: `post_${Date.now()}.jpg`,
-      };
-      const next = [...images];
-      next[index] = finalImage;
-      onImagesChange(next);
-    } catch (e) {
-      Alert.alert('Error', 'Failed to crop image. Please try again.');
-      if (__DEV__) console.warn('Crop error', e);
-    } finally {
-      setCroppingIndex(null);
-    }
-  };
 
   const isFilterSupported = (id: ImageFilterType) => id === 'original';
 
@@ -140,41 +84,50 @@ export default function ImageEditModal({
           </View>
 
           <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-            {/* Crop / Full image per photo */}
+            {/* Aspect ratio — Square / 16:9 / Full Image (zoom-to-fill, non-destructive) */}
             <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-              Crop or use full image
+              Aspect ratio
             </Text>
-            {images.map((img, index) => (
-              <View
-                key={`${img.uri}-${index}`}
-                style={[styles.imageRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-              >
-                <Image source={{ uri: img.uri }} style={styles.thumb} />
-                <View style={styles.imageActions}>
-                  <Text style={[styles.imageLabel, { color: theme.colors.text }]}>Photo {index + 1}</Text>
-                  <View style={styles.row}>
-                    <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: theme.colors.primary + '20', borderColor: theme.colors.primary }]}
-                      onPress={() => handleCropImage(index)}
-                      disabled={croppingIndex !== null}
-                    >
-                      {croppingIndex === index ? (
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                      ) : (
-                        <>
-                          <Ionicons name="crop" size={18} color={theme.colors.primary} />
-                          <Text style={[styles.actionBtnText, { color: theme.colors.primary }]}>Crop</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                    <View style={[styles.actionBtn, styles.fullBtn, { backgroundColor: theme.colors.border + '40' }]}>
-                      <Ionicons name="expand" size={18} color={theme.colors.textSecondary} />
-                      <Text style={[styles.actionBtnText, { color: theme.colors.textSecondary }]}>Full image</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            ))}
+            <View style={styles.aspectRow}>
+              {ASPECT_OPTIONS.map((opt) => {
+                const isActive = selectedAspectRatio === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    onPress={() => onAspectRatioChange?.(opt.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isActive }}
+                    style={[
+                      styles.aspectChip,
+                      {
+                        backgroundColor: isActive ? theme.colors.primary : theme.colors.surface,
+                        borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={opt.icon as any}
+                      size={20}
+                      color={isActive ? '#fff' : theme.colors.text}
+                    />
+                    <Text style={[styles.aspectLabel, { color: isActive ? '#fff' : theme.colors.text }]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
+                screen itself, not in this modal. */}
+            <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: 16 }]}>
+              Photos
+            </Text>
+            <View style={styles.thumbRow}>
+              {images.map((img, index) => (
+                <Image key={`${img.uri}-${index}`} source={{ uri: img.uri }} style={styles.thumbSmall} />
+              ))}
+            </View>
 
             {/* Filters */}
             <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
@@ -269,48 +222,36 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  imageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    marginBottom: 10,
-  },
-  thumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: '#eee',
-  },
-  imageActions: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  imageLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  row: {
+  aspectRow: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 4,
   },
-  actionBtn: {
+  aspectChip: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
   },
-  fullBtn: {
-    borderColor: 'transparent',
-  },
-  actionBtnText: {
+  aspectLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  thumbRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  thumbSmall: {
+    width: 64,
+    height: 64,
+    borderRadius: 8,
+    backgroundColor: '#eee',
   },
   filterScroll: {
     marginBottom: 20,
