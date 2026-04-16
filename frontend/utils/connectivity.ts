@@ -5,20 +5,21 @@ import { showGlobalAlert } from './globalAlertHandler';
 const logger = createLogger('Connectivity');
 
 export const testAPIConnectivity = async (): Promise<boolean> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     // Backend exposes health at /health (root) and /api/v1/health; use root /health
     const healthCheckUrl = getApiUrl('/health');
     
     // Use AbortController for timeout (fetch doesn't support timeout directly)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    timeoutId = setTimeout(() => controller.abort(), 5000);
     
     const response = await fetch(healthCheckUrl, {
       method: 'GET',
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
 
     if (response.ok) {
       logger.debug('API connectivity test: SUCCESS');
@@ -28,7 +29,7 @@ export const testAPIConnectivity = async (): Promise<boolean> => {
       return false;
     }
   } catch (error) {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
     logger.warn('API connectivity test: FAILED');
     return false;
   }

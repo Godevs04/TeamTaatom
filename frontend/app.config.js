@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const DEFAULT_EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
+const APP_JSON_PATH = path.join(__dirname, 'app.json');
 
 // Get the base64 encoded Google Play service account key from EAS secret
 // This will be available as an environment variable during EAS build
@@ -46,9 +48,65 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
+const loadAppJsonExpoConfig = () => {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(APP_JSON_PATH, 'utf-8'));
+    return parsed?.expo || null;
+  } catch (error) {
+    console.warn('⚠️ Unable to read app.json, falling back to dynamic config:', error.message);
+    return null;
+  }
+};
+
 /**
- * Return the config object Expo builds from app.json (plus defaults).
- * Reusing the same reference satisfies expo-doctor: static app.json is the base.
+ * Return Expo config using app.json as source of truth, then enforce EAS linkage.
  * @see https://docs.expo.dev/workflow/configuration/
  */
-module.exports = ({ config }) => config;
+module.exports = ({ config }) => {
+  const appJsonConfig = loadAppJsonExpoConfig();
+  const baseConfig = appJsonConfig || config || {};
+
+  const resolvedProjectId =
+    process.env.EXPO_PROJECT_ID ||
+    process.env.EAS_PROJECT_ID ||
+    baseConfig?.extra?.eas?.projectId ||
+    baseConfig?.extra?.EXPO_PROJECT_ID ||
+    DEFAULT_EAS_PROJECT_ID;
+
+  const resolvedBundleIdentifier =
+    process.env.EXPO_IOS_BUNDLE_IDENTIFIER ||
+    baseConfig?.ios?.bundleIdentifier ||
+    'com.taatom.app';
+
+  const resolvedAndroidPackage =
+    process.env.EXPO_ANDROID_PACKAGE ||
+    baseConfig?.android?.package ||
+    'com.taatom.app';
+
+  const finalConfig = {
+    ...baseConfig,
+    ios: {
+      ...(baseConfig.ios || {}),
+      bundleIdentifier: resolvedBundleIdentifier,
+    },
+    android: {
+      ...(baseConfig.android || {}),
+      package: resolvedAndroidPackage,
+    },
+    extra: {
+      ...(baseConfig.extra || {}),
+      eas: {
+        ...(baseConfig.extra?.eas || {}),
+        projectId: resolvedProjectId,
+      },
+    },
+  };
+
+  // Optional debug: EXPO_DEBUG_CONFIG=1 npx expo config --type public --json
+  if (process.env.EXPO_DEBUG_CONFIG === '1') {
+    console.log('Resolved Expo config (debug):');
+    console.log(JSON.stringify(finalConfig, null, 2));
+  }
+
+  return finalConfig;
+};

@@ -56,7 +56,9 @@ const FORBIDDEN_SECRET_VARS = [
  * Validates that no secrets are exposed in the client bundle
  * @returns true if validation passes, false if secrets are found
  */
-export const validateEnvironmentVariables = (): boolean => {
+export const validateEnvironmentVariables = (
+  options: { strict?: boolean } = {}
+): { ok: boolean; errors: string[]; warnings: string[] } => {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -111,12 +113,12 @@ export const validateEnvironmentVariables = (): boolean => {
     
     logger.error(errorMessage);
     
-    // In production, throw error to prevent app from starting
-    if (process.env.NODE_ENV === 'production') {
+    // Strict mode can be enabled for CI/build-time validation.
+    if (options.strict) {
       throw new Error(errorMessage);
     }
-    
-    return false;
+
+    return { ok: false, errors, warnings };
   }
 
   // Log success in development
@@ -124,7 +126,7 @@ export const validateEnvironmentVariables = (): boolean => {
     logger.debug('✅ Environment variable validation passed');
   }
 
-  return true;
+  return { ok: true, errors, warnings };
 };
 
 /**
