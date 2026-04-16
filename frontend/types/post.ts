@@ -4,6 +4,7 @@ export interface PostType {
     _id: string;
     fullName: string;
     profilePic: string;
+    username?: string;
   };
   caption: string;
   imageUrl: string;
@@ -58,6 +59,7 @@ export interface CommentType {
     _id: string;
     fullName: string;
     profilePic: string;
+    username?: string;
   };
   text: string;
   createdAt: string;

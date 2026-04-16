@@ -2,7 +2,7 @@
   "expo": {
     "name": "Taatom",
     "slug": "taatom",
-    "version": "1.0.15",
+    "version": "26.3.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "15",
+      "buildNumber": "16",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
@@ -42,7 +42,7 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "http://localhost:8081/policies/privacy"
+        "NSPrivacyPolicyURL": "https://taatom.com/privacy"
       },
       "config": {
         "usesNonExemptEncryption": false,
@@ -52,7 +52,7 @@
     },
     "android": {
       "package": "com.taatom.app",
-      "versionCode": 15,
+      "versionCode": 16,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -158,8 +158,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "http://192.168.1.8:3001",
-      "WEB_SHARE_URL": "http://localhost:8081",
+      "API_BASE_URL": "http://192.168.1.39:3000",
+      "WEB_SHARE_URL": "http://192.168.1.39:3000",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -170,11 +170,11 @@
       "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
       "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
       "SUPPORT_URL": "https://taatom.com/contact",
-      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
       "router": {},
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
-      }
+      },
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
     },
     "owner": "taatom-technologies"
   }

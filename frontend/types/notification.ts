@@ -1,6 +1,14 @@
 export interface Notification {
   _id: string;
-  type: 'like' | 'comment' | 'follow' | 'follow_request' | 'follow_approved' | 'post_mention';
+  type:
+    | 'like'
+    | 'comment'
+    | 'follow'
+    | 'follow_request'
+    | 'follow_approved'
+    | 'post_mention'
+    | 'follow_request_accepted'
+    | 'follow_request_rejected';
   fromUser: {
     _id: string;
     fullName: string;
