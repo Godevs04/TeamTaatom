@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const DEFAULT_EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
 const APP_JSON_PATH = path.join(__dirname, 'app.json');
+// Must match PBXNativeTarget name in project.pbxproj; EAS assigns provisioning profiles by this name.
+const IOS_NATIVE_TARGET_NAME = 'taatom';
+const APP_DISPLAY_NAME = 'Taatom';
 
 // Get the base64 encoded Google Play service account key from EAS secret
 // This will be available as an environment variable during EAS build
@@ -85,16 +88,24 @@ module.exports = ({ config }) => {
 
   const finalConfig = {
     ...baseConfig,
+    name: IOS_NATIVE_TARGET_NAME,
     ios: {
       ...(baseConfig.ios || {}),
       bundleIdentifier: resolvedBundleIdentifier,
+      infoPlist: {
+        ...(baseConfig.ios?.infoPlist || {}),
+        CFBundleDisplayName:
+          baseConfig.ios?.infoPlist?.CFBundleDisplayName ?? APP_DISPLAY_NAME,
+      },
     },
     android: {
       ...(baseConfig.android || {}),
       package: resolvedAndroidPackage,
+      label: baseConfig.android?.label ?? APP_DISPLAY_NAME,
     },
     extra: {
       ...(baseConfig.extra || {}),
+      appDisplayName: APP_DISPLAY_NAME,
       eas: {
         ...(baseConfig.extra?.eas || {}),
         projectId: resolvedProjectId,

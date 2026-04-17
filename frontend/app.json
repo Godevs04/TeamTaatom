@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Taatom",
+    "name": "taatom",
     "slug": "taatom",
     "version": "26.3.2",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
     "scheme": "taatom",
     "splash": {
@@ -18,9 +18,11 @@
     ],
     "ios": {
       "supportsTablet": true,
+      "icon": "./assets/icon-1024.png",
       "bundleIdentifier": "com.taatom.app",
       "buildNumber": "16",
       "infoPlist": {
+        "CFBundleDisplayName": "Taatom",
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
         "NSCameraUsageDescription": "This app needs access to your camera to let you take photos for posts.",
         "NSLocationWhenInUseUsageDescription": "This app needs access to your location to tag your posts with location information.",
@@ -51,6 +53,8 @@
       "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
+      "label": "Taatom",
+      "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
       "versionCode": 16,
       "adaptiveIcon": {
