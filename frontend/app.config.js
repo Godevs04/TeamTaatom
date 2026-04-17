@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const DEFAULT_EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
-const APP_JSON_PATH = path.join(__dirname, 'app.json');
+const APP_JSON_CANDIDATES = [
+  path.join(__dirname, 'app.json'),
+  path.join(process.cwd(), 'app.json'),
+];
 // Must match PBXNativeTarget name in project.pbxproj; EAS assigns provisioning profiles by this name.
 const IOS_NATIVE_TARGET_NAME = 'taatom';
 const APP_DISPLAY_NAME = 'Taatom';
@@ -51,12 +54,26 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
+const resolveAppJsonPath = () => {
+  for (const candidate of APP_JSON_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+};
+
 const loadAppJsonExpoConfig = () => {
+  const appJsonPath = resolveAppJsonPath();
+  if (!appJsonPath) {
+    console.warn(
+      '⚠️ app.json not found next to app.config.js (commit frontend/app.json; it must not be gitignored for EAS). Using Expo static config only.'
+    );
+    return null;
+  }
   try {
-    const parsed = JSON.parse(fs.readFileSync(APP_JSON_PATH, 'utf-8'));
+    const parsed = JSON.parse(fs.readFileSync(appJsonPath, 'utf-8'));
     return parsed?.expo || null;
   } catch (error) {
-    console.warn('⚠️ Unable to read app.json, falling back to dynamic config:', error.message);
+    console.warn('⚠️ Unable to parse app.json, falling back to dynamic config:', error.message);
     return null;
   }
 };
