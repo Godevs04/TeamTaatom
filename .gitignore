@@ -37,13 +37,13 @@ de/rules/byterover-rules.md
 !.vscode/launch.json
 
 # Exclude superAdmin from git to fix EAS build casing issues
-# superAdmin/
-# superAdmin/**
+superAdmin/
+superAdmin/**
 
 # Claude setup
 .claude/
 claude/
 CLAUDE.md
 
-# Frontend app config (local only)
-frontend/app.json
+# Note: frontend/app.json must be tracked — EAS builds from git and app.config.js reads it;
+# use .env / EXPO_PUBLIC_* for machine-specific overrides, not a gitignored app.json.
