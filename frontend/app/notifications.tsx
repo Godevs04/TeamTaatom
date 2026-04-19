@@ -107,10 +107,12 @@ export default function NotificationsScreen() {
       
       // Apply session cache: if we processed a follow request this session,
       // override what the API returned so the correct status is always shown.
-      const withSessionState = filteredNotifications.map((n: Notification) => {
+      const withSessionState: Notification[] = filteredNotifications.map((n: Notification): Notification => {
         if (n.type === 'follow_request' && processedFollowRequests.has(n._id)) {
           const action = processedFollowRequests.get(n._id)!;
-          return { ...n, type: action === 'accepted' ? 'follow_request_accepted' : 'follow_request_rejected', isRead: true };
+          const resolvedType: Notification['type'] =
+            action === 'accepted' ? 'follow_request_accepted' : 'follow_request_rejected';
+          return { ...n, type: resolvedType, isRead: true };
         }
         return n;
       });

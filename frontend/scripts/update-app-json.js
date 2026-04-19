@@ -109,6 +109,15 @@ const getSupportUrl = () => {
   return appJson.expo.extra?.SUPPORT_URL || '';
 };
 
+const existingExtra = appJson.expo.extra || {};
+const resolvedProjectId =
+  process.env.EXPO_PUBLIC_EXPO_PROJECT_ID ||
+  process.env.EXPO_PROJECT_ID ||
+  process.env.EAS_PROJECT_ID ||
+  existingExtra.EXPO_PROJECT_ID ||
+  existingExtra?.eas?.projectId ||
+  '';
+
 // Update extra config from environment variables (ALWAYS from .env/.env.prod, no hardcoded fallbacks)
 // All values are now dynamically loaded from .env file
 // Support both EXPO_PUBLIC_ prefix and non-prefixed versions for compatibility
@@ -117,7 +126,7 @@ appJson.expo.extra = {
   WEB_SHARE_URL: getWebShareUrl(),
   GOOGLE_MAPS_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
   LOGO_IMAGE: process.env.EXPO_PUBLIC_LOGO_IMAGE || process.env.LOGO_IMAGE || '',
-  EXPO_PROJECT_ID: process.env.EXPO_PUBLIC_EXPO_PROJECT_ID || '',
+  EXPO_PROJECT_ID: resolvedProjectId,
   // Google Client ID - check both EXPO_PUBLIC_ prefix and alternative names (GOOGLE_WEB_CLIENT_ID)
   GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
   GOOGLE_CLIENT_ID_IOS: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
@@ -131,6 +140,12 @@ appJson.expo.extra = {
   PRIVACY_POLICY_URL: getPrivacyPolicyUrl(),
   TERMS_OF_SERVICE_URL: getTermsOfServiceUrl(),
   SUPPORT_URL: getSupportUrl(),
+  // Preserve router config used by expo-router when present
+  router: existingExtra.router || {},
+  eas: {
+    ...(existingExtra.eas || {}),
+    ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
+  },
 };
 
 // Update iOS Google Maps API key in extra (ios.googleMapsApiKey is not in Expo schema)

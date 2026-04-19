@@ -18,7 +18,8 @@ const { width: screenWidth } = Dimensions.get('window');
 export default function PostDetail() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const { isDark } = useTheme();
+  const { mode } = useTheme();
+  const isDark = mode === 'dark';
 
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -129,7 +130,7 @@ export default function PostDetail() {
 
         <View style={styles.content}>
           {/* Post Header (User info) */}
-          <PostHeader post={post} showReportButton={true} />
+          <PostHeader post={post} showReportButton={true} onMenuPress={() => {}} />
 
           {/* Likes Count */}
           {post.likesCount > 0 && (

@@ -3,22 +3,20 @@
  * Validates that production builds have all required configuration
  */
 
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
 import logger from './logger';
 import { getApiBaseUrl, WEB_SHARE_URL, PRIVACY_POLICY_URL } from './config';
 import { getGoogleMapsApiKey } from './maps';
 
 /**
  * Validates production environment configuration
- * Throws error in production if validation fails
+ * Returns validation report for startup checks.
  */
-export const validateProductionEnvironment = (): void => {
+export const validateProductionEnvironment = (): { ok: boolean; errors: string[]; warnings: string[] } => {
   const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
   
   if (!isProduction) {
-    // Skip validation in development
-    return;
+    // Skip hard validation in development
+    return { ok: true, errors: [], warnings: [] };
   }
 
   const errors: string[] = [];
@@ -98,10 +96,11 @@ export const validateProductionEnvironment = (): void => {
       `Set the required environment variables in your .env file or EAS build secrets.\n`;
     
     logger.error(errorMessage);
-    throw new Error(errorMessage);
+    return { ok: false, errors, warnings };
   }
 
   // Log success
   logger.info('✅ Production environment validation passed');
+  return { ok: true, errors, warnings };
 };
 

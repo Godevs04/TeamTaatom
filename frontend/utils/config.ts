@@ -14,6 +14,11 @@ import logger from './logger';
 // Made as a function to ensure it's evaluated at runtime, not module load time
 // NEVER uses localhost - always uses IP from .env or auto-detection
 export const getApiBaseUrl = (): string => {
+  const configExtraUrl = Constants.expoConfig?.extra?.API_BASE_URL;
+  const safeProductionFallback =
+    (typeof configExtraUrl === 'string' && configExtraUrl.startsWith('https://') ? configExtraUrl : null) ||
+    'https://api.taatom.com';
+
   // CRITICAL: For web, ALWAYS use .env IP first (most reliable)
   // Then fallback to auto-detection if .env is not available
   if (Platform.OS === 'web') {
@@ -54,8 +59,10 @@ export const getApiBaseUrl = (): string => {
     // PRODUCTION-GRADE: No hardcoded fallback - require environment variable
     const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
     if (isProduction) {
-      logger.error(`[Config] ❌ [WEB] PRODUCTION: EXPO_PUBLIC_API_BASE_URL is required!`);
-      throw new Error('EXPO_PUBLIC_API_BASE_URL environment variable is required for production builds');
+      logger.error(
+        `[Config] ❌ [WEB] PRODUCTION: Missing/invalid EXPO_PUBLIC_API_BASE_URL. Using safe fallback: ${safeProductionFallback}`
+      );
+      return safeProductionFallback;
     }
     
     // Development fallback only
@@ -69,8 +76,10 @@ export const getApiBaseUrl = (): string => {
     // In production, reject localhost/local IPs
     const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
     if (isProduction && (envUrl.includes('localhost') || envUrl.includes('192.168.') || envUrl.includes('10.') || envUrl.includes('172.'))) {
-      logger.error(`[Config] ❌ [MOBILE] PRODUCTION: Cannot use localhost or local IP!`);
-      throw new Error('EXPO_PUBLIC_API_BASE_URL must be a production URL (not localhost/local IP) for production builds');
+      logger.error(
+        `[Config] ❌ [MOBILE] PRODUCTION: Invalid EXPO_PUBLIC_API_BASE_URL (${envUrl}). Using safe fallback: ${safeProductionFallback}`
+      );
+      return safeProductionFallback;
     }
     return envUrl;
   }
@@ -79,8 +88,10 @@ export const getApiBaseUrl = (): string => {
   if (fallbackUrl && fallbackUrl !== '') {
     const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
     if (isProduction && (fallbackUrl.includes('localhost') || fallbackUrl.includes('192.168.') || fallbackUrl.includes('10.') || fallbackUrl.includes('172.'))) {
-      logger.error(`[Config] ❌ [MOBILE] PRODUCTION: Cannot use localhost or local IP!`);
-      throw new Error('API_BASE_URL in app.json must be a production URL for production builds');
+      logger.error(
+        `[Config] ❌ [MOBILE] PRODUCTION: Invalid API_BASE_URL in config (${fallbackUrl}). Using safe fallback: ${safeProductionFallback}`
+      );
+      return safeProductionFallback;
     }
     return fallbackUrl;
   }
@@ -88,8 +99,10 @@ export const getApiBaseUrl = (): string => {
   // PRODUCTION-GRADE: No hardcoded fallback for production
   const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || process.env.NODE_ENV === 'production';
   if (isProduction) {
-    logger.error(`[Config] ❌ [MOBILE] PRODUCTION: EXPO_PUBLIC_API_BASE_URL is required!`);
-    throw new Error('EXPO_PUBLIC_API_BASE_URL environment variable is required for production builds');
+    logger.error(
+      `[Config] ❌ [MOBILE] PRODUCTION: Missing API base URL. Using safe fallback: ${safeProductionFallback}`
+    );
+    return safeProductionFallback;
   }
   
   // Development fallback only
@@ -148,7 +161,11 @@ export const GOOGLE_MAPS_API_KEY =
 export const WS_PATH = '/socket.io';
 
 // App Configuration
-export const APP_NAME = Constants.expoConfig?.name || 'Taatom';
+export const APP_NAME =
+  (Constants.expoConfig?.extra as { appDisplayName?: string } | undefined)
+    ?.appDisplayName ||
+  Constants.expoConfig?.name ||
+  'Taatom';
 export const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
 export const APP_SCHEME = Constants.expoConfig?.scheme || 'taatom';
 
