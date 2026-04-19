@@ -20,6 +20,11 @@ interface GoogleAuthResponse {
 
 export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
   try {
+    if (!GOOGLE_CLIENT_ID) {
+      logger.error('Google Sign-In is not configured: missing GOOGLE_CLIENT_ID');
+      throw new Error('Google Sign-In is not configured. Please try again later.');
+    }
+
     // Generate state parameter for security
     const state = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,

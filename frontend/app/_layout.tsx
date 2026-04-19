@@ -32,56 +32,41 @@ import { audioManager } from '../utils/audioManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
 import Constants from 'expo-constants';
+import { runStartupDiagnostics } from '../utils/startupDiagnostics';
 
-// Validate environment variables on app startup (lazy import to avoid circular dependency)
-// This will throw an error in production if secrets are exposed
-if (typeof window !== 'undefined' || typeof global !== 'undefined') {
-  try {
-    // Lazy import to break potential circular dependency
-    const { validateEnvironmentVariables } = require('../utils/envValidator');
-    validateEnvironmentVariables();
-  } catch (error) {
-    // In production, this will prevent the app from starting
-    // In development, log the error but allow the app to continue
-    if (process.env.NODE_ENV === 'production') {
-      throw error;
-    } else {
-      logger.error('Environment validation error (development mode):', error);
-    }
+const extra = Constants.expoConfig?.extra || {};
+const parseSampleRate = (value: unknown, fallback: number) => {
+  const num = typeof value === 'string' ? Number(value) : Number.NaN;
+  if (!Number.isFinite(num) || num < 0 || num > 1) return fallback;
+  return num;
+};
+
+// Initialize Sentry in a crash-safe manner (never throw during bootstrap).
+const SENTRY_DSN = (process.env.EXPO_PUBLIC_SENTRY_DSN || extra.EXPO_PUBLIC_SENTRY_DSN || extra.SENTRY_DSN) as
+  | string
+  | undefined;
+try {
+  if (SENTRY_DSN) {
+    Sentry.init({
+      dsn: SENTRY_DSN,
+      sendDefaultPii: true,
+      enableLogs: true,
+      replaysSessionSampleRate: parseSampleRate(
+        process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE || extra.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE,
+        0.1
+      ),
+      replaysOnErrorSampleRate: parseSampleRate(
+        process.env.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE || extra.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE,
+        1
+      ),
+      integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
+      environment: (process.env.EXPO_PUBLIC_ENV || extra.EXPO_PUBLIC_ENV || process.env.NODE_ENV || 'development') as string,
+    });
+  } else {
+    logger.warn('Sentry DSN not found. Sentry error tracking is disabled.');
   }
-}
-
-// Initialize Sentry with environment variables
-const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN || process.env.SENTRY_DSN;
-
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-
-    // Adds more context data to events (IP address, cookies, user, etc.)
-    // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
-    sendDefaultPii: true,
-
-    // Enable Logs
-    enableLogs: true,
-
-    // Configure Session Replay
-    replaysSessionSampleRate: process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE 
-      ? parseFloat(process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE) 
-      : 0.1,
-    replaysOnErrorSampleRate: process.env.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE
-      ? parseFloat(process.env.EXPO_PUBLIC_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE)
-      : 1,
-    integrations: [Sentry.mobileReplayIntegration(), Sentry.feedbackIntegration()],
-
-    // Environment configuration
-    environment: process.env.EXPO_PUBLIC_ENV || process.env.NODE_ENV || 'development',
-
-    // uncomment the line below to enable Spotlight (https://spotlightjs.com)
-    // spotlight: __DEV__,
-  });
-} else {
-  logger.warn('Sentry DSN not found. Sentry error tracking is disabled.');
+} catch (sentryInitError) {
+  logger.error('Sentry initialization failed (non-blocking):', sentryInitError);
 }
 
 
@@ -285,19 +270,40 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
+        // Validate environment variable safety (non-blocking).
+        try {
+          const { validateEnvironmentVariables } = require('../utils/envValidator');
+          const report = validateEnvironmentVariables();
+          if (!report.ok) {
+            logger.error('Environment validation reported critical issues:', report.errors);
+          }
+        } catch (envValidationError: any) {
+          logger.error('Environment validation failed unexpectedly (non-blocking):', envValidationError?.message);
+        }
+
+        // Run startup diagnostics to capture production-only startup conditions.
+        const startupReport = await runStartupDiagnostics();
+        if (!startupReport.ok) {
+          crashReportingService.captureMessage('Startup diagnostics reported errors', 'error', {
+            screen: 'root_layout',
+            action: 'startup_diagnostics',
+            details: startupReport.errors.join(' | '),
+          });
+        }
+
         // Validate production environment configuration
         try {
           const { validateProductionEnvironment } = require('../utils/productionValidator');
-          validateProductionEnvironment();
-        } catch (validationError: any) {
-          // In production, this will prevent the app from starting
-          // In development, log the error but allow the app to continue
-          if (process.env.NODE_ENV === 'production' || process.env.EXPO_PUBLIC_ENV === 'production') {
-            logger.error('Production validation failed:', validationError);
-            throw validationError;
-          } else {
-            logger.warn('Production validation warning (development mode):', validationError.message);
+          const validationReport = validateProductionEnvironment();
+          if (!validationReport.ok) {
+            crashReportingService.captureMessage('Production validation errors detected', 'error', {
+              screen: 'root_layout',
+              action: 'production_validation',
+              details: validationReport.errors.join(' | '),
+            });
           }
+        } catch (validationError: any) {
+          logger.warn('Production validation failed unexpectedly (non-blocking):', validationError?.message);
         }
 
         // Initialize analytics, feature flags, crash reporting, service worker, and update service

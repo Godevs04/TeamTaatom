@@ -147,7 +147,7 @@ export default function AspectImageCropper({
       { translateX: tx.value },
       { translateY: ty.value },
       { scale: scale.value },
-    ],
+    ] as any,
   }));
 
   const resetTransform = () => {
@@ -181,16 +181,16 @@ export default function AspectImageCropper({
               width: viewportWidth,
               height: viewportH,
               backgroundColor: '#000',
-              overflow: 'hidden',
+              overflow: 'hidden' as const,
               borderRadius,
-            }}
+            } as any}
           >
             <Animated.Image
               source={{ uri }}
               resizeMode="cover"
               style={[
                 { width: viewportWidth, height: viewportH },
-                animatedImageStyle,
+                animatedImageStyle as any,
               ]}
             />
             {showReset && (

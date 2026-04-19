@@ -1,5 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const DEFAULT_EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
+const APP_JSON_CANDIDATES = [
+  path.join(__dirname, 'app.json'),
+  path.join(process.cwd(), 'app.json'),
+];
+// Must match PBXNativeTarget name in project.pbxproj; EAS assigns provisioning profiles by this name.
+const IOS_NATIVE_TARGET_NAME = 'taatom';
+const APP_DISPLAY_NAME = 'Taatom';
 
 // Get the base64 encoded Google Play service account key from EAS secret
 // This will be available as an environment variable during EAS build
@@ -46,9 +54,87 @@ if (platform !== 'ios' && googlePlayServiceAccountKeyBase64) {
   }
 }
 
+const resolveAppJsonPath = () => {
+  for (const candidate of APP_JSON_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+};
+
+const loadAppJsonExpoConfig = () => {
+  const appJsonPath = resolveAppJsonPath();
+  if (!appJsonPath) {
+    console.warn(
+      '⚠️ app.json not found next to app.config.js (commit frontend/app.json; it must not be gitignored for EAS). Using Expo static config only.'
+    );
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(appJsonPath, 'utf-8'));
+    return parsed?.expo || null;
+  } catch (error) {
+    console.warn('⚠️ Unable to parse app.json, falling back to dynamic config:', error.message);
+    return null;
+  }
+};
+
 /**
- * Return the config object Expo builds from app.json (plus defaults).
- * Reusing the same reference satisfies expo-doctor: static app.json is the base.
+ * Return Expo config using app.json as source of truth, then enforce EAS linkage.
  * @see https://docs.expo.dev/workflow/configuration/
  */
-module.exports = ({ config }) => config;
+module.exports = ({ config }) => {
+  const appJsonConfig = loadAppJsonExpoConfig();
+  const baseConfig = appJsonConfig || config || {};
+
+  const resolvedProjectId =
+    process.env.EXPO_PROJECT_ID ||
+    process.env.EAS_PROJECT_ID ||
+    baseConfig?.extra?.eas?.projectId ||
+    baseConfig?.extra?.EXPO_PROJECT_ID ||
+    DEFAULT_EAS_PROJECT_ID;
+
+  const resolvedBundleIdentifier =
+    process.env.EXPO_IOS_BUNDLE_IDENTIFIER ||
+    baseConfig?.ios?.bundleIdentifier ||
+    'com.taatom.app';
+
+  const resolvedAndroidPackage =
+    process.env.EXPO_ANDROID_PACKAGE ||
+    baseConfig?.android?.package ||
+    'com.taatom.app';
+
+  const finalConfig = {
+    ...baseConfig,
+    name: IOS_NATIVE_TARGET_NAME,
+    ios: {
+      ...(baseConfig.ios || {}),
+      bundleIdentifier: resolvedBundleIdentifier,
+      infoPlist: {
+        ...(baseConfig.ios?.infoPlist || {}),
+        CFBundleDisplayName:
+          baseConfig.ios?.infoPlist?.CFBundleDisplayName ?? APP_DISPLAY_NAME,
+      },
+    },
+    android: {
+      ...(baseConfig.android || {}),
+      package: resolvedAndroidPackage,
+      label: baseConfig.android?.label ?? APP_DISPLAY_NAME,
+    },
+    extra: {
+      ...(baseConfig.extra || {}),
+      appDisplayName: APP_DISPLAY_NAME,
+      eas: {
+        ...(baseConfig.extra?.eas || {}),
+        projectId: resolvedProjectId,
+      },
+    },
+  };
+
+  // Optional debug: EXPO_DEBUG_CONFIG=1 npx expo config --type public --json
+  if (process.env.EXPO_DEBUG_CONFIG === '1') {
+    console.log('Resolved Expo config (debug):');
+    console.log(JSON.stringify(finalConfig, null, 2));
+  }
+
+  return finalConfig;
+};
