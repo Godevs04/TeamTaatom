@@ -10,7 +10,7 @@ interface LottieSplashScreenProps {
 }
 
 export default function LottieSplashScreen({ visible = true }: LottieSplashScreenProps) {
-  const { theme } = useTheme();
+  const { theme, themeLoaded } = useTheme();
 
   if (!visible) {
     return null;
@@ -27,7 +27,7 @@ export default function LottieSplashScreen({ visible = true }: LottieSplashScree
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background || '#000000' }]}>
+    <View style={[styles.container, { backgroundColor: themeLoaded ? theme.colors.background : '#000000' }]}>
       {iconSource ? (
         <Image
           source={iconSource}

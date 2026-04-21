@@ -38,6 +38,8 @@ import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
 import { createLogger } from '../utils/logger';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import { shouldBlockDownload } from '../utils/networkUtils';
+import { useSettings } from '../context/SettingsContext';
 import { createReport } from '../services/report';
 import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
@@ -65,6 +67,7 @@ function PhotoCard({
   const isWeb = Platform.OS === 'web';
   const logger = createLogger('OptimizedPhotoCard');
   const { theme } = useTheme();
+  const { settings } = useSettings();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
@@ -440,6 +443,12 @@ function PhotoCard({
 
   const handleShare = async () => {
     try {
+      const blocked = await shouldBlockDownload(settings?.account?.wifiOnlyDownloads ?? false);
+      if (blocked) {
+        showCustomAlertMessage('Wi-Fi Required', 'Wi-Fi only downloads is enabled. Please connect to Wi-Fi to share content.', 'error');
+        return;
+      }
+
       // Show loading alert
       showCustomAlertMessage('Sharing', 'Preparing post for sharing...', 'info');
 
@@ -449,7 +458,7 @@ function PhotoCard({
           // Download the image to local storage
           const filename = `post_${post._id}_${Date.now()}.jpg`;
           const localUri = `${FileSystem.cacheDirectory}${filename}`;
-          
+
           const downloadResult = await FileSystem.downloadAsync(post.imageUrl, localUri);
           
           if (downloadResult.status === 200) {

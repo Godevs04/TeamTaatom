@@ -164,7 +164,7 @@ export default function LocationDetailScreen() {
   
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -173,6 +173,15 @@ export default function LocationDetailScreen() {
   const isAdminLocale = userIdParam === 'admin-locale';
   // TripScore flow: when country is not 'general' and userId is not 'admin-locale'
   const isTripScoreFlow = !isFromLocaleFlow && !isAdminLocale;
+
+  // Pre-seed distance from list so detail shows same value immediately
+  useEffect(() => {
+    const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
+    if (paramVal && paramVal !== '') {
+      const parsed = parseFloat(paramVal);
+      if (!isNaN(parsed)) setDistance(parsed);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -803,8 +812,7 @@ export default function LocationDetailScreen() {
         if (coordinates && coordinates.latitude && coordinates.longitude && 
             coordinates.latitude !== 0 && coordinates.longitude !== 0) {
           logger.debug('Immediately calculating distance with EXACT coordinates:', coordinates);
-          // Reset distance to null first to force recalculation
-          setDistance(null);
+          // Keep pre-seeded distance from list visible while driving distance calculates
           calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
         } else {
           logger.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);

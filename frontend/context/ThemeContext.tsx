@@ -11,6 +11,7 @@ interface ThemeContextProps {
   theme: ThemeType;
   mode: 'dark' | 'light' | 'auto';
   setMode: (m: 'dark' | 'light' | 'auto') => void;
+  themeLoaded: boolean;
   getScaledFontSize?: (baseSize: number) => number;
 }
 
@@ -32,6 +33,7 @@ export const getScaledFontSize = (baseSize: number, fontSize: FontSize = 'medium
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [mode, setMode] = useState<'dark' | 'light' | 'auto'>('light');
+  const [themeLoaded, setThemeLoaded] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -43,6 +45,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         setMode('light');
         await AsyncStorage.setItem(THEME_KEY, 'light');
       }
+      setThemeLoaded(true);
     })();
   }, []);
 
@@ -56,8 +59,9 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       theme: (mode === 'dark' ? darkTheme : mode === 'light' ? lightTheme : (new Date().getHours() >= 7 && new Date().getHours() <= 19) ? lightTheme : darkTheme),
       mode,
       setMode: setModePersist,
+      themeLoaded,
     }),
-    [mode]
+    [mode, themeLoaded]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

@@ -2095,83 +2095,78 @@ const getTripScoreLocations = async (req, res) => {
       return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
     };
 
-    // Filter visits by country (unique places only)
-    const locations = [];
-    const uniqueLocations = new Set();
+    // Helper to extract signed image URL from a post object
+    const getPostImageUrl = async (p, contentType) => {
+      if (!p) return null;
+      const pType = p.type || (contentType === 'short' ? 'short' : 'photo');
+      if (pType === 'photo') {
+        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
+        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
+        if (p.imageUrl) return p.imageUrl;
+        if (p.images && p.images.length > 0) return p.images[0];
+      } else {
+        if (p.imageUrl) return p.imageUrl;
+        if (p.images && p.images.length > 0) return p.images[0];
+        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
+        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
+        if (p.videoUrl) return p.videoUrl;
+      }
+      return null;
+    };
+
+    // First pass: group all visits by location key so multiple TripVisits at the same
+    // coordinates (one per post, since dedup is disabled for admin review) are merged.
+    const locationGroupMap = new Map(); // locationKey -> { firstVisit, allPosts }
     let countryScore = 0;
 
     for (const visit of trustedVisits) {
-      // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
-      // Only count/show each unique location once (groups nearby locations together)
-      if (!uniqueLocations.has(locationKey)) {
-        uniqueLocations.add(locationKey);
-        
-        // Count unique places visited
+      const postsForVisit = visit.posts && visit.posts.length > 0
+        ? visit.posts
+        : (visit.post ? [visit.post] : []);
+
+      if (!locationGroupMap.has(locationKey)) {
+        locationGroupMap.set(locationKey, { firstVisit: visit, allPosts: [...postsForVisit] });
         countryScore += 1;
-        
-        // Helper to extract signed image URL from a post object
-        const getPostImageUrl = async (p) => {
-          if (!p) return null;
-          const pType = p.type || (visit.contentType === 'short' ? 'short' : 'photo');
-          if (pType === 'photo') {
-            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
-            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
-            if (p.imageUrl) return p.imageUrl;
-            if (p.images && p.images.length > 0) return p.images[0];
-          } else {
-            if (p.imageUrl) return p.imageUrl;
-            if (p.images && p.images.length > 0) return p.images[0];
-            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
-            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
-            if (p.videoUrl) return p.videoUrl;
-          }
-          return null;
-        };
-
-        // Collect all photos from all posts at this location
-        // Use the posts array (all photos) falling back to single post for legacy visits
-        const allPostsAtLocation = visit.posts && visit.posts.length > 0
-          ? visit.posts
-          : (visit.post ? [visit.post] : []);
-
-        const photos = [];
-        for (const p of allPostsAtLocation) {
-          const url = await getPostImageUrl(p);
-          if (url) photos.push(url);
-        }
-
-        const imageUrl = photos[0] || null;
-        const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
-        
-        // Get spotType and travelInfo from TripVisit (copied from post) or post directly
-        const spotType = visit.spotType || visit.post?.spotType || 'General';
-        const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
-        
-        // Get the date - prefer takenAt (when photo was taken) over uploadedAt (when uploaded)
-        // Convert to ISO string for consistent frontend parsing
-        const visitDate = visit.takenAt || visit.uploadedAt;
-        const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
-        
-        locations.push({
-          name: visit.address || 'Unknown Location',
-          score: 1, // Each unique location counts as 1
-          date: dateString, // ISO date string for consistent parsing
-          caption: visit.post?.caption || '', // Post caption
-          category: { 
-            fromYou: travelInfo, // From post dropdown
-            typeOfSpot: spotType // From post dropdown
-          },
-          imageUrl: imageUrl, // Primary image (first photo)
-          photos: photos, // All photos taken at this location
-          postType: postType, // 'photo' or 'short'
-          coordinates: {
-            latitude: visit.lat,
-            longitude: visit.lng
-          }
-        });
+      } else {
+        // Accumulate posts from additional TripVisits at the same location
+        locationGroupMap.get(locationKey).allPosts.push(...postsForVisit);
       }
+    }
+
+    // Second pass: build location entries with all accumulated photos
+    const locations = [];
+    for (const { firstVisit: visit, allPosts } of locationGroupMap.values()) {
+      const photos = [];
+      for (const p of allPosts) {
+        const url = await getPostImageUrl(p, visit.contentType);
+        if (url) photos.push(url);
+      }
+
+      const imageUrl = photos[0] || null;
+      const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
+      const spotType = visit.spotType || visit.post?.spotType || 'General';
+      const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
+      const visitDate = visit.takenAt || visit.uploadedAt;
+      const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
+
+      locations.push({
+        name: visit.address || 'Unknown Location',
+        score: allPosts.length, // Actual number of posts at this location
+        date: dateString,
+        caption: visit.post?.caption || '',
+        category: {
+          fromYou: travelInfo,
+          typeOfSpot: spotType
+        },
+        imageUrl: imageUrl,
+        photos: photos,
+        postType: postType,
+        coordinates: {
+          latitude: visit.lat,
+          longitude: visit.lng
+        }
+      });
     }
 
     return sendSuccess(res, 200, 'TripScore locations fetched successfully', {

@@ -1,18 +1,18 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  StyleSheet, 
-  ActivityIndicator, 
-  Image, 
-  RefreshControl, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
+  RefreshControl,
   TouchableOpacity,
   StatusBar,
   ScrollView,
   Platform,
   Dimensions
 } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -191,7 +191,7 @@ export default function HomeScreen() {
   const { showError } = useAlert();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<FeedItem>>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -210,6 +210,8 @@ export default function HomeScreen() {
   
   // Track visible index for conditional image rendering
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
+  // Only apply lazy-load distance restriction after user has scrolled (not on initial render)
+  const hasScrolledRef = useRef(false);
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
@@ -719,6 +721,7 @@ export default function HomeScreen() {
       // Clear visible index when screen loses focus
       return () => {
         setVisibleIndex(null);
+        hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
         // Stop all audio when leaving home page
@@ -1088,6 +1091,9 @@ export default function HomeScreen() {
       const item = visibleItem.item as FeedItem;
       if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
         setVisibleIndex(newVisibleIndex);
+        if (!hasScrolledRef.current && newVisibleIndex > 0) {
+          hasScrolledRef.current = true;
+        }
         if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
           hasSetScrollThresholdRef.current = true;
           setHasScrolledPastFifthPost(true);
@@ -1124,7 +1130,7 @@ export default function HomeScreen() {
     if (isAdItem(item)) {
       return <NativeAdCard adIndex={item.adIndex} />;
     }
-    const distanceFromVisible = visibleIndex !== null ? Math.abs(index - visibleIndex) : 0;
+    const distanceFromVisible = (visibleIndex !== null && hasScrolledRef.current) ? Math.abs(index - visibleIndex) : 0;
     const shouldRenderImage = distanceFromVisible <= 2;
     const isCurrentlyVisible = visiblePostId === item._id;
     return (
@@ -1185,12 +1191,10 @@ export default function HomeScreen() {
       <SafeAreaView style={styles.safeArea}>
         {renderTopHeader()}
         
-        <FlatList
+        <FlashList
         ref={flatListRef}
         data={feedData}
         keyExtractor={keyExtractor}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
         renderItem={renderItem}
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
@@ -1236,19 +1240,9 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
-        // Track viewable items for conditional image rendering and analytics
-        // View tracking de-duplication: prevent duplicate view events within 2 seconds
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        // Virtual scrolling: limit rendered items to avoid too many native ad mounts and keep scroll smooth
-        removeClippedSubviews={true}
-        initialNumToRender={6}
-        maxToRenderPerBatch={5}
-        windowSize={5}
-        getItemLayout={undefined} // Let FlatList calculate dynamically (variable height items)
-        // Performance optimizations
-        maintainVisibleContentPosition={undefined}
-        legacyImplementation={false}
+        drawDistance={screenHeight * 2}
       />
       </SafeAreaView>
     </View>
