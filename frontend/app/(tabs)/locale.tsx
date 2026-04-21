@@ -1067,33 +1067,65 @@ export default function LocaleScreen() {
       const BACKEND_LIMIT = 50; // Backend hard caps at 50
       
       if (shouldFetchAll) {
-        // Fetch all pages until exhausted
-        while (hasMorePages && isMountedRef.current) {
-      const response = await getLocales(
-            baseParams.search || '',
-            baseParams.countryCode || '',
-            baseParams.stateCode || '',
-        spotTypesParam,
-            currentPage,
-            BACKEND_LIMIT,
-            baseParams.includeInactive,
-            searchAbortControllerRef.current?.signal
-          );
-          
-          if (!isMountedRef.current) return;
-          
-          if (response && response.locales && response.locales.length > 0) {
-            allFetchedLocales = [...allFetchedLocales, ...response.locales];
-            
-            // Check if there are more pages
-            if (response.pagination) {
-              hasMorePages = currentPage < (response.pagination.totalPages || 1);
-              currentPage++;
-            } else {
-              hasMorePages = false;
-            }
-          } else {
-            hasMorePages = false;
+        // Fetch page 1 immediately so Stage 1 can render without waiting for all pages
+        const firstResponse = await getLocales(
+          baseParams.search || '',
+          baseParams.countryCode || '',
+          baseParams.stateCode || '',
+          spotTypesParam,
+          1,
+          BACKEND_LIMIT,
+          baseParams.includeInactive,
+          searchAbortControllerRef.current?.signal
+        );
+
+        if (!isMountedRef.current) return;
+
+        if (firstResponse?.locales?.length > 0) {
+          allFetchedLocales = firstResponse.locales;
+          const totalPagesCount = firstResponse.pagination?.totalPages || 1;
+
+          // Fetch remaining pages in background without blocking Stage 1 render
+          if (totalPagesCount > 1) {
+            const bgFetchKey = lastFetchKeyRef.current;
+            const bgSearch = baseParams.search || '';
+            const bgCountry = baseParams.countryCode || '';
+            const bgState = baseParams.stateCode || '';
+            const bgSpotTypes = spotTypesParam;
+            const bgIncludeInactive = baseParams.includeInactive;
+            ;(async () => {
+              const moreLocales: Locale[] = [];
+              for (let page = 2; page <= totalPagesCount; page++) {
+                if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
+                try {
+                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive);
+                  if (res?.locales?.length > 0) moreLocales.push(...res.locales);
+                  else break;
+                } catch { break; }
+              }
+              if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey || moreLocales.length === 0) return;
+              const existing = allLocalesSortedRef.current;
+              const existingIds = new Set(existing.map(l => l._id));
+              const novel = moreLocales.filter(l => !existingIds.has(l._id));
+              if (novel.length === 0) return;
+              const snapshot = createLocationSnapshot();
+              const uLat = userLocation?.latitude;
+              const uLon = userLocation?.longitude;
+              const novelWithDist = novel.map(l => {
+                if (l.latitude && l.longitude && uLat && uLon) {
+                  return { ...l, distanceKm: calculateDistance(uLat, uLon, l.latitude, l.longitude) };
+                }
+                return { ...l, distanceKm: null as number | null };
+              });
+              const merged = [...existing, ...novelWithDist];
+              const resorted = snapshot ? sortLocalesWithSnapshot(merged, snapshot) : merged;
+              allLocalesSortedRef.current = resorted;
+              if (isMountedRef.current) {
+                setAllLocalesWithDistances(resorted);
+                setHasMore(resorted.length > ITEMS_PER_PAGE);
+                setTotalPages(Math.ceil(resorted.length / ITEMS_PER_PAGE));
+              }
+            })().catch(() => {});
           }
         }
       } else {
@@ -2162,16 +2194,15 @@ export default function LocaleScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!isMountedRef.current) return;
-      
+
       // Only refresh saved locales (lightweight)
       loadSavedLocales();
-      
+
       // CACHE CHECK: Restore from cache if available (prevents refetch on back navigation)
       const snapshot = createLocationSnapshot();
       if (snapshot && localeCache.isValid(snapshot.snapshotKey)) {
         const cached = localeCache.get();
-        if (cached && adminLocales.length === 0) {
-          // Only restore if we don't have data in state (fresh mount)
+        if (cached && allLocalesSortedRef.current.length === 0) {
           logger.debug('✅ Restoring locales from cache on focus (instant restore)');
           allLocalesSortedRef.current = cached.locales;
           setAllLocalesWithDistances(cached.locales);
@@ -2185,28 +2216,17 @@ export default function LocaleScreen() {
           setLoading(false);
           const filtered = applyFilters(firstPage, false);
           setFilteredLocales(filtered);
-          return; // Skip fetch if cache restored
+          loadedOnceRef.current = true;
+          return;
         }
       }
-      
-      // Always load admin locales on focus if:
-      // 1. We have no data (initial load), OR
-      // 2. We have data but no distances calculated (user location became available)
-      const hasLocales = adminLocales.length > 0;
-      const hasDistances = adminLocales.some(locale => {
-        const localeWithDistance = locale as Locale & { distanceKm?: number | null };
-        return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
-      });
-      const shouldLoad = (!hasLocales && !loadedOnceRef.current) || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
-      
-      // Guard: Prevent reload when only filters changed (load only on Search button or initial/focus restore)
-      if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
-        if (hasLocales && !hasDistances) {
-          loadedOnceRef.current = false;
-        }
+
+      // Only load on initial mount (not loaded yet). The useEffect watching
+      // userLocation handles the "location became available after load" case.
+      if (!loadedOnceRef.current && !isSearchingRef.current) {
         loadAdminLocalesRef.current(true);
       }
-    }, [loadSavedLocales, adminLocales, userLocation, locationPermissionGranted, createLocationSnapshot, applyFilters]) // Exclude loadAdminLocales so filter changes don't re-run effect
+    }, [loadSavedLocales, createLocationSnapshot, applyFilters]) // adminLocales intentionally excluded — using ref to avoid re-trigger loop
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -3236,6 +3256,7 @@ export default function LocaleScreen() {
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
                 travelInfo: locale.travelInfo || 'Drivable',
+                distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
           } catch (error) {
@@ -3413,6 +3434,7 @@ export default function LocaleScreen() {
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
                 travelInfo: locale.travelInfo || 'Drivable',
+                distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
           } catch (error) {

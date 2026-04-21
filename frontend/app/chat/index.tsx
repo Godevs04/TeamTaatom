@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -19,6 +20,13 @@ import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import { getPostById } from '../../services/posts';
+
+// Clear push notification badge and dismiss tray notifications when messages are read.
+// Works for both Firebase (FCM) and Expo notification channels.
+const clearChatNotifications = () => {
+  Notifications.setBadgeCountAsync(0).catch(() => {});
+  Notifications.dismissAllNotificationsAsync().catch(() => {});
+};
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
@@ -540,6 +548,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const localMessagesLength = Array.isArray(localMessages) ? localMessages.length : 0;
   const localMessagesFirstId = localMessages.length > 0 ? normalizeId(localMessages[0]?._id) : '';
   const localMessagesSeenCount = localMessages.filter(m => m.seen === true).length;
+  const messagesSeenCount = Array.isArray(messages) ? messages.filter((m: any) => m.seen === true).length : 0;
 
   const allMessages = React.useMemo(() => {
     // No logging here - useMemo recalculating is normal behavior
@@ -568,7 +577,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     });
     
     return sorted;
-  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount]); // Use stable primitives
+  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount, messagesSeenCount]); // Use stable primitives
   
   // Sort messages ascending by timestamp (oldest first)
   // Use allMessages which is already sorted
@@ -922,11 +931,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
             });
             
-            // Mark as seen in backend
+            // Mark as seen in backend + clear push notification badge/tray
             api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
               logger.debug('Failed to mark messages as seen in backend:', e);
             });
-            
+            clearChatNotifications();
+
             // Update local state
             setLocalMessages(prev => prev.map(m => {
               const msgId = normalizeId(m._id);
@@ -962,6 +972,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           });
           if (unseenNow.length > 0) {
             api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            clearChatNotifications();
             if (onMessagesSeen && chatId) {
               onMessagesSeen(chatId, unseenNow.map((u: any) => normalizeId(u._id)));
             }
@@ -993,11 +1004,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
       });
       
-      // Mark as seen in backend
+      // Mark as seen in backend + clear push notification badge/tray
       api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
         logger.debug('Failed to mark messages as seen in backend:', e);
       });
-      
+      clearChatNotifications();
+
       // Update local state
       setLocalMessages(prev => prev.map(m => {
         const msgId = normalizeId(m._id);
