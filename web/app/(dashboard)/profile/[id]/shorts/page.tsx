@@ -84,21 +84,21 @@ export default function ProfileShortsPage() {
       ) : null}
 
       {shorts.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 [grid-auto-rows:1fr] sm:grid-cols-3 md:grid-cols-4">
           {shorts.map((s) => {
             const thumb = thumbForShort(s);
             return (
               <Link
                 key={s._id}
                 href={`/trip/${s._id}`}
-                className="group relative aspect-[9/16] overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100 shadow-soft transition-shadow hover:shadow-card dark:border-zinc-800 dark:bg-zinc-800"
+                className="group relative h-full min-h-[280px] overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100 shadow-soft transition-all duration-300 hover:-translate-y-1 hover:shadow-card dark:border-zinc-800 dark:bg-zinc-800"
               >
                 {thumb ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     src={thumb}
                     alt={s.caption || "Short"}
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center bg-slate-200 dark:bg-zinc-700">
