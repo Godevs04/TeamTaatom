@@ -142,26 +142,7 @@ export default function LocationDetailScreen() {
   const isTabletLocal = screenWidth >= 768;
   const isAndroidLocal = Platform.OS === 'android';
   const isWebLocal = Platform.OS === 'web';
-  
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<LocationDetail | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
-  const [distance, setDistance] = useState<number | null>(null);
-  const [isBookmarked, setIsBookmarked] = useState(false);
-  const [bookmarkLoading, setBookmarkLoading] = useState(false);
-  const [localeData, setLocaleData] = useState<Locale | null>(null);
-  const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
-  const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
-  
-  // Navigation & Lifecycle Safety: Track mounted state
-  const isMountedRef = useRef(true);
-  
-  // Bookmark Stability: Track in-flight bookmark operations
-  const bookmarkingRef = useRef(false);
-  
-  // Distance Calculation Guards: Cache calculated distances per session
-  const distanceCacheRef = useRef<Map<string, number>>(new Map());
-  
+
   const { theme } = useTheme();
   const router = useRouter();
   const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam } = useLocalSearchParams();
@@ -174,14 +155,37 @@ export default function LocationDetailScreen() {
   // TripScore flow: when country is not 'general' and userId is not 'admin-locale'
   const isTripScoreFlow = !isFromLocaleFlow && !isAdminLocale;
 
-  // Pre-seed distance from list so detail shows same value immediately
-  useEffect(() => {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<LocationDetail | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  // Pre-seed distance from list param so detail shows the same value.
+  // useLocalSearchParams() MUST be called above this so distanceKmParam is available.
+  const hasPreSeededDistanceRef = useRef(false);
+  const [distance, setDistance] = useState<number | null>(() => {
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
     if (paramVal && paramVal !== '') {
-      const parsed = parseFloat(paramVal);
-      if (!isNaN(parsed)) setDistance(parsed);
+      const parsed = parseFloat(paramVal as string);
+      if (!isNaN(parsed)) {
+        hasPreSeededDistanceRef.current = true;
+        return parsed;
+      }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return null;
+  });
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
+  const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
+
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+
+  // Bookmark Stability: Track in-flight bookmark operations
+  const bookmarkingRef = useRef(false);
+
+  // Distance Calculation Guards: Cache calculated distances per session
+  const distanceCacheRef = useRef<Map<string, number>>(new Map());
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -222,9 +226,11 @@ export default function LocationDetailScreen() {
   );
 
   // Calculate distance when coordinates are available
+  // SKIP if distance was already passed from the list page (pre-seeded) to avoid mismatch
   useEffect(() => {
     if (!isMountedRef.current) return;
-    
+    if (hasPreSeededDistanceRef.current) return; // Distance from list — never override
+
     if (data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
       const lat = data.coordinates.latitude;
       const lng = data.coordinates.longitude;
@@ -807,15 +813,12 @@ export default function LocationDetailScreen() {
         
         setLoading(false);
         
-        // CRITICAL: Calculate distance immediately with EXACT coordinates from locale
-        // This ensures accurate distance calculation for locale flow
-        if (coordinates && coordinates.latitude && coordinates.longitude && 
+        // Distance: Use the pre-seeded value from the list (passed via route params).
+        // Only recalculate if no distance was passed (e.g. deep link / direct navigation).
+        if (!hasPreSeededDistanceRef.current && coordinates && coordinates.latitude && coordinates.longitude &&
             coordinates.latitude !== 0 && coordinates.longitude !== 0) {
-          logger.debug('Immediately calculating distance with EXACT coordinates:', coordinates);
-          // Keep pre-seeded distance from list visible while driving distance calculates
+          logger.debug('No pre-seeded distance, calculating with coordinates:', coordinates);
           calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
-        } else {
-          logger.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);
         }
         
         return;

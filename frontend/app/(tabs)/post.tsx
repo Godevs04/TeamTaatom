@@ -2394,28 +2394,28 @@ export default function PostScreen() {
           />
         </View>
         {/* Post Type Selector */}
-        <View style={{ 
-          flexDirection: 'row', 
-          backgroundColor: theme.colors.surface, 
-          borderRadius: theme.borderRadius.xl, 
-          padding: 6, 
+        <View style={{
+          flexDirection: 'row',
+          backgroundColor: theme.colors.surface,
+          borderRadius: theme.borderRadius.xl,
+          padding: 4,
           marginBottom: theme.spacing.md,
           ...theme.shadows.small,
           borderWidth: 1,
-          borderColor: theme.colors.border + '40'
+          borderColor: theme.colors.border
         }}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              { 
-                flex: 1, 
-                paddingVertical: theme.spacing.md, 
-                alignItems: 'center', 
+              {
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: theme.borderRadius.lg,
                 flexDirection: 'row',
                 gap: 8
               },
-              postType === 'photo' && { 
+              postType === 'photo' && {
                 backgroundColor: theme.colors.primary,
                 ...theme.shadows.small
               }
@@ -2423,10 +2423,10 @@ export default function PostScreen() {
             onPress={() => setPostType('photo')}
             activeOpacity={0.7}
           >
-            <Ionicons 
-              name={postType === 'photo' ? "image" : "image-outline"} 
-              size={20} 
-              color={postType === 'photo' ? 'white' : theme.colors.textSecondary} 
+            <Ionicons
+              name={postType === 'photo' ? "image" : "image-outline"}
+              size={20}
+              color={postType === 'photo' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
               { fontSize: theme.typography.body.fontSize, fontWeight: '700' },
@@ -2435,18 +2435,18 @@ export default function PostScreen() {
               Photo
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              { 
-                flex: 1, 
-                paddingVertical: theme.spacing.md, 
-                alignItems: 'center', 
+              {
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: theme.borderRadius.lg,
                 flexDirection: 'row',
                 gap: 8
               },
-              postType === 'short' && { 
+              postType === 'short' && {
                 backgroundColor: theme.colors.primary,
                 ...theme.shadows.small
               }
@@ -2454,10 +2454,10 @@ export default function PostScreen() {
             onPress={() => setPostType('short')}
             activeOpacity={0.7}
           >
-            <Ionicons 
-              name={postType === 'short' ? "videocam" : "videocam-outline"} 
-              size={20} 
-              color={postType === 'short' ? 'white' : theme.colors.textSecondary} 
+            <Ionicons
+              name={postType === 'short' ? "videocam" : "videocam-outline"}
+              size={20}
+              color={postType === 'short' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
               { fontSize: theme.typography.body.fontSize, fontWeight: '700' },

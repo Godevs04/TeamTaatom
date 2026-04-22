@@ -854,27 +854,19 @@ function PhotoCard({
         />
       </View>
 
-      {/* Image - Conditional rendering: only render Image component when visible */}
-      {/* This drastically reduces memory usage for off-screen images without changing UX */}
-      {/* Only images within 2 indices of visible are rendered, others use lightweight placeholder */}
-      {isVisible ? (
-        <PostImage
-          post={post}
-          onPress={handlePress}
-          imageUri={imageUri}
-          imageLoading={imageLoading}
-          imageError={imageError}
-          onImageError={handleImageError}
-          onRetry={handleImageRetry}
-          pulseAnim={pulseAnim}
-          isCurrentlyVisible={isCurrentlyVisible}
-          onDoubleTap={handleLike}
-        />
-      ) : (
-        // Lightweight placeholder for unmounted images
-        // Maintains layout (same aspectRatio) without consuming image resources
-        <View style={{ width: '100%', aspectRatio: 1, backgroundColor: theme.colors.surface }} />
-      )}
+      {/* Image - Always mounted to prevent reload flicker on scroll */}
+      <PostImage
+        post={post}
+        onPress={handlePress}
+        imageUri={imageUri}
+        imageLoading={imageLoading}
+        imageError={imageError}
+        onImageError={handleImageError}
+        onRetry={handleImageRetry}
+        pulseAnim={pulseAnim}
+        isCurrentlyVisible={isCurrentlyVisible}
+        onDoubleTap={handleLike}
+      />
 
       {/* Actions - Must be above image to receive touches */}
       <View pointerEvents="box-none">
@@ -1244,7 +1236,6 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
-    prevProps.isVisible === nextProps.isVisible &&
     prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });

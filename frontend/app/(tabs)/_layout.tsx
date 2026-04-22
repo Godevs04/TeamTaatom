@@ -50,11 +50,9 @@ export default function TabsLayout() {
     
     // Only handle tab-to-tab navigation here
     if (isCurrentTab && wasTab) {
-      const isHomeOrShorts = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname?.endsWith('/home') || pathname?.endsWith('/shorts');
-      const wasHomeOrShorts = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts');
-      
-      // If leaving home or shorts, stop audio
-      if (wasHomeOrShorts && !isHomeOrShorts) {
+      // If leaving shorts, stop audio
+      const wasShorts = previousPath === '/(tabs)/shorts' || previousPath?.endsWith('/shorts');
+      if (wasShorts) {
         isStoppingAudioRef.current = true;
         logger.debug('[TabsLayout] Stopping all audio - navigating away from home/shorts');
         audioManager.stopAll()
@@ -127,6 +125,7 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
+          unmountOnBlur: true,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="play-circle" size={size} color={color} />
           ),

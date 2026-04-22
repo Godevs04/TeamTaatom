@@ -3819,13 +3819,13 @@ export default function LocaleScreen() {
 
   return (
     <ErrorBoundary level="route">
-    <SafeAreaView 
+    <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
-      <StatusBar 
-        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+      <StatusBar
+        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.colors.background}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3834,55 +3834,53 @@ export default function LocaleScreen() {
       >
         <TravelLoadingOverlay />
       {/* Elegant Top Navigation */}
-      <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
-        <View style={styles.tabContainer}>
+      <View style={styles.topNavigation}>
+        <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadows.small }]}>
           <TouchableOpacity
             style={[
               styles.tabButton,
-              activeTab === 'locale' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
+              activeTab === 'locale' && { backgroundColor: theme.colors.primary, ...theme.shadows.small }
             ]}
             onPress={() => setActiveTab('locale')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
             accessibilityLabel="Locale tab"
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'locale' }}
           >
-            <Ionicons 
-              name="location-outline" 
-              size={isTabletLocal ? 20 : 18} 
-              color={activeTab === 'locale' ? '#FFFFFF' : theme.colors.textSecondary} 
+            <Ionicons
+              name={activeTab === 'locale' ? "location" : "location-outline"}
+              size={20}
+              color={activeTab === 'locale' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              styles.tabText, 
-              { color: activeTab === 'locale' ? '#FFFFFF' : theme.colors.textSecondary }
+              styles.tabText,
+              { color: activeTab === 'locale' ? 'white' : theme.colors.textSecondary }
             ]}>
-              LOCALE
+              Locale
             </Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
             style={[
               styles.tabButton,
-              activeTab === 'saved' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
+              activeTab === 'saved' && { backgroundColor: theme.colors.primary, ...theme.shadows.small }
             ]}
             onPress={() => setActiveTab('saved')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
             accessibilityLabel="Saved tab"
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'saved' }}
           >
-            <Ionicons 
-              name="bookmark-outline" 
-              size={isTabletLocal ? 20 : 18} 
-              color={activeTab === 'saved' ? '#FFFFFF' : theme.colors.textSecondary} 
+            <Ionicons
+              name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
+              size={20}
+              color={activeTab === 'saved' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              styles.tabText, 
-              { color: activeTab === 'saved' ? '#FFFFFF' : theme.colors.textSecondary }
+              styles.tabText,
+              { color: activeTab === 'saved' ? 'white' : theme.colors.textSecondary }
             ]}>
-              SAVED
+              Saved
             </Text>
           </TouchableOpacity>
         </View>
@@ -4039,53 +4037,31 @@ const createStyles = () => {
       } as any),
     },
     topNavigation: {
-      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-      paddingTop: isAndroidLocal ? (isTabletLocal ? theme.spacing.xl + 8 : 20 + 8) : (isTabletLocal ? theme.spacing.xl : 20),
-      paddingBottom: isTabletLocal ? theme.spacing.xl : 20,
-      borderBottomWidth: 0.5,
-      minHeight: isAndroidLocal ? (isTabletLocal ? 80 : 64) : (isTabletLocal ? 72 : 60),
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : theme.spacing.md,
+      paddingTop: isTabletLocal ? theme.spacing.md : 12,
+      paddingBottom: isTabletLocal ? theme.spacing.md : 12,
+      borderBottomWidth: 0,
     },
     tabContainer: {
       flexDirection: 'row',
-      backgroundColor: 'rgba(0,0,0,0.08)',
-      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
-      padding: isTabletLocal ? 8 : 6,
+      borderRadius: theme.borderRadius.xl,
+      padding: 4,
     },
     tabButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-      paddingVertical: isTabletLocal ? theme.spacing.md : (isAndroidLocal ? 16 : 14),
-      borderRadius: theme.borderRadius.md,
+      paddingVertical: 10,
+      borderRadius: theme.borderRadius.lg,
       flex: 1,
-      marginHorizontal: isTabletLocal ? 4 : 3,
-      // Minimum touch target: 44x44 for iOS, 48x48 for Android
-      minHeight: isAndroidLocal ? 48 : 44,
-      ...(isWebLocal && {
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      } as any),
+      gap: 8,
     },
-  activeTab: {
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
+    activeTab: {
+      // backgroundColor applied inline via theme from useTheme()
     },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-  },
     tabText: {
-      fontSize: isTabletLocal ? theme.typography.body.fontSize + 2 : 16,
-      fontFamily: getFontFamily('600'),
-      fontWeight: '600',
-      marginLeft: isTabletLocal ? theme.spacing.md : 10,
-      letterSpacing: isIOSLocal ? 0.3 : 0.2,
-      ...(isWebLocal && {
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-      } as any),
+      fontSize: theme.typography.body.fontSize,
+      fontWeight: '700' as const,
     },
     searchContainer: {
       paddingHorizontal: isTabletLocal ? theme.spacing.xl : 20,

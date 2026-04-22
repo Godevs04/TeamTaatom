@@ -109,17 +109,31 @@ function RootLayoutInner() {
     // This provides better UX with the default splash icon
   }, []);
 
-  // Re-check connectivity when app comes to foreground and periodically when active
+  // Re-check connectivity when app comes to foreground and periodically when active.
+  // Uses a 2-consecutive-failure rule to avoid false-offline from a single slow/cold-start request.
+  const connectivityFailCountRef = useRef(0);
   useEffect(() => {
     const checkAndSetOffline = async () => {
       const ok = await testAPIConnectivity();
-      setIsOffline((prev) => (ok ? false : true));
+      if (ok) {
+        connectivityFailCountRef.current = 0;
+        setIsOffline(false);
+      } else {
+        connectivityFailCountRef.current += 1;
+        if (connectivityFailCountRef.current >= 2) {
+          setIsOffline(true);
+        }
+      }
     };
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkAndSetOffline();
+      if (state === 'active') {
+        // Reset fail count on foreground so a single success immediately clears the banner
+        connectivityFailCountRef.current = 0;
+        checkAndSetOffline();
+      }
     });
-    const interval = setInterval(checkAndSetOffline, 60000);
-    checkAndSetOffline();
+    const interval = setInterval(checkAndSetOffline, 30000);
+    // No immediate check here — auth init already sets the initial offline state
     return () => {
       sub.remove();
       clearInterval(interval);

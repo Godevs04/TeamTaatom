@@ -123,6 +123,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Track visible index precisely using onViewableItemsChanged
   const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isScreenFocused, setIsScreenFocused] = useState(true);
+  const isScreenFocusedRef = useRef(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
@@ -137,8 +139,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
   const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
-  const [swipeStartX, setSwipeStartX] = useState<number | null>(null);
-  const [swipeStartY, setSwipeStartY] = useState<number | null>(null);
+  const swipeStartXRef = useRef<number | null>(null);
+  const swipeStartYRef = useRef<number | null>(null);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
 
@@ -176,6 +178,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
+  const currentPageRef = useRef(1);
+  const hasMoreRef = useRef(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Persisted liked short IDs so likes survive app restart (server is source of truth; this merges when API omits isLiked)
   const likedShortIdsRef = useRef<Set<string>>(new Set());
   // Refs for handlers to avoid recreating renderItem on every handler change
@@ -433,6 +438,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   useFocusEffect(
     useCallback(() => {
+      // Mark screen as focused so SongPlayer knows it can play
+      isScreenFocusedRef.current = true;
+      setIsScreenFocused(true);
+
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
       // This ensures audio plays through main speaker even if call service changed it
       Audio.setAudioModeAsync({
@@ -444,7 +453,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }).catch(err => {
         logger.error('Error setting audio mode for shorts:', err);
       });
-      
+
       // Screen focused - resume current video if it exists
       if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
         const currentVideoId = shorts[currentVisibleIndex]._id;
@@ -457,8 +466,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
         }
       }
-      
+
       return () => {
+        // CRITICAL: Mark screen as unfocused FIRST — this makes SongPlayer's
+        // isVisible=false so it won't re-create audio after stopAll() clears it.
+        isScreenFocusedRef.current = false;
+        setIsScreenFocused(false);
+
         // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
         if (currentPlayerRef.current) {
@@ -480,6 +494,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Pause when user navigates away from Shorts (tab or /user-shorts stack)
   useEffect(() => {
     if (!shortsPlaybackSurfaceActive) {
+      isScreenFocusedRef.current = false;
+      setIsScreenFocused(false);
       pauseCurrentVideo();
       if (currentPlayerRef.current) {
         try {
@@ -823,6 +839,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const loadShorts = useCallback(async () => {
     try {
       setLoading(true);
+      currentPageRef.current = 1;
+      hasMoreRef.current = true;
 
       const shouldFilterByUser = !!effectiveUserId;
 
@@ -846,7 +864,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
         // Load the full feed in background; merge so the specific short stays at position 0
         try {
-          const response = await getShorts(1, 20);
+          const response = await getShorts(1, 10);
           videoCacheRef.current.clear();
           const merged = (response.shorts || []).map((s: PostType) => {
             const fromStorage = likedShortIdsRef.current.has(s._id);
@@ -866,6 +884,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
           });
           setFollowStates(followStatesMap);
+          hasMoreRef.current = (response.shorts || []).length >= 10;
         } catch (e) {
           logger.warn('Failed to load full feed in background:', e);
         }
@@ -877,7 +896,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.debug(`Loading shorts for specific user: ${effectiveUserId}`);
         response = await getUserShorts(effectiveUserId, 1, 100);
       } else {
-        response = await getShorts(1, 20);
+        response = await getShorts(1, 10);
       }
 
       videoCacheRef.current.clear();
@@ -890,6 +909,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         return { ...s, isLiked, likesCount };
       });
       setShorts(merged);
+      if (!shouldFilterByUser) {
+        hasMoreRef.current = (response.shorts || []).length >= 10;
+      }
 
       const followStatesMap: { [key: string]: boolean } = {};
       response.shorts.forEach((short: PostType) => {
@@ -908,6 +930,39 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     loadShortsRef.current = loadShorts;
   }, [loadShorts]);
+
+  const loadMoreShorts = useCallback(async () => {
+    if (!hasMoreRef.current || isLoadingMore || !!effectiveUserId || !!effectiveShortId) return;
+    try {
+      setIsLoadingMore(true);
+      const nextPage = currentPageRef.current + 1;
+      const response = await getShorts(nextPage, 10);
+      const newShorts: PostType[] = response.shorts || [];
+      if (newShorts.length === 0) {
+        hasMoreRef.current = false;
+        return;
+      }
+      currentPageRef.current = nextPage;
+      hasMoreRef.current = newShorts.length >= 10;
+      const mapped = newShorts.map((s) => {
+        const fromStorage = likedShortIdsRef.current.has(s._id);
+        const isLiked = s.isLiked || fromStorage;
+        const likesCount = isLiked && fromStorage && !s.isLiked ? Math.max(s.likesCount ?? 0, 1) : (s.likesCount ?? 0);
+        return { ...s, isLiked, likesCount };
+      });
+      setShorts(prev => {
+        const existingIds = new Set(prev.map(s => s._id));
+        return [...prev, ...mapped.filter((s) => !existingIds.has(s._id))];
+      });
+      const followStatesMap: { [key: string]: boolean } = {};
+      newShorts.forEach((s) => { followStatesMap[s.user._id] = (s.user as any).isFollowing || false; });
+      setFollowStates(prev => ({ ...prev, ...followStatesMap }));
+    } catch (error) {
+      logger.error('Error loading more shorts', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [effectiveUserId, effectiveShortId, isLoadingMore]);
 
   // Load persisted liked short IDs on mount so likes survive app restart; merge into current shorts
   useEffect(() => {
@@ -1508,17 +1563,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const handleTouchStart = (event: any) => {
     const { pageX, pageY } = event.nativeEvent;
-    setSwipeStartX(pageX);
-    setSwipeStartY(pageY);
+    swipeStartXRef.current = pageX;
+    swipeStartYRef.current = pageY;
   };
 
   const handleTouchMove = (event: any) => {
-    if (swipeStartX === null || swipeStartY === null) return;
-    
+    if (swipeStartXRef.current === null || swipeStartYRef.current === null) return;
+
     const { pageX, pageY } = event.nativeEvent;
-    const deltaX = pageX - swipeStartX;
-    const deltaY = pageY - swipeStartY;
-    
+    const deltaX = pageX - swipeStartXRef.current;
+    const deltaY = pageY - swipeStartYRef.current;
+
     // Only animate for left swipes (negative deltaX)
     // Right swipes should not trigger any animation or navigation
     if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
@@ -1531,11 +1586,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   };
 
   const handleTouchEnd = (event: any, userId: string) => {
-    if (swipeStartX === null || swipeStartY === null) return;
-    
+    if (swipeStartXRef.current === null || swipeStartYRef.current === null) return;
+
     const { pageX, pageY } = event.nativeEvent;
-    const deltaX = pageX - swipeStartX;
-    const deltaY = pageY - swipeStartY;
+    const deltaX = pageX - swipeStartXRef.current;
+    const deltaY = pageY - swipeStartYRef.current;
     
     // Only trigger navigation for LEFT swipes (deltaX must be negative)
     // Right swipes (positive deltaX) should be ignored
@@ -1554,16 +1609,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           tension: 100,
           friction: 8,
         }).start();
-        // Reset touch state
-        setSwipeStartX(null);
-        setSwipeStartY(null);
+        swipeStartXRef.current = null;
+        swipeStartYRef.current = null;
         return;
       }
-      
+
       // Set guard immediately to prevent duplicate swipes
       isNavigatingRef.current = true;
       lastNavigationUserIdRef.current = userId;
-      
+
       logger.debug('Swipe left detected, navigating to profile:', userId);
       handleSwipeLeft(userId);
     } else {
@@ -1574,14 +1628,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         tension: 100,
         friction: 8,
       }).start();
-      
+
       if (!isLeftSwipe && Math.abs(deltaX) > 50) {
         logger.debug('Swipe right detected, ignoring (only left swipes navigate to profile)');
       }
     }
-    
-    setSwipeStartX(null);
-    setSwipeStartY(null);
+
+    swipeStartXRef.current = null;
+    swipeStartYRef.current = null;
   };
 
   // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels. Hard cap: max 3 slots per session.
@@ -1760,9 +1814,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     // Reel item
     const distanceFromVisible = Math.abs(index - currentVisibleIndex);
-    // Preload 2 ahead/behind so the next short is already buffered when the
-    // user scrolls — reduces cold-load lag that caused inconsistent playback.
-    const shouldRenderVideo = distanceFromVisible <= 2;
+    // Keep current + 1 ahead + 1 behind mounted; unmount beyond that to free GPU/memory.
+    const shouldRenderVideo = distanceFromVisible <= 1;
 
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
@@ -1779,22 +1832,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
     const shouldShowLikeAnimation = showLikeAnimation[item._id] || false;
     
-    // Debug: Log song data
-    if (item.song) {
-      logger.info('Short has song data:', {
-        shortId: item._id,
-        hasSong: !!item.song,
-        hasSongId: !!item.song.songId,
-        songId: item.song.songId?._id || item.song.songId,
-        hasS3Url: !!item.song.songId?.s3Url,
-        s3Url: item.song.songId?.s3Url ? item.song.songId.s3Url.substring(0, 50) + '...' : 'NONE',
-        title: item.song.songId?.title,
-        artist: item.song.songId?.artist,
-        startTime: item.song.startTime,
-        volume: item.song.volume
-      });
-    } else {
-      logger.debug('Short has NO song data:', { shortId: item._id });
+    if (__DEV__ && index === currentVisibleIndex) {
+      if (item.song) {
+        logger.debug('Short has song data:', { shortId: item._id, songId: item.song.songId?._id || item.song.songId });
+      } else {
+        logger.debug('Short has NO song data:', { shortId: item._id });
+      }
     }
 
     return (
@@ -1825,7 +1868,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
               {shouldRenderVideo ? (
                 <Video
-                key={`video-${item._id}-${handlersRef.current.getVideoUrl(item)}`}
+                key={`video-${item._id}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
@@ -1839,19 +1882,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 // CRITICAL: Mute video when music is playing
                 // If song exists with valid s3Url, video must be muted so only music plays
                 // Also mute videos that are not in focus to save audio resources
-                isMuted={(() => {
-                  const hasMusic = !!(item.song?.songId?._id);
-                  const shouldMute = index !== currentVisibleIndex || hasMusic;
-                  if (__DEV__ && index === currentVisibleIndex) {
-                    logger.info('Video mute check:', {
-                      shortId: item._id,
-                      hasMusic,
-                      isCurrentVisible: index === currentVisibleIndex,
-                      shouldMute
-                    });
-                  }
-                  return shouldMute;
-                })()}
+                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id)}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id);
                   return hasMusic ? 0.0 : 1.0;
@@ -2020,20 +2051,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       activeVideoIdRef.current = item._id;
                     }
                     
-                    // Always update video state to reflect actual playback status
-                    setVideoStates(prev => {
-                      const newState = {
+                    // Only update video state when playback status actually changes
+                    // to avoid unnecessary re-renders (onPlaybackStatusUpdate fires ~30x/sec)
+                    if (wasPlaying !== isNowPlaying) {
+                      logger.debug(`Video ${item._id} ${isNowPlaying ? 'playing' : 'paused'}`);
+                      setVideoStates(prev => ({
                         ...prev,
                         [item._id]: isNowPlaying
-                      };
-                      
-                      // Log state change for debugging
-                      if (wasPlaying !== isNowPlaying) {
-                        logger.debug(`Video ${item._id} ${isNowPlaying ? 'playing' : 'paused'}`);
-                      }
-                      
-                      return newState;
-                    });
+                      }));
+                    }
                   } else if ((status as any).error) {
                     // Handle playback errors
                     logger.error(`Video ${item._id} playback error:`, (status as any).error);
@@ -2388,40 +2414,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               
               {/* Song Player - Hidden but active for audio playback */}
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
-              {(() => {
-                const hasSong = !!(item.song?.songId && item.song.songId._id);
-                // Render whenever a populated song object exists — even if the URL is missing.
-                // SongPlayer will fetch a fresh URL via getSongById if s3Url/cloudinaryUrl are null.
-                const shouldRender = hasSong;
-                
-                if (__DEV__ && index === currentVisibleIndex) {
-                  logger.info('SongPlayer render check:', {
-                    shortId: item._id,
-                    hasSong,
-                    shouldRender,
-                    songId: item.song?.songId?._id || item.song?.songId,
-                    s3Url: item.song?.songId?.s3Url ? 'EXISTS' : 'MISSING',
-                    cloudinaryUrl: (item.song?.songId as any)?.cloudinaryUrl ? 'EXISTS' : 'MISSING'
-                  });
-                }
-                
-                return shouldRender ? (
+              {/* Render SongPlayer whenever a populated song object exists — even if the URL is missing.
+                 SongPlayer will fetch a fresh URL via getSongById if s3Url/cloudinaryUrl are null. */}
+              {!!(item.song?.songId && item.song.songId._id) && (
                   <View style={styles.hiddenSongPlayer} pointerEvents="none">
                     <SongPlayer
                       post={item}
-                      isVisible={index === currentVisibleIndex}
+                      isVisible={isScreenFocused && index === currentVisibleIndex}
                       autoPlay={isVideoPlaying}
                       externalMuted={mutedShorts.has(item._id)}
                       onPlayingChange={handleSongPlayingChange}
                     />
                   </View>
-                ) : null;
-              })()}
+              )}
             </View>
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation, isScreenFocused]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2628,10 +2638,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           });
         }}
         removeClippedSubviews={true}
-        initialNumToRender={3}
-        maxToRenderPerBatch={3}
-        windowSize={5}
-        updateCellsBatchingPeriod={50} // Batch updates every 50ms for better performance
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        windowSize={3}
+        updateCellsBatchingPeriod={100}
+        onEndReached={loadMoreShorts}
+        onEndReachedThreshold={0.3}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         directionalLockEnabled={false}
