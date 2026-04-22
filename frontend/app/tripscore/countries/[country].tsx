@@ -60,7 +60,14 @@ export default function TripScoreCountryDetailScreen() {
       // Convert slug back to proper country name for API
       const countryName = countryParam.replace(/-/g, ' ');
       const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
-      
+
+      // Sort locations by date (most recent first)
+      if (response.data && response.data.locations) {
+        response.data.locations.sort((a: Location, b: Location) => {
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+      }
+
       setData(response.data);
     } catch (error) {
       logger.error('Error loading country data:', error);
@@ -131,7 +138,7 @@ export default function TripScoreCountryDetailScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
-      {/* Header */}
+      {/* Header with Breadcrumb Navigation */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface }]}>
         <TouchableOpacity
           style={styles.backButton}
@@ -141,9 +148,22 @@ export default function TripScoreCountryDetailScreen() {
         >
           <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-          {displayCountryName}
-        </Text>
+        <View style={styles.breadcrumbContainer}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            activeOpacity={0.6}
+          >
+            <Text style={[styles.breadcrumbText, { color: theme.colors.textSecondary }]}>
+              Continents
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.breadcrumbSeparator, { color: theme.colors.textSecondary }]}>
+            {' / '}
+          </Text>
+          <Text style={[styles.breadcrumbText, { color: theme.colors.text }]}>
+            {displayCountryName}
+          </Text>
+        </View>
         <View style={styles.headerRight} />
       </View>
 
@@ -212,41 +232,48 @@ export default function TripScoreCountryDetailScreen() {
               </View>
               
               <View style={styles.placesList}>
-                {data.locations.map((location, index) => (
-                  <TouchableOpacity 
-                    key={index} 
-                    style={styles.placeRow}
-                    onPress={() => {
-                      const locationSlug = location.name.toLowerCase().replace(/\s+/g, '-');
-                      router.push({ 
-                        pathname: '/tripscore/countries/[country]/locations/[location]', 
-                        params: { 
-                          country: countryName, 
-                          location: locationSlug,
-                          userId: (Array.isArray(userId) ? userId[0] : userId) as string 
-                        } 
-                      });
-                    }}
-                  >
-                    <View style={styles.placeIcon}>
-                      <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
-                    </View>
-                    <View style={styles.placeDetails}>
-                      <Text style={[styles.placeName, { color: theme.colors.text }]}>
-                        {location.name}
-                      </Text>
-                      <Text style={[styles.placeMeta, { color: theme.colors.textSecondary }]}>
-                        Score: {location.score} • {new Date(location.date).toLocaleDateString()}
-                      </Text>
-                    </View>
-                    <View style={styles.placeScore}>
-                      <Text style={[styles.scoreText, { color: theme.colors.primary }]}>
-                        {location.score}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
-                  </TouchableOpacity>
-                ))}
+                {data.locations.map((location, index) => {
+                  const verifiedDate = new Date(location.date).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  });
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.placeRow}
+                      onPress={() => {
+                        const locationSlug = location.name.toLowerCase().replace(/\s+/g, '-');
+                        router.push({
+                          pathname: '/tripscore/countries/[country]/locations/[location]',
+                          params: {
+                            country: countryName,
+                            location: locationSlug,
+                            userId: (Array.isArray(userId) ? userId[0] : userId) as string
+                          }
+                        });
+                      }}
+                    >
+                      <View style={styles.placeIcon}>
+                        <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
+                      </View>
+                      <View style={styles.placeDetails}>
+                        <Text style={[styles.placeName, { color: theme.colors.text }]}>
+                          {location.name}
+                        </Text>
+                        <Text style={[styles.placeMeta, { color: theme.colors.textSecondary }]}>
+                          Verified: {verifiedDate}
+                        </Text>
+                      </View>
+                      <View style={[styles.placeScore, { backgroundColor: '#22C55E15' }]}>
+                        <Text style={[styles.scoreText, { color: '#22C55E' }]}>
+                          +{location.score} pts
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
@@ -305,6 +332,23 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  breadcrumbContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  breadcrumbText: {
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: 0.2,
+  },
+  breadcrumbSeparator: {
+    fontSize: 14,
+    marginHorizontal: 4,
+    fontWeight: '400',
   },
   headerTitle: {
     flex: 1,

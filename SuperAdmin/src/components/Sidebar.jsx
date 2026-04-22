@@ -25,6 +25,7 @@ const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permission: null },
   { name: 'Analytics', href: '/analytics', icon: BarChart3, permission: null },
   { name: 'TripScore Analytics', href: '/tripscore-analytics', icon: Globe, permission: 'canViewAnalytics' },
+  { name: 'Travel Verification', href: '/travel-verification', icon: MapPin, permission: 'canViewAnalytics' },
   { name: 'Query Monitor', href: '/query-monitor', icon: Database, permission: null },
   { name: 'Users', href: '/users', icon: Users, permission: 'canManageUsers' },
   { name: 'Travel Content', href: '/travel-content', icon: MapPin, permission: 'canManageContent' },

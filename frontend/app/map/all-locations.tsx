@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   ActivityIndicator,
-  Dimensions,
   StatusBar,
   Platform,
 } from 'react-native';
@@ -13,15 +12,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import * as ExpoLocation from 'expo-location';
 import { useTheme } from '../../context/ThemeContext';
-import Constants from 'expo-constants';
-import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
+import PolylineRenderer from '../../components/PolylineRenderer';
+import PhotoOverlay from '../../components/PhotoOverlay';
 import { getTravelMapData } from '../../services/profile';
-import { getGoogleMapsApiKey, getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { getUserJourneys } from '../../services/journey';
+import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const GROWTH_GREEN = '#22C55E';
+const ALERT_RED = '#EF4444';
+const ACTION_BLUE = '#3B82F6';
 
 function safeDecodeUriComponent(value: string | string[] | undefined): string | null {
   if (value == null) return null;
@@ -34,176 +37,201 @@ function safeDecodeUriComponent(value: string | string[] | undefined): string | 
   }
 }
 
-interface Location {
+interface LocationPin {
   number: number;
   latitude: number;
   longitude: number;
   address: string;
   date: string;
+  photo?: string;
+  postId?: string;
+  contentType?: 'photo' | 'video';
+}
+
+interface JourneyPolyline {
+  _id: string;
+  title: string;
+  polyline: Array<{ lat: number; lng: number; timestamp?: string }>;
+  startCoords: { lat: number; lng: number };
+  endCoords: { lat: number; lng: number };
+  distanceTraveled: number;
+  startedAt: string;
+  completedAt: string;
+  waypoints: any[];
 }
 
 function AllLocationsMapInner() {
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [locations, setLocations] = useState<LocationPin[]>([]);
+  const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
     totalDistance: number;
     totalDays: number;
   } | null>(null);
+
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
   const rawUserId = params.userId;
   const userId = typeof rawUserId === 'string' ? rawUserId : Array.isArray(rawUserId) ? rawUserId[0] : undefined;
   const displayName = safeDecodeUriComponent(params.userName as string | string[] | undefined);
-  const headerTitle = displayName ? `${displayName}'s locations` : 'My Travel Locations';
+  const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
-  const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
-  const WEB_VIEW_MAPS_KEY = getGoogleMapsApiKeyForWebView();
+  const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
 
+  // Get current country via reverse geocoding
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const loc = await ExpoLocation.getCurrentPositionAsync({
+          accuracy: ExpoLocation.Accuracy.Low,
+        });
+        const geocode = await ExpoLocation.reverseGeocodeAsync({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        if (geocode.length > 0 && geocode[0].country) {
+          setCurrentCountry(geocode[0].country);
+        }
+      } catch (err) {
+        logger.debug('[AllLocations] Country detection failed:', err);
+      }
+    };
+    detectCountry();
+  }, []);
+
+  // Load locations + journeys
   useEffect(() => {
     const id = userId && String(userId).trim();
     if (id) {
-      loadLocations();
+      loadAllData(id);
     } else {
       setError('User ID is required');
       setLoading(false);
     }
   }, [userId]);
 
-  // Fit map to all locations when locations change - CRITICAL to show all visited places in single frame
-  useEffect(() => {
-    if (locations.length > 0 && mapRef.current && !loading) {
-      const validCoords = locations
-        .filter(loc => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
-        .map(loc => ({
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-        }));
-      
-      if (validCoords.length > 0) {
-        // Use multiple attempts with increased padding to ensure all locations are visible
-        const fitMap = (attempt = 0) => {
-          if (attempt > 3) return;
-          
-          const delay = Platform.OS === 'ios' ? (attempt === 0 ? 150 : 200) : (attempt === 0 ? 500 : 200);
-          
-          const timer = setTimeout(() => {
-            try {
-              if (mapRef.current && validCoords.length > 0) {
-                // Use increased padding to ensure all markers are visible in single frame
-                mapRef.current.fitToCoordinates(validCoords, {
-                  edgePadding: { top: 100, right: 100, bottom: 100, left: 100 }, // Increased from 50
-                  animated: attempt === 0 && Platform.OS !== 'ios', // Don't animate on iOS for faster rendering
-                });
-                logger.debug(`[${Platform.OS}] Refitted map to ${validCoords.length} coordinates (attempt ${attempt + 1})`);
-                
-                // On iOS, retry once more to ensure it sticks and shows all locations
-                if (Platform.OS === 'ios' && attempt === 0) {
-                  fitMap(1);
-                }
-              } else if (attempt < 3) {
-                fitMap(attempt + 1);
-              }
-            } catch (err) {
-              logger.warn(`Error refitting map (attempt ${attempt + 1}):`, err);
-              if (attempt < 3) {
-                fitMap(attempt + 1);
-              }
-            }
-          }, delay);
-          
-          return () => clearTimeout(timer);
-        };
-        
-        return fitMap();
-      }
-    }
-  }, [locations, loading]);
-
-  const loadLocations = async () => {
-    const id = userId && String(userId).trim();
-    if (!id) {
-      setError('User ID is required');
-      setLoading(false);
-      return;
-    }
+  const loadAllData = async (id: string) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await getTravelMapData(id);
-      const locationsData = response?.locations ?? [];
-      const statisticsData = response?.statistics ?? null;
-      setError(null);
-      setLocations(locationsData);
-      setStatistics(statisticsData);
-      if (locationsData.length > 0) {
-        setTimeout(() => {
-          if (mapRef.current && locationsData.length > 0) {
-            const validCoords = locationsData
-              .filter((loc: Location) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
-              .map((loc: Location) => ({
-                latitude: loc.latitude,
-                longitude: loc.longitude,
-              }));
-            if (validCoords.length > 0) {
-              try {
-                mapRef.current.fitToCoordinates(validCoords, {
-                  edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-                  animated: true,
-                });
-              } catch (_err) {}
-            }
-          }
-        }, 500);
+
+      // Fetch post locations and journey polylines in parallel
+      const [travelMapResult, journeysResult] = await Promise.allSettled([
+        getTravelMapData(id),
+        getUserJourneys(id, 1, 50, true), // includePolyline = true
+      ]);
+
+      // Process post locations
+      if (travelMapResult.status === 'fulfilled') {
+        const response = travelMapResult.value;
+        setLocations(response?.locations ?? []);
+        setStatistics(response?.statistics ?? null);
+      }
+
+      // Process journey polylines
+      if (journeysResult.status === 'fulfilled') {
+        const data = journeysResult.value;
+        const rawJourneys = data?.journeys ?? [];
+        // Filter journeys that have polyline data
+        const withPolylines = rawJourneys.filter(
+          (j: any) => j.polyline && j.polyline.length > 1
+        );
+        setJourneys(withPolylines);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load locations');
-      setLocations([]);
-      setStatistics(null);
+      setError(err.message || 'Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Calculate map region to fit all markers with better padding
-  const getMapRegion = () => {
-    if (locations.length === 0) {
-      return {
-        latitude: 0,
-        longitude: 0,
-        latitudeDelta: 180,
-        longitudeDelta: 360,
+  // Fit map to show all markers + polylines after data loads
+  useEffect(() => {
+    if (loading || (!locations.length && !journeys.length)) return;
+    if (!mapRef.current) return;
+
+    const allCoords: Array<{ latitude: number; longitude: number }> = [];
+
+    // Add post locations
+    locations.forEach((loc) => {
+      if (loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0) {
+        allCoords.push({ latitude: loc.latitude, longitude: loc.longitude });
+      }
+    });
+
+    // Add journey polyline points (just start + end for bounding, not every point)
+    journeys.forEach((j) => {
+      if (j.startCoords?.lat && j.startCoords?.lng) {
+        allCoords.push({ latitude: j.startCoords.lat, longitude: j.startCoords.lng });
+      }
+      if (j.endCoords?.lat && j.endCoords?.lng) {
+        allCoords.push({ latitude: j.endCoords.lat, longitude: j.endCoords.lng });
+      }
+    });
+
+    if (allCoords.length > 0) {
+      const fitMap = (attempt = 0) => {
+        if (attempt > 3) return;
+        const delay = Platform.OS === 'ios' ? (attempt === 0 ? 150 : 200) : (attempt === 0 ? 500 : 200);
+        setTimeout(() => {
+          try {
+            if (mapRef.current && allCoords.length > 0) {
+              mapRef.current.fitToCoordinates(allCoords, {
+                edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
+                animated: attempt === 0 && Platform.OS !== 'ios',
+              });
+              if (Platform.OS === 'ios' && attempt === 0) fitMap(1);
+            }
+          } catch (err) {
+            if (attempt < 3) fitMap(attempt + 1);
+          }
+        }, delay);
       };
+      fitMap();
+    }
+  }, [locations, journeys, loading]);
+
+  // Calculate region to fit all data
+  const getMapRegion = useCallback(() => {
+    const allLats: number[] = [];
+    const allLngs: number[] = [];
+
+    locations.forEach((loc) => {
+      if (loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0) {
+        allLats.push(loc.latitude);
+        allLngs.push(loc.longitude);
+      }
+    });
+
+    journeys.forEach((j) => {
+      if (j.polyline) {
+        j.polyline.forEach((p) => {
+          if (p.lat && p.lng) {
+            allLats.push(p.lat);
+            allLngs.push(p.lng);
+          }
+        });
+      }
+    });
+
+    if (allLats.length === 0) {
+      return { latitude: 20, longitude: 0, latitudeDelta: 140, longitudeDelta: 360 };
     }
 
-    const validLocations = locations.filter(loc => 
-      loc.latitude && loc.longitude && 
-      loc.latitude !== 0 && loc.longitude !== 0 &&
-      !isNaN(loc.latitude) && !isNaN(loc.longitude)
-    );
+    const minLat = Math.min(...allLats);
+    const maxLat = Math.max(...allLats);
+    const minLng = Math.min(...allLngs);
+    const maxLng = Math.max(...allLngs);
 
-    if (validLocations.length === 0) {
-      return {
-        latitude: 0,
-        longitude: 0,
-        latitudeDelta: 180,
-        longitudeDelta: 360,
-      };
-    }
-
-    const latitudes = validLocations.map(loc => loc.latitude);
-    const longitudes = validLocations.map(loc => loc.longitude);
-    
-    const minLat = Math.min(...latitudes);
-    const maxLat = Math.max(...latitudes);
-    const minLng = Math.min(...longitudes);
-    const maxLng = Math.max(...longitudes);
-
-    // Add padding factor (2.0 instead of 1.5) to ensure all markers are visible with margin
-    const latDelta = Math.max((maxLat - minLat) * 2.0, 0.1);
-    const lngDelta = Math.max((maxLng - minLng) * 2.0, 0.1);
+    const latDelta = Math.max((maxLat - minLat) * 1.8, 0.1);
+    const lngDelta = Math.max((maxLng - minLng) * 1.8, 0.1);
 
     return {
       latitude: (minLat + maxLat) / 2,
@@ -211,342 +239,306 @@ function AllLocationsMapInner() {
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,
     };
-  };
+  }, [locations, journeys]);
 
-  // Generate HTML for WebView map (web platform)
-  const getWebMapHTML = () => {
-    if (locations.length === 0) {
-      logger.warn('No locations to display on web map');
-      return '<html><body><div style="padding: 20px; text-align: center;">No locations to display</div></body></html>';
-    }
-    
+  // ──────────────────────────────────────────────────────
+  // WebView HTML (used on Expo Go Android where native maps crash)
+  // ──────────────────────────────────────────────────────
+  const getWebMapHTML = useCallback(() => {
     const region = getMapRegion();
-    
-    // Filter out invalid locations
-    const validLocations = locations.filter(loc => 
-      loc.latitude && loc.longitude && 
-      loc.latitude !== 0 && loc.longitude !== 0 &&
-      !isNaN(loc.latitude) && !isNaN(loc.longitude)
+    const validLocations = locations.filter(
+      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
     );
-    
-    if (validLocations.length === 0) {
-      logger.warn('No valid locations after filtering');
-      return '<html><body><div style="padding: 20px; text-align: center;">No valid locations to display</div></body></html>';
-    }
-    
-    const markersData = validLocations.map(loc => ({
+    const markersData = validLocations.map((loc) => ({
       lat: loc.latitude,
       lng: loc.longitude,
       title: (loc.address || `Location #${loc.number}`).replace(/"/g, '&quot;'),
-      number: loc.number
+      number: loc.number,
+      photo: loc.photo || null,
+      postId: loc.postId || null,
     }));
-    
-    logger.debug('Generating web map HTML with markers:', markersData.length);
+    const polylinePaths = journeys.map((j) => ({
+      title: j.title || 'Journey',
+      path: j.polyline.map((p) => ({ lat: p.lat, lng: p.lng })),
+    }));
+    const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
 
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          html, body, #map { 
-            height: 100%; 
-            margin: 0; 
-            padding: 0; 
-          }
-        </style>
-        <script>
-          function initMap() {
-            const map = new google.maps.Map(document.getElementById('map'), {
-              center: { lat: ${region.latitude}, lng: ${region.longitude} },
-              zoom: ${Math.min(10, Math.max(2, Math.floor(15 - Math.log2(region.latitudeDelta))))},
-              mapTypeId: 'terrain',
-              language: 'en',
-            });
-            
-            const markers = ${JSON.stringify(markersData)};
-            const bounds = new google.maps.LatLngBounds();
-            const infoWindows = [];
-            
-            markers.forEach((markerData, index) => {
-              const position = new google.maps.LatLng(markerData.lat, markerData.lng);
-              bounds.extend(position);
-              
-              const marker = new google.maps.Marker({
-                position: position,
-                map: map,
-                title: markerData.title,
-                label: {
-                  text: String(markerData.number),
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: '12px'
-                },
-                icon: {
-                  url: 'data:image/svg+xml;utf-8,' + encodeURIComponent('<svg width="32" height="32" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="14" fill="%232563EB" stroke="white" stroke-width="2"/><text x="16" y="21" font-size="12" font-weight="bold" text-anchor="middle" fill="white">' + markerData.number + '</text></svg>'),
-                  scaledSize: new google.maps.Size(32, 32),
-                  anchor: new google.maps.Point(16, 16)
-                }
-              });
-              
-              const infoWindow = new google.maps.InfoWindow({
-                content: '<div style="padding: 8px;"><strong>Location #' + markerData.number + '</strong><br/>' + markerData.title + '</div>',
-              });
-              
-              marker.addListener('click', function() {
-                // Close all other info windows
-                infoWindows.forEach(iw => iw.close());
-                infoWindow.open(map, marker);
-              });
-              
-              infoWindows.push(infoWindow);
-            });
-            
-            // Fit map to show all markers
-            if (markers.length > 0) {
-              map.fitBounds(bounds);
-              // Set a max zoom level to prevent too much zoom
-              google.maps.event.addListenerOnce(map, 'bounds_changed', function() {
-                if (map.getZoom() > 15) {
-                  map.setZoom(15);
-                }
-              });
-            }
-          }
-        </script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEB_VIEW_MAPS_KEY || GOOGLE_MAPS_API_KEY || ''}&language=en&callback=initMap"></script>
-      </body>
-      </html>
-    `;
-  };
+    return `<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>html,body,#map{height:100%;margin:0;padding:0}</style>
+<script>
+function initMap(){
+  var map=new google.maps.Map(document.getElementById('map'),{
+    center:{lat:${region.latitude},lng:${region.longitude}},
+    zoom:${zoomLevel},mapTypeId:'terrain',language:'en'
+  });
+  var bounds=new google.maps.LatLngBounds();
+  var activeOverlays=[];
 
+  // Journey polylines
+  var journeys=${JSON.stringify(polylinePaths)};
+  journeys.forEach(function(j){
+    if(j.path&&j.path.length>1){
+      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:0.9,strokeWeight:4,map:map});
+      j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
+    }
+  });
+
+  var markers=${JSON.stringify(markersData)};
+  markers.forEach(function(m){bounds.extend(new google.maps.LatLng(m.lat,m.lng));});
+
+  // Zoom-aware grid size: smaller grid = less clustering when zoomed in
+  function getGridSize(zoom){
+    if(zoom>=15)return 0;
+    if(zoom>=13)return 0.05;
+    if(zoom>=11)return 0.15;
+    if(zoom>=9)return 0.4;
+    if(zoom>=7)return 1;
+    if(zoom>=5)return 2;
+    return 4;
+  }
+
+  function clusterMarkers(items,gs){
+    if(gs===0){return items.map(function(it){return{items:[it],lat:it.lat,lng:it.lng};});}
+    var clusters=[],used=new Array(items.length).fill(false);
+    for(var i=0;i<items.length;i++){
+      if(used[i])continue;
+      var c={items:[items[i]],lat:items[i].lat,lng:items[i].lng};used[i]=true;
+      for(var j=i+1;j<items.length;j++){
+        if(used[j])continue;
+        if(Math.abs(items[j].lat-c.lat)<gs&&Math.abs(items[j].lng-c.lng)<gs){c.items.push(items[j]);used[j]=true;}
+      }
+      var sLat=0,sLng=0;c.items.forEach(function(it){sLat+=it.lat;sLng+=it.lng;});
+      c.lat=sLat/c.items.length;c.lng=sLng/c.items.length;clusters.push(c);
+    }
+    return clusters;
+  }
+
+  // Custom OverlayView class
+  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
+  PhotoOverlay.prototype=new google.maps.OverlayView();
+  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
+  PhotoOverlay.prototype.draw=function(){var pt=this.getProjection().fromLatLngToDivPixel(this.position);if(pt){this.div.style.left=(pt.x-28)+'px';this.div.style.top=(pt.y-28)+'px';this.div.style.position='absolute';}};
+  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+
+  function renderClusters(){
+    // Remove existing overlays
+    activeOverlays.forEach(function(ov){ov.setMap(null);});
+    activeOverlays=[];
+
+    var zoom=map.getZoom()||${zoomLevel};
+    var gs=getGridSize(zoom);
+    var clusters=clusterMarkers(markers,gs);
+    var sz=56;
+
+    clusters.forEach(function(cluster){
+      var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
+      var main=cluster.items[0],extra=cluster.items.length-1;
+      var div=document.createElement('div');
+      div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;';
+
+      if(main.photo){
+        var img=document.createElement('img');
+        img.src=main.photo;
+        img.crossOrigin='anonymous';
+        img.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);background:#E5E7EB;';
+        img.onerror=function(){
+          this.style.display='none';
+          var fb=document.createElement('div');
+          fb.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+          fb.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
+          div.insertBefore(fb,div.firstChild);
+        };
+        div.appendChild(img);
+      }else{
+        var ph=document.createElement('div');
+        ph.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+        ph.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
+        div.appendChild(ph);
+      }
+
+      if(extra>0){
+        var badge=document.createElement('div');
+        badge.style.cssText='position:absolute;top:-8px;right:-8px;background:${ACTION_BLUE};color:white;font-size:11px;font-weight:700;min-width:22px;height:22px;line-height:22px;text-align:center;padding:0 5px;border-radius:11px;box-shadow:0 1px 4px rgba(0,0,0,0.3);';
+        badge.textContent=extra+1;
+        div.appendChild(badge);
+      }
+
+      // Tap handler: single marker → navigate to post, cluster → zoom in
+      div.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(cluster.items.length===1&&cluster.items[0].postId){
+          // Navigate to post detail
+          if(window.ReactNativeWebView){
+            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
+          }
+        }else if(cluster.items.length>1){
+          // Zoom into the cluster area
+          var cb=new google.maps.LatLngBounds();
+          cluster.items.forEach(function(it){cb.extend(new google.maps.LatLng(it.lat,it.lng));});
+          map.fitBounds(cb,60);
+        }else if(cluster.items[0].postId){
+          if(window.ReactNativeWebView){
+            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
+          }
+        }
+      });
+
+      var ov=new PhotoOverlay(pos,div);
+      activeOverlays.push(ov);
+    });
+  }
+
+  // Initial render + re-render on zoom change
+  if(markers.length>0||journeys.some(function(j){return j.path.length>0;})){
+    map.fitBounds(bounds,40);
+    google.maps.event.addListenerOnce(map,'bounds_changed',function(){
+      if(map.getZoom()>15)map.setZoom(15);
+      renderClusters();
+    });
+  }else{
+    renderClusters();
+  }
+  map.addListener('zoom_changed',function(){renderClusters();});
+}
+</script>
+</head><body>
+<div id="map"></div>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
+</body></html>`;
+  }, [locations, journeys, getMapRegion, WEBVIEW_API_KEY]);
+
+  // ──────────────────────────────────────────────────────
+  // renderMap — native MapView preferred, WebView fallback
+  // ──────────────────────────────────────────────────────
   const renderMap = () => {
-    // Use WebView on all platforms to avoid native MapView crashes on iOS/Android
-    const useWebView = true;
-    const needsWebViewKey = useWebView;
-    if (needsWebViewKey && !WEB_VIEW_MAPS_KEY && !GOOGLE_MAPS_API_KEY) {
+    // ── WebView fallback (Expo Go Android) ──
+    if (useWebViewFallback) {
+      if (!WEBVIEW_API_KEY) {
+        return (
+          <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+            <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
+              Map unavailable — no API key configured
+            </Text>
+          </View>
+        );
+      }
       return (
-        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
-          <Text style={[styles.loadingText, { color: theme.colors.text, marginTop: 16, textAlign: 'center' }]}>
-            Map is unavailable. Configure Google Maps API key in your environment.
-          </Text>
-        </View>
-      );
-    }
-    if (useWebView) {
-      return (
-        <View style={styles.mapContainer}>
-          <WebView
-            source={{ html: getWebMapHTML() }}
-            style={styles.map}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            startInLoadingState={true}
-            originWhitelist={['*']}
-            {...(Platform.OS === 'android' && {
-              mixedContentMode: 'compatibility',
-              setSupportMultipleWindows: false,
-            })}
-            renderLoading={() => (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
-              </View>
-            )}
-            onError={(syntheticEvent) => {
-              const { nativeEvent } = syntheticEvent;
-              logger.error('WebView error: ', nativeEvent);
-            }}
-          />
-        </View>
-      );
-    }
-
-    // Native MapView for iOS/Android
-    if (!MapView) {
-      return (
-        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>
-            Map not available on this platform
-          </Text>
-        </View>
+        <WebView
+          source={{ html: getWebMapHTML() }}
+          style={styles.map}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
+          onShouldStartLoadWithRequest={(request) => {
+            if (request.url.startsWith('http') || request.url.startsWith('data:') || request.url.startsWith('about:')) return true;
+            return false;
+          }}
+          {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.type === 'navigatePost' && data.postId) {
+                router.push(`/post/${data.postId}`);
+              }
+            } catch (err) {
+              logger.debug('[AllLocations] WebView message parse error:', err);
+            }
+          }}
+          renderLoading={() => (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+          )}
+          onError={(e) => logger.error('WebView error:', e.nativeEvent)}
+        />
       );
     }
 
-    if (loading) {
-      return (
-        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 16 }]}>
-            Loading verified locations...
-          </Text>
-        </View>
-      );
-    }
-    if (locations.length === 0) {
+    // ── Native MapView (iOS / Android dev build) ──
+    if (!MapView || !Marker) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
           <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
-          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
-            No verified travel locations yet
-          </Text>
-          <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 8 }]}>
-            Start posting with locations to see them here.
-          </Text>
+          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>Map not available</Text>
         </View>
       );
     }
 
     const region = getMapRegion();
-    
-    // Filter valid locations
-    const validLocations = locations.filter(loc => 
-      loc.latitude && loc.longitude && 
-      loc.latitude !== 0 && loc.longitude !== 0 &&
-      !isNaN(loc.latitude) && !isNaN(loc.longitude)
+    const validLocations = locations.filter(
+      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
     );
-
-    if (validLocations.length === 0) {
-      return (
-        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
-          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
-            No valid coordinates to display
-          </Text>
-        </View>
-      );
-    }
-
-    // Prepare coordinates for fitToCoordinates
-    const coordinates = validLocations.map(loc => ({
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-    }));
 
     return (
       <MapView
         ref={mapRef}
-        style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
+        style={styles.map}
         provider={getMapProvider()}
         initialRegion={region}
-        region={region} // Force region update to prevent defaulting to current location
-        showsUserLocation={false} // CRITICAL: Disable current location display
-        showsMyLocationButton={false} // CRITICAL: Disable location button
-        followsUserLocation={false} // CRITICAL: Don't follow user location
-        userLocationPriority="none" // CRITICAL: Don't prioritize user location
+        showsUserLocation={false}
+        showsMyLocationButton={false}
+        followsUserLocation={false}
         showsCompass={true}
         showsScale={true}
         mapType="terrain"
-        mapPadding={{ top: 100, right: 100, bottom: 100, left: 100 }} // Increased padding to ensure all markers are visible
+        mapPadding={{ top: 100, right: 80, bottom: 100, left: 80 }}
         onMapReady={() => {
-          logger.info('Map ready, displaying verified locations:', {
-            count: validLocations.length,
-            region,
-            coordinatesCount: coordinates.length,
-            platform: Platform.OS
-          });
-          
-          // CRITICAL: Immediately fit map to all coordinates to show all visited places in single frame
-          if (coordinates.length > 0 && mapRef.current) {
-            // Use multiple attempts to ensure fitToCoordinates works reliably
-            const fitMap = (attempt = 0) => {
-              if (attempt > 5) {
-                logger.warn('Failed to fit map after 5 attempts');
-                return;
-              }
-              
-              setTimeout(() => {
-                try {
-                  if (mapRef.current && coordinates.length > 0) {
-                    // Force fit to coordinates with generous padding to show all locations in single frame
-                    mapRef.current.fitToCoordinates(coordinates, {
-                      edgePadding: { 
-                        top: 100,    // Increased from 50 to ensure markers aren't cut off
-                        right: 100, 
-                        bottom: 100, 
-                        left: 100 
-                      },
-                      animated: attempt === 0 && Platform.OS !== 'ios', // Don't animate on iOS first attempt for faster rendering
-                    });
-                    logger.debug(`[${Platform.OS}] Fitted map to ${coordinates.length} coordinates (attempt ${attempt + 1})`);
-                    
-                    // On iOS, also set camera directly after fitting to ensure it sticks
-                    if (Platform.OS === 'ios' && attempt === 0) {
-                      setTimeout(() => {
-                        try {
-                          if (mapRef.current) {
-                            // Calculate zoom level that fits all coordinates
-                            const zoomLevel = Math.min(15, Math.max(2, Math.floor(15 - Math.log2(region.latitudeDelta))));
-                            mapRef.current.setCamera({
-                              center: {
-                                latitude: region.latitude,
-                                longitude: region.longitude,
-                              },
-                              zoom: zoomLevel,
-                            }, { animated: false });
-                            logger.debug(`[iOS] Set camera to center: ${region.latitude}, ${region.longitude}, zoom: ${zoomLevel}`);
-                          }
-                        } catch (err) {
-                          logger.debug('Error setting camera:', err);
-                        }
-                      }, 150);
-                    }
-                  } else {
-                    fitMap(attempt + 1);
-                  }
-                } catch (err) {
-                  logger.warn(`Error fitting map (attempt ${attempt + 1}):`, err);
-                  if (attempt < 5) {
-                    fitMap(attempt + 1);
-                  }
-                }
-              }, attempt === 0 ? (Platform.OS === 'ios' ? 150 : 500) : 200);
-            };
-            
-            fitMap();
-          }
-        }}
-        onRegionChangeComplete={(newRegion: any) => {
-          // Prevent map from changing back to current location
-          // If region changes to something unexpected, refit to our coordinates
-          const expectedCenterLat = region.latitude;
-          const expectedCenterLng = region.longitude;
-          const distance = Math.sqrt(
-            Math.pow(newRegion.latitude - expectedCenterLat, 2) + 
-            Math.pow(newRegion.longitude - expectedCenterLng, 2)
-          );
-          
-          // If region moved too far from expected (more than 10 degrees), refit to show all locations
-          if (distance > 10 && coordinates.length > 0 && mapRef.current) {
-            logger.debug('Region moved unexpectedly, refitting to show all coordinates');
-            try {
-              mapRef.current.fitToCoordinates(coordinates, {
-                edgePadding: { top: 100, right: 100, bottom: 100, left: 100 }, // Increased padding
-                animated: false,
-              });
-            } catch (err) {
-              logger.warn('Error refitting after region change:', err);
-            }
+          const allCoords = [
+            ...validLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude })),
+            ...journeys.flatMap((j) =>
+              j.polyline?.map((p) => ({ latitude: p.lat, longitude: p.lng })) || []
+            ),
+          ];
+          if (allCoords.length > 0 && mapRef.current) {
+            setTimeout(() => {
+              try {
+                mapRef.current?.fitToCoordinates(allCoords, {
+                  edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
+                  animated: false,
+                });
+              } catch {}
+            }, 300);
           }
         }}
       >
+        {/* Journey polylines */}
+        {journeys.map((j) => {
+          if (!j.polyline || j.polyline.length < 2) return null;
+          const coords = j.polyline.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+          return (
+            <PolylineRenderer
+              key={`polyline-${j._id}`}
+              coordinates={coords}
+              color={GROWTH_GREEN}
+              strokeWidth={4}
+              simplifyDistance={10}
+              applyKalman={false}
+            />
+          );
+        })}
+
+        {/* Post location markers with photo thumbnails */}
         {validLocations.map((location, index) => (
           <Marker
-            key={`marker-${location.number}-${location.latitude}-${location.longitude}-${index}`}
-            coordinate={{
-              latitude: location.latitude,
-              longitude: location.longitude,
-            }}
+            key={`marker-${location.number}-${index}`}
+            coordinate={{ latitude: location.latitude, longitude: location.longitude }}
             title={location.address || `Location #${location.number}`}
             description={`Visit #${location.number}`}
           >
             <View style={styles.markerContainer}>
-              <View style={[styles.markerCircle, { backgroundColor: theme.colors.primary }]}>
-                <Text style={styles.markerText}>{location.number}</Text>
-              </View>
+              {location.photo ? (
+                <View style={{ marginBottom: 4 }}>
+                  <PhotoOverlay imageUrl={location.photo} label={`${location.number}`} onPress={() => {}} />
+                </View>
+              ) : (
+                <View style={[styles.markerCircle, { backgroundColor: ALERT_RED }]}>
+                  <Text style={styles.markerText}>{location.number}</Text>
+                </View>
+              )}
             </View>
           </Marker>
         ))}
@@ -554,6 +546,7 @@ function AllLocationsMapInner() {
     );
   };
 
+  // --- Loading state ---
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -568,13 +561,14 @@ function AllLocationsMapInner() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
-            {displayName ? `Loading ${displayName}'s locations...` : 'Loading your travel locations...'}
+            Loading locations &amp; journeys...
           </Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  // --- Error state ---
   if (error) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -590,7 +584,7 @@ function AllLocationsMapInner() {
           <Ionicons name="alert-circle-outline" size={48} color={theme.colors.error} />
           <Text style={[styles.errorText, { color: theme.colors.text }]}>{error}</Text>
           <TouchableOpacity
-            onPress={loadLocations}
+            onPress={() => userId && loadAllData(userId)}
             style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
           >
             <Text style={styles.retryButtonText}>Retry</Text>
@@ -600,46 +594,96 @@ function AllLocationsMapInner() {
     );
   }
 
+  const totalJourneyDistance = journeys.reduce((sum, j) => sum + (j.distanceTraveled || 0), 0);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
-      
-      {/* Header */}
+
+      {/* Header with back + title + journeys icon */}
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
-        <View style={styles.placeholder} />
-      </View>
-
-      {/* Statistics Bar */}
-      {statistics && (
-        <View style={[styles.statsContainer, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-          <View style={styles.statItem}>
-            <Ionicons name="location" size={20} color={theme.colors.primary} />
-            <Text style={[styles.statValue, { color: theme.colors.text }]}>{statistics.totalLocations}</Text>
-            <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Locations</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Ionicons name="map" size={20} color={theme.colors.primary} />
-            <Text style={[styles.statValue, { color: theme.colors.text }]}>{statistics.totalDistance} km</Text>
-            <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Traveled</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Ionicons name="calendar" size={20} color={theme.colors.primary} />
-            <Text style={[styles.statValue, { color: theme.colors.text }]}>{statistics.totalDays}</Text>
-            <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Days</Text>
-          </View>
+        <View style={styles.headerCenter}>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
+          {currentCountry && (
+            <View style={styles.countryChip}>
+              <Ionicons name="flag" size={12} color={GROWTH_GREEN} />
+              <Text style={[styles.countryText, { color: theme.colors.textSecondary }]}>{currentCountry}</Text>
+            </View>
+          )}
         </View>
-      )}
-
-      {/* Map Container */}
-      <View style={styles.mapContainer}>
-        {renderMap()}
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={() => router.push(`/journeys?userId=${userId}`)}
+        >
+          <Ionicons name="list" size={22} color={theme.colors.text} />
+        </TouchableOpacity>
       </View>
+
+      {/* Stats bar */}
+      <View style={[styles.statsContainer, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        <View style={styles.statItem}>
+          <Ionicons name="location" size={18} color={ALERT_RED} />
+          <Text style={[styles.statValue, { color: theme.colors.text }]}>{locations.length}</Text>
+          <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
+        </View>
+        <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
+        <View style={styles.statItem}>
+          <Ionicons name="map" size={18} color={GROWTH_GREEN} />
+          <Text style={[styles.statValue, { color: theme.colors.text }]}>{journeys.length}</Text>
+          <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Journeys</Text>
+        </View>
+        <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
+        <View style={styles.statItem}>
+          <Ionicons name="navigate" size={18} color={ACTION_BLUE} />
+          <Text style={[styles.statValue, { color: theme.colors.text }]}>
+            {totalJourneyDistance >= 1000
+              ? `${(totalJourneyDistance / 1000).toFixed(1)} km`
+              : `${Math.round(totalJourneyDistance)} m`}
+          </Text>
+          <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Traveled</Text>
+        </View>
+        {statistics?.totalDays ? (
+          <>
+            <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
+            <View style={styles.statItem}>
+              <Ionicons name="calendar" size={18} color={theme.colors.primary} />
+              <Text style={[styles.statValue, { color: theme.colors.text }]}>{statistics.totalDays}</Text>
+              <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Days</Text>
+            </View>
+          </>
+        ) : null}
+      </View>
+
+      {/* Full-screen map */}
+      <View style={styles.mapContainer}>
+        {locations.length === 0 && journeys.length === 0 ? (
+          <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+            <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
+              No travel data yet
+            </Text>
+            <Text style={[styles.loadingText, { color: theme.colors.textSecondary, marginTop: 8 }]}>
+              Post with locations or record journeys to build your map
+            </Text>
+          </View>
+        ) : (
+          renderMap()
+        )}
+      </View>
+
+      {/* Floating Start Journey button */}
+      <TouchableOpacity
+        style={[styles.startJourneyFab, { backgroundColor: GROWTH_GREEN }]}
+        onPress={() => router.push('/navigate')}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="play-circle" size={22} color="white" />
+        <Text style={styles.startJourneyFabText}>Start Journey</Text>
+      </TouchableOpacity>
+
     </SafeAreaView>
   );
 }
@@ -661,25 +705,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
   },
   backButton: {
     padding: 8,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
+    fontWeight: '700',
     textAlign: 'center',
+  },
+  countryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  countryText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   placeholder: {
     width: 40,
+  },
+  headerActionBtn: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)',
   },
   loadingText: {
     marginTop: 12,
@@ -711,7 +780,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
   statItem: {
@@ -719,24 +788,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 2,
   },
   statLabel: {
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1,
+    letterSpacing: 0.5,
   },
   statDivider: {
     width: 1,
-    height: 40,
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    height: 36,
   },
   mapContainer: {
     flex: 1,
   },
   map: {
     flex: 1,
+    minHeight: 200,
   },
   centerContainer: {
     flex: 1,
@@ -748,9 +819,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   markerCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -758,7 +829,29 @@ const styles = StyleSheet.create({
   },
   markerText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
+  },
+  startJourneyFab: {
+    position: 'absolute',
+    bottom: 70,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 28,
+    gap: 8,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    zIndex: 20,
+  },
+  startJourneyFabText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

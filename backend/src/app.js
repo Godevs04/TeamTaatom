@@ -29,6 +29,8 @@ const mapsRoutes = require('./routes/mapsRoutes');
 const policyRoutes = require('./routes/policyRoutes');
 const shortUrlRoutes = require('./routes/shortUrlRoutes');
 const supportRoutes = require('./routes/supportRoutes');
+const journeyRoutes = require('./routes/journeyRoutes');
+const { startAutoEndJob } = require('./jobs/journeyAutoEnd');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -362,6 +364,7 @@ app.use('/api/v1/support', supportRoutes);
 app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
 app.use('/api/v1/maps', mapsRoutes);
+app.use('/api/v1/journey', journeyRoutes);
 
 // Swagger API Documentation
 // Enable in development or when ENABLE_SWAGGER=true (for production)

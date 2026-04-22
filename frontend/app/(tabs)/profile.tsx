@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Image, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
   ImageStyle,
   ActivityIndicator,
   RefreshControl,
@@ -13,7 +13,8 @@ import {
   Animated,
   useColorScheme,
   Platform,
-  Dimensions
+  Dimensions,
+  FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -56,6 +57,22 @@ function countTripsFromLocations(locations: Array<{ date?: string }>): number {
     if ((curr - prev) / (24 * 60 * 60 * 1000) > TRIP_GAP_DAYS) trips += 1;
   }
   return trips;
+}
+
+// Journey interface for type safety
+interface Journey {
+  _id: string;
+  userId: string;
+  title: string;
+  description?: string;
+  startCoords: { lat: number; lng: number };
+  endCoords: { lat: number; lng: number };
+  startedAt: string;
+  completedAt: string;
+  distanceTraveled: number;
+  countries: string[];
+  waypoints: any[];
+  tripScoreAwarded: number;
 }
 
 // Responsive dimensions
@@ -117,6 +134,8 @@ export default function ProfileScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
+  const [journeys, setJourneys] = useState<Journey[]>([]);
+  const [journeysLoading, setJourneysLoading] = useState(false);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
@@ -1240,21 +1259,44 @@ export default function ProfileScreen() {
             {/* Divider */}
             <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
 
-            {/* TripScore Section */}
-            <Pressable 
+            {/* TripScore Section - Enhanced with prominent badge and verified travel card */}
+            <Pressable
               style={styles.unifiedSection}
               onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
             >
-              <View style={styles.sectionHeader}>
-                <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="trophy" size={22} color={profileTheme.accent} />
+              <View style={styles.tripScoreBadgeContainer}>
+                <View style={[styles.tripScoreBadgeBox, { borderColor: profileTheme.accent + '30' }]}>
+                  <Text style={[styles.tripScoreBadgeNumber, { color: '#22C55E' }]}>
+                    {profileData.tripScore?.totalScore ?? 0}
+                  </Text>
+                  <Text style={[styles.tripScoreBadgeLabel, { color: profileTheme.textSecondary }]}>
+                    TripScore
+                  </Text>
                 </View>
-                <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
-                <Text style={[styles.tripScoreNumberInline, { color: profileTheme.accent }]}>
-                  {profileData.tripScore?.totalScore ?? 0}
-                </Text>
-                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
               </View>
+
+              {/* Verified Travel Card */}
+              {verifiedLocationsCount !== null && verifiedLocationsCount > 0 && (
+                <Pressable
+                  style={[styles.verifiedTravelCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
+                  onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+                >
+                  <View style={styles.verifiedTravelContent}>
+                    <View style={[styles.verifiedTravelIcon, { backgroundColor: profileTheme.accent + '20' }]}>
+                      <Ionicons name="checkmark-circle" size={20} color={profileTheme.accent} />
+                    </View>
+                    <View style={styles.verifiedTravelText}>
+                      <Text style={[styles.verifiedTravelTitle, { color: profileTheme.textPrimary }]}>
+                        Verified Travel
+                      </Text>
+                      <Text style={[styles.verifiedTravelCount, { color: profileTheme.textSecondary }]}>
+                        {verifiedLocationsCount} location{verifiedLocationsCount !== 1 ? 's' : ''} verified
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
+                  </View>
+                </Pressable>
+              )}
             </Pressable>
 
             {/* Divider */}
@@ -1306,6 +1348,22 @@ export default function ProfileScreen() {
                   </View>
                 )}
               </View>
+
+            </Pressable>
+
+            {/* Journeys — outside the My Location Pressable so taps work */}
+            <Pressable
+              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
+              onPress={() => router.push(`/journeys?userId=${user?._id}`)}
+            >
+              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
+                <Ionicons name="map" size={20} color={profileTheme.accent} />
+              </View>
+              <View style={styles.journeysInlineText}>
+                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>My Journeys</Text>
+                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>View your travels</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
             </Pressable>
 
             {/* Divider */}
@@ -1919,6 +1977,76 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
+  tripScoreBadgeContainer: {
+    alignItems: 'center',
+    paddingVertical: isTablet ? theme.spacing.lg : 20,
+  },
+  tripScoreBadgeBox: {
+    alignItems: 'center',
+    paddingVertical: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: isTablet ? theme.spacing.xl : 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: isTablet ? 160 : 140,
+  },
+  tripScoreBadgeNumber: {
+    fontSize: isTablet ? 48 : 40,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  tripScoreBadgeLabel: {
+    fontSize: isTablet ? theme.typography.body.fontSize : 12,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  verifiedTravelCard: {
+    marginTop: isTablet ? theme.spacing.md : 12,
+    paddingVertical: isTablet ? theme.spacing.md : 12,
+    paddingHorizontal: isTablet ? theme.spacing.lg : 16,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  verifiedTravelContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: isTablet ? theme.spacing.md : 10,
+  },
+  verifiedTravelIcon: {
+    width: isTablet ? 44 : 36,
+    height: isTablet ? 44 : 36,
+    borderRadius: isTablet ? 22 : 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  verifiedTravelText: {
+    flex: 1,
+  },
+  verifiedTravelTitle: {
+    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    marginBottom: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  verifiedTravelCount: {
+    fontSize: isTablet ? theme.typography.small.fontSize : 12,
+    fontFamily: getFontFamily('400'),
+    fontWeight: '400',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
   tripScoreNumberInline: {
     fontSize: isTablet ? 24 : 20,
     fontWeight: '700',
@@ -2030,6 +2158,35 @@ const styles = StyleSheet.create({
     borderRadius: 70,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  journeysInlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 4,
+  },
+  journeysInlineIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  journeysInlineText: {
+    flex: 1,
+  },
+  journeysInlineTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  journeysInlineSubtitle: {
+    fontSize: 12,
+    fontWeight: '400',
   },
   
   // Settings Tiles

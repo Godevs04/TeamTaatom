@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
   Alert,
   ActivityIndicator,
   Dimensions,
@@ -14,15 +15,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
-import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import * as Location from 'expo-location';
-import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
-import { calculateDistance } from '../../utils/locationUtils';
+import { calculateDistance, openDirections } from '../../utils/locationUtils';
+import { useJourneyTracking } from '../../hooks/useJourneyTracking';
 import logger from '../../utils/logger';
-
-const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView() ?? Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -146,23 +146,126 @@ const createStyles = () => {
       shadowRadius: 3.84,
       elevation: 5,
     },
+    directionButton: {
+      position: 'absolute',
+      bottom: 16,
+      right: 16,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+      elevation: 5,
+      zIndex: 10,
+    },
   });
 };
 
 const styles = createStyles();
+
+const GROWTH_GREEN = '#22C55E';
 
 export default function CurrentLocationMap() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isWatching, setIsWatching] = useState(false);
-  // User's live GPS — used to show distance to the destination pin when
-  // this screen is opened with preset post/locale coordinates.
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [journeyTitleInput, setJourneyTitleInput] = useState('');
+  const [showJourneyTitle, setShowJourneyTitle] = useState(false);
+  const [journeyActionLoading, setJourneyActionLoading] = useState(false);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
+  const { showAlert } = useAlert();
   const hasLoggedParamsRef = useRef<string>('');
+
+  // Journey tracking
+  const {
+    isTracking,
+    isPaused,
+    journey,
+    distance: journeyDistance,
+    duration: journeyDuration,
+    startJourneyRecording,
+    pauseJourneyRecording,
+    resumeJourneyRecording,
+    stopJourneyRecording,
+  } = useJourneyTracking();
+
+  const formatJourneyDistance = () => {
+    if (journeyDistance < 1000) return `${Math.round(journeyDistance)} m`;
+    return `${(journeyDistance / 1000).toFixed(1)} km`;
+  };
+
+  const formatJourneyDuration = () => {
+    const h = Math.floor(journeyDuration / 3600);
+    const m = Math.floor((journeyDuration % 3600) / 60);
+    const s = journeyDuration % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const handleStartJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await startJourneyRecording(journeyTitleInput || undefined);
+      setJourneyTitleInput('');
+      setShowJourneyTitle(false);
+    } catch (err: any) {
+      showAlert('Failed to start journey', err.message);
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  const handlePauseJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await pauseJourneyRecording();
+    } catch (err: any) {
+      showAlert('Failed to pause', err.message);
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  const handleResumeJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await resumeJourneyRecording();
+    } catch (err: any) {
+      showAlert('Failed to resume', err.message);
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  const handleStopJourney = () => {
+    Alert.alert('End Journey?', 'This will complete your current journey.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'End Journey',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setJourneyActionLoading(true);
+            await stopJourneyRecording();
+            router.push('/navigate/complete');
+          } catch (err: any) {
+            showAlert('Failed to end journey', err.message);
+          } finally {
+            setJourneyActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
 
   // Check if we have location parameters (from locale or post)
   const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
@@ -346,77 +449,6 @@ export default function CurrentLocationMap() {
     getCurrentLocation();
   };
 
-  // Generate HTML for WebView map (web platform)
-  const getWebMapHTML = () => {
-    if (!location) return '';
-    
-    const lat = location.coords.latitude;
-    const lng = location.coords.longitude;
-    const rawTitle = isPostLocation ? (postAddress || 'Post Location') : 'Your Current Location';
-    const rawDescription = isPostLocation ? 'Post Location' : 'You are here';
-    // JSON.stringify safely escapes quotes, backslashes, and newlines so names
-    // like "Jatayu Earth's Center" don't break the injected JS and render blank.
-    const title = JSON.stringify(rawTitle);
-    // Build the InfoWindow HTML in JS land and JSON.stringify the whole thing so
-    // apostrophes (e.g. "Jatayu Earth's Center") can't break the injected script.
-    const htmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const infoHtml = JSON.stringify(
-      `<div style="padding: 8px;"><strong>${htmlEscape(rawTitle)}</strong><br/>${htmlEscape(rawDescription)}</div>`
-    );
-    
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          html, body, #map { 
-            height: 100%; 
-            margin: 0; 
-            padding: 0; 
-          }
-        </style>
-        <script>
-          function initMap() {
-            const map = new google.maps.Map(document.getElementById('map'), {
-              center: { lat: ${lat}, lng: ${lng} },
-              zoom: 15,
-              mapTypeId: 'terrain',
-              language: 'en',
-            });
-            
-            const marker = new google.maps.Marker({
-              position: { lat: ${lat}, lng: ${lng} },
-              map: map,
-              title: ${title},
-              animation: null,
-              icon: {
-                url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF0000" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="%23FF0000"/></svg>',
-                scaledSize: new google.maps.Size(30, 30),
-                anchor: new google.maps.Point(15, 15),
-              },
-            });
-            
-            const infoWindow = new google.maps.InfoWindow({
-              content: ${infoHtml},
-            });
-            
-            marker.addListener('click', function() {
-              infoWindow.open(map, marker);
-            });
-            
-            infoWindow.open(map, marker);
-          }
-        </script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&language=en&callback=initMap"></script>
-      </body>
-      </html>
-    `;
-  };
-
   const renderMap = () => {
     if (loading) {
       return (
@@ -448,67 +480,62 @@ export default function CurrentLocationMap() {
       );
     }
 
-    // Use WebView for web and Android so maps open reliably (native MapView can be blank on some Android devices)
-    const useWebView = Platform.OS === 'web' || Platform.OS === 'android';
-    if (useWebView) {
+    // ── WebView fallback (Expo Go Android) ──
+    if (useWebViewFallback) {
+      const WV_KEY = getGoogleMapsApiKeyForWebView();
+      if (!WV_KEY) {
+        return (
+          <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+            <Text style={[styles.errorText, { color: theme.colors.text }]}>Map unavailable — no API key</Text>
+          </View>
+        );
+      }
+      const lat = location.coords.latitude;
+      const lng = location.coords.longitude;
+      const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
+      const safeTitle = JSON.stringify(rawTitle);
+      const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const infoHtml = JSON.stringify(`<div style="padding:8px;"><strong>${htmlEsc(rawTitle)}</strong></div>`);
+      const html = `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<style>html,body,#map{height:100%;margin:0;padding:0}</style>
+<script>
+function initMap(){
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'terrain',language:'en'});
+  var marker=new google.maps.Marker({position:{lat:${lat},lng:${lng}},map:map,title:${safeTitle}});
+  var iw=new google.maps.InfoWindow({content:${infoHtml}});
+  marker.addListener('click',function(){iw.open(map,marker);});
+  iw.open(map,marker);
+}
+</script></head><body>
+<div id="map"></div>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script>
+</body></html>`;
       return (
         <WebView
           style={styles.map}
-          source={{ html: getWebMapHTML() }}
+          source={{ html }}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
-          scalesPageToFit={true}
-          onMessage={(event) => {
-            // Handle marker clicks from WebView
-            try {
-              const data = JSON.parse(event.nativeEvent.data);
-              if (data.type === 'marker') {
-                // For TripScore and locale flows, just go back to existing detail screen
-                if (isTripScoreFlow || (locationName && params.userId === 'admin-locale')) {
-                  router.back();
-                } else {
-                  // For general post locations, navigate to detail
-                  if (isPostLocation && postAddress) {
-                    const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
-                    const countrySlug = 'general';
-                    router.replace({
-                      pathname: '/tripscore/countries/[country]/locations/[location]',
-                      params: {
-                        country: countrySlug,
-                        location: locationSlug,
-                        userId: 'current-user',
-                      }
-                    });
-                  } else {
-                    router.back();
-                  }
-                }
-              }
-            } catch (error) {
-              logger.error('Error parsing WebView message:', error);
-            }
-          }}
-          onError={(syntheticEvent) => {
-            const { nativeEvent } = syntheticEvent;
-            logger.error('WebView error: ', nativeEvent);
-          }}
+          originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
+          onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
+          {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
+          onError={(e) => logger.error('WebView error:', e.nativeEvent)}
         />
       );
     }
 
+    // ── Native MapView (iOS / Android dev build) ──
     if (!MapView) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>
-            Map not available on this platform
-          </Text>
+          <Text style={[styles.errorText, { color: theme.colors.text }]}>Map not available</Text>
         </View>
       );
     }
 
-    // Native MapView for iOS/Android
-    // Note: customMapStyle disabled on Android - can cause blank map on some devices
     return (
       <MapView
         style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
@@ -534,40 +561,28 @@ export default function CurrentLocationMap() {
             longitude: location.coords.longitude,
           }}
           title={
-            isPostLocation 
-              ? (postAddress || 'Post Location') 
+            isPostLocation
+              ? (postAddress || 'Post Location')
               : (locationName || 'Your Current Location')
           }
           description={
-            isPostLocation 
-              ? 'Post Location' 
+            isPostLocation
+              ? 'Post Location'
               : (locationName ? `${locationName} Location` : 'You are here')
           }
           anchor={{ x: 0.5, y: 1 }}
           onPress={() => {
-            // CRITICAL: For TripScore flow, just go back to existing detail screen
-            // This prevents creating duplicate detail screens (third screen issue)
             if (isTripScoreFlow) {
-              // TripScore flow: just go back to the detail screen that's already in stack
               router.back();
             } else if (locationName && params.userId === 'admin-locale') {
-              // Locale flow: just go back to the detail screen that's already in stack
               router.back();
             } else if (isPostLocation && postAddress) {
-              // Post location flow (general): navigate to detail
               const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
-              const countrySlug = 'general';
-              
               router.replace({
                 pathname: '/tripscore/countries/[country]/locations/[location]',
-                params: {
-                  country: countrySlug,
-                  location: locationSlug,
-                  userId: 'current-user',
-                }
+                params: { country: 'general', location: locationSlug, userId: 'current-user' }
               });
             } else {
-              // Fallback: just go back
               router.back();
             }
           }}
@@ -634,6 +649,18 @@ export default function CurrentLocationMap() {
       {/* Map Container */}
       <View style={styles.mapContainer}>
         {renderMap()}
+
+        {/* Direction Button */}
+        {isPostLocation && postLatitude && postLongitude && (
+          <TouchableOpacity
+            style={[styles.directionButton, { backgroundColor: theme.colors.primary }]}
+            onPress={() => {
+              openDirections(postLatitude, postLongitude, postAddress || 'Destination');
+            }}
+          >
+            <Ionicons name="map" size={20} color="white" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Location Info */}
@@ -683,9 +710,224 @@ export default function CurrentLocationMap() {
           )}
         </View>
       )}
+
+      {/* Journey Controls — only on current location view (not post location) */}
+      {!isPostLocation && (
+        <View style={[journeyStyles.journeyBar, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
+          {/* No active journey — show Start button */}
+          {!isTracking && !isPaused && (
+            <>
+              {showJourneyTitle && (
+                <View style={[journeyStyles.titleRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                  <TextInput
+                    style={[journeyStyles.titleInput, { color: theme.colors.text, backgroundColor: theme.colors.background }]}
+                    placeholder="Journey name (optional)"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={journeyTitleInput}
+                    onChangeText={setJourneyTitleInput}
+                    maxLength={50}
+                  />
+                  <TouchableOpacity onPress={() => { setShowJourneyTitle(false); setJourneyTitleInput(''); }}>
+                    <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[journeyStyles.startBtn, { backgroundColor: GROWTH_GREEN }]}
+                onPress={() => {
+                  if (showJourneyTitle) {
+                    handleStartJourney();
+                  } else {
+                    setShowJourneyTitle(true);
+                  }
+                }}
+                disabled={journeyActionLoading}
+              >
+                {journeyActionLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="play-circle" size={22} color="white" />
+                    <Text style={journeyStyles.startBtnText}>Start Journey</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Journey active — show recording stats + pause */}
+          {isTracking && !isPaused && (
+            <>
+              <View style={journeyStyles.statsRow}>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="navigate" size={14} color={GROWTH_GREEN} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDistance()}</Text>
+                </View>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="time" size={14} color="#3B82F6" />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDuration()}</Text>
+                </View>
+                <View style={[journeyStyles.liveDot, { backgroundColor: GROWTH_GREEN }]} />
+                <Text style={[journeyStyles.liveText, { color: GROWTH_GREEN }]}>Recording</Text>
+              </View>
+              <View style={journeyStyles.actionRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.pauseBtn, { borderColor: '#F59E0B' }]}
+                  onPress={handlePauseJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="pause" size={18} color="#F59E0B" />
+                  <Text style={[journeyStyles.pauseBtnText, { color: '#F59E0B' }]}>Pause</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.stopBtn, { borderColor: '#EF4444' }]}
+                  onPress={handleStopJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="stop" size={18} color="#EF4444" />
+                  <Text style={[journeyStyles.pauseBtnText, { color: '#EF4444' }]}>End</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Journey paused — show resume/end */}
+          {isPaused && (
+            <>
+              <View style={journeyStyles.statsRow}>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="navigate" size={14} color={GROWTH_GREEN} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDistance()}</Text>
+                </View>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="time" size={14} color="#3B82F6" />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDuration()}</Text>
+                </View>
+                <View style={[journeyStyles.liveDot, { backgroundColor: '#F59E0B' }]} />
+                <Text style={[journeyStyles.liveText, { color: '#F59E0B' }]}>Paused</Text>
+              </View>
+              <View style={journeyStyles.actionRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.startBtn, { backgroundColor: GROWTH_GREEN, flex: 1 }]}
+                  onPress={handleResumeJourney}
+                  disabled={journeyActionLoading}
+                >
+                  {journeyActionLoading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="play" size={20} color="white" />
+                      <Text style={journeyStyles.startBtnText}>Continue</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.stopBtn, { borderColor: '#EF4444' }]}
+                  onPress={handleStopJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="stop" size={18} color="#EF4444" />
+                  <Text style={[journeyStyles.pauseBtnText, { color: '#EF4444' }]}>End</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
+
+const journeyStyles = StyleSheet.create({
+  journeyBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    gap: 10,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  titleInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    minHeight: 36,
+    paddingVertical: 4,
+  },
+  startBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+    minHeight: 50,
+  },
+  startBtnText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 'auto',
+  },
+  liveText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pauseBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  pauseBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});
 
 const satelliteTheme = [
   // Base land geometry in light green (like first image)
