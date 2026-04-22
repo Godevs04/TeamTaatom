@@ -7,7 +7,7 @@
 // Note: EXPO_PUBLIC_ prefix is required for client-side access in Expo/React Native
 
 import * as Location from 'expo-location';
-import { Platform } from 'react-native';
+import { Platform, Linking } from 'react-native';
 import logger from './logger';
 
 // Import platform-specific Google Maps API key getter
@@ -1001,7 +1001,68 @@ export const parseLocationString = async (locationString: string): Promise<{ lat
       return { latitude, longitude };
     }
   }
-  
+
   // Otherwise, geocode the address
   return await geocodeAddress(locationString);
+};
+
+// ============================================================================
+// MAPS & NAVIGATION FUNCTIONS
+// ============================================================================
+
+/**
+ * Open native maps navigation to a destination
+ * Opens the platform's default maps app (Apple Maps on iOS, Google Maps on Android)
+ *
+ * @param latitude Destination latitude
+ * @param longitude Destination longitude
+ * @param label Optional location label/name for the destination
+ */
+export const openDirections = async (
+  latitude: number,
+  longitude: number,
+  label?: string
+): Promise<void> => {
+  try {
+    // Validate coordinates
+    if (!validateCoordinates(latitude, longitude)) {
+      logger.error('Invalid coordinates for directions:', { latitude, longitude });
+      return;
+    }
+
+    let url: string;
+
+    if (Platform.OS === 'ios') {
+      // iOS: Use Apple Maps
+      // Format: maps://app?daddr=latitude,longitude
+      const encodedLabel = label ? encodeURIComponent(label) : '';
+      url = encodedLabel
+        ? `maps://app?daddr=${encodedLabel}&q=${latitude},${longitude}`
+        : `maps://app?daddr=${latitude},${longitude}`;
+    } else if (Platform.OS === 'android') {
+      // Android: Use Google Maps
+      // Format: google.navigation:q=latitude,longitude
+      const encodedLabel = label ? encodeURIComponent(label) : '';
+      url = encodedLabel
+        ? `google.navigation:q=${encodedLabel}&destination=${latitude},${longitude}`
+        : `google.navigation:q=${latitude},${longitude}`;
+    } else {
+      // Web: Use Google Maps URL
+      url = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`;
+    }
+
+    // Attempt to open the maps app
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) {
+      await Linking.openURL(url);
+      logger.debug('✅ Opened navigation to:', { latitude, longitude, label });
+    } else {
+      // Fallback to web version
+      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`;
+      await Linking.openURL(fallbackUrl);
+      logger.debug('✅ Opened web maps navigation to:', { latitude, longitude, label });
+    }
+  } catch (error) {
+    logger.error('❌ Error opening directions:', error);
+  }
 };

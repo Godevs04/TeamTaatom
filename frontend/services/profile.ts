@@ -349,6 +349,9 @@ export interface TravelMapDataResponse {
     longitude: number;
     address: string;
     date: string;
+    photo?: string;
+    postId?: string;
+    contentType?: string;
   }>;
   statistics: {
     totalLocations: number;

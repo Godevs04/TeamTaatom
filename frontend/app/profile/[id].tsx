@@ -720,8 +720,27 @@ export default function UserProfileScreen() {
           </Pressable>
         )}
 
+        {/* Friend's Travels Section - Only show if can view posts */}
+        {profile.canViewPosts && (
+          <Pressable
+            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+            onPress={() => router.push(`/journeys?userId=${id}`)}
+          >
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
+                <Ionicons name="map" size={22} color={profileTheme.accent} />
+              </View>
+              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>Travels</Text>
+              <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
+            </View>
+            <Text style={[styles.sectionDescription, { color: profileTheme.textSecondary, marginTop: 8 }]}>
+              View completed journeys and travel history
+            </Text>
+          </Pressable>
+        )}
+
         {/* Location Card - unified: base, verified summary, trips summary, globe */}
-        <Pressable 
+        <Pressable
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
           onPress={() => {
             if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {

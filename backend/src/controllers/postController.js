@@ -1103,6 +1103,32 @@ const createPost = async (req, res) => {
       // Don't fail post creation if TripVisit fails
     }
 
+    // Auto-attach post to active journey as waypoint (non-blocking)
+    try {
+      const Journey = require('../models/Journey');
+      const postLat = post.location?.coordinates?.latitude || parseFloat(req.body.latitude);
+      const postLng = post.location?.coordinates?.longitude || parseFloat(req.body.longitude);
+      if (req.user && postLat && postLng && !isNaN(postLat) && !isNaN(postLng)) {
+        const activeJourney = await Journey.findOne({
+          user: req.user._id,
+          status: { $in: ['active', 'paused'] }
+        });
+        if (activeJourney) {
+          activeJourney.waypoints.push({
+            post: post._id,
+            lat: postLat,
+            lng: postLng,
+            timestamp: new Date(),
+            contentType: 'photo'
+          });
+          await activeJourney.save();
+          logger.info(`Auto-attached post ${post._id} to journey ${activeJourney._id}`);
+        }
+      }
+    } catch (journeyError) {
+      logger.warn('Failed to attach post to journey (non-critical):', journeyError);
+    }
+
     // Increment song usage count if song is attached
     if (songId) {
       try {
@@ -3463,6 +3489,32 @@ const createShort = async (req, res) => {
     } catch (tripVisitError) {
       logger.warn('TripVisit creation failed (non-critical):', tripVisitError);
       // Don't fail short creation if TripVisit fails
+    }
+
+    // Auto-attach short to active journey as waypoint (non-blocking)
+    try {
+      const Journey = require('../models/Journey');
+      const shortLat = short.location?.coordinates?.latitude || parseFloat(req.body.latitude);
+      const shortLng = short.location?.coordinates?.longitude || parseFloat(req.body.longitude);
+      if (req.user && shortLat && shortLng && !isNaN(shortLat) && !isNaN(shortLng)) {
+        const activeJourney = await Journey.findOne({
+          user: req.user._id,
+          status: { $in: ['active', 'paused'] }
+        });
+        if (activeJourney) {
+          activeJourney.waypoints.push({
+            post: short._id,
+            lat: shortLat,
+            lng: shortLng,
+            timestamp: new Date(),
+            contentType: short.mediaType === 'video' ? 'video' : 'short'
+          });
+          await activeJourney.save();
+          logger.info(`Auto-attached short ${short._id} to journey ${activeJourney._id}`);
+        }
+      }
+    } catch (journeyError) {
+      logger.warn('Failed to attach short to journey (non-critical):', journeyError);
     }
 
     // Increment song usage count if song is attached

@@ -1,5 +1,11 @@
 // Native platform wrapper for react-native-maps
 // Metro will automatically use mapsWrapper.web.ts for web builds
+//
+// Strategy:
+//   iOS ........................ native MapView (Apple Maps)
+//   Android dev/prod build .... native MapView (Google Maps)
+//   Android Expo Go ........... WebView fallback (react-native-maps not bundled)
+//   Web ....................... handled by mapsWrapper.web.ts
 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
@@ -7,18 +13,27 @@ import logger from './logger';
 
 let MapView: any = null;
 let Marker: any = null;
+let Polyline: any = null;
 let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 
-// Skip loading react-native-maps on Android in Expo Go - it's not included and causes crashes.
-// Map screens use WebView fallback instead.
-const isExpoGoOnAndroid = Platform.OS === 'android' && Constants.appOwnership === 'expo';
+// Expo Go on Android doesn't bundle react-native-maps — require() hard-crashes.
+// Development builds and production builds include the native module.
+const isExpoGo = Constants.appOwnership === 'expo';
+const skipNativeMaps = Platform.OS === 'android' && isExpoGo;
 
-if (Platform.OS !== 'web' && !isExpoGoOnAndroid) {
+/**
+ * True when native MapView is NOT available and screens should
+ * render a WebView-based Google Map instead.
+ */
+const useWebViewFallback: boolean = skipNativeMaps || Platform.OS === 'web';
+
+if (Platform.OS !== 'web' && !skipNativeMaps) {
   try {
     const mapsModule = require('react-native-maps');
     MapView = mapsModule.default || mapsModule;
     Marker = mapsModule.Marker;
+    Polyline = mapsModule.Polyline;
     PROVIDER_GOOGLE = mapsModule.PROVIDER_GOOGLE;
     PROVIDER_DEFAULT = mapsModule.PROVIDER_DEFAULT;
   } catch (error) {
@@ -41,5 +56,4 @@ const getMapProvider = () => {
   return PROVIDER_DEFAULT || undefined;
 };
 
-export { MapView, Marker, PROVIDER_GOOGLE, getMapProvider };
-
+export { MapView, Marker, Polyline, PROVIDER_GOOGLE, getMapProvider, useWebViewFallback };

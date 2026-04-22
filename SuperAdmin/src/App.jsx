@@ -26,6 +26,7 @@ const TestPage = import.meta.env.DEV ? lazyWithRetry(() => import('./pages/TestP
 const Songs = lazyWithRetry(() => import('./pages/Songs'))
 const Locales = lazyWithRetry(() => import('./pages/Locales'))
 const TripScoreAnalytics = lazyWithRetry(() => import('./pages/TripScoreAnalytics'))
+const TravelVerification = lazyWithRetry(() => import('./pages/TravelVerification'))
 const System = lazyWithRetry(() => import('./pages/System'))
 const SupportInbox = lazyWithRetry(() => import('./pages/SupportInbox'))
 
@@ -99,6 +100,7 @@ function App() {
                         <Route path="/songs" element={<Songs />} />
                         <Route path="/locales" element={<Locales />} />
                         <Route path="/tripscore-analytics" element={<TripScoreAnalytics />} />
+                        <Route path="/travel-verification" element={<TravelVerification />} />
                         <Route path="/support-inbox" element={<SupportInbox />} />
                         <Route path="/system" element={<System />} />
                         {TestPage ? <Route path="/test" element={<TestPage />} /> : <Route path="/test" element={<Navigate to="/dashboard" replace />} />}

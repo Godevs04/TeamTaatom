@@ -2242,7 +2242,8 @@ const getTravelMapData = async (req, res) => {
       lat: { $exists: true, $ne: null, $ne: 0 },
       lng: { $exists: true, $ne: null, $ne: 0 }
     })
-    .select('lat lng address takenAt uploadedAt')
+    .select('lat lng address takenAt uploadedAt post contentType')
+    .populate({ path: 'post', select: 'imageUrl thumbnailUrl storageKey storageKeys type' })
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically
     .lean()
     .limit(1000); // Limit for performance
@@ -2261,30 +2262,51 @@ const getTravelMapData = async (req, res) => {
     const locations = [];
     let locationCounter = 1;
 
-    trustedVisits.forEach(visit => {
+    // Build locations list (sync pass — photo URLs resolved below)
+    for (const visit of trustedVisits) {
       if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0) {
-        return; // Skip invalid coordinates
+        continue; // Skip invalid coordinates
       }
 
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
+
       // Only add unique locations (deduplicate nearby locations)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
-        
+
         const visitDate = visit.takenAt || visit.uploadedAt || new Date();
-        
+        const postDoc = visit.post;
+        const postId = postDoc ? postDoc._id.toString() : null;
+        const contentType = visit.contentType || (postDoc ? postDoc.type : 'post');
+
+        // Resolve photo URL: prefer thumbnailUrl/imageUrl, fall back to signed URL from storageKey
+        let photo = null;
+        if (postDoc) {
+          if (postDoc.thumbnailUrl) {
+            photo = postDoc.thumbnailUrl;
+          } else if (postDoc.imageUrl) {
+            photo = postDoc.imageUrl;
+          } else if (postDoc.storageKeys && postDoc.storageKeys.length > 0) {
+            try { photo = await generateSignedUrl(postDoc.storageKeys[0], 'IMAGE'); } catch (e) { /* skip */ }
+          } else if (postDoc.storageKey) {
+            try { photo = await generateSignedUrl(postDoc.storageKey, 'IMAGE'); } catch (e) { /* skip */ }
+          }
+        }
+
         locations.push({
           number: locationCounter,
           latitude: visit.lat,
           longitude: visit.lng,
           address: visit.address || 'Unknown Location',
-          date: visitDate
+          date: visitDate,
+          photo,
+          postId,
+          contentType
         });
-        
+
         locationCounter++;
       }
-    });
+    }
 
     // Calculate statistics
     const totalLocations = locations.length;

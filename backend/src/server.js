@@ -249,7 +249,15 @@ process.on('unhandledRejection', async (reason, promise) => {
       const env = process.env.NODE_ENV || 'development';
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📡 Environment: ${env}`);
-      
+
+      // Start journey auto-end background job
+      try {
+        const { startAutoEndJob } = require('./jobs/journeyAutoEnd');
+        startAutoEndJob();
+      } catch (err) {
+        logger.warn('Failed to start journey auto-end job:', err.message);
+      }
+
       // Log Brevo email service configuration status
       const brevoApiKey = process.env.BREVO_API_KEY;
       const smtpFrom = process.env.SMTP_FROM;

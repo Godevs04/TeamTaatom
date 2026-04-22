@@ -23,6 +23,8 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
+import JourneyStatusBar from '../components/JourneyStatusBar';
+import { useJourneyTracking } from '../hooks/useJourneyTracking';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
@@ -98,6 +100,16 @@ function RootLayoutInner() {
   const previousPathnameRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
+
+  // Journey tracking hook
+  const {
+    isTracking,
+    isPaused,
+    distance,
+    duration,
+    pauseJourneyRecording,
+    stopJourneyRecording,
+  } = useJourneyTracking();
 
   // Apply web optimizations
   useWebOptimizations();
@@ -565,6 +577,8 @@ function RootLayoutInner() {
                               segments[0] === 'saved-posts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
+                              segments[0] === 'navigate' ||
+                              segments[0] === 'journeys' ||
                               segments[0] === 'onboarding' ||
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
@@ -865,6 +879,15 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
+      {/* Journey Status Bar - shown when journey is active or paused */}
+      <JourneyStatusBar
+        isTracking={isTracking}
+        isPaused={isPaused}
+        distance={distance}
+        duration={duration}
+        onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
+        onContinue={() => router.push('/navigate')}
+      />
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >
@@ -884,6 +907,7 @@ function RootLayoutInner() {
           
           {/* Authenticated routes - always defined, access controlled by navigation guard */}
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="navigate" options={{ presentation: 'card' }} />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
           <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
@@ -908,6 +932,8 @@ function RootLayoutInner() {
           <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
           {/* User shorts dynamic route */}
           <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
+          {/* Journeys list */}
+          <Stack.Screen name="journeys" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
