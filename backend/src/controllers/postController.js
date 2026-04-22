@@ -245,12 +245,9 @@ const getPosts = async (req, res) => {
         }
       ]);
 
-      const totalPosts = await Post.countDocuments({ 
-        isActive: true, 
-        isArchived: { $ne: true },
-        isHidden: { $ne: true },
-        type: 'photo' 
-      }).lean();
+      // Use the same matchQuery so the count reflects the actual filtered feed
+      // (e.g. friends-only posts, not all posts in the database)
+      const totalPosts = await Post.countDocuments(matchQuery).lean();
 
       // Generate signed URLs dynamically for posts and songs
       const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {

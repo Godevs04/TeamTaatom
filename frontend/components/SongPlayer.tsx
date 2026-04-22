@@ -39,16 +39,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
   // Debug: Log song data
   useEffect(() => {
-    if (post.song) {
-      console.warn('[SONGPLAYER] Mount/update:', {
+    if (post.song && __DEV__) {
+      logger.debug('[SONGPLAYER] Mount/update:', {
         postId: String(post._id),
-        hasSong: !!post.song,
-        hasSongId: !!post.song.songId,
-        songIdType: typeof post.song.songId,
-        songId_id: (post.song.songId as any)?._id,
-        title: (post.song.songId as any)?.title,
-        s3Url: (post.song.songId as any)?.s3Url ? String((post.song.songId as any).s3Url).substring(0, 60) + '...' : 'NULL',
-        cloudinaryUrl: (post.song.songId as any)?.cloudinaryUrl ? String((post.song.songId as any).cloudinaryUrl).substring(0, 60) + '...' : 'NULL',
         isVisible,
         autoPlay,
       });
@@ -133,16 +126,10 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     // Get audio URL - try s3Url first, then cloudinaryUrl, then dynamically fetched URL
     let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
 
-    console.warn('[SONGPLAYER] loadAndPlaySong called:', {
-      postId: String(post._id),
-      hasAudioUrl: !!audioUrlRaw,
-      audioUrl: audioUrlRaw ? String(audioUrlRaw).substring(0, 60) + '...' : 'NULL',
-      autoPlay,
-      forcePlay,
-    });
+    logger.debug('[SONGPLAYER] loadAndPlaySong called:', { postId: String(post._id), hasAudioUrl: !!audioUrlRaw });
 
     if (!audioUrlRaw) {
-      console.warn('[SONGPLAYER] ❌ No URL — cannot play');
+      logger.debug('[SONGPLAYER] No URL — cannot play');
       return;
     }
 
@@ -259,7 +246,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setIsPlaying(true);
       }
 
-      console.warn('[SONGPLAYER] ✅ loadAsync returned — sound loaded:', {
+      logger.debug('[SONGPLAYER] Sound loaded:', {
         postId: String(post._id),
         shouldPlayNow,
       });
@@ -301,7 +288,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       }
       
       // Log error details for debugging (only for actual errors, not cancellations)
-      console.warn('[SONGPLAYER] ❌ Error loading song:', {
+      logger.error('[SONGPLAYER] Error loading song:', {
         postId: String(post._id),
         message: errorMessage,
         code: errorCode,
@@ -325,19 +312,45 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         
         // Critical check: If soundRef exists but audioManager has no current sound,
         // it means stopAll() was called and the sound was unloaded externally.
-        // We need to clear soundRef and reload.
+        // Only reload if the sound was truly unloaded (mute toggle case).
+        // Do NOT reload if stopAll() was called as cleanup (leaving screen) —
+        // detect this by checking if the sound object is still loaded.
         if (soundRef.current && currentPostId === null) {
-          // Sound was stopped externally (e.g., via stopAll when muting)
-          // Clear the ref and reload
-          logger.debug('Sound was unloaded externally (likely after mute), clearing ref and reloading');
-          soundRef.current = null;
-          setSound(null);
-          loadAndPlaySong()
-            .then(() => {
-              setIsPlaying(true);
+          // Check if sound is actually still loaded before reloading
+          soundRef.current.getStatusAsync()
+            .then((status) => {
+              if (!status.isLoaded) {
+                // Sound was fully unloaded by stopAll() cleanup (leaving screen)
+                // Just clear refs, do NOT reload
+                logger.debug('Sound was unloaded by stopAll cleanup, clearing refs without reload');
+                soundRef.current = null;
+                setSound(null);
+                setIsPlaying(false);
+              } else if (isVisible && autoPlay) {
+                // Sound is still loaded but audioManager lost track (mute toggle case)
+                // Safe to reload
+                logger.debug('Sound still loaded but audioManager detached, reloading');
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong()
+                  .then(() => {
+                    setIsPlaying(true);
+                  })
+                  .catch((err) => {
+                    logger.error('Error reloading sound after external stop:', err);
+                  });
+              } else {
+                // Not visible or not autoPlay — just clean up
+                soundRef.current = null;
+                setSound(null);
+                setIsPlaying(false);
+              }
             })
-            .catch((err) => {
-              logger.error('Error reloading and playing sound after external stop:', err);
+            .catch(() => {
+              // Status check failed — sound is gone, clean up
+              soundRef.current = null;
+              setSound(null);
+              setIsPlaying(false);
             });
           return;
         }
@@ -409,9 +422,19 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       } else {
         // autoPlay is false - pause song immediately (muted or not visible)
         if (soundRef.current) {
-          soundRef.current.pauseAsync().catch(err => {
-            logger.error('Error pausing:', err);
-          });
+          // Check if sound is actually loaded before pausing — loadAsync may
+          // still be in-flight, and calling pauseAsync on a loading sound throws.
+          soundRef.current.getStatusAsync()
+            .then((status) => {
+              if (status.isLoaded && soundRef.current) {
+                soundRef.current.pauseAsync().catch(err => {
+                  logger.error('Error pausing:', err);
+                });
+              }
+            })
+            .catch(() => {
+              // Sound not accessible — already unloaded or not yet loaded
+            });
           setIsPlaying(false);
         }
       }

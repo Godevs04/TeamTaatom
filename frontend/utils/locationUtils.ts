@@ -933,9 +933,7 @@ export const getLocaleDistanceKm = async (
 export const invalidateDistanceCacheIfMoved = (lat: number, lon: number): void => {
   // Cache is now stable with rounded coordinates, so we don't need to clear it
   // unless user moves significantly (handled by cache key with rounded coords)
-  if (__DEV__) {
-    console.log('Distance cache uses rounded coordinates for stability');
-  }
+  // Cache is stable with rounded coordinates — no action needed
 };
 
 /**

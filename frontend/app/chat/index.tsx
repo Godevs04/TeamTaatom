@@ -526,9 +526,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // This works alongside the parent's activeMessages state to ensure real-time updates
   const [localMessages, setLocalMessages] = useState<any[]>([]);
   
-  // Clear local messages when chat changes
+  // Clear local messages and reset scroll state when chat changes
   useEffect(() => {
     setLocalMessages([]);
+    isInitialLoadRef.current = true;
+    prevMessageCountRef.current = 0;
   }, [chatId]);
   
   // Track when messages prop changes (reduced logging)
@@ -839,29 +841,33 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Use a ref to track previous length to prevent infinite loops
   const prevMessageCountRef = useRef(0);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const isInitialLoadRef = useRef(true);
+
   useEffect(() => {
     const currentCount = allMessages.length;
-    
+
     // Only scroll if new messages were added (count increased)
     if (currentCount > prevMessageCountRef.current && flatListRef.current) {
-      if (__DEV__ && process.env.NODE_ENV === 'development') {
-        logger.debug('[ChatWindow] Auto-scrolling to end', { currentCount, prevCount: prevMessageCountRef.current });
+      const wasInitialLoad = isInitialLoadRef.current;
+      if (wasInitialLoad) {
+        isInitialLoadRef.current = false;
       }
       prevMessageCountRef.current = currentCount;
-      
+
       // Clear any existing timeout to prevent multiple scrolls
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
-      
-      // Small delay to ensure FlatList has rendered
+
+      // Initial load: use longer delay + no animation to reliably reach the end.
+      // Subsequent messages: short delay + smooth animation.
+      const delay = wasInitialLoad ? 300 : 100;
       scrollTimeoutRef.current = setTimeout(() => {
         if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
+          flatListRef.current.scrollToEnd({ animated: !wasInitialLoad });
         }
         scrollTimeoutRef.current = null;
-      }, 100);
+      }, delay);
     } else if (currentCount !== prevMessageCountRef.current) {
       // Update ref even if we don't scroll
       prevMessageCountRef.current = currentCount;
@@ -1479,8 +1485,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     <>
       
       <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView 
-          style={{ flex: 1 }} 
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
@@ -1768,7 +1774,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               );
             }}
             contentContainerStyle={{ paddingVertical: 16 }}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => {
+              if (isInitialLoadRef.current || prevMessageCountRef.current === 0) {
+                // Initial load — jump instantly so the last message is visible
+                flatListRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           />

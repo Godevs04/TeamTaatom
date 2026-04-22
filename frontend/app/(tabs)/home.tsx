@@ -227,11 +227,18 @@ export default function HomeScreen() {
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
 
-  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap }> = useMemo(
+  // In-memory cache of posts per feed tab — switching tabs restores instantly without image reload
+  const feedCacheRef = useRef<Record<FeedMode, { posts: PostType[]; page: number; hasMore: boolean }>>({
+    recents: { posts: [], page: 1, hasMore: true },
+    friends: { posts: [], page: 1, hasMore: true },
+    popular: { posts: [], page: 1, hasMore: true },
+  });
+
+  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
     () => [
-      { id: 'recents', label: 'Recent', icon: 'time-outline' },
-      { id: 'friends', label: 'Friends', icon: 'people-outline' },
-      { id: 'popular', label: 'Popular', icon: 'flame-outline' },
+      { id: 'recents', label: 'Recent', icon: 'time-outline', activeIcon: 'time' },
+      { id: 'friends', label: 'Friends', icon: 'people-outline', activeIcon: 'people' },
+      { id: 'popular', label: 'Popular', icon: 'flame-outline', activeIcon: 'flame' },
     ],
     []
   );
@@ -306,14 +313,27 @@ export default function HomeScreen() {
         setPosts(prev => {
           const existingIds = new Set(prev.map(p => p._id));
           const newPosts = response.posts.filter(p => !existingIds.has(p._id));
-          return mergeLikedIntoPosts([...prev, ...newPosts]);
+          const merged = mergeLikedIntoPosts([...prev, ...newPosts]);
+          // Update in-memory cache for this tab
+          feedCacheRef.current[feedMode] = { posts: merged, page: pageNum, hasMore: true };
+          return merged;
         });
       } else {
-        setPosts(mergeLikedIntoPosts(response.posts));
+        const merged = mergeLikedIntoPosts(response.posts);
+        setPosts(merged);
+        // Update in-memory cache for this tab
+        feedCacheRef.current[feedMode] = { posts: merged, page: pageNum, hasMore: true };
       }
-      
-      setHasMore(response.pagination?.hasNextPage ?? false);
+
+      // If fewer posts returned than requested, we've reached the end regardless
+      // of what the backend pagination says (e.g. friends feed with few posts).
+      const receivedLessThanRequested = response.posts.length < postsPerPage;
+      const newHasMore = receivedLessThanRequested ? false : (response.pagination?.hasNextPage ?? false);
+      setHasMore(newHasMore);
       setPage(pageNum);
+      // Sync hasMore into cache
+      feedCacheRef.current[feedMode].hasMore = newHasMore;
+      feedCacheRef.current[feedMode].page = pageNum;
       
       // Scroll to specific post if postId is provided in params
       if (params.postId && typeof params.postId === 'string' && response.posts.length > 0) {
@@ -640,8 +660,12 @@ export default function HomeScreen() {
     const loadInitialData = async () => {
       if (hasInitializedRef.current) return;
       hasInitializedRef.current = true;
-      
-      setLoading(true);
+
+      // Only show full-page loader on first ever load (no posts yet).
+      // Tab switches already have posts on screen — skip the loader.
+      if (posts.length === 0) {
+        setLoading(true);
+      }
       try {
         // Load persisted liked post IDs first so mergeLikedIntoPosts is correct
         try {
@@ -869,14 +893,29 @@ export default function HomeScreen() {
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
+
+    // Save current tab's posts into cache before switching
+    feedCacheRef.current[feedMode] = { posts, page, hasMore };
+
+    // Restore cached posts for the new tab (instant, no image reload)
+    const cached = feedCacheRef.current[mode];
+    if (cached.posts.length > 0) {
+      setPosts(cached.posts);
+      setPage(cached.page);
+      setHasMore(cached.hasMore);
+      hasInitializedRef.current = true; // Already have data — skip fetch
+    } else {
+      // No cache — let the useEffect fetch fresh
+      hasInitializedRef.current = false;
+    }
+
     setFeedMode(mode);
-    setPosts([]);
-    setPage(1);
-    setHasMore(true);
-    setLoading(true);
-    hasInitializedRef.current = false;
     hasScrolledToPostIdRef.current = null;
-  }, [feedMode]);
+    // Scroll list to top so the first post of the new feed is visible.
+    try {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } catch (_) {}
+  }, [feedMode, posts, page, hasMore]);
 
   // Throttle load more for web performance
   // Request guard: prevent pagination if already paginating or refreshing
@@ -963,37 +1002,30 @@ export default function HomeScreen() {
       marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
       marginTop: theme.spacing.sm,
       marginBottom: theme.spacing.md,
-      borderRadius: 18,
-      padding: 6,
       flexDirection: 'row',
       backgroundColor: theme.colors.surface,
+      borderRadius: theme.borderRadius.xl,
+      padding: 4,
+      ...theme.shadows.small,
       borderWidth: 1,
       borderColor: theme.colors.border,
-      ...theme.shadows.small,
     },
     feedTabButton: {
       flex: 1,
-      borderRadius: 14,
-      paddingVertical: isTablet ? 11 : 9,
+      paddingVertical: 10,
       alignItems: 'center',
       justifyContent: 'center',
+      borderRadius: theme.borderRadius.lg,
       flexDirection: 'row',
-      gap: 6,
+      gap: 8,
     },
     feedTabButtonActive: {
-      backgroundColor: theme.colors.primary + '16',
-      borderWidth: 1,
-      borderColor: theme.colors.primary + '2E',
+      backgroundColor: theme.colors.primary,
       ...theme.shadows.small,
     },
     feedTabText: {
-      fontSize: isTablet ? theme.typography.body.fontSize : 13,
-      fontFamily: getFontFamily('600'),
-      fontWeight: '600',
-      letterSpacing: 0.2,
-      ...(isWeb && {
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-      } as any),
+      fontSize: theme.typography.body.fontSize,
+      fontWeight: '700' as const,
     },
     postsList: {
       paddingHorizontal: 0,
@@ -1052,21 +1084,21 @@ export default function HomeScreen() {
         return (
           <TouchableOpacity
             key={tab.id}
-            activeOpacity={0.85}
+            activeOpacity={0.7}
             onPress={() => handleFeedTabPress(tab.id)}
             style={[styles.feedTabButton, active && styles.feedTabButtonActive]}
           >
+            <Ionicons
+              name={active ? tab.activeIcon : tab.icon}
+              size={20}
+              color={active ? 'white' : theme.colors.textSecondary}
+            />
             <Text
               style={[
                 styles.feedTabText,
-                { color: active ? theme.colors.primary : theme.colors.textSecondary },
+                { color: active ? 'white' : theme.colors.textSecondary },
               ]}
             >
-              <Ionicons
-                name={tab.icon}
-                size={14}
-                color={active ? theme.colors.primary : theme.colors.textSecondary}
-              />{' '}
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -1124,32 +1156,31 @@ export default function HomeScreen() {
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
-  // Conditional image rendering: only render images within 2 indices of visible
-  // Renders either a post card or a native ad card (one ad after every ADS_AFTER_EVERY posts)
+  // Stable renderItem — does NOT depend on visiblePostId so it won't recreate on every scroll.
+  // isCurrentlyVisible is passed via extraData + the memo comparator inside OptimizedPhotoCard.
+  const visiblePostIdRef = useRef<string | null>(visiblePostId);
+  visiblePostIdRef.current = visiblePostId;
+
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     if (isAdItem(item)) {
       return <NativeAdCard adIndex={item.adIndex} />;
     }
-    const distanceFromVisible = (visibleIndex !== null && hasScrolledRef.current) ? Math.abs(index - visibleIndex) : 0;
-    const shouldRenderImage = distanceFromVisible <= 2;
-    const isCurrentlyVisible = visiblePostId === item._id;
     return (
       <OptimizedPhotoCard
         post={item}
         onRefresh={handleRefresh}
-        isVisible={shouldRenderImage}
-        isCurrentlyVisible={isCurrentlyVisible}
+        isCurrentlyVisible={visiblePostIdRef.current === item._id}
         key={item._id}
       />
     );
-  }, [visibleIndex, visiblePostId, handleRefresh]);
+  }, [handleRefresh]);
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+        <StatusBar
+          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+          backgroundColor={theme.colors.background}
         />
         {renderTopHeader()}
         <View style={styles.loadingContainer}>
@@ -1190,7 +1221,8 @@ export default function HomeScreen() {
       />
       <SafeAreaView style={styles.safeArea}>
         {renderTopHeader()}
-        
+        {renderFeedTabs()}
+
         <FlashList
         ref={flatListRef}
         data={feedData}
@@ -1213,16 +1245,13 @@ export default function HomeScreen() {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.1}
         ListHeaderComponent={
-          <>
-            {renderFeedTabs()}
-            {!isOnline && (
+          !isOnline ? (
               <View style={styles.offlineBanner}>
                 <Text style={styles.offlineText}>
                   You're offline. Some features may be limited.
                 </Text>
               </View>
-            )}
-          </>
+          ) : null
         }
         ListFooterComponent={
           hasMore ? (
@@ -1240,6 +1269,7 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
+        extraData={visiblePostId}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         drawDistance={screenHeight * 2}

@@ -8,6 +8,8 @@ import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ReAnimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -38,8 +40,8 @@ export default function PostImage({
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
-  const [showBlur, setShowBlur] = useState(true);
-  const [mainImageLoaded, setMainImageLoaded] = useState(false);
+  const [showBlur, setShowBlur] = useState(!imageUri);
+  const [mainImageLoaded, setMainImageLoaded] = useState(!!imageUri);
   const [isMuted, setIsMuted] = useState(true); // Default to muted
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
@@ -52,6 +54,13 @@ export default function PostImage({
   const doubleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
+
+  // Pinch-to-zoom
+  const scale = useSharedValue(1);
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => { scale.value = Math.max(1, e.scale); })
+    .onEnd(() => { scale.value = withSpring(1, { damping: 15, stiffness: 150 }); });
+  const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   // Generate blur-up placeholder for progressive loading
   useEffect(() => {
@@ -74,7 +83,8 @@ export default function PostImage({
   useEffect(() => {
     setIsMuted(true);
     isMutedRef.current = true;
-    setCurrentImageIndex(0); // Reset image index when post changes
+    setCurrentImageIndex(0);
+    scale.value = 1;
   }, [post._id]);
 
   // Sync ref with state
@@ -293,58 +303,51 @@ export default function PostImage({
               </View>
             </View>
           ) : (
-            <TouchableOpacity 
-              onPress={handleDoubleTap} 
-              activeOpacity={0.9} 
-              style={StyleSheet.absoluteFill}
-            >
-              {/* Single image with blur-up placeholder */}
-              {/* Blur-up placeholder for progressive loading */}
-              {blurUpUri && showBlur && (
-                <Image
-                  source={{ uri: blurUpUri }}
-                  style={[styles.image, styles.blurImage]}
-                  resizeMode="cover"
-                  blurRadius={Platform.OS === 'ios' ? 10 : 5}
-                />
-              )}
-              
-              {/* Main image with progressive loading */}
-              {/* Image loading safety: fixed aspect ratio, resizeMode cover, error handler prevents retry loops */}
-              <Image
-                source={{ uri: imageUri }}
-                style={[
-                  styles.image,
-                  mainImageLoaded ? styles.imageLoaded : styles.imageLoading
-                ]}
-                resizeMode="cover"
-                // Fixed width/height via aspectRatio in container - no dynamic resizing on load
-                onLoadStart={() => {
-                  // Loading state handled by parent
-                }}
-                onLoad={handleMainImageLoad}
-                onError={(error) => {
-                  // Stop retrying failed image loads - onError handler prevents retry loops
-                  // Parent component handles retry logic with max attempts
-                  onImageError();
-                }}
-              />
-              
-              {/* Heart animation overlay */}
-              <View style={styles.heartContainer} pointerEvents="none">
-                <Animated.View
-                  style={[
-                    styles.heartAnimation,
-                    {
-                      transform: [{ scale: heartScale }],
-                      opacity: heartOpacity,
-                    },
-                  ]}
+            <GestureDetector gesture={pinchGesture}>
+              <ReAnimated.View style={[StyleSheet.absoluteFill, animatedImageStyle]}>
+                <TouchableOpacity
+                  onPress={handleDoubleTap}
+                  activeOpacity={0.9}
+                  style={StyleSheet.absoluteFill}
                 >
-                  <Ionicons name="heart" size={80} color="#fff" />
-                </Animated.View>
-              </View>
-            </TouchableOpacity>
+                  {/* Single image with blur-up placeholder */}
+                  {blurUpUri && showBlur && (
+                    <Image
+                      source={{ uri: blurUpUri }}
+                      style={[styles.image, styles.blurImage]}
+                      resizeMode="cover"
+                      blurRadius={Platform.OS === 'ios' ? 10 : 5}
+                    />
+                  )}
+
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={[styles.image, styles.imageLoaded]}
+                    resizeMode="cover"
+                    fadeDuration={0}
+                    onLoad={handleMainImageLoad}
+                    onError={(error) => {
+                      onImageError();
+                    }}
+                  />
+
+                  {/* Heart animation overlay */}
+                  <View style={styles.heartContainer} pointerEvents="none">
+                    <Animated.View
+                      style={[
+                        styles.heartAnimation,
+                        {
+                          transform: [{ scale: heartScale }],
+                          opacity: heartOpacity,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="heart" size={80} color="#fff" />
+                    </Animated.View>
+                  </View>
+                </TouchableOpacity>
+              </ReAnimated.View>
+            </GestureDetector>
           )}
         </View>
         ) : imageError ? (
