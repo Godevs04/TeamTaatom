@@ -156,23 +156,23 @@ export default async function ProfilePage({ params }: { params: { id: string } }
             </Link>
           </Card>
         ) : (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 [grid-auto-rows:1fr] md:grid-cols-3 lg:grid-cols-4">
             {posts.map((p) => (
               <Link
                 key={p._id}
                 href={`/trip/${p._id}`}
-                className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90"
+                className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-premium transition-all duration-300 hover:-translate-y-1 hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90"
               >
-                <div className="aspect-square bg-muted">
+                <div className="aspect-[4/5] bg-muted">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={p.imageUrl || p.thumbnailUrl || p.mediaUrl || ""}
                     alt={p.caption || "Trip"}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     loading="lazy"
                   />
                 </div>
-                <div className="flex flex-1 flex-col justify-center p-3">
+                <div className="flex min-h-[72px] flex-1 flex-col justify-center p-3">
                   <div className="min-h-[20px] line-clamp-1 text-sm font-semibold">
                     {p.caption || "Trip"}
                   </div>
