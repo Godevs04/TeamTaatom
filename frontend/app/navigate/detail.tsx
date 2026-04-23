@@ -9,13 +9,18 @@ import {
   Platform,
   Dimensions,
   Image,
+  Alert,
+  TextInput,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
-import { getJourneyDetail } from '../../services/journey';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAlert } from '../../context/AlertContext';
+import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
@@ -41,9 +46,14 @@ export default function JourneyDetailScreen() {
   const { theme } = useTheme();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
 
+  const { showAlert } = useAlert();
   const [journey, setJourney] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     const fetchJourney = async () => {
@@ -97,6 +107,56 @@ export default function JourneyDetailScreen() {
     }
   };
 
+  const handleEditTitle = () => {
+    setEditTitle(journey?.title || '');
+    setShowMenu(false);
+    setShowEditModal(true);
+  };
+
+  const handleSaveTitle = async () => {
+    if (!journeyId) return;
+    try {
+      setIsSaving(true);
+      await updateJourneyTitle(journeyId, editTitle);
+      setJourney((prev: any) => ({ ...prev, title: editTitle.trim() }));
+      setShowEditModal(false);
+      showAlert('Updated', 'Journey name updated successfully');
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to update title');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = () => {
+    setShowMenu(false);
+    Alert.alert(
+      'Delete Journey?',
+      'This will permanently delete this journey. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear from AsyncStorage if this is the active journey
+              const storedId = await AsyncStorage.getItem('activeJourneyId');
+              if (storedId === journeyId) {
+                await AsyncStorage.removeItem('activeJourneyId');
+              }
+              await deleteJourney(journeyId);
+              showAlert('Deleted', 'Journey has been deleted');
+              router.back();
+            } catch (err: any) {
+              showAlert('Error', err.message || 'Failed to delete journey');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -148,10 +208,72 @@ export default function JourneyDetailScreen() {
         <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
           {journey.title || 'Journey'}
         </Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => setShowMenu(!showMenu)} style={styles.backBtn}>
+          <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.text} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+      {/* Dropdown Menu */}
+      {showMenu && (
+        <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleEditTitle}>
+            <Ionicons name="pencil" size={18} color={theme.colors.text} />
+            <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Edit Name</Text>
+          </TouchableOpacity>
+          <View style={[styles.menuDivider, { backgroundColor: theme.colors.border }]} />
+          <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+            <Ionicons name="trash" size={18} color={ALERT_RED} />
+            <Text style={[styles.menuItemText, { color: ALERT_RED }]}>Delete Journey</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Edit Title Modal */}
+      <Modal visible={showEditModal} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowEditModal(false)}
+        >
+          <View
+            style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Edit Journey Name</Text>
+            <TextInput
+              style={[styles.modalInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder="Journey name"
+              placeholderTextColor={theme.colors.textSecondary}
+              maxLength={100}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { borderColor: theme.colors.border, borderWidth: 1 }]}
+                onPress={() => setShowEditModal(false)}
+                disabled={isSaving}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: GROWTH_GREEN }]}
+                onPress={handleSaveTitle}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: 'white' }]}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false} onScrollBeginDrag={() => showMenu && setShowMenu(false)}>
         {/* Map */}
         <View style={styles.mapContainer}>
           {useWebViewFallback ? (() => {
@@ -283,18 +405,6 @@ function initMap(){
               </Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Posts</Text>
             </View>
-            {journey.tripScoreAwarded > 0 && (
-              <>
-                <View style={[styles.statDivider, { backgroundColor: theme.colors.border }]} />
-                <View style={styles.statItem}>
-                  <Ionicons name="trophy" size={20} color="#F59E0B" />
-                  <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                    +{journey.tripScoreAwarded}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Points</Text>
-                </View>
-              </>
-            )}
           </View>
 
           {/* Countries */}
@@ -536,5 +646,76 @@ const styles = StyleSheet.create({
   emptyPostsText: {
     fontSize: 13,
     textAlign: 'center',
+  },
+  menuDropdown: {
+    position: 'absolute',
+    top: 100,
+    right: 16,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 4,
+    minWidth: 170,
+    zIndex: 100,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  menuItemText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  menuDivider: {
+    height: 1,
+    marginHorizontal: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  modalBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

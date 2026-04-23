@@ -2262,15 +2262,15 @@ const getTravelMapData = async (req, res) => {
     const locations = [];
     let locationCounter = 1;
 
-    // Build locations list (sync pass — photo URLs resolved below)
+    // Pass 1: Build locations list with storage keys noted for batch signing
+    const pendingSignedUrls = []; // { index, storageKey }
     for (const visit of trustedVisits) {
       if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0) {
-        continue; // Skip invalid coordinates
+        continue;
       }
 
       const locationKey = getLocationKey(visit.lat, visit.lng);
 
-      // Only add unique locations (deduplicate nearby locations)
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
 
@@ -2279,20 +2279,20 @@ const getTravelMapData = async (req, res) => {
         const postId = postDoc ? postDoc._id.toString() : null;
         const contentType = visit.contentType || (postDoc ? postDoc.type : 'post');
 
-        // Resolve photo URL: prefer thumbnailUrl/imageUrl, fall back to signed URL from storageKey
         let photo = null;
+        let needsSignedUrl = null;
         if (postDoc) {
-          if (postDoc.thumbnailUrl) {
+          const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
+          if (hasStorageKey) {
+            needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
+          } else if (postDoc.thumbnailUrl) {
             photo = postDoc.thumbnailUrl;
           } else if (postDoc.imageUrl) {
             photo = postDoc.imageUrl;
-          } else if (postDoc.storageKeys && postDoc.storageKeys.length > 0) {
-            try { photo = await generateSignedUrl(postDoc.storageKeys[0], 'IMAGE'); } catch (e) { /* skip */ }
-          } else if (postDoc.storageKey) {
-            try { photo = await generateSignedUrl(postDoc.storageKey, 'IMAGE'); } catch (e) { /* skip */ }
           }
         }
 
+        const idx = locations.length;
         locations.push({
           number: locationCounter,
           latitude: visit.lat,
@@ -2304,8 +2304,24 @@ const getTravelMapData = async (req, res) => {
           contentType
         });
 
+        if (needsSignedUrl) {
+          pendingSignedUrls.push({ index: idx, storageKey: needsSignedUrl });
+        }
+
         locationCounter++;
       }
+    }
+
+    // Pass 2: Generate all signed URLs in parallel (major perf win)
+    if (pendingSignedUrls.length > 0) {
+      const signedResults = await Promise.allSettled(
+        pendingSignedUrls.map(p => generateSignedUrl(p.storageKey, 'IMAGE'))
+      );
+      signedResults.forEach((result, i) => {
+        if (result.status === 'fulfilled' && result.value) {
+          locations[pendingSignedUrls[i].index].photo = result.value;
+        }
+      });
     }
 
     // Calculate statistics

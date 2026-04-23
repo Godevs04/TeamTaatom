@@ -229,14 +229,6 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
           </View>
         </View>
 
-        {/* TripScore Points */}
-        <View style={[styles.tripScoreCard, { backgroundColor: GROWTH_GREEN + '15', borderColor: GROWTH_GREEN }]}>
-          <Ionicons name="star" size={32} color={GROWTH_GREEN} />
-          <Text style={[styles.tripScoreLabel, { color: GROWTH_GREEN }]}>TripScore Earned</Text>
-          <Text style={[styles.tripScoreValue, { color: GROWTH_GREEN }]}>+500 pts</Text>
-          <Text style={[styles.tripScoreSubtext, { color: GROWTH_GREEN }]}>Added to your profile</Text>
-        </View>
-
         {/* Journey Details */}
         <View style={[styles.detailsCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
           <View style={styles.detailRow}>
@@ -351,27 +343,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   statLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  tripScoreCard: {
-    borderWidth: 2,
-    borderRadius: 12,
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
-  },
-  tripScoreLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tripScoreValue: {
-    fontSize: 36,
-    fontWeight: '700',
-  },
-  tripScoreSubtext: {
     fontSize: 12,
     fontWeight: '500',
   },

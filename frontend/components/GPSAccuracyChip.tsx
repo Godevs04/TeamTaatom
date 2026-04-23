@@ -15,7 +15,7 @@ interface GPSAccuracyChipProps {
  * - Loading indicator when acquiring GPS signal
  * - Displays accuracy in meters (±Xm)
  */
-export default function GPSAccuracyChip({ accuracy }: GPSAccuracyChipProps) {
+function GPSAccuracyChip({ accuracy }: GPSAccuracyChipProps) {
   const { theme } = useTheme();
   const GROWTH_GREEN = '#22C55E';
 
@@ -51,6 +51,8 @@ export default function GPSAccuracyChip({ accuracy }: GPSAccuracyChipProps) {
     </View>
   );
 }
+
+export default React.memo(GPSAccuracyChip);
 
 const styles = StyleSheet.create({
   container: {

@@ -10,7 +10,9 @@ const {
   getActiveJourney,
   addWaypoint,
   getJourneyDetail,
-  getUserJourneys
+  getUserJourneys,
+  updateJourneyTitle,
+  deleteJourney
 } = require('../controllers/journeyController');
 
 // Auth required for all mutation endpoints
@@ -20,6 +22,8 @@ router.post('/:journeyId/resume', authMiddleware, resumeJourney);
 router.put('/:journeyId/location', authMiddleware, updateLocation);
 router.post('/:journeyId/complete', authMiddleware, completeJourney);
 router.post('/:journeyId/waypoint', authMiddleware, addWaypoint);
+router.patch('/:journeyId/title', authMiddleware, updateJourneyTitle);
+router.delete('/:journeyId', authMiddleware, deleteJourney);
 
 // Read endpoints - optionalAuth for privacy
 // Place /active and /user/:userId BEFORE /:journeyId to avoid route conflicts
