@@ -576,6 +576,64 @@ const getUserJourneys = async (req, res) => {
   }
 };
 
+// PATCH /api/v1/journey/:journeyId/title
+const updateJourneyTitle = async (req, res) => {
+  try {
+    const { journeyId } = req.params;
+    const { title } = req.body;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(journeyId)) {
+      return sendError(res, 'VAL_2001', 'Invalid journey ID');
+    }
+
+    if (title === undefined || title === null) {
+      return sendError(res, 'VAL_2001', 'Title is required');
+    }
+
+    if (typeof title === 'string' && title.length > 100) {
+      return sendError(res, 'VAL_2001', 'Title must be 100 characters or less');
+    }
+
+    const journey = await Journey.findOne({ _id: journeyId, user: userId });
+    if (!journey) {
+      return sendError(res, 'RES_3001', 'Journey not found');
+    }
+
+    journey.title = title.trim();
+    await journey.save();
+
+    return sendSuccess(res, 200, 'Journey title updated', { journey });
+  } catch (error) {
+    logger.error('Update journey title error:', error);
+    return sendError(res, 'ERR_5001', 'Failed to update journey title');
+  }
+};
+
+// DELETE /api/v1/journey/:journeyId
+const deleteJourney = async (req, res) => {
+  try {
+    const { journeyId } = req.params;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(journeyId)) {
+      return sendError(res, 'VAL_2001', 'Invalid journey ID');
+    }
+
+    const journey = await Journey.findOne({ _id: journeyId, user: userId });
+    if (!journey) {
+      return sendError(res, 'RES_3001', 'Journey not found');
+    }
+
+    await Journey.deleteOne({ _id: journeyId, user: userId });
+
+    return sendSuccess(res, 200, 'Journey deleted successfully');
+  } catch (error) {
+    logger.error('Delete journey error:', error);
+    return sendError(res, 'ERR_5001', 'Failed to delete journey');
+  }
+};
+
 // Helper function: Calculate Haversine distance between two points
 const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371000; // Earth radius in meters
@@ -598,5 +656,7 @@ module.exports = {
   getActiveJourney,
   addWaypoint,
   getJourneyDetail,
-  getUserJourneys
+  getUserJourneys,
+  updateJourneyTitle,
+  deleteJourney
 };

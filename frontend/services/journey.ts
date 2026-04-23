@@ -207,3 +207,33 @@ export const getUserJourneys = async (
     throw new Error(parsedError.userMessage);
   }
 };
+
+/**
+ * Update a journey's title
+ */
+export const updateJourneyTitle = async (
+  journeyId: string,
+  title: string
+): Promise<{ journey: Journey }> => {
+  try {
+    const response = await api.patch(`/api/v1/journey/${journeyId}/title`, { title });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    logger.error('updateJourneyTitle', parsedError);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+/**
+ * Delete a journey
+ */
+export const deleteJourney = async (journeyId: string): Promise<void> => {
+  try {
+    await api.delete(`/api/v1/journey/${journeyId}`);
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    logger.error('deleteJourney', parsedError);
+    throw new Error(parsedError.userMessage);
+  }
+};

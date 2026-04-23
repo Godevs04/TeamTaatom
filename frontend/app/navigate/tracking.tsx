@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,6 @@ import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GPSAccuracyChip from '../../components/GPSAccuracyChip';
-import * as Location from 'expo-location';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -56,46 +55,15 @@ export default function TrackingScreen() {
     stopJourneyRecording,
   } = useJourneyTracking();
 
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
 
-  // Watch location for map centering
-  useEffect(() => {
-    const startWatcher = async () => {
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.granted) {
-          const watcher = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.High,
-              distanceInterval: 20,
-              timeInterval: 5000,
-            },
-            (location) => {
-              setCurrentLocation({
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-              });
-            }
-          );
-          locationWatcherRef.current = watcher;
-        }
-      } catch (err) {
-        console.error('Failed to watch location:', err);
-      }
-    };
-
-    startWatcher();
-
-    return () => {
-      if (locationWatcherRef.current) {
-        locationWatcherRef.current.remove();
-        locationWatcherRef.current = null;
-      }
-    };
-  }, []);
+  // Derive current location from polyline's latest point (no duplicate watcher needed)
+  const currentLocation = useMemo(() => {
+    if (polyline.length === 0) return null;
+    const last = polyline[polyline.length - 1];
+    return { latitude: last.latitude, longitude: last.longitude };
+  }, [polyline]);
 
   // Redirect to home if no journey (only after hook has initialized)
   useEffect(() => {

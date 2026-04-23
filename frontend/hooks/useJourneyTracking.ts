@@ -20,7 +20,7 @@ const logger = {
   warn: (...args: any[]) => console.warn(...args),
 };
 
-const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
+const BATCH_SEND_INTERVAL = 60000; // Send coordinates every 60 seconds (battery optimization)
 const MIN_LOCATION_DISTANCE = 10; // Minimum 10 meters between tracked points
 
 interface UseJourneyTrackingReturn {

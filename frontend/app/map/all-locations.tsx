@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -198,37 +198,41 @@ function AllLocationsMapInner() {
     }
   }, [locations, journeys, loading]);
 
-  // Calculate region to fit all data
-  const getMapRegion = useCallback(() => {
-    const allLats: number[] = [];
-    const allLngs: number[] = [];
+  // Calculate region to fit all data (memoized — only recalculates when data changes)
+  const mapRegion = useMemo(() => {
+    let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+    let hasCoords = false;
 
     locations.forEach((loc) => {
       if (loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0) {
-        allLats.push(loc.latitude);
-        allLngs.push(loc.longitude);
+        if (loc.latitude < minLat) minLat = loc.latitude;
+        if (loc.latitude > maxLat) maxLat = loc.latitude;
+        if (loc.longitude < minLng) minLng = loc.longitude;
+        if (loc.longitude > maxLng) maxLng = loc.longitude;
+        hasCoords = true;
       }
     });
 
     journeys.forEach((j) => {
-      if (j.polyline) {
-        j.polyline.forEach((p) => {
-          if (p.lat && p.lng) {
-            allLats.push(p.lat);
-            allLngs.push(p.lng);
-          }
-        });
+      if (j.startCoords?.lat && j.startCoords?.lng) {
+        if (j.startCoords.lat < minLat) minLat = j.startCoords.lat;
+        if (j.startCoords.lat > maxLat) maxLat = j.startCoords.lat;
+        if (j.startCoords.lng < minLng) minLng = j.startCoords.lng;
+        if (j.startCoords.lng > maxLng) maxLng = j.startCoords.lng;
+        hasCoords = true;
+      }
+      if (j.endCoords?.lat && j.endCoords?.lng) {
+        if (j.endCoords.lat < minLat) minLat = j.endCoords.lat;
+        if (j.endCoords.lat > maxLat) maxLat = j.endCoords.lat;
+        if (j.endCoords.lng < minLng) minLng = j.endCoords.lng;
+        if (j.endCoords.lng > maxLng) maxLng = j.endCoords.lng;
+        hasCoords = true;
       }
     });
 
-    if (allLats.length === 0) {
+    if (!hasCoords) {
       return { latitude: 20, longitude: 0, latitudeDelta: 140, longitudeDelta: 360 };
     }
-
-    const minLat = Math.min(...allLats);
-    const maxLat = Math.max(...allLats);
-    const minLng = Math.min(...allLngs);
-    const maxLng = Math.max(...allLngs);
 
     const latDelta = Math.max((maxLat - minLat) * 1.8, 0.1);
     const lngDelta = Math.max((maxLng - minLng) * 1.8, 0.1);
@@ -240,6 +244,9 @@ function AllLocationsMapInner() {
       longitudeDelta: lngDelta,
     };
   }, [locations, journeys]);
+
+  // Keep backward-compatible getter for WebView HTML builder
+  const getMapRegion = useCallback(() => mapRegion, [mapRegion]);
 
   // ──────────────────────────────────────────────────────
   // WebView HTML (used on Expo Go Android where native maps crash)
@@ -301,16 +308,17 @@ function initMap(){
 
   function clusterMarkers(items,gs){
     if(gs===0){return items.map(function(it){return{items:[it],lat:it.lat,lng:it.lng};});}
-    var clusters=[],used=new Array(items.length).fill(false);
-    for(var i=0;i<items.length;i++){
-      if(used[i])continue;
-      var c={items:[items[i]],lat:items[i].lat,lng:items[i].lng};used[i]=true;
-      for(var j=i+1;j<items.length;j++){
-        if(used[j])continue;
-        if(Math.abs(items[j].lat-c.lat)<gs&&Math.abs(items[j].lng-c.lng)<gs){c.items.push(items[j]);used[j]=true;}
-      }
-      var sLat=0,sLng=0;c.items.forEach(function(it){sLat+=it.lat;sLng+=it.lng;});
-      c.lat=sLat/c.items.length;c.lng=sLng/c.items.length;clusters.push(c);
+    // O(n) grid-hash clustering instead of O(n²) pairwise comparison
+    var buckets={};
+    items.forEach(function(it){
+      var key=Math.floor(it.lat/gs)+','+Math.floor(it.lng/gs);
+      if(!buckets[key])buckets[key]={items:[],sLat:0,sLng:0};
+      buckets[key].items.push(it);buckets[key].sLat+=it.lat;buckets[key].sLng+=it.lng;
+    });
+    var clusters=[];
+    for(var k in buckets){
+      var b=buckets[k];
+      clusters.push({items:b.items,lat:b.sLat/b.items.length,lng:b.sLng/b.items.length});
     }
     return clusters;
   }
@@ -516,7 +524,7 @@ function initMap(){
               color={GROWTH_GREEN}
               strokeWidth={4}
               simplifyDistance={10}
-              applyKalman={false}
+              applyKalman={true}
             />
           );
         })}
@@ -674,16 +682,6 @@ function initMap(){
         )}
       </View>
 
-      {/* Floating Start Journey button */}
-      <TouchableOpacity
-        style={[styles.startJourneyFab, { backgroundColor: GROWTH_GREEN }]}
-        onPress={() => router.push('/navigate')}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="play-circle" size={22} color="white" />
-        <Text style={styles.startJourneyFabText}>Start Journey</Text>
-      </TouchableOpacity>
-
     </SafeAreaView>
   );
 }
@@ -831,27 +829,5 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 11,
     fontWeight: 'bold',
-  },
-  startJourneyFab: {
-    position: 'absolute',
-    bottom: 70,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 28,
-    gap: 8,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    zIndex: 20,
-  },
-  startJourneyFabText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '700',
   },
 });
