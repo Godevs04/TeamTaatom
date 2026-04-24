@@ -29,8 +29,8 @@ import {
   ContentBlock,
   ConnectFollowerUser,
 } from '../../../services/connect';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { crashReportingService } from '../../../services/crashReporting';
+import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
 
@@ -114,18 +114,14 @@ export default function ConnectPageDetailScreen() {
     }
   };
 
-  const handleOpenChat = async () => {
+  const handleOpenChat = () => {
     if (!page?.chatRoomId) return;
     crashReportingService.addBreadcrumb('Opening connect page group chat', 'navigation', {
       pageId: page._id,
       pageName: page.name,
       chatRoomId: page.chatRoomId,
     });
-    try {
-      await AsyncStorage.setItem('pendingChatRoomId', page.chatRoomId);
-    } catch (e) {
-      logger.warn('Failed to store pendingChatRoomId:', e);
-    }
+    setPendingChatRoomId(page.chatRoomId);
     router.push('/chat');
   };
 

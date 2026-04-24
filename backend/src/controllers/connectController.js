@@ -277,6 +277,16 @@ const deletePage = async (req, res) => {
     page.status = 'archived';
     await page.save();
 
+    // Clean up: remove the associated group chat so it doesn't linger in chat lists
+    if (page.chatRoomId) {
+      try {
+        await Chat.findByIdAndDelete(page.chatRoomId);
+        logger.info('[deletePage] Deleted associated chat room:', page.chatRoomId);
+      } catch (chatErr) {
+        logger.warn('[deletePage] Failed to delete chat room:', chatErr.message);
+      }
+    }
+
     return sendSuccess(res, 200, 'Page deleted successfully');
   } catch (error) {
     logger.error('Error deleting page:', error);

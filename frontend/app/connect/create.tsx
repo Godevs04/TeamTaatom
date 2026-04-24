@@ -202,7 +202,12 @@ export default function CreateConnectPageScreen() {
 
           {/* Page Name */}
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.colors.text }]}>Connect Page Name *</Text>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, { color: theme.colors.text }]}>Connect Page Name *</Text>
+              <Text style={[styles.charCountInline, { color: theme.colors.textSecondary }]}>
+                {name.length}/50
+              </Text>
+            </View>
             <TextInput
               style={[styles.input, { backgroundColor: theme.colors.surface, color: theme.colors.text, borderColor: theme.colors.border }]}
               placeholder="Enter your page name"
@@ -212,14 +217,16 @@ export default function CreateConnectPageScreen() {
               maxLength={50}
               autoFocus
             />
-            <Text style={[styles.charCount, { color: theme.colors.textSecondary }]}>
-              {name.length}/50
-            </Text>
           </View>
 
           {/* Bio */}
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.colors.text }]}>Bio / Description</Text>
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, { color: theme.colors.text }]}>Bio / Description</Text>
+              <Text style={[styles.charCountInline, { color: theme.colors.textSecondary }]}>
+                {bio.length}/300
+              </Text>
+            </View>
             <TextInput
               style={[
                 styles.input,
@@ -235,9 +242,6 @@ export default function CreateConnectPageScreen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
-            <Text style={[styles.charCount, { color: theme.colors.textSecondary }]}>
-              {bio.length}/300
-            </Text>
           </View>
 
           {/* Page Type */}
@@ -416,13 +420,25 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   field: {
-    marginBottom: isTablet ? 28 : 24,
+    marginBottom: isTablet ? 20 : 16,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   label: {
     fontSize: isTablet ? 16 : 14,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 6,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  charCountInline: {
+    fontSize: 12,
+    fontFamily: getFontFamily('400'),
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

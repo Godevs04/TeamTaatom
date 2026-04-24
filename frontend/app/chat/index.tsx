@@ -151,12 +151,13 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
   otherUser: any,
   onClose: () => void,
   messages: any[],
   onSendMessage: (msg: any) => void,
   chatId: string,
+  chatType?: string,
   onVoiceCall: (user: any) => void,
   onVideoCall: (user: any) => void,
   isCalling: boolean,
@@ -1081,7 +1082,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     }, 100);
     
     try {
-      const res = await api.post(`/chat/${otherUser._id}/messages`, { text: messageText });
+      // Use room endpoint for connect_page group chats, user endpoint for 1:1 chats
+      const isGroupChat = chatType === 'connect_page';
+      const endpoint = isGroupChat
+        ? `/chat/room/${chatId}/messages`
+        : `/chat/${otherUser._id}/messages`;
+      const res = await api.post(endpoint, { text: messageText });
       logger.debug('Message sent successfully:', res.data.message);
       
       // Clear any existing fallback timeout
@@ -1133,76 +1139,76 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     chatHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 8,
+      paddingVertical: isTablet ? 10 : 8,
+      backgroundColor: theme.colors.background,
+      borderBottomWidth: 0.5,
       borderBottomColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
     },
     headerBack: {
-      // Minimum touch target: 44x44 for iOS, 48x48 for Android
-      minWidth: isAndroid ? 48 : (isTablet ? 52 : 44),
-      minHeight: isAndroid ? 48 : (isTablet ? 52 : 44),
-      width: isTablet ? 52 : (isAndroid ? 48 : 44),
-      height: isTablet ? 52 : (isAndroid ? 48 : 44),
+      width: 36,
+      height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: isTablet ? 26 : (isAndroid ? 24 : 22),
-      backgroundColor: theme.colors.background,
-      ...(isWeb && {
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      } as any),
+      borderRadius: 18,
+    },
+    headerUserInfo: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: 4,
     },
     headerAvatarWrap: {
       position: 'relative',
-      width: isTablet ? 56 : 48,
-      height: isTablet ? 56 : 48,
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerAvatar: {
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
+    },
+    headerAvatarPlaceholder: {
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
       alignItems: 'center',
       justifyContent: 'center',
     },
     onlineDot: {
       position: 'absolute',
-      bottom: 2,
-      right: 2,
-      width: isTablet ? 18 : 14,
-      height: isTablet ? 18 : 14,
-      borderRadius: isTablet ? 9 : 7,
+      bottom: 0,
+      right: 0,
+      width: isTablet ? 12 : 10,
+      height: isTablet ? 12 : 10,
+      borderRadius: isTablet ? 6 : 5,
       backgroundColor: '#4cd137',
-      borderWidth: 3,
-      borderColor: theme.colors.surface,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
     },
     headerCenter: {
       flex: 1,
-      alignItems: 'center',
       justifyContent: 'center',
-      marginHorizontal: isTablet ? theme.spacing.md : 8,
+      marginLeft: isTablet ? 10 : 8,
       minWidth: 0,
     },
     chatName: {
-      fontSize: isTablet ? 22 : 18,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontSize: isTablet ? 17 : 16,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
-      textAlign: 'center',
-      maxWidth: '100%',
-      letterSpacing: isIOS ? 0.3 : 0.2,
+      flexShrink: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
     },
     onlineStatus: {
-      fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
-      fontFamily: getFontFamily('500'),
-      fontWeight: '500',
-      marginTop: 2,
-      textAlign: 'center',
+      fontSize: isTablet ? 12 : 11,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
+      marginTop: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -1210,48 +1216,45 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
+      marginLeft: 8,
     },
     headerActionButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: theme.colors.background,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: 8,
     },
     headerActionButtonDisabled: {
       opacity: 0.5,
     },
     messagesContainer: {
       flex: 1,
-      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 12,
       backgroundColor: theme.colors.background,
     },
     bubble: {
-      marginVertical: isTablet ? 6 : 4,
-      paddingHorizontal: isTablet ? theme.spacing.md : 14,
-      paddingVertical: isTablet ? theme.spacing.md : 10,
-      borderRadius: isTablet ? 22 : 18,
-      maxWidth: isTablet ? '70%' : '75%',
+      marginVertical: isTablet ? 3 : 2,
+      paddingHorizontal: isTablet ? 14 : 12,
+      paddingVertical: isTablet ? 8 : 7,
+      borderRadius: isTablet ? 18 : 16,
+      maxWidth: isTablet ? '70%' : '78%',
     },
     bubbleOwn: {
       alignSelf: 'flex-end',
       backgroundColor: theme.colors.primary,
-      borderBottomRightRadius: 6,
+      borderBottomRightRadius: 4,
     },
     bubbleOther: {
       alignSelf: 'flex-start',
       backgroundColor: theme.colors.surface,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderBottomLeftRadius: 6,
+      borderBottomLeftRadius: 4,
     },
     bubbleText: {
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontSize: isTablet ? 15 : 15,
       fontFamily: getFontFamily('400'),
-      lineHeight: isTablet ? 22 : 20,
+      lineHeight: isTablet ? 21 : 20,
       fontWeight: '400',
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -1261,11 +1264,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       color: '#fff',
     },
     bubbleTime: {
-      fontSize: isTablet ? theme.typography.small.fontSize : 10,
+      fontSize: isTablet ? 10 : 10,
       fontFamily: getFontFamily('400'),
-      marginTop: 4,
+      marginTop: 2,
       textAlign: 'right',
-      opacity: 0.7,
+      opacity: 0.6,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -1279,67 +1282,61 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     typingIndicator: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: 16,
-      marginBottom: 8,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      marginLeft: 12,
+      marginBottom: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       backgroundColor: theme.colors.surface,
-      borderRadius: 16,
+      borderRadius: 14,
       alignSelf: 'flex-start',
-      borderWidth: 1,
-      borderColor: theme.colors.border,
     },
     typingText: {
       color: theme.colors.textSecondary,
-      fontSize: 13,
+      fontSize: 12,
       fontStyle: 'italic',
-      marginLeft: 8,
+      marginLeft: 6,
     },
     inputContainer: {
       flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      paddingVertical: isTablet ? theme.spacing.md : 12,
-      backgroundColor: theme.colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: theme.colors.border,
+      alignItems: 'flex-end',
+      paddingHorizontal: isTablet ? theme.spacing.lg : 10,
+      paddingVertical: isTablet ? 8 : 6,
+      paddingBottom: isTablet ? 10 : 8,
+      backgroundColor: theme.colors.background,
     },
     inputWrapper: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.colors.background,
-      borderRadius: isTablet ? 24 : 20,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-      paddingVertical: isTablet ? theme.spacing.sm : 8,
-      marginRight: isTablet ? theme.spacing.sm : 8,
-      minHeight: isTablet ? 50 : 40,
+      backgroundColor: theme.colors.surface,
+      borderRadius: isTablet ? 22 : 20,
+      paddingHorizontal: isTablet ? 14 : 14,
+      paddingVertical: isTablet ? 6 : 6,
+      marginRight: isTablet ? 8 : 6,
+      minHeight: isTablet ? 42 : 38,
     },
     input: {
       flex: 1,
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontSize: isTablet ? 15 : 15,
       fontFamily: getFontFamily('400'),
-      lineHeight: isTablet ? 22 : 20,
+      lineHeight: isTablet ? 20 : 20,
       maxHeight: 100,
-      paddingVertical: 2,
+      paddingVertical: 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
       } as any),
     },
     sendButton: {
-      width: isTablet ? 50 : 40,
-      height: isTablet ? 50 : 40,
-      borderRadius: isTablet ? 25 : 20,
+      width: isTablet ? 42 : 38,
+      height: isTablet ? 42 : 38,
+      borderRadius: isTablet ? 21 : 19,
       backgroundColor: theme.colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
       ...(isWeb && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
       } as any),
     },
     sendButtonDisabled: {
@@ -1350,10 +1347,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       alignItems: 'center',
     },
     typingDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      marginHorizontal: 2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      marginHorizontal: 1.5,
     },
     postPreviewContainer: {
       width: '100%',
@@ -1490,81 +1487,62 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
-        {/* Enhanced Header */}
+        {/* Modern Header */}
         <View style={styles.chatHeader}>
-          <TouchableOpacity onPress={onClose} style={styles.headerBack}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.headerBack}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          
-          <View style={styles.headerAvatarWrap}>
-            {otherUser.profilePic ? (
-              <Image 
-                source={{ uri: otherUser.profilePic }} 
-                style={{ width: 48, height: 48, borderRadius: 24 }} 
-              />
-            ) : (
-              <Ionicons 
-                name="person-circle" 
-                size={48} 
-                color={isOnline ? theme.colors.primary : theme.colors.textSecondary} 
-              />
-            )}
-            {isTaatomOfficial && isOnline && <View style={styles.onlineDot} />}
-          </View>
-          
-          <View style={styles.headerCenter}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text 
-                style={styles.chatName} 
-                numberOfLines={1} 
-                ellipsizeMode="tail"
-              >
-                {otherUser.fullName}
-              </Text>
-              {isTaatomOfficial && (
-                <Ionicons 
-                  name="checkmark-circle" 
-                  size={18} 
-                  color={theme.colors.success || '#4CAF50'} 
+
+          <TouchableOpacity
+            style={styles.headerUserInfo}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (otherUser?._id && router && chatType !== 'connect_page') {
+                router.push(`/profile/${otherUser._id}`);
+              }
+            }}
+          >
+            <View style={styles.headerAvatarWrap}>
+              {otherUser.profilePic ? (
+                <Image
+                  source={{ uri: otherUser.profilePic }}
+                  style={styles.headerAvatar}
                 />
+              ) : chatType === 'connect_page' ? (
+                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="people" size={18} color={theme.colors.primary} />
+                </View>
+              ) : (
+                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.textSecondary + '15' }]}>
+                  <Ionicons name="person" size={18} color={theme.colors.textSecondary} />
+                </View>
+              )}
+              {isOnline && <View style={styles.onlineDot} />}
+            </View>
+
+            <View style={styles.headerCenter}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.chatName} numberOfLines={1} ellipsizeMode="tail">
+                  {otherUser.fullName}
+                </Text>
+                {isTaatomOfficial && (
+                  <Ionicons name="checkmark-circle" size={15} color={theme.colors.success || '#4CAF50'} />
+                )}
+              </View>
+              {isTaatomOfficial && (
+                <Text style={[styles.onlineStatus, { color: theme.colors.primary }]}>Online</Text>
+              )}
+              {chatType === 'connect_page' && (
+                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>Group</Text>
               )}
             </View>
-            {isTaatomOfficial && (
-              <Text style={[
-                styles.onlineStatus,
-                { color: theme.colors.primary }
-              ]}>
-                Online
-              </Text>
-            )}
-          </View>
-          
+          </TouchableOpacity>
+
           <View style={styles.headerActions}>
-            {/* Call options commented out - will be available in next update */}
-            {/* <TouchableOpacity 
-              style={[styles.headerActionButton, isCalling && styles.headerActionButtonDisabled]}
-              onPress={() => onVoiceCall(otherUser)}
-              disabled={isCalling}
-            >
-              <Ionicons 
-                name="call" 
-                size={20} 
-                color={isCalling ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.headerActionButton, isCalling && styles.headerActionButtonDisabled]}
-              onPress={() => onVideoCall(otherUser)}
-              disabled={isCalling}
-            >
-              <Ionicons 
-                name="videocam" 
-                size={20} 
-                color={isCalling ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-            </TouchableOpacity> */}
-            
             <ThreeDotMenu
               items={[
                 {
@@ -1675,11 +1653,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               const senderId = normalizeId(item.sender?._id || item.sender);
               const otherUserId = normalizeId(otherUser?._id);
               const myUserId = normalizeId(currentUserId);
-              
-              // Message is "own" if sender matches current user, not other user
+
+              // Message is "own" if sender matches current user
+              // Primary check: sender === me (reliable when currentUserId is loaded)
+              // Fallback for 1:1 chats only: if myUserId not loaded yet, check sender !== otherUser
+              // Skip fallback for group/connect chats where otherUser._id is a chatRoomId
+              const isGroupChat = chatType === 'connect_page';
               const isOwn = Boolean(
-                (senderId && myUserId && senderId === myUserId) || 
-                (senderId && otherUserId && senderId !== otherUserId && !myUserId)
+                (senderId && myUserId && senderId === myUserId) ||
+                (!isGroupChat && senderId && otherUserId && senderId !== otherUserId && !myUserId)
               );
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
               
@@ -1748,11 +1730,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                     </Text>
                   )}
                   
-                  <View style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center', 
-                    justifyContent: 'flex-end', 
-                    marginTop: 4 
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    marginTop: 2,
+                    gap: 3,
                   }}>
                     <Text style={[
                       styles.bubbleTime,
@@ -1761,11 +1744,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
                       {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                     </Text>
                     {isOwn && (
-                      <View style={{ marginLeft: 6 }}>
+                      <View>
                         {item.seen === true ? (
-                          <Ionicons name="checkmark-done" size={14} color="#fff" />
+                          <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
                         ) : (
-                          <Ionicons name="checkmark" size={14} color="#fff" style={{ opacity: 0.7 }} />
+                          <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
                         )}
                       </View>
                     )}
@@ -2432,38 +2415,28 @@ export default function ChatModal() {
   }, [params.userId]);
 
   // If chatId param is present (from connect page group chat), fetch chat directly by ID
-  // Also checks AsyncStorage as fallback since Expo Router params can be unreliable
+  // Also checks connectChatBridge as fallback since Expo Router params can be unreliable
   useEffect(() => {
     if (params.userId) return;
 
+    // Check for pending chatRoomId synchronously (no async delay)
+    const { consumePendingChatRoomId } = require('../../utils/connectChatBridge');
+    const resolvedChatId = (params.chatId as string) || consumePendingChatRoomId();
+
+    if (!resolvedChatId) return;
+    chatIdModeRef.current = true;
+
     let cancelled = false;
-    const resolveAndLoadChat = async () => {
-      let chatId = params.chatId as string | undefined;
-
-      // Fallback: check AsyncStorage if param not detected
-      if (!chatId) {
-        try {
-          const pending = await AsyncStorage.getItem('pendingChatRoomId');
-          if (pending) {
-            chatId = pending;
-            await AsyncStorage.removeItem('pendingChatRoomId');
-          }
-        } catch (e) {
-          logger.warn('Failed to read pendingChatRoomId:', e);
-        }
-      }
-
-      if (!chatId || cancelled) return;
-      chatIdModeRef.current = true;
-      logger.debug('[CHAT] Opening chat by room ID:', chatId);
+    const loadChatById = async () => {
+      logger.debug('[CHAT] Opening chat by room ID:', resolvedChatId);
 
       setLoading(true);
       setChatLoading(true);
       setError(null);
       try {
         const [chatRes, messagesRes] = await Promise.all([
-          api.get(`/chat/room/${chatId}`),
-          api.get(`/chat/room/${chatId}/messages`),
+          api.get(`/chat/room/${resolvedChatId}`),
+          api.get(`/chat/room/${resolvedChatId}/messages`),
         ]);
 
         if (cancelled) return;
@@ -2473,8 +2446,8 @@ export default function ChatModal() {
         const messages = messagesRes.data.messages || [];
         const pageInfo = chat.connectPageId;
         const syntheticUser = pageInfo
-          ? { _id: chatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
-          : { _id: chatId, fullName: 'Group Chat' };
+          ? { _id: resolvedChatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
+          : { _id: resolvedChatId, fullName: 'Group Chat' };
 
         setActiveChat(chat);
         setActiveMessages(messages);
@@ -2492,7 +2465,7 @@ export default function ChatModal() {
       }
     };
 
-    resolveAndLoadChat();
+    loadChatById();
     return () => { cancelled = true; };
   }, [params.chatId]);
 
@@ -2706,7 +2679,8 @@ export default function ChatModal() {
       }} 
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
-      chatId={activeChat?._id} 
+      chatId={activeChat?._id}
+      chatType={activeChat?.type}
       onVoiceCall={handleVoiceCall}
       onVideoCall={handleVideoCall}
       isCalling={isCalling}
@@ -3013,23 +2987,28 @@ export default function ChatModal() {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingVertical: isTablet ? theme.spacing.md : 12,
+      backgroundColor: theme.colors.background,
+    },
+    headerLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    backButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 4,
     },
     title: {
-      fontSize: isTablet ? theme.typography.h1.fontSize : 26,
-      fontFamily: getFontFamily('800'),
-      fontWeight: '800',
+      fontSize: isTablet ? 24 : 22,
+      fontFamily: getFontFamily('700'),
+      fontWeight: '700',
       color: theme.colors.text,
-      letterSpacing: isIOS ? -0.5 : 0,
+      letterSpacing: isIOS ? -0.3 : 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -3037,47 +3016,35 @@ export default function ChatModal() {
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: 4,
     },
     headerButton: {
-      width: isTablet ? 52 : 44,
-      height: isTablet ? 52 : 44,
-      borderRadius: isTablet ? 26 : 22,
-      backgroundColor: theme.colors.background,
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: isTablet ? theme.spacing.md : 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-      elevation: 2,
     },
     searchContainer: {
-      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      marginVertical: isTablet ? theme.spacing.md : 12,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingBottom: 8,
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.colors.surface,
-      borderRadius: isTablet ? theme.borderRadius.lg : 16,
-      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-      paddingVertical: isTablet ? theme.spacing.md : 12,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      borderRadius: isTablet ? 12 : 10,
+      paddingHorizontal: isTablet ? 14 : 12,
+      height: isTablet ? 40 : 36,
     },
     searchInput: {
       flex: 1,
-      marginLeft: isTablet ? theme.spacing.md : 12,
+      marginLeft: isTablet ? 10 : 8,
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 16,
-      fontFamily: getFontFamily('500'),
-      fontWeight: '500',
+      fontSize: isTablet ? 15 : 14,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
+      paddingVertical: 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
@@ -3089,85 +3056,109 @@ export default function ChatModal() {
     chatItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      marginVertical: isTablet ? 8 : 6,
-      borderRadius: isTablet ? theme.borderRadius.lg : 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingVertical: isTablet ? 14 : 12,
     },
     avatarContainer: {
       position: 'relative',
-      marginRight: isTablet ? theme.spacing.lg : 16,
+      marginRight: isTablet ? 14 : 12,
     },
     avatar: {
-      width: isTablet ? 64 : 52,
-      height: isTablet ? 64 : 52,
-      borderRadius: isTablet ? 32 : 26,
+      width: isTablet ? 56 : 50,
+      height: isTablet ? 56 : 50,
+      borderRadius: isTablet ? 28 : 25,
+    },
+    avatarPlaceholder: {
+      width: isTablet ? 56 : 50,
+      height: isTablet ? 56 : 50,
+      borderRadius: isTablet ? 28 : 25,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     onlineIndicator: {
       position: 'absolute',
-      bottom: 2,
-      right: 2,
-      width: isTablet ? 18 : 14,
-      height: isTablet ? 18 : 14,
-      borderRadius: isTablet ? 9 : 7,
+      bottom: 1,
+      right: 1,
+      width: isTablet ? 14 : 12,
+      height: isTablet ? 14 : 12,
+      borderRadius: isTablet ? 7 : 6,
       backgroundColor: '#4cd137',
-      borderWidth: 3,
-      borderColor: theme.colors.surface,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
     },
     chatContent: {
       flex: 1,
       justifyContent: 'center',
     },
+    chatTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 3,
+    },
+    chatBottomRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
     chatName: {
-      fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontSize: isTablet ? 16 : 15,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
-      marginBottom: 4,
+      flexShrink: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
     },
-    lastMessage: {
-      fontSize: isTablet ? theme.typography.body.fontSize : 14,
-      fontFamily: getFontFamily('500'),
+    chatNameUnread: {
+      fontFamily: getFontFamily('700'),
+      fontWeight: '700',
+    },
+    chatTime: {
+      fontSize: isTablet ? 12 : 11,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
       color: theme.colors.textSecondary,
-      fontWeight: '500',
-      lineHeight: isTablet ? 20 : 18,
+      marginLeft: 8,
+    },
+    connectBadge: {
+      backgroundColor: theme.colors.primary + '15',
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 4,
+    },
+    connectBadgeText: {
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    lastMessage: {
+      fontSize: isTablet ? 14 : 13,
+      fontFamily: getFontFamily('400'),
+      color: theme.colors.textSecondary,
+      fontWeight: '400',
+      lineHeight: isTablet ? 18 : 17,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
+    },
+    lastMessageUnread: {
+      fontFamily: getFontFamily('500'),
+      fontWeight: '500',
+      color: theme.colors.text,
     },
     unreadBadge: {
       backgroundColor: theme.colors.primary,
-      borderRadius: 12,
-      minWidth: 24,
-      height: 24,
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 6,
-      paddingVertical: 2,
-      shadowColor: theme.colors.primary,
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.3,
-      shadowRadius: 2,
-      elevation: 2,
-    },
-    unreadBadgeDoubleDigit: {
-      minWidth: 44,
-      paddingHorizontal: 10,
-      width: 'auto',
+      marginLeft: 8,
     },
     unreadText: {
       color: '#fff',
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '700',
       textAlign: 'center',
       includeFontPadding: false,
@@ -3177,23 +3168,24 @@ export default function ChatModal() {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 32,
+      paddingHorizontal: 40,
     },
     emptyIcon: {
-      marginBottom: 20,
+      marginBottom: 16,
+      opacity: 0.5,
     },
     emptyTitle: {
-      fontSize: 22,
-      fontWeight: '700',
+      fontSize: 18,
+      fontWeight: '600',
       color: theme.colors.text,
-      marginBottom: 8,
+      marginBottom: 6,
       textAlign: 'center',
     },
     emptyMessage: {
-      fontSize: 16,
+      fontSize: 14,
       color: theme.colors.textSecondary,
       textAlign: 'center',
-      lineHeight: 22,
+      lineHeight: 20,
     },
     newMessageOverlay: {
       position: 'absolute',
@@ -3207,41 +3199,30 @@ export default function ChatModal() {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.colors.background,
     },
     newMessageTitle: {
-      fontSize: 20,
-      fontWeight: '700',
+      fontSize: 18,
+      fontWeight: '600',
       color: theme.colors.text,
     },
     userItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: theme.colors.surface,
-      marginHorizontal: 16,
-      marginVertical: 4,
-      borderRadius: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
     },
     userAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      marginRight: 16,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      marginRight: 12,
     },
     userName: {
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 15,
+      fontWeight: '500',
       color: theme.colors.text,
     },
     chatListPostPreview: {
@@ -3384,49 +3365,59 @@ export default function ChatModal() {
       {__DEV__ && logger.debug('📞 Render check', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
       <SafeAreaView style={styles.container}>
-      {/* Enhanced Header */}
+      {/* Modern Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
-        
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Chats</Text>
+        </View>
+
         <View style={styles.headerActions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => {
               logger.debug('[Mark All Read] Button pressed');
               handleMarkAllAsRead();
-            }} 
-            style={[styles.headerButton, { marginLeft: 0 }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="checkmark-done" size={22} color={theme.colors.primary || '#007AFF'} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setShowNewMessage(true)} 
+            }}
             style={styles.headerButton}
             activeOpacity={0.7}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
-            <Ionicons name="create-outline" size={22} color={theme.colors.text} />
+            <Ionicons name="checkmark-done" size={20} color={theme.colors.primary || '#007AFF'} />
           </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => router.back()} 
+          <TouchableOpacity
+            onPress={() => setShowNewMessage(true)}
             style={styles.headerButton}
             activeOpacity={0.7}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
-            <Ionicons name="close" size={24} color={theme.colors.text} />
+            <Ionicons name="create-outline" size={20} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Enhanced Search Bar */}
+      {/* Compact Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
+          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search chats..."
+            placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
             value={search}
             onChangeText={setSearch}
           />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -3434,7 +3425,7 @@ export default function ChatModal() {
       {filtered.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIcon}>
-            <Ionicons name="chatbubbles-outline" size={64} color={theme.colors.textSecondary} />
+            <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textSecondary} />
           </View>
           <Text style={styles.emptyTitle}>No conversations yet</Text>
           <Text style={styles.emptyMessage}>
@@ -3512,10 +3503,37 @@ export default function ChatModal() {
             return (
               <TouchableOpacity
                 style={styles.chatItem}
+                onLongPress={() => {
+                  const chatName = (item as any).type === 'connect_page' && (item as any).connectPageId?.name
+                    ? (item as any).connectPageId.name
+                    : other?.fullName || 'this chat';
+                  Alert.alert(
+                    'Delete Chat',
+                    `Are you sure you want to delete the chat with "${chatName}"?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await api.delete(`/chat/room/${item._id}`);
+                            setConversations(prev => prev.filter(c => c._id !== item._id));
+                          } catch (e: any) {
+                            logger.error('Error deleting chat:', e);
+                            Alert.alert('Error', 'Failed to delete chat. Please try again.');
+                          }
+                        },
+                      },
+                    ]
+                  );
+                }}
                 onPress={() => {
                   if ((item as any).type === 'connect_page') {
                     // For connect_page chats, open by chat room ID
                     const chatId = item._id;
+                    // Set chatIdModeRef BEFORE state updates so the selectedUser effect skips
+                    chatIdModeRef.current = true;
                     setLoading(true);
                     setChatLoading(true);
                     Promise.all([
@@ -3533,6 +3551,7 @@ export default function ChatModal() {
                       setSelectedUser(syntheticUser);
                     }).catch((e) => {
                       logger.error('Error opening connect_page chat:', e);
+                      chatIdModeRef.current = false;
                       setError('Failed to load chat');
                       setShowErrorAlert(true);
                     }).finally(() => {
@@ -3551,73 +3570,90 @@ export default function ChatModal() {
                   ) : other && other.profilePic ? (
                     <Image source={{ uri: other.profilePic }} style={styles.avatar} />
                   ) : (item as any).type === 'connect_page' ? (
-                    <Ionicons name="people-circle" size={52} color={theme.colors.primary} />
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
+                      <Ionicons name="people" size={22} color={theme.colors.primary} />
+                    </View>
                   ) : (
-                    <Ionicons name="person-circle" size={52} color={theme.colors.textSecondary} />
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.textSecondary + '15' }]}>
+                      <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+                    </View>
                   )}
                 </View>
 
                 <View style={styles.chatContent}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.chatName, { flexShrink: 1 }]} numberOfLines={1}>
-                      {(item as any).type === 'connect_page' && (item as any).connectPageId?.name
-                        ? (item as any).connectPageId.name
-                        : other ? String(other.fullName || other._id || other) : '[No other user found]'}
+                  <View style={styles.chatTopRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
+                      <Text style={[styles.chatName, unreadCount > 0 && styles.chatNameUnread]} numberOfLines={1}>
+                        {(item as any).type === 'connect_page' && (item as any).connectPageId?.name
+                          ? (item as any).connectPageId.name
+                          : other ? String(other.fullName || other._id || other) : '[No other user found]'}
+                      </Text>
+                      {(item as any).type === 'connect_page' && (
+                        <View style={styles.connectBadge}>
+                          <Text style={[styles.connectBadgeText, { color: theme.colors.primary }]}>Connect</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.chatTime, unreadCount > 0 && { color: theme.colors.primary }]}>
+                      {(() => {
+                        const lastMsg = item.messages?.[item.messages.length - 1];
+                        if (!lastMsg?.timestamp) return '';
+                        const d = new Date(lastMsg.timestamp);
+                        const now = new Date();
+                        const diffMs = now.getTime() - d.getTime();
+                        const diffDays = Math.floor(diffMs / 86400000);
+                        if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        if (diffDays === 1) return 'Yesterday';
+                        if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+                        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                      })()}
                     </Text>
-                    {(item as any).type === 'connect_page' && (
-                      <View style={{ backgroundColor: theme.colors.primary + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                        <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: '600' }}>Connect</Text>
+                  </View>
+                  <View style={styles.chatBottomRow}>
+                    <View style={{ flex: 1 }}>
+                      {(item as any).type === 'connect_page' && (
+                        <Text style={[styles.lastMessage, { fontSize: 12, marginBottom: 1 }]} numberOfLines={1}>
+                          {((item as any).connectPageId?.followerCount || 0) + 1} {((item as any).connectPageId?.followerCount || 0) + 1 === 1 ? 'member' : 'members'}
+                        </Text>
+                      )}
+                      {(() => {
+                        const lastMessage = item.messages?.[item.messages.length-1];
+                        const messageText = String(lastMessage?.text || '');
+                        const postShare = parsePostShare(messageText);
+
+                        if (postShare) {
+                          return (
+                            <ChatListPostThumbnail
+                              imageUrl={postShare.imageUrl}
+                              postId={postShare.postId}
+                              authorName={postShare.authorName}
+                              theme={theme}
+                            />
+                          );
+                        } else {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {messageText}
+                            </Text>
+                          );
+                        }
+                      })()}
+                    </View>
+                    {unreadCount > 0 && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadText} numberOfLines={1}>
+                          {unreadCount > 99 ? '99+' : String(unreadCount)}
+                        </Text>
                       </View>
                     )}
                   </View>
-                  {(item as any).type === 'connect_page' && (item as any).connectPageId?.followerCount != null && (
-                    <Text style={[styles.lastMessage, { fontSize: 11 }]} numberOfLines={1}>
-                      {(item as any).connectPageId.followerCount} {(item as any).connectPageId.followerCount === 1 ? 'follower' : 'followers'}
-                    </Text>
-                  )}
-                  {(() => {
-                    const lastMessage = item.messages?.[item.messages.length-1];
-                    const messageText = String(lastMessage?.text || '');
-                    const postShare = parsePostShare(messageText);
-                    
-                    if (postShare) {
-                      // Show post preview with thumbnail
-                      return (
-                        <ChatListPostThumbnail
-                          imageUrl={postShare.imageUrl}
-                          postId={postShare.postId}
-                          authorName={postShare.authorName}
-                          theme={theme}
-                        />
-                      );
-                    } else {
-                      // Regular text message
-                      return (
-                        <Text style={styles.lastMessage} numberOfLines={2}>
-                          {messageText}
-                        </Text>
-                      );
-                    }
-                  })()}
                 </View>
-                
-                {unreadCount > 0 && (
-                  <View style={[
-                    styles.unreadBadge,
-                    unreadCount > 9 && styles.unreadBadgeDoubleDigit,
-                    unreadCount > 9 && { minWidth: Math.max(44, String(unreadCount).length * 12 + 16) }
-                  ]}>
-                    <Text 
-                      style={styles.unreadText}
-                      numberOfLines={1}
-                    >
-                      {unreadCount > 99 ? '99+' : String(unreadCount)}
-                    </Text>
-                  </View>
-                )}
               </TouchableOpacity>
             );
           }}
+          ItemSeparatorComponent={() => (
+            <View style={{ height: 0.5, backgroundColor: theme.colors.border, marginLeft: isTablet ? 86 : 78 }} />
+          )}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         />
