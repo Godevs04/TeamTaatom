@@ -164,10 +164,44 @@ exports.listChats = async (req, res) => {
     }
   }
 
+  // Filter out orphaned chats:
+  // 1. connect_page chats whose pages have been deleted/archived
+  // 2. user_chat chats where the other participant doesn't exist (ghost chats)
+  const filteredChats = [];
+  for (const chat of chats) {
+    if (chat.type === 'connect_page') {
+      // If connectPageId wasn't resolved (page deleted), skip this chat
+      if (!chat.connectPageId || !chat.connectPageId.name) {
+        try {
+          const pageExists = await ConnectPage.findOne({
+            $or: [{ _id: chat.connectPageId?._id || chat.connectPageId }, { chatRoomId: chat._id }],
+            status: 'active'
+          }).select('_id').lean();
+          if (!pageExists) {
+            logger.debug('[listChats] Skipping connect_page chat with deleted/archived page:', chat._id);
+            continue;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } else if (chat.type === 'user_chat') {
+      // Skip ghost chats where the other participant wasn't populated (user doesn't exist)
+      const otherParticipant = chat.participants?.find(
+        p => p._id && p._id.toString() !== userId.toString()
+      );
+      if (!otherParticipant || !otherParticipant.fullName) {
+        logger.debug('[listChats] Skipping ghost user_chat with missing participant:', chat._id);
+        continue;
+      }
+    }
+    filteredChats.push(chat);
+  }
+
   // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
   // BUT: Keep admin_support chats separate from user_chat chats
   const chatMap = new Map();
-  chats.forEach(chat => {
+  filteredChats.forEach(chat => {
     // For admin_support, use type + user as key to keep separate
     // For user_chat, use participants as key
     let key;
@@ -551,11 +585,125 @@ exports.getMessagesByRoomId = async (req, res) => {
   }
 };
 
+/**
+ * Send a message to a chat room (for connect_page group chats).
+ * POST /chat/room/:chatId/messages  { text: string }
+ */
+exports.sendMessageToRoom = async (req, res) => {
+  const userId = req.user._id;
+  const { chatId } = req.params;
+  const { text } = req.body;
+
+  try {
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+    if (!text) {
+      return sendError(res, 'VAL_2001', 'Text required');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+    }
+
+    // Verify user is a participant
+    const participantIds = chat.participants.map(p => p.toString());
+    if (!participantIds.includes(userId.toString())) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    // Add message
+    const message = { sender: userId, text, timestamp: new Date() };
+    chat.messages.push(message);
+    await chat.save();
+
+    // Get the saved message with its _id
+    const savedChat = await Chat.findById(chatId);
+    let savedMessage = savedChat.messages[savedChat.messages.length - 1];
+
+    if (!savedMessage || !savedMessage._id) {
+      logger.warn('[sendMessageToRoom] Message _id not found after save, creating fallback');
+      savedMessage = { ...message, _id: new mongoose.Types.ObjectId() };
+    }
+
+    const chatIdStr = chat._id.toString();
+    const messageToEmit = {
+      _id: savedMessage._id.toString(),
+      sender: savedMessage.sender.toString(),
+      text: savedMessage.text,
+      timestamp: savedMessage.timestamp,
+      seen: savedMessage.seen || false,
+    };
+
+    // Emit socket events to ALL participants (group chat)
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        for (const participantId of participantIds) {
+          if (participantId === userId.toString()) {
+            // Sender gets message:sent
+            nsp.to(`user:${participantId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+          } else {
+            // Other participants get message:new
+            nsp.to(`user:${participantId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+          }
+          nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+        }
+        logger.info('✅ [sendMessageToRoom] Socket events emitted to all participants', { chatId: chatIdStr, participantCount: participantIds.length });
+      }
+    } catch (socketError) {
+      logger.error('[sendMessageToRoom] Socket error:', socketError);
+    }
+
+    // Push notifications to other participants
+    try {
+      const otherParticipantIds = participantIds.filter(p => p !== userId.toString());
+      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken').lean();
+
+      // Get page name for notification title
+      let pageName = 'Group Chat';
+      if (chat.connectPageId) {
+        const page = await ConnectPage.findById(chat.connectPageId).select('name').lean();
+        if (page) pageName = page.name;
+      }
+
+      for (const recipient of recipients) {
+        if (recipient.expoPushToken) {
+          try {
+            await fetch('https://exp.host/--/api/v2/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: recipient.expoPushToken,
+                sound: 'default',
+                title: pageName,
+                body: `${req.user.fullName || 'Someone'}: ${text}`,
+                data: { chatId: chatIdStr, type: 'connect_page' },
+              }),
+            });
+          } catch (pushErr) {
+            logger.error('[sendMessageToRoom] Push notification failed for', recipient._id, pushErr);
+          }
+        }
+      }
+    } catch (pushError) {
+      logger.error('[sendMessageToRoom] Push notifications error:', pushError);
+    }
+
+    return sendSuccess(res, 200, 'Message sent successfully', { message: savedMessage });
+  } catch (error) {
+    logger.error('Error in sendMessageToRoom:', error);
+    return sendError(res, 'SRV_6001', 'Failed to send message');
+  }
+};
+
 exports.getMessages = async (req, res) => {
   try {
     const userId = req.user._id;
     const { otherUserId } = req.params;
-    
+
     const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
     logger.info('🔍 [getMessages] Request received', {
       userId: userId.toString(),
@@ -1162,6 +1310,43 @@ exports.clearChat = async (req, res) => {
   } catch (error) {
     logger.error('Error clearing chat:', error);
     return sendError(res, 'SRV_6001', 'Failed to clear chat');
+  }
+};
+
+/**
+ * Delete a chat entirely by its ID.
+ * DELETE /chat/room/:chatId
+ * Only participants can delete. Removes the chat document from the database.
+ */
+exports.deleteChatById = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendError(res, 'RES_3001', 'Chat not found');
+    }
+
+    // Verify user is a participant
+    const isParticipant = chat.participants.some(
+      p => p.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    await Chat.findByIdAndDelete(chatId);
+    logger.info('[deleteChatById] Chat deleted:', chatId, 'by user:', userId.toString());
+
+    return sendSuccess(res, 200, 'Chat deleted successfully');
+  } catch (error) {
+    logger.error('Error deleting chat:', error);
+    return sendError(res, 'SRV_6001', 'Failed to delete chat');
   }
 };
 
