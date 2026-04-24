@@ -49,6 +49,7 @@ const recommendations = [
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isShortsRoute = Boolean(pathname?.startsWith("/shorts"));
   const mounted = useMounted();
   const { user } = useAuth();
   const profileHref = mounted && user?._id ? `/profile/${user._id}` : "/feed";
@@ -56,7 +57,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] w-full bg-gradient-to-b from-slate-50/90 via-[#f8fafc] to-slate-100/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
       {/* Left sidebar — premium card style */}
-      <aside className="hidden w-[280px] shrink-0 flex-col lg:flex">
+      <aside className={cn("hidden w-[280px] shrink-0 flex-col lg:flex", isShortsRoute && "lg:hidden")}>
         <div className="sticky top-20 flex flex-col gap-6 p-5">
           {/* Profile block */}
           <Link
@@ -175,17 +176,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main content — desktop-first: use horizontal space (YouTube-web style) */}
-      <div className="flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-2xl px-3 py-6 pb-24 sm:px-4 sm:py-8 md:max-w-4xl md:px-6 lg:max-w-5xl lg:px-10 lg:pb-8 xl:max-w-6xl xl:px-12">
+      <div className={cn("flex-1 overflow-auto", isShortsRoute && "overflow-hidden")}>
+        <div
+          className={cn(
+            "mx-auto w-full max-w-2xl px-3 py-6 pb-24 sm:px-4 sm:py-8 md:max-w-4xl md:px-6 lg:max-w-5xl lg:px-10 lg:pb-8 xl:max-w-6xl xl:px-12",
+            isShortsRoute && "h-[calc(100vh-3.5rem)] max-w-none p-0"
+          )}
+        >
           {children}
         </div>
       </div>
 
       {/* Mobile bottom nav — shown when left sidebar is hidden (< lg) */}
-      <MobileBottomNav />
+      {!isShortsRoute && <MobileBottomNav />}
 
       {/* Right sidebar — Suggestions & Recommendations */}
-      <aside className="hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex">
+      <aside className={cn("hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex", isShortsRoute && "xl:hidden")}>
         <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium border-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
           <div className="mb-4 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-500" />
