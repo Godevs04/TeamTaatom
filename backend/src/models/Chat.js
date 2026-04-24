@@ -14,7 +14,7 @@ const ChatSchema = new Schema({
   // Admin support chat fields (optional, backward compatible)
   type: {
     type: String,
-    enum: ['user_chat', 'admin_support'],
+    enum: ['user_chat', 'admin_support', 'connect_page'],
     default: 'user_chat',
     index: true
   },
@@ -34,6 +34,12 @@ const ChatSchema = new Schema({
     type: String,
     enum: ['open', 'waiting_user', 'resolved'],
     default: 'open'
+  },
+  // Reference to ConnectPage (for connect_page type chats)
+  connectPageId: {
+    type: Types.ObjectId,
+    ref: 'ConnectPage',
+    default: null
   },
   // Optional admin assignment (for future scaling)
   assignedAdminId: {

@@ -1921,6 +1921,7 @@ export default function ChatModal() {
   const [showGlobalCallScreen, setShowGlobalCallScreen] = useState(false);
   const [forceRender, setForceRender] = useState(0);
   const [isCalling, setIsCalling] = useState(false);
+  const chatIdModeRef = React.useRef(false);
 
   // Parse post share message (for chat list)
   const parsePostShare = (text: string) => {
@@ -2430,6 +2431,71 @@ export default function ChatModal() {
     }
   }, [params.userId]);
 
+  // If chatId param is present (from connect page group chat), fetch chat directly by ID
+  // Also checks AsyncStorage as fallback since Expo Router params can be unreliable
+  useEffect(() => {
+    if (params.userId) return;
+
+    let cancelled = false;
+    const resolveAndLoadChat = async () => {
+      let chatId = params.chatId as string | undefined;
+
+      // Fallback: check AsyncStorage if param not detected
+      if (!chatId) {
+        try {
+          const pending = await AsyncStorage.getItem('pendingChatRoomId');
+          if (pending) {
+            chatId = pending;
+            await AsyncStorage.removeItem('pendingChatRoomId');
+          }
+        } catch (e) {
+          logger.warn('Failed to read pendingChatRoomId:', e);
+        }
+      }
+
+      if (!chatId || cancelled) return;
+      chatIdModeRef.current = true;
+      logger.debug('[CHAT] Opening chat by room ID:', chatId);
+
+      setLoading(true);
+      setChatLoading(true);
+      setError(null);
+      try {
+        const [chatRes, messagesRes] = await Promise.all([
+          api.get(`/chat/room/${chatId}`),
+          api.get(`/chat/room/${chatId}/messages`),
+        ]);
+
+        if (cancelled) return;
+        const chat = chatRes.data.chat;
+        if (!chat) throw new Error('No chat data received');
+
+        const messages = messagesRes.data.messages || [];
+        const pageInfo = chat.connectPageId;
+        const syntheticUser = pageInfo
+          ? { _id: chatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
+          : { _id: chatId, fullName: 'Group Chat' };
+
+        setActiveChat(chat);
+        setActiveMessages(messages);
+        setSelectedUser(syntheticUser);
+      } catch (e: any) {
+        if (cancelled) return;
+        logger.error('Error opening chat by chatId:', e);
+        setError(`Failed to load chat: ${e.response?.data?.message || e.message || 'Unknown error'}`);
+        setShowErrorAlert(true);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setChatLoading(false);
+        }
+      }
+    };
+
+    resolveAndLoadChat();
+    return () => { cancelled = true; };
+  }, [params.chatId]);
+
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
         logger.debug('Fetching chats useEffect running');
@@ -2473,14 +2539,21 @@ export default function ChatModal() {
           // Frontend deduplication as safety measure
           const chatMap = new Map<string, any>();
           chats.forEach((chat: any) => {
-            const participantIds = chat.participants
-              .map((p: any) => (p._id ? p._id.toString() : p.toString()))
-              .sort()
-              .join('_');
-            
-            if (!chatMap.has(participantIds) || 
-                new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
-              chatMap.set(participantIds, chat);
+            let key;
+            if (chat.type === 'connect_page') {
+              // Connect page chats: unique per chat
+              key = `connect_page_${chat._id}`;
+            } else {
+              const participantIds = chat.participants
+                .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+                .sort()
+                .join('_');
+              key = chat.type === 'admin_support' ? `admin_support_${myUserId}` : participantIds;
+            }
+
+            if (!chatMap.has(key) ||
+                new Date(chat.updatedAt) > new Date(chatMap.get(key).updatedAt)) {
+              chatMap.set(key, chat);
             }
           });
           
@@ -2508,15 +2581,16 @@ export default function ChatModal() {
           setLoading(false);
         });
     };
-    if (!params.userId) {
+    if (!params.userId && !params.chatId && !chatIdModeRef.current) {
       loadChats();
     }
-  }, [params.userId]);
+  }, [params.userId, params.chatId]);
 
   // When user is selected from inbox or search, fetch chat and messages.
   // Skip if we already have this chat open (e.g. opened from list tap) to avoid double-fetch and stuck loading.
+  // Skip if chatId param is present — the chatId effect already loaded the chat directly.
   useEffect(() => {
-    if (!selectedUser || params.userId) return;
+    if (!selectedUser || params.userId || params.chatId || chatIdModeRef.current) return;
     const otherId = normalizeId(selectedUser._id ?? (selectedUser as any).id);
     const chatAlreadyOpen = activeChat?.participants?.some((p: any) => normalizeId(p?._id ?? p) === otherId);
     if (chatAlreadyOpen) return;
@@ -2619,14 +2693,16 @@ export default function ChatModal() {
   }, [conversations]);
 
   // Show ChatWindow if chat and messages are loaded
-  if ((params.userId || selectedUser) && (activeChat && !chatLoading)) {
-    return <ChatWindow 
-      otherUser={selectedUser} 
+  if ((params.userId || params.chatId || chatIdModeRef.current || selectedUser) && (activeChat && !chatLoading)) {
+    return <ChatWindow
+      otherUser={selectedUser}
       onClose={() => {
+        const shouldGoBack = !!(params.userId || params.chatId || chatIdModeRef.current);
+        chatIdModeRef.current = false;
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
-        if (params.userId) router.back();
+        if (shouldGoBack) router.back();
       }} 
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
@@ -2913,8 +2989,13 @@ export default function ChatModal() {
   });
   const filtered = sortedConversations.filter(c => {
     if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    // Search connect page name for connect_page chats
+    if ((c as any).type === 'connect_page' && (c as any).connectPageId?.name) {
+      return (c as any).connectPageId.name.toLowerCase().includes(q);
+    }
     const other = c.participants.find((u: any) => u._id !== c.me);
-    return other?.fullName?.toLowerCase().includes(search.trim().toLowerCase());
+    return other?.fullName?.toLowerCase().includes(q);
   });
         logger.debug('Rendering chat inbox, conversations:', conversations);
 
@@ -3431,21 +3512,69 @@ export default function ChatModal() {
             return (
               <TouchableOpacity
                 style={styles.chatItem}
-                onPress={() => openChatWithUser(other)}
+                onPress={() => {
+                  if ((item as any).type === 'connect_page') {
+                    // For connect_page chats, open by chat room ID
+                    const chatId = item._id;
+                    setLoading(true);
+                    setChatLoading(true);
+                    Promise.all([
+                      api.get(`/chat/room/${chatId}`),
+                      api.get(`/chat/room/${chatId}/messages`),
+                    ]).then(([chatRes, messagesRes]) => {
+                      const chat = chatRes.data.chat;
+                      const messages = messagesRes.data.messages || [];
+                      const pageInfo = chat?.connectPageId;
+                      const syntheticUser = pageInfo
+                        ? { _id: chatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
+                        : { _id: chatId, fullName: 'Group Chat' };
+                      setActiveChat(chat);
+                      setActiveMessages(messages);
+                      setSelectedUser(syntheticUser);
+                    }).catch((e) => {
+                      logger.error('Error opening connect_page chat:', e);
+                      setError('Failed to load chat');
+                      setShowErrorAlert(true);
+                    }).finally(() => {
+                      setLoading(false);
+                      setChatLoading(false);
+                    });
+                  } else {
+                    openChatWithUser(other);
+                  }
+                }}
                 activeOpacity={0.7}
               >
                 <View style={styles.avatarContainer}>
-                  {other && other.profilePic ? (
+                  {(item as any).type === 'connect_page' && (item as any).connectPageId?.profileImage ? (
+                    <Image source={{ uri: (item as any).connectPageId.profileImage }} style={styles.avatar} />
+                  ) : other && other.profilePic ? (
                     <Image source={{ uri: other.profilePic }} style={styles.avatar} />
+                  ) : (item as any).type === 'connect_page' ? (
+                    <Ionicons name="people-circle" size={52} color={theme.colors.primary} />
                   ) : (
                     <Ionicons name="person-circle" size={52} color={theme.colors.textSecondary} />
                   )}
                 </View>
-                
+
                 <View style={styles.chatContent}>
-                  <Text style={styles.chatName} numberOfLines={1}>
-                    {other ? String(other.fullName || other._id || other) : '[No other user found]'}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.chatName, { flexShrink: 1 }]} numberOfLines={1}>
+                      {(item as any).type === 'connect_page' && (item as any).connectPageId?.name
+                        ? (item as any).connectPageId.name
+                        : other ? String(other.fullName || other._id || other) : '[No other user found]'}
+                    </Text>
+                    {(item as any).type === 'connect_page' && (
+                      <View style={{ backgroundColor: theme.colors.primary + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: '600' }}>Connect</Text>
+                      </View>
+                    )}
+                  </View>
+                  {(item as any).type === 'connect_page' && (item as any).connectPageId?.followerCount != null && (
+                    <Text style={[styles.lastMessage, { fontSize: 11 }]} numberOfLines={1}>
+                      {(item as any).connectPageId.followerCount} {(item as any).connectPageId.followerCount === 1 ? 'follower' : 'followers'}
+                    </Text>
+                  )}
                   {(() => {
                     const lastMessage = item.messages?.[item.messages.length-1];
                     const messageText = String(lastMessage?.text || '');

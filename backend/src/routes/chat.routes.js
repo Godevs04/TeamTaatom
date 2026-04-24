@@ -17,6 +17,11 @@ const { authMiddleware } = require('../middleware/authMiddleware');
  *         description: Chat thread list
  */
 router.get('/', authMiddleware, chatController.listChats);
+
+// Chat-by-ID routes (for connect_page group chats) — must come before /:otherUserId
+router.get('/room/:chatId', authMiddleware, chatController.getChatByRoomId);
+router.get('/room/:chatId/messages', authMiddleware, chatController.getMessagesByRoomId);
+
 // Specific routes must come before parameterized routes
 /**
  * @swagger

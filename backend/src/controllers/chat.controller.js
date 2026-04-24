@@ -1,5 +1,6 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const ConnectPage = require('../models/ConnectPage');
 const mongoose = require('mongoose');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
@@ -80,9 +81,10 @@ exports.listChats = async (req, res) => {
   const userId = req.user._id;
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
   
-  // Get all chats (user_chat and admin_support)
+  // Get all chats (user_chat, admin_support, connect_page)
   const chats = await Chat.find({ participants: userId })
     .populate('participants', 'fullName profilePic profilePicStorageKey isVerified')
+    .populate('connectPageId', 'name profileImage followerCount')
     .sort('-updatedAt')
     .lean();
   
@@ -127,6 +129,41 @@ exports.listChats = async (req, res) => {
     }
   }
   
+  // Resolve connectPageId for connect_page chats
+  for (const chat of chats) {
+    if (chat.type === 'connect_page') {
+      // If populate already resolved it, connectPageId will be an object with name
+      if (chat.connectPageId && chat.connectPageId.name) {
+        // Already populated — resolve signed URL if needed
+        if (chat.connectPageId.profileImage && !chat.connectPageId.profileImage.startsWith('http')) {
+          try {
+            chat.connectPageId.profileImage = await generateSignedUrl(chat.connectPageId.profileImage, 'PROFILE');
+          } catch { chat.connectPageId.profileImage = ''; }
+        }
+        continue;
+      }
+      // Backfill: look up ConnectPage by chatRoomId
+      try {
+        const page = await ConnectPage.findOne({ chatRoomId: chat._id })
+          .select('name profileImage followerCount')
+          .lean();
+        if (page) {
+          // Resolve signed URL for profileImage
+          if (page.profileImage && !page.profileImage.startsWith('http')) {
+            try {
+              page.profileImage = await generateSignedUrl(page.profileImage, 'PROFILE');
+            } catch { page.profileImage = ''; }
+          }
+          chat.connectPageId = page;
+          // Persist so populate works next time
+          Chat.updateOne({ _id: chat._id }, { connectPageId: page._id }).catch(() => {});
+        }
+      } catch (err) {
+        logger.warn('Failed to backfill connectPageId for chat:', chat._id);
+      }
+    }
+  }
+
   // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
   // BUT: Keep admin_support chats separate from user_chat chats
   const chatMap = new Map();
@@ -137,6 +174,9 @@ exports.listChats = async (req, res) => {
     if (chat.type === 'admin_support') {
       // Admin support chats: key by type + user
       key = `admin_support_${userId}`;
+    } else if (chat.type === 'connect_page') {
+      // Connect page chats: key by chat ID to keep each page separate
+      key = `connect_page_${chat._id}`;
     } else {
       // User chats: key by sorted participant IDs
       const participantIds = chat.participants
@@ -389,6 +429,125 @@ exports.getChat = async (req, res) => {
   } catch (error) {
     logger.error('Error in getChat:', error);
     return sendError(res, 'SRV_6001', 'Failed to get chat');
+  }
+};
+
+// Fetch a chat directly by its _id (used for connect_page group chats)
+exports.getChatByRoomId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    let chat = await Chat.findById(chatId)
+      .populate('participants', 'fullName profilePic profilePicStorageKey')
+      .populate('connectPageId', 'name profileImage followerCount')
+      .select('+messages')
+      .lean();
+
+    if (!chat) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+    }
+
+    // Verify the requesting user is a participant
+    const isParticipant = chat.participants.some(
+      (p) => (p._id || p).toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+    }
+
+    // Resolve signed URLs for participant profile pictures
+    if (chat.participants && Array.isArray(chat.participants)) {
+      const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+      for (const participant of chat.participants) {
+        if (participant._id && participant._id.toString() === officialId) {
+          participant.isVerified = true;
+          participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
+          participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+        } else if (participant._id && participant.profilePicStorageKey) {
+          try {
+            participant.profilePic = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile pic URL in getChatByRoomId:', { userId: participant._id, error: error.message });
+          }
+        }
+      }
+    }
+
+    // Resolve connectPageId profile image signed URL (only if it's an S3 key, not already a URL)
+    if (chat.connectPageId && chat.connectPageId.profileImage && !chat.connectPageId.profileImage.startsWith('http')) {
+      try {
+        const signedUrl = await generateSignedUrl(chat.connectPageId.profileImage, 'DEFAULT');
+        if (signedUrl) {
+          chat.connectPageId.profileImage = signedUrl;
+        }
+      } catch (err) {
+        logger.warn('Failed to resolve connect page profile image:', err.message);
+      }
+    }
+
+    // Format messages
+    const rawMessages = chat.messages || [];
+    chat.messages = rawMessages.map((msg) => ({
+      _id: msg._id ? msg._id.toString() : null,
+      sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
+      text: msg.text || '',
+      timestamp: msg.timestamp || new Date(),
+      seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+    }));
+
+    logger.info('✅ [getChatByRoomId] Returning chat', { chatId: chat._id.toString(), type: chat.type, messageCount: chat.messages.length });
+    return sendSuccess(res, 200, 'Chat fetched successfully', { chat });
+  } catch (error) {
+    logger.error('Error in getChatByRoomId:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get chat');
+  }
+};
+
+// Fetch messages for a chat by its _id (used for connect_page group chats)
+exports.getMessagesByRoomId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId)
+      .select('messages participants')
+      .lean();
+
+    if (!chat) {
+      return sendSuccess(res, 200, 'Messages fetched successfully', { messages: [] });
+    }
+
+    // Verify the requesting user is a participant
+    const isParticipant = chat.participants.some(
+      (p) => (p._id || p).toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+    }
+
+    const rawMessages = chat.messages || [];
+    const messages = rawMessages.map((msg) => ({
+      _id: msg._id ? msg._id.toString() : null,
+      sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
+      text: msg.text || '',
+      timestamp: msg.timestamp || new Date(),
+      seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+    }));
+
+    logger.info('✅ [getMessagesByRoomId] Returning messages', { chatId, messageCount: messages.length });
+    return sendSuccess(res, 200, 'Messages fetched successfully', { messages });
+  } catch (error) {
+    logger.error('Error in getMessagesByRoomId:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get messages');
   }
 };
 

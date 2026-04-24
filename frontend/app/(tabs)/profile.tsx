@@ -1366,6 +1366,21 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
             </Pressable>
 
+            {/* Connect Section */}
+            <Pressable
+              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
+              onPress={() => router.push('/connect')}
+            >
+              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
+                <Ionicons name="people" size={20} color={profileTheme.accent} />
+              </View>
+              <View style={styles.journeysInlineText}>
+                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>Connect</Text>
+                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>Find & connect with travelers</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
+            </Pressable>
+
             {/* Divider */}
             <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
 

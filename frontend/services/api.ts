@@ -5,6 +5,7 @@ import { createPerformanceInterceptor } from '../utils/performance';
 import { getApiBaseUrl } from '../utils/config';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
+import * as Sentry from '@sentry/react-native';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -52,6 +53,14 @@ api.interceptors.request.use(
       
       // Log requests in development
       logger.debug('API Request', { method: config.method?.toUpperCase(), url: config.url, baseURL: config.baseURL });
+
+      // Add Sentry breadcrumb for every API call — traces the path to a crash
+      Sentry.addBreadcrumb({
+        category: 'api',
+        message: `${config.method?.toUpperCase()} ${config.url}`,
+        level: 'info',
+        data: { baseURL: config.baseURL },
+      });
       
       // Add throttling to prevent rate limiting
       const requestKey = `${config.method}-${config.url}`;
@@ -174,7 +183,18 @@ api.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
-    
+
+    // Add Sentry breadcrumb for API errors
+    Sentry.addBreadcrumb({
+      category: 'api.error',
+      message: `${originalRequest?.method?.toUpperCase()} ${originalRequest?.url} failed`,
+      level: 'error',
+      data: {
+        status: error.response?.status,
+        message: error.response?.data?.error?.message || error.message,
+      },
+    });
+
     // Handle 401 Unauthorized - token expired or invalid
     if (error.response?.status === 401 && !originalRequest._retry && !(originalRequest as any)._skipAuthRefresh) {
       // Don't try to refresh if this IS the refresh endpoint (prevent infinite loop)

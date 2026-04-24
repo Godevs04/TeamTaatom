@@ -1,0 +1,20 @@
+[
+  {"code":"en","name":"English"},{"code":"hi","name":"Hindi"},{"code":"ta","name":"Tamil"},
+  {"code":"te","name":"Telugu"},{"code":"kn","name":"Kannada"},{"code":"ml","name":"Malayalam"},
+  {"code":"mr","name":"Marathi"},{"code":"bn","name":"Bengali"},{"code":"gu","name":"Gujarati"},
+  {"code":"pa","name":"Punjabi"},{"code":"ur","name":"Urdu"},{"code":"or","name":"Odia"},
+  {"code":"as","name":"Assamese"},{"code":"ne","name":"Nepali"},{"code":"si","name":"Sinhala"},
+  {"code":"zh","name":"Chinese"},{"code":"ja","name":"Japanese"},{"code":"ko","name":"Korean"},
+  {"code":"th","name":"Thai"},{"code":"vi","name":"Vietnamese"},{"code":"ms","name":"Malay"},
+  {"code":"id","name":"Indonesian"},{"code":"tl","name":"Filipino"},{"code":"km","name":"Khmer"},
+  {"code":"my","name":"Burmese"},{"code":"ar","name":"Arabic"},{"code":"fa","name":"Persian"},
+  {"code":"tr","name":"Turkish"},{"code":"he","name":"Hebrew"},{"code":"es","name":"Spanish"},
+  {"code":"pt","name":"Portuguese"},{"code":"fr","name":"French"},{"code":"de","name":"German"},
+  {"code":"it","name":"Italian"},{"code":"nl","name":"Dutch"},{"code":"ru","name":"Russian"},
+  {"code":"pl","name":"Polish"},{"code":"uk","name":"Ukrainian"},{"code":"sv","name":"Swedish"},
+  {"code":"no","name":"Norwegian"},{"code":"da","name":"Danish"},{"code":"fi","name":"Finnish"},
+  {"code":"el","name":"Greek"},{"code":"ro","name":"Romanian"},{"code":"hu","name":"Hungarian"},
+  {"code":"cs","name":"Czech"},{"code":"sw","name":"Swahili"},{"code":"am","name":"Amharic"},
+  {"code":"zu","name":"Zulu"},{"code":"yo","name":"Yoruba"},{"code":"ha","name":"Hausa"},
+  {"code":"tu","name":"Tulu"}
+]

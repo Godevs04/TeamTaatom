@@ -16,6 +16,13 @@ export interface Chat {
     timestamp: string;
     seen: boolean;
   }>;
+  type?: 'user_chat' | 'admin_support' | 'connect_page';
+  connectPageId?: {
+    _id: string;
+    name: string;
+    profileImage: string;
+    followerCount: number;
+  } | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -144,4 +151,3 @@ export const getMuteStatus = async (otherUserId: string): Promise<{ muted: boole
     throw new Error(parsedError.userMessage);
   }
 };
-

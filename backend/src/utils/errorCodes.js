@@ -91,36 +91,59 @@ const createError = (errorCode, customMessage = null, details = {}) => {
  * @param {object} details - Optional additional details
  */
 const sendError = (res, errorCode, customMessage = null, details = {}) => {
-  const error = createError(errorCode, customMessage, details);
-  
-  // Ensure NODE_ENV is explicitly checked (default to production for safety)
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  
-  // Build response object
-  const response = {
-    success: false,
-    error: {
-      code: error.code,
-      message: error.message,
+  try {
+    // Guard: if details is not an object (e.g. a number was passed), wrap it
+    if (details === null || details === undefined || typeof details !== 'object') {
+      details = {};
     }
-  };
 
-  // Only include details if they exist and are safe
-  if (Object.keys(details).length > 0) {
-    // Remove stack traces in production
-    const safeDetails = { ...details };
-    if (!isDevelopment && safeDetails.stack) {
-      delete safeDetails.stack;
+    const error = createError(errorCode, customMessage, details);
+
+    // Log unknown error codes in development for early detection
+    if (!ERROR_CODES[errorCode] && !Object.values(ERROR_CODES).find(e => e.code === errorCode)) {
+      console.warn(`[sendError] Unknown error code used: "${errorCode}" — falling back to SRV_6001. Fix the caller.`);
     }
-    response.error.details = safeDetails;
-  }
 
-  // NEVER include stack traces in production response
-  if (isDevelopment && details.stack) {
-    response.stack = details.stack;
-  }
+    // Ensure NODE_ENV is explicitly checked (default to production for safety)
+    const isDevelopment = process.env.NODE_ENV === 'development';
 
-  return res.status(error.status).json(response);
+    // Build response object
+    const response = {
+      success: false,
+      error: {
+        code: error.code,
+        message: error.message,
+      }
+    };
+
+    // Only include details if they exist and are safe
+    if (Object.keys(details).length > 0) {
+      // Remove stack traces in production
+      const safeDetails = { ...details };
+      if (!isDevelopment && safeDetails.stack) {
+        delete safeDetails.stack;
+      }
+      response.error.details = safeDetails;
+    }
+
+    // NEVER include stack traces in production response
+    if (isDevelopment && details.stack) {
+      response.stack = details.stack;
+    }
+
+    return res.status(error.status).json(response);
+  } catch (err) {
+    // Absolute safety net — if sendError itself fails, still return a response
+    console.error('[sendError] CRITICAL: sendError threw an error:', err, { errorCode, customMessage });
+    try {
+      return res.status(500).json({
+        success: false,
+        error: { code: 'SRV_6001', message: customMessage || 'Internal server error' },
+      });
+    } catch (finalErr) {
+      console.error('[sendError] CRITICAL: Could not send any response:', finalErr);
+    }
+  }
 };
 
 /**
