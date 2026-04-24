@@ -579,6 +579,7 @@ function RootLayoutInner() {
                               segments[0] === 'tripscore' ||
                               segments[0] === 'navigate' ||
                               segments[0] === 'journeys' ||
+                              segments[0] === 'connect' ||
                               segments[0] === 'onboarding' ||
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
@@ -601,6 +602,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/saved-posts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
+                              normalizedPath.startsWith('/connect') ||
                               normalizedPath.startsWith('/onboarding');
       
       // Double-check storage before trusting isAuthenticated state
@@ -934,6 +936,8 @@ function RootLayoutInner() {
           <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
           {/* Journeys list */}
           <Stack.Screen name="journeys" options={{ presentation: 'card' }} />
+          {/* Connect pages */}
+          <Stack.Screen name="connect" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
