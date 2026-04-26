@@ -406,7 +406,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, current_country, lang } = req.query;
+    const { target_country, current_country, lang, travel_style } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -427,6 +427,11 @@ const findUsers = async (req, res) => {
       userQuery['settings.account.language'] = lang;
     }
 
+    // Filter by travel style
+    if (travel_style) {
+      userQuery.travelStyle = travel_style;
+    }
+
     // Filter by interests matching target_country or current_country
     // Since User model doesn't have country fields directly,
     // we use interests array and any available metadata
@@ -437,7 +442,7 @@ const findUsers = async (req, res) => {
 
     const [users, total] = await Promise.all([
       User.find(userQuery)
-        .select('username fullName profilePic bio interests settings.account.language followers')
+        .select('username fullName profilePic bio interests travelStyle settings.account.language followers')
         .sort({ lastLogin: -1 })
         .skip(skip)
         .limit(limit)
@@ -453,6 +458,7 @@ const findUsers = async (req, res) => {
       profilePic: user.profilePic,
       bio: user.bio,
       language: user.settings?.account?.language || 'en',
+      travelStyle: user.travelStyle || '',
       isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false
     }));
 

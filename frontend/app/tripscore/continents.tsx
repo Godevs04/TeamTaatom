@@ -216,8 +216,8 @@ const styles = StyleSheet.create({
   },
   totalScoreNumber: {
     fontSize: isTablet ? 64 : 48,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -257,8 +257,8 @@ const styles = StyleSheet.create({
   },
   continentName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -275,8 +275,8 @@ const styles = StyleSheet.create({
   },
   continentScoreValue: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

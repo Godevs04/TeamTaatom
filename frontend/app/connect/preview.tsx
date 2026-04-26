@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   liveText: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
   },
@@ -283,22 +283,22 @@ const styles = StyleSheet.create({
     padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
   },
   headingBlock: {
-    fontSize: isTablet ? 24 : 22,
-    lineHeight: isTablet ? 32 : 28,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 20,
+    lineHeight: 26,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: isTablet ? 20 : 16,
+    marginBottom: 16,
     ...(isWeb &&
       ({
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any)),
   },
   textBlock: {
-    fontSize: isTablet ? 17 : 15,
-    lineHeight: isTablet ? 26 : 22,
+    fontSize: 15,
+    lineHeight: 22,
     fontFamily: getFontFamily('400'),
-    marginBottom: isTablet ? 20 : 16,
+    marginBottom: 16,
     ...(isWeb &&
       ({
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

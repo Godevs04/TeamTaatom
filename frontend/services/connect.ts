@@ -214,6 +214,7 @@ export const findUsers = async (params: {
   target_country?: string;
   current_country?: string;
   lang: string;
+  travel_style?: string;
   page?: number;
   limit?: number;
 }): Promise<FindUsersResponse> => {
@@ -221,6 +222,7 @@ export const findUsers = async (params: {
     const query = new URLSearchParams();
     if (params.target_country) query.append('target_country', params.target_country);
     if (params.current_country) query.append('current_country', params.current_country);
+    if (params.travel_style) query.append('travel_style', params.travel_style);
     query.append('lang', params.lang);
     query.append('page', String(params.page || 1));
     query.append('limit', String(params.limit || 20));

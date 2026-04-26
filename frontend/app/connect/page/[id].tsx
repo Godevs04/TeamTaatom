@@ -728,9 +728,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pageName: {
-    fontSize: isTablet ? 22 : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 20,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 2,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -768,7 +768,7 @@ const styles = StyleSheet.create({
     borderRadius: themeConstants.borderRadius.sm,
   },
   statsButtonText: {
-    fontSize: isTablet ? 14 : 13,
+    fontSize: 13,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     ...(isWeb && {
@@ -782,7 +782,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   followMainButtonText: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     ...(isWeb && {
@@ -808,7 +808,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    fontSize: isTablet ? 18 : 16,
+    fontSize: 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     ...(isWeb && {
@@ -827,7 +827,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   viewMoreText: {
-    fontSize: isTablet ? 14 : 13,
+    fontSize: 13,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     textAlign: 'center',
@@ -841,10 +841,10 @@ const styles = StyleSheet.create({
   },
   // Content blocks
   contentHeading: {
-    fontSize: isTablet ? 20 : 18,
-    lineHeight: isTablet ? 28 : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 20,
+    lineHeight: 26,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 8,
     ...(isWeb && {
@@ -852,8 +852,8 @@ const styles = StyleSheet.create({
     } as any),
   },
   contentText: {
-    fontSize: isTablet ? 15 : 14,
-    lineHeight: isTablet ? 22 : 20,
+    fontSize: 14,
+    lineHeight: 20,
     fontFamily: getFontFamily('400'),
     fontWeight: '400',
     ...(isWeb && {
@@ -879,7 +879,7 @@ const styles = StyleSheet.create({
   },
   // Chat
   chatDescription: {
-    fontSize: isTablet ? 14 : 13,
+    fontSize: 13,
     fontFamily: getFontFamily('400'),
     fontWeight: '400',
     ...(isWeb && {
@@ -894,7 +894,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   subscribeButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   // Buy Items
@@ -915,7 +915,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   buyItemName: {
-    fontSize: isTablet ? 15 : 14,
+    fontSize: 14,
     fontWeight: '600',
     marginBottom: 2,
   },
@@ -946,7 +946,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF3B3008',
   },
   deleteButtonText: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     color: '#FF3B30',
@@ -972,9 +972,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   modalTitle: {
-    fontSize: isTablet ? 20 : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 20,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
   },
   modalLoading: {
     paddingVertical: 40,
@@ -1010,7 +1010,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   followerName: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     flexShrink: 1,

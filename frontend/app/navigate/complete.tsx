@@ -289,7 +289,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   scrollContainer: {
     flex: 1,
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   },
   journeyTitle: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 16,
     textAlign: 'center',
   },
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   statLabel: {
     fontSize: 12,

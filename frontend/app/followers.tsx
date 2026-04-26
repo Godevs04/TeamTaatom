@@ -393,9 +393,9 @@ const styles = (theme: any) => StyleSheet.create({
   headerTitle: {
     flex: 1,
     textAlign: 'center',
-    fontSize: isTablet ? 24 : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: theme.colors.text,
     letterSpacing: isIOS ? 0.3 : 0.2,
     ...(isWeb && {
@@ -427,7 +427,6 @@ const styles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: isTablet ? theme.borderRadius.lg : 16,
     padding: isTablet ? theme.spacing.lg : 14,
-    ...theme.shadows.small,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.colors.border,
   },
@@ -459,7 +458,7 @@ const styles = (theme: any) => StyleSheet.create({
     marginRight: isTablet ? theme.spacing.md : 12,
   },
   name: {
-    fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
+    fontSize: isTablet ? theme.typography.body.fontSize + 3 : 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     color: theme.colors.text,
@@ -498,7 +497,6 @@ const styles = (theme: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
-    ...theme.shadows.small,
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.2s ease',
@@ -549,9 +547,9 @@ const styles = (theme: any) => StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.xl : 24,
   },
   emptyTitle: {
-    fontSize: isTablet ? theme.typography.h1.fontSize : 22,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h1.fontSize : 20,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: theme.colors.text,
     marginBottom: isTablet ? theme.spacing.md : 12,
     textAlign: 'center',

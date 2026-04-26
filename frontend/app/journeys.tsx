@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     flex: 1,
     textAlign: 'center',
   },
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 8,
   },
   emptySubtext: {
@@ -228,6 +228,6 @@ const styles = StyleSheet.create({
   startBtnText: {
     color: 'white',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 });

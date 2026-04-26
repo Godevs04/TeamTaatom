@@ -258,13 +258,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
    * Uses currentPlayerRef (set by SongPlayer via onPlayingChange) and audioManager.
    */
   const pauseCurrentAudio = useCallback(() => {
-    if (currentPlayerRef.current) {
-      try {
-        currentPlayerRef.current.pauseAsync?.();
-      } catch (e) {
-        logger.warn('Failed to pause audio', e);
-      }
-      currentPlayerRef.current = null;
+    const player = currentPlayerRef.current;
+    currentPlayerRef.current = null;
+    if (player) {
+      player.getStatusAsync()
+        .then((status) => {
+          if (status.isLoaded && status.isPlaying) {
+            return player.pauseAsync();
+          }
+        })
+        .catch(() => {
+          // Sound already unloaded or pausing failed — safe to ignore
+        });
     }
     audioManager.stopAll().catch(() => {});
   }, []);
@@ -390,11 +395,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       // Pause current audio on unmount
       if (currentPlayerRef.current) {
-        try {
-          currentPlayerRef.current.pauseAsync?.();
-        } catch (e) {
-          logger.warn('Failed to pause audio on unmount', e);
-        }
+        currentPlayerRef.current.pauseAsync?.().catch(() => {});
         currentPlayerRef.current = null;
       }
       audioManager.stopAll().catch(() => {});
@@ -476,17 +477,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
         if (currentPlayerRef.current) {
-          try {
-            currentPlayerRef.current.pauseAsync?.();
-          } catch (e) {
-            logger.warn('Failed to pause audio', e);
-          }
+          currentPlayerRef.current.pauseAsync?.().catch(() => {});
           currentPlayerRef.current = null;
         }
         logger.debug('[Shorts] Stopping all audio - leaving shorts page');
-        audioManager.stopAll().catch((error) => {
-          logger.error('[Shorts] Error stopping audio:', error);
-        });
+        audioManager.stopAll().catch(() => {});
       };
     }, [currentVisibleIndex, shorts, pauseCurrentVideo])
   );
@@ -498,11 +493,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setIsScreenFocused(false);
       pauseCurrentVideo();
       if (currentPlayerRef.current) {
-        try {
-          currentPlayerRef.current.pauseAsync?.();
-        } catch (e) {
-          logger.warn('Failed to pause audio', e);
-        }
+        currentPlayerRef.current.pauseAsync?.().catch(() => {});
         currentPlayerRef.current = null;
       }
       audioManager.stopAll().catch(() => {});
@@ -519,11 +510,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // App going to background - pause current video and audio
         pauseCurrentVideo();
         if (currentPlayerRef.current) {
-          try {
-            currentPlayerRef.current.pauseAsync?.();
-          } catch (e) {
-            logger.warn('Failed to pause audio', e);
-          }
+          currentPlayerRef.current.pauseAsync?.().catch(() => {});
           currentPlayerRef.current = null;
         }
         audioManager.stopAll().catch(() => {});
@@ -2458,11 +2445,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // unloads the sound. SongPlayer handles full stop + unload when isVisible becomes false,
     // and audioManager.playSound() calls stopAll() before playing the next sound.
     if (currentPlayerRef.current) {
-      try {
-        currentPlayerRef.current.pauseAsync?.();
-      } catch (e) {
-        logger.warn('Failed to pause audio on scroll', e);
-      }
+      currentPlayerRef.current.pauseAsync?.().catch(() => {});
       currentPlayerRef.current = null;
     }
 
@@ -2723,8 +2706,8 @@ const styles = StyleSheet.create({
   },
   loadingTitle: {
     fontSize: isTablet ? theme.typography.h1.fontSize : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: 'white',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     ...(isWeb && {
@@ -2749,8 +2732,8 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: isTablet ? theme.typography.h1.fontSize : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: 'white',
     marginTop: isTablet ? theme.spacing.lg : 16,
     marginBottom: isTablet ? theme.spacing.sm : 8,
@@ -2903,12 +2886,10 @@ const styles = StyleSheet.create({
   },
   rightActions: {
     position: 'absolute',
-    right: isTablet ? theme.spacing.lg : 16,
-    // Align action stack vertically with bottom text block across devices,
-    // keeping it just above the tab bar / safe area instead of hugging the edge.
-    bottom: Platform.OS === 'ios'
-      ? (isTablet ? TAB_BAR_HEIGHT - 20 : TAB_BAR_HEIGHT - 24)
-      : (isTablet ? TAB_BAR_HEIGHT - 24 : TAB_BAR_HEIGHT - 28),
+    right: isTablet ? theme.spacing.lg : 12,
+    // SHORTS_ITEM_HEIGHT already excludes TAB_BAR_HEIGHT, so position
+    // relative to the content area bottom, not the screen bottom
+    bottom: Platform.OS === 'ios' ? 16 : 12,
     alignItems: 'center',
     zIndex: 5,
   },
@@ -2935,14 +2916,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 3,
   },
   followingButton: {
     backgroundColor: '#2196F3',
@@ -2951,7 +2924,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   actionIconContainer: {
     width: isTablet ? 60 : 50,
@@ -2968,8 +2941,8 @@ const styles = StyleSheet.create({
   actionText: {
     color: 'white',
     fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -2979,9 +2952,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 80,
-    // Tab bar is frozen (visible) on shorts page (88px height on mobile, 70px on web)
-    // Padding so name/caption sit just above the tab bar
-    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 70 : 72) : (isWeb ? 70 : 70), // At tab bar top
+    // SHORTS_ITEM_HEIGHT already excludes TAB_BAR_HEIGHT, so only a small
+    // padding is needed to keep content off the very bottom edge
+    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 16 : 16) : (isWeb ? 16 : 12),
     paddingTop: 0,
     paddingHorizontal: 20,
     zIndex: 5,
@@ -3037,8 +3010,8 @@ const styles = StyleSheet.create({
   username: {
     color: 'white',
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -3058,8 +3031,8 @@ const styles = StyleSheet.create({
   followingText: {
     color: 'white',
     fontSize: isTablet ? theme.typography.small.fontSize : 10,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -3095,7 +3068,7 @@ const styles = StyleSheet.create({
   tag: {
     color: '#FFD700',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -3153,11 +3126,9 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
+    top: Platform.OS === 'ios' ? 54 : 40,
     left: 16,
     zIndex: 100,
-    paddingTop: 8,
-    paddingBottom: 8,
   },
   backButton: {
     width: 40,
@@ -3169,7 +3140,7 @@ const styles = StyleSheet.create({
   },
   muteButton: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
+    top: Platform.OS === 'ios' ? 54 : 40,
     right: 16,
     zIndex: 100,
     width: 40,

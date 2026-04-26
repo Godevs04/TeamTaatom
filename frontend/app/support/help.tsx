@@ -195,8 +195,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    fontFamily: getFontFamily('700'),
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
   },
   scrollView: {
     flex: 1,
@@ -214,11 +214,11 @@ const styles = StyleSheet.create({
   },
   welcomeTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '600',
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.sm,
     textAlign: 'center',
-    fontFamily: getFontFamily('700'),
+    fontFamily: getFontFamily('600'),
   },
   welcomeText: {
     fontSize: 15,

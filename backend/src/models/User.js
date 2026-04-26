@@ -150,6 +150,11 @@ const userSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  travelStyle: {
+    type: String,
+    enum: ['solo', 'couple', 'group', 'backpacker', 'luxury', ''],
+    default: ''
+  },
   settings: {
     privacy: {
       profileVisibility: {

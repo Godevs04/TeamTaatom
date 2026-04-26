@@ -2776,7 +2776,6 @@ export default function ChatModal() {
         width: '100%',
         maxWidth: 360,
         alignItems: 'center',
-        ...theme.shadows.large,
         borderWidth: 1,
         borderColor: theme.colors.border,
       },
@@ -3004,9 +3003,9 @@ export default function ChatModal() {
       marginRight: 4,
     },
     title: {
-      fontSize: isTablet ? 24 : 22,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontSize: isTablet ? 22 : 20,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
       letterSpacing: isIOS ? -0.3 : 0,
       ...(isWeb && {
@@ -3041,7 +3040,7 @@ export default function ChatModal() {
       flex: 1,
       marginLeft: isTablet ? 10 : 8,
       color: theme.colors.text,
-      fontSize: isTablet ? 15 : 14,
+      fontSize: 14,
       fontFamily: getFontFamily('400'),
       fontWeight: '400',
       paddingVertical: 0,
@@ -3101,7 +3100,7 @@ export default function ChatModal() {
       alignItems: 'center',
     },
     chatName: {
-      fontSize: isTablet ? 16 : 15,
+      fontSize: 15,
       fontFamily: getFontFamily('600'),
       fontWeight: '600',
       color: theme.colors.text,
@@ -3111,8 +3110,8 @@ export default function ChatModal() {
       } as any),
     },
     chatNameUnread: {
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
     },
     chatTime: {
       fontSize: isTablet ? 12 : 11,
@@ -3132,11 +3131,11 @@ export default function ChatModal() {
       fontWeight: '600',
     },
     lastMessage: {
-      fontSize: isTablet ? 14 : 13,
+      fontSize: 13,
       fontFamily: getFontFamily('400'),
       color: theme.colors.textSecondary,
       fontWeight: '400',
-      lineHeight: isTablet ? 18 : 17,
+      lineHeight: 17,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -3159,7 +3158,7 @@ export default function ChatModal() {
     unreadText: {
       color: '#fff',
       fontSize: 11,
-      fontWeight: '700',
+      fontWeight: '600',
       textAlign: 'center',
       includeFontPadding: false,
       textAlignVertical: 'center',
@@ -3175,7 +3174,7 @@ export default function ChatModal() {
       opacity: 0.5,
     },
     emptyTitle: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '600',
       color: theme.colors.text,
       marginBottom: 6,
@@ -3204,7 +3203,7 @@ export default function ChatModal() {
       backgroundColor: theme.colors.background,
     },
     newMessageTitle: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '600',
       color: theme.colors.text,
     },

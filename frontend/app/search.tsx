@@ -754,9 +754,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: isTablet ? theme.spacing.xxl : 32,
   },
   emptyTitle: {
-    fontSize: isTablet ? theme.typography.h2.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h2.fontSize : 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginTop: isTablet ? theme.spacing.lg : 16,
     marginBottom: isTablet ? theme.spacing.md : 8,
     textAlign: 'center',
@@ -796,8 +796,8 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -885,8 +885,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   historyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '600',
   },
   clearAllText: {
     fontSize: 14,

@@ -493,8 +493,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     flex: 1,
     textAlign: 'center',
   },
@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     textTransform: 'uppercase',
   },
   dateText: {
@@ -576,8 +576,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '600',
   },
   statLabel: {
     fontSize: 11,
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 12,
   },
   postCard: {
@@ -656,11 +656,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     minWidth: 170,
     zIndex: 100,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
   },
   menuItem: {
     flexDirection: 'row',
@@ -690,8 +685,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     marginBottom: 16,
   },
   modalInput: {

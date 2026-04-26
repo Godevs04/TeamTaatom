@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   divider: {
     width: 1,

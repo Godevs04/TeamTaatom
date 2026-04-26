@@ -96,9 +96,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profilePic: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 12,
     borderWidth: 1,
     borderColor: '#e1e5e9',

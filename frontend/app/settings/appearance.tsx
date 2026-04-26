@@ -323,9 +323,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
-    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h3.fontSize : 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -350,8 +350,8 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -397,11 +397,6 @@ const styles = StyleSheet.create({
   previewCard: {
     borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   previewPostHeader: {
     flexDirection: 'row',

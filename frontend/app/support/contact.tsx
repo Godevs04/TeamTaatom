@@ -248,8 +248,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    fontFamily: getFontFamily('700'),
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
   },
   scrollView: {
     flex: 1,

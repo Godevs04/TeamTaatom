@@ -236,9 +236,9 @@ const styles = StyleSheet.create({
     marginRight: theme.spacing.md,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    fontFamily: getFontFamily('700'),
+    fontSize: isTablet ? 22 : 20,
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
   },
   lastUpdated: {
     fontSize: 12,
@@ -255,16 +255,16 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     marginBottom: theme.spacing.md,
-    fontFamily: getFontFamily('700'),
+    fontFamily: getFontFamily('600'),
   },
   sectionContent: {
     marginTop: theme.spacing.sm,
   },
   subsectionTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     marginBottom: theme.spacing.sm,
     marginTop: theme.spacing.md,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     paddingLeft: theme.spacing.xs,
   },
   bullet: {
-    fontSize: 18,
+    fontSize: 16,
     marginRight: theme.spacing.sm,
     fontWeight: '600',
   },
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
   },
   contactText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
     marginLeft: theme.spacing.sm,
     fontFamily: getFontFamily('500'),
