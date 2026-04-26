@@ -12,6 +12,7 @@ import {
   PanResponder,
   Dimensions,
   Animated,
+  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Image
@@ -52,7 +53,7 @@ const hapticSuccess = () => {
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const MAX_SELECTION_DURATION = 60; // 60 seconds max
+const MAX_SELECTION_DURATION = 30; // 30 seconds max (short max length)
 
 interface SongSelectorProps {
   onSelect: (song: Song | null, startTime?: number, endTime?: number) => void;
@@ -81,6 +82,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  const [currentPage, setCurrentPage] = useState<'list' | 'trimmer'>('list');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [startTime, setStartTime] = useState(selectedStartTime);
@@ -98,6 +100,16 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const timelineWidthRef = useRef<number>(SCREEN_WIDTH - 64);
   const timelineLayoutRef = useRef<{ x: number; width: number } | null>(null);
   const lastDragXRef = useRef<number | null>(null);
+  const waveformScrollRef = useRef<any>(null);
+  const scrollOffsetRef = useRef<number>(0);
+  const selectionDurationRef = useRef<number>(MAX_SELECTION_DURATION);
+  const currentSongRef = useRef<Song | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const endTimeRef = useRef<number>(MAX_SELECTION_DURATION);
+  const trimGrantRef = useRef<{ startTime: number; endTime: number } | null>(null);
+  const trimStartRef = useRef({ initialX: 0, initialStartTime: 0 });
+  const trimEndRef = useRef({ initialX: 0, initialEndTime: 0 });
+  const maxSelectionRef = useRef<number>(MAX_SELECTION_DURATION);
   const lastTapRef = useRef<number>(0);
   const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const timelinePaddingRef = useRef<number>(28); // Padding from timelineWrapper
@@ -118,10 +130,14 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           startTime: 0,
           endTime: matchedDuration
         });
-      } else if (selectedSong) {
+      }
+      if (selectedSong) {
         setCurrentSong(selectedSong);
         setStartTime(selectedStartTime);
         setEndTime(selectedEndTime);
+        setCurrentPage('trimmer'); // Go straight to trimmer if re-opening with a song
+      } else {
+        setCurrentPage('list');
       }
     } else {
       setSearchQuery('');
@@ -129,6 +145,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setSongs([]);
       stopAudio();
       setCurrentSong(null);
+      setCurrentPage('list');
       setIsPlaying(false);
       setCurrentTime(0);
       setLimitState('normal');
@@ -218,6 +235,36 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [currentTime, startTime, endTime, currentSong]);
 
+  // Sync refs for scroll handler (avoid stale closures in callbacks)
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+  }, [currentSong]);
+
+  useEffect(() => {
+    startTimeRef.current = startTime;
+    endTimeRef.current = endTime;
+    selectionDurationRef.current = endTime - startTime;
+  }, [startTime, endTime]);
+
+  useEffect(() => {
+    maxSelectionRef.current = videoDuration && videoDuration > 0
+      ? Math.min(videoDuration, MAX_SELECTION_DURATION)
+      : MAX_SELECTION_DURATION;
+  }, [videoDuration]);
+
+  // Scroll waveform to initial position when a new song is loaded
+  useEffect(() => {
+    if (currentSong && waveformScrollRef.current) {
+      const dur = currentSong.duration || 0;
+      const totalW = Math.max(SCREEN_WIDTH * 3, dur * 15);
+      const pps = totalW / Math.max(dur, 1);
+      const offset = startTimeRef.current * pps;
+      setTimeout(() => {
+        waveformScrollRef.current?.scrollTo({ x: offset, animated: false });
+      }, 100);
+    }
+  }, [currentSong]);
+
   const loadSongs = useCallback(async (pageNum: number = 1) => {
     if (loading) return;
 
@@ -295,18 +342,22 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       
       soundRef.current = sound;
       setCurrentSong(song);
-      
+
       // Use video duration if provided, otherwise use song duration or max
       const maxDuration = getMaxSelectionDuration();
       const songDuration = song.duration || MAX_SELECTION_DURATION;
       const finalDuration = Math.min(maxDuration, songDuration);
-      
+
       // Set initial times - start at 0, end at video duration (or max)
       setStartTime(0);
       setEndTime(finalDuration);
-      setCurrentTime(0); // Start at beginning
-      
-      logger.debug('Audio loaded with duration:', {
+      setCurrentTime(0);
+
+      // Auto-play the selected segment immediately
+      await sound.playAsync();
+      setIsPlaying(true);
+
+      logger.debug('Audio loaded and auto-playing:', {
         videoDuration,
         maxDuration,
         songDuration,
@@ -379,7 +430,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
   const handleSelect = useCallback(async (song: Song) => {
     await loadAudio(song);
-  }, [getMaxSelectionDuration]); // Include getMaxSelectionDuration to ensure it's available when loadAudio is called
+    setCurrentPage('trimmer'); // Navigate to trimmer page after selecting
+  }, [getMaxSelectionDuration]);
 
   const handleConfirm = () => {
     const maxDuration = getMaxSelectionDuration();
@@ -557,682 +609,265 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [currentSong, isDragging, startTime, endTime, getMaxSelectionDuration]);
 
-  const startHandlePanResponder = PanResponder.create({
+  // Left trim handle — drag to adjust selection start time
+  const leftTrimPanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
-      // Extract values immediately to avoid synthetic event reuse
-      const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current
-        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
-        : locationX;
-
+      trimStartRef.current = {
+        initialX: evt.nativeEvent.pageX,
+        initialStartTime: startTimeRef.current,
+      };
       hapticMedium();
-      isDraggingRef.current = true;
-      setIsDragging(true);
-      setDragType('start');
-      lastDragXRef.current = initialX;
-
-      // Animate floating badge in
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
-
-      // Update floating badge position
-      if (timelineLayoutRef.current && currentSong) {
-        const { width } = timelineLayoutRef.current;
-        const badgePercent = startTime / (currentSong.duration || 1) * 100;
-        const badgeX = (badgePercent / 100) * width - 28;
-        floatingBadgeXAnim.setValue(badgeX);
-      }
     },
     onPanResponderMove: (evt) => {
-      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
-      
-      // Extract values immediately to avoid synthetic event reuse
-      const { pageX, locationX } = evt.nativeEvent;
-      const currentX = timelineLayoutRef.current
-        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
-        : locationX;
-      
-      const lastX = lastDragXRef.current;
-      
-      if (lastX === null) {
-        lastDragXRef.current = currentX;
-        return;
-      }
-      
-      const deltaX = currentX - lastX;
-      if (Math.abs(deltaX) < MIN_DRAG_DELTA) {
-        return;
-      }
-      lastDragXRef.current = currentX;
-      
-      // Convert current position to time
-      const duration = currentSong.duration || 0;
-      const { width } = timelineLayoutRef.current;
-      const relativeX = Math.max(0, Math.min(currentX, width));
-      const time = (relativeX / width) * duration;
-      const snappedTime = snapToPrecision(time);
-      
-      // Clamp start handle: cannot go past endTime - minDuration
-      const MIN_DURATION = 0.5;
-      const maxStart = endTime - MIN_DURATION;
-      const newStart = Math.max(0, Math.min(snappedTime, maxStart));
-      
-      // Check limits
-      const limitCheck = checkLimitsAndProvideFeedback(newStart, endTime);
-      setLimitState(limitCheck.type);
-      setDragTime(newStart);
-      
-      if (!limitCheck.canMove || newStart >= endTime) {
-        hapticMedium();
-        return;
-      }
-      
-      // Update start time and handle position
-      setStartTime(newStart);
-      const startX = (newStart / duration) * width;
-      startHandleAnim.setValue(startX);
-    },
-    onPanResponderRelease: async () => {
-      hapticLight();
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      setDragType(null);
-      lastDragXRef.current = null;
-      setLimitState('normal');
+      const song = currentSongRef.current;
+      if (!song) return;
 
-      // Animate floating badge out
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
+      const duration = song.duration || 0;
+      const totalW = Math.max(SCREEN_WIDTH * 3, duration * 15);
+      const pps = totalW / Math.max(duration, 1);
 
-      // ✅ Play 500ms preview at new position
-      if (soundRef.current && currentSong) {
-        try {
-          // Clear any existing preview timeout
-          if (previewTimeoutRef.current) {
-            clearTimeout(previewTimeoutRef.current);
-          }
-
-          await soundRef.current.setPositionAsync(startTime * 1000);
-          await soundRef.current.playAsync();
-
-          // Stop after 500ms
-          previewTimeoutRef.current = setTimeout(async () => {
-            if (soundRef.current) {
-              await soundRef.current.pauseAsync();
-            }
-          }, 500);
-        } catch (error) {
-          // Silent fail
-        }
-      }
-    },
-  });
-
-  const endHandlePanResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      // Extract values immediately to avoid synthetic event reuse
-      const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current
-        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
-        : locationX;
-
-      hapticMedium();
-      isDraggingRef.current = true;
-      setIsDragging(true);
-      setDragType('end');
-      lastDragXRef.current = initialX;
-
-      // Animate floating badge in
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
-
-      // Update floating badge position
-      if (timelineLayoutRef.current && currentSong) {
-        const { width } = timelineLayoutRef.current;
-        const badgePercent = endTime / (currentSong.duration || 1) * 100;
-        const badgeX = (badgePercent / 100) * width - 28;
-        floatingBadgeXAnim.setValue(badgeX);
-      }
-    },
-    onPanResponderMove: (evt) => {
-      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
-
-      // Use pageX for consistent absolute positioning (same as start/selection handles)
-      const { pageX } = evt.nativeEvent;
-      const currentX = pageX - timelineLayoutRef.current.x - timelinePaddingRef.current;
-      const lastX = lastDragXRef.current;
-
-      if (lastX === null) {
-        lastDragXRef.current = currentX;
-        return;
-      }
-
-      const deltaX = currentX - lastX;
-      if (Math.abs(deltaX) < MIN_DRAG_DELTA) {
-        return;
-      }
-      lastDragXRef.current = currentX;
-
-      // Convert current position to time
-      const duration = currentSong.duration || 0;
-      const { width } = timelineLayoutRef.current;
-      const relativeX = Math.max(0, Math.min(currentX, width));
-      const time = (relativeX / width) * duration;
-      const snappedTime = snapToPrecision(time);
-
-      // Clamp end handle: cannot go before startTime + minDuration
-      const MIN_DURATION = 0.5;
-      const minEnd = startTime + MIN_DURATION;
-      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
-      const maxEnd = Math.min(duration, startTime + maxDuration);
-      const newEnd = Math.max(minEnd, Math.min(snappedTime, maxEnd));
-
-      // Check limits
-      const limitCheck = checkLimitsAndProvideFeedback(startTime, newEnd);
-      setLimitState(limitCheck.type);
-      setDragTime(newEnd);
-
-      if (!limitCheck.canMove || newEnd <= startTime) {
-        hapticMedium();
-        return;
-      }
-
-      // Update end time and handle position
-      setEndTime(newEnd);
-      const endX = (newEnd / duration) * width;
-      endHandleAnim.setValue(endX);
-    },
-    onPanResponderRelease: async () => {
-      hapticLight();
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      setDragType(null);
-      lastDragXRef.current = null;
-      setLimitState('normal');
-
-      // Animate floating badge out
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-
-      // ✅ Play 500ms preview at new position
-      if (soundRef.current && currentSong) {
-        try {
-          if (previewTimeoutRef.current) {
-            clearTimeout(previewTimeoutRef.current);
-          }
-
-          await soundRef.current.setPositionAsync(endTime * 1000);
-          await soundRef.current.playAsync();
-
-          previewTimeoutRef.current = setTimeout(async () => {
-            if (soundRef.current) {
-              await soundRef.current.pauseAsync();
-            }
-          }, 500);
-        } catch (error) {
-          // Silent fail
-        }
-      }
-    },
-  });
-
-  const selectionPanResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: (evt) => {
-      // Extract values immediately to avoid synthetic event reuse
-      const { pageX, locationX } = evt.nativeEvent;
-      const initialX = timelineLayoutRef.current
-        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
-        : locationX;
-
-      hapticMedium();
-      isDraggingRef.current = true;
-      setIsDragging(true);
-      setDragType('both');
-      lastDragXRef.current = initialX;
-
-      // Animate floating badge in
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
-
-      // Position badge above the start of the selection window
-      if (timelineLayoutRef.current && currentSong) {
-        const { width } = timelineLayoutRef.current;
-        const startX = (startTime / (currentSong.duration || 1)) * width;
-        startHandleAnim.setValue(startX);
-      }
-    },
-    onPanResponderMove: (evt) => {
-      if (!currentSong || !isDraggingRef.current || !timelineLayoutRef.current) return;
-      
-      // Extract values immediately to avoid synthetic event reuse
-      const { pageX, locationX } = evt.nativeEvent;
-      const currentX = timelineLayoutRef.current
-        ? pageX - timelineLayoutRef.current.x - timelinePaddingRef.current
-        : locationX;
-      
-      const lastX = lastDragXRef.current;
-      
-      if (lastX === null) {
-        lastDragXRef.current = currentX;
-        return;
-      }
-      
-      if (Math.abs(currentX - lastX) < MIN_DRAG_DELTA) {
-        return;
-      }
-      lastDragXRef.current = currentX;
-      
-      const duration = currentSong.duration || 0;
-      const { width } = timelineLayoutRef.current;
-      const relativeX = Math.max(0, Math.min(currentX, width));
-      const time = (relativeX / width) * duration;
-      const snappedTime = snapToPrecision(time);
-      
-      const maxDuration = videoDuration && videoDuration > 0 ? Math.min(videoDuration, MAX_SELECTION_DURATION) : MAX_SELECTION_DURATION;
-      // Preserve current selection duration when dragging center
-      const selectionDuration = Math.min(endTime - startTime, maxDuration);
-      const newStart = Math.max(0, Math.min(snappedTime, duration - selectionDuration));
-      const newEnd = Math.min(duration, newStart + selectionDuration);
+      const deltaX = evt.nativeEvent.pageX - trimStartRef.current.initialX;
+      const deltaTime = deltaX / pps;
+      const maxStart = endTimeRef.current - 0.5; // min 0.5s selection
+      const newStart = snapToPrecision(
+        Math.max(0, Math.min(trimStartRef.current.initialStartTime + deltaTime, maxStart))
+      );
 
       setStartTime(newStart);
-      setEndTime(newEnd);
-      setDragTime(newStart); // Show start position in badge
+      startTimeRef.current = newStart;
+      selectionDurationRef.current = endTimeRef.current - newStart;
 
-      // Update badge tracker
-      const startX = (newStart / duration) * width;
-      startHandleAnim.setValue(startX);
+      // Scroll to keep waveform aligned with new start position
+      waveformScrollRef.current?.scrollTo({ x: newStart * pps, animated: false });
     },
     onPanResponderRelease: () => {
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      setDragType(null);
-      lastDragXRef.current = null;
-      setLimitState('normal');
-
-      // Animate floating badge out
-      Animated.timing(floatingBadgeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
+      hapticLight();
+      if (soundRef.current) {
+        soundRef.current.setPositionAsync(startTimeRef.current * 1000).catch(() => {});
+        setCurrentTime(startTimeRef.current);
+      }
     },
-  });
+  }), []);
+
+  // Right trim handle — drag to adjust selection end time
+  const rightTrimPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (evt) => {
+      trimEndRef.current = {
+        initialX: evt.nativeEvent.pageX,
+        initialEndTime: endTimeRef.current,
+      };
+      hapticMedium();
+    },
+    onPanResponderMove: (evt) => {
+      const song = currentSongRef.current;
+      if (!song) return;
+
+      const duration = song.duration || 0;
+      const totalW = Math.max(SCREEN_WIDTH * 3, duration * 15);
+      const pps = totalW / Math.max(duration, 1);
+      const maxDur = maxSelectionRef.current;
+
+      const deltaX = evt.nativeEvent.pageX - trimEndRef.current.initialX;
+      const deltaTime = deltaX / pps;
+      const minEnd = startTimeRef.current + 0.5; // min 0.5s selection
+      const maxEnd = Math.min(duration, startTimeRef.current + maxDur);
+      const newEnd = snapToPrecision(
+        Math.max(minEnd, Math.min(trimEndRef.current.initialEndTime + deltaTime, maxEnd))
+      );
+
+      setEndTime(newEnd);
+      endTimeRef.current = newEnd;
+      selectionDurationRef.current = newEnd - startTimeRef.current;
+    },
+    onPanResponderRelease: () => {
+      hapticLight();
+    },
+  }), []);
+
+  // Handle waveform horizontal scroll — updates start/end times as user drags
+  const handleWaveformScroll = useCallback((event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    scrollOffsetRef.current = offsetX;
+
+    const song = currentSongRef.current;
+    if (!song) return;
+
+    const duration = song.duration || 0;
+    const selDur = selectionDurationRef.current;
+    const totalW = Math.max(SCREEN_WIDTH * 3, duration * 15);
+    const pps = totalW / Math.max(duration, 1);
+
+    const newStart = snapToPrecision(Math.max(0, Math.min(offsetX / pps, duration - selDur)));
+    const newEnd = snapToPrecision(Math.min(duration, newStart + selDur));
+
+    setStartTime(newStart);
+    setEndTime(newEnd);
+  }, []);
+
+  // Seek audio to new position when scroll ends
+  const handleScrollEnd = useCallback(() => {
+    if (soundRef.current && currentSongRef.current) {
+      const st = startTimeRef.current;
+      soundRef.current.setPositionAsync(st * 1000).catch(() => {});
+      setCurrentTime(st);
+    }
+  }, []);
 
   const renderTimeline = () => {
     if (!currentSong) return null;
 
     const duration = currentSong.duration || 0;
-    const startPercent = duration > 0 ? (startTime / duration) * 100 : 0;
-    const endPercent = duration > 0 ? (endTime / duration) * 100 : 0;
     const selectionDuration = endTime - startTime;
-    const maxDuration = getMaxSelectionDuration();
-    const isMaxDuration = selectionDuration >= maxDuration;
 
-    // Generate waveform bars with deterministic heights for consistent rendering
-    // Note: Cannot use useMemo here as it's inside a render function (violates Rules of Hooks)
-    // Using deterministic calculation instead of random for better performance
-    const waveformBars = Array.from({ length: 50 }, (_, i) => {
-      const barTime = (i / 50) * duration;
-      const isInSelection = barTime >= startTime && barTime <= endTime;
-      const isPlaying = barTime <= currentTime;
-      // Use sine wave for consistent waveform pattern instead of random
-      const height = 20 + Math.sin(i * 0.3) * 15 + Math.cos(i * 0.5) * 10;
-      return { height, isInSelection, isPlaying };
+    const isDark = theme.colors.background === '#000000' || theme.colors.background === '#111114';
+    const bracketColor = theme.colors.primary;
+
+    // Scrollable waveform: song's full proportional length, wider than screen
+    const totalWaveformWidth = Math.max(SCREEN_WIDTH * 3, duration * 15);
+    const PPS = totalWaveformWidth / Math.max(duration, 1);
+    const selectionWidth = Math.min(SCREEN_WIDTH - 32, selectionDuration * PPS);
+    const selectionLeft = (SCREEN_WIDTH - selectionWidth) / 2;
+    const SIDE_PADDING = selectionLeft;
+
+    // Generate bars proportional to song length (~3 bars per second, max 300)
+    const NUM_BARS = Math.min(300, Math.max(80, Math.ceil(duration * 3)));
+    const barTotalWidth = totalWaveformWidth / NUM_BARS;
+    const barWidth = Math.max(2, barTotalWidth * 0.55);
+    const barGap = (barTotalWidth - barWidth) / 2;
+
+    // Smooth waveform pattern with multiple harmonics
+    const bars = Array.from({ length: NUM_BARS }, (_, i) => {
+      const base = 8;
+      const wave = Math.sin(i * 0.18) * 16 + Math.cos(i * 0.32) * 12 + Math.sin(i * 0.55) * 8 + Math.cos(i * 0.12) * 6;
+      return Math.max(4, base + wave);
     });
 
     return (
-      <View key="timeline-container" style={[styles.timelineContainer, { backgroundColor: theme.colors.surface }]}>
-        {/* Song Info Card */}
-        <LinearGradient
-          colors={[theme.colors.primary + '20', theme.colors.secondary + '20']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.songInfoCard}
-        >
-          <View style={styles.songInfoContent}>
-            <View style={styles.songInfoText}>
-              <Text style={[styles.songInfoTitle, { color: theme.colors.text }]} numberOfLines={1}>
-                {currentSong.title}
-              </Text>
-              <Text style={[styles.songInfoArtist, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                {currentSong.artist}
-              </Text>
-            </View>
-            <View style={[styles.durationBadge, isMaxDuration && { backgroundColor: theme.colors.error + '30' }]}>
-              <Ionicons 
-                name="time-outline" 
-                size={14} 
-                color={isMaxDuration ? theme.colors.error : theme.colors.primary} 
-                style={{ marginRight: 4 }}
-              />
-              <Text style={[styles.durationBadgeText, { color: isMaxDuration ? theme.colors.error : theme.colors.primary }]}>
-                {formatDuration(selectionDuration)} / {formatDuration(maxDuration)}
-              </Text>
-            </View>
-          </View>
-        </LinearGradient>
-
-        {/* Enhanced Timeline with Waveform */}
-        <View style={[styles.timelineSection, { overflow: 'visible' }]}>
-          <View 
-            style={[styles.timelineWrapper, { overflow: 'visible' }]} 
-            onLayout={(event) => {
-              const { x, width } = event.nativeEvent.layout;
-              timelineWidthRef.current = width - (timelinePaddingRef.current * 2); // Account for padding
-              timelineLayoutRef.current = { x, width };
+      <View key="timeline-container" style={{
+        paddingTop: 16, paddingBottom: 14,
+        borderTopWidth: 1, borderTopColor: theme.colors.border,
+      }}>
+        {/* Scrollable waveform with fixed selection bracket */}
+        <View style={{ position: 'relative', height: 72, overflow: 'hidden' }}>
+          {/* Horizontally scrollable waveform */}
+          <ScrollView
+            ref={waveformScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            onScroll={handleWaveformScroll}
+            scrollEventThrottle={16}
+            decelerationRate="fast"
+            bounces={false}
+            onMomentumScrollEnd={handleScrollEnd}
+            onScrollEndDrag={handleScrollEnd}
+            contentContainerStyle={{
+              paddingHorizontal: SIDE_PADDING,
+              alignItems: 'center',
+              height: 72,
             }}
           >
-            {/* Waveform Visualization */}
-            <View style={styles.waveformContainer}>
-              {waveformBars.map((bar, index) => {
-                const isDark = theme.colors.background === '#000000' || theme.colors.background === '#111114';
-                let backgroundColor: string;
-                let opacity: number = 1;
-                
-                if (bar.isInSelection) {
-                  // Selected: Full opacity, primary color
-                  backgroundColor = theme.colors.primary;
-                  opacity = 1.0;
-                } else if (bar.isPlaying) {
-                  // Playing but not selected: Primary color with reduced opacity
-                  backgroundColor = theme.colors.primary;
-                  opacity = 0.6;
-                } else {
-                  // Unselected: Border color with 30% opacity
-                  backgroundColor = theme.colors.border;
-                  opacity = isDark ? 0.3 : 0.25;
-                }
-                
-                return (
-                  <View
-                    key={index}
-                    style={[
-                      styles.waveformBar,
-                      {
-                        height: bar.height,
-                        backgroundColor,
-                        opacity,
-                      },
-                    ]}
-                  />
-                );
-              })}
-            </View>
-
-            {/* Timeline Track - Tap to Seek, Double-tap to Set Start/End */}
-            <TouchableOpacity
-              activeOpacity={1}
-              onPress={(evt) => {
-                // Extract values immediately to avoid synthetic event reuse
-                const { pageX } = evt.nativeEvent;
-                
-                const now = Date.now();
-                const timeSinceLastTap = now - lastTapRef.current;
-                
-                if (timeSinceLastTap < 400 && lastTapRef.current > 0) {
-                  // Double tap - determine which half to set start/end
-                  if (timelineLayoutRef.current) {
-                    const { x: timelineX, width } = timelineLayoutRef.current;
-                    const relativeX = pageX - timelineX - timelinePaddingRef.current;
-                    const midPoint = width / 2;
-                    const pointType = relativeX < midPoint ? 'start' : 'end';
-                    handleTimelineDoubleTap(pageX, pointType);
-                  }
-                  lastTapRef.current = 0; // Reset
-                  if (tapTimeoutRef.current) {
-                    clearTimeout(tapTimeoutRef.current);
-                    tapTimeoutRef.current = null;
-                  }
-                } else {
-                  // Single tap - seek to position (delayed to detect double tap)
-                  lastTapRef.current = now;
-                  if (tapTimeoutRef.current) {
-                    clearTimeout(tapTimeoutRef.current);
-                  }
-                  tapTimeoutRef.current = setTimeout(() => {
-                    handleTimelineTap(pageX);
-                    lastTapRef.current = 0;
-                  }, 400);
-                }
-              }}
-              style={[styles.timelineTrack, { backgroundColor: theme.colors.border + '40', overflow: 'visible' }]}
-            >
-              {/* Selection Fill — center area drags whole window */}
-              <View
-                style={[
-                  styles.timelineSelection,
-                  {
-                    left: `${startPercent}%`,
-                    width: `${endPercent - startPercent}%`,
-                  },
-                ]}
-                {...selectionPanResponder.panHandlers}
-              >
-                <LinearGradient
-                  colors={[theme.colors.primary + 'BB', theme.colors.secondary + 'BB']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </View>
-
-              {/* Left Bar Handle — drag to set start time */}
-              <View
-                style={[
-                  styles.trimBarLeft,
-                  {
-                    left: `${startPercent}%`,
-                    backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
-                  },
-                  isDragging && dragType === 'start' && styles.trimBarActive,
-                ]}
-                {...startHandlePanResponder.panHandlers}
-                hitSlop={{ top: 10, bottom: 10, left: 12, right: 6 }}
-              >
-                <View style={styles.barGrabIndicator}>
-                  <View style={styles.barGrabDot} />
-                  <View style={styles.barGrabDot} />
-                  <View style={styles.barGrabDot} />
-                </View>
-              </View>
-
-              {/* Right Bar Handle — drag to set end time */}
-              <View
-                style={[
-                  styles.trimBarRight,
-                  {
-                    left: `${endPercent}%`,
-                    backgroundColor: limitState === 'atMinimum' ? theme.colors.error : theme.colors.primary,
-                  },
-                  isDragging && dragType === 'end' && styles.trimBarActive,
-                ]}
-                {...endHandlePanResponder.panHandlers}
-                hitSlop={{ top: 10, bottom: 10, left: 6, right: 12 }}
-              >
-                <View style={styles.barGrabIndicator}>
-                  <View style={styles.barGrabDot} />
-                  <View style={styles.barGrabDot} />
-                  <View style={styles.barGrabDot} />
-                </View>
-              </View>
-
-              {/* Progress Indicator */}
-              <View
-                style={[
-                  styles.timelineProgress,
-                  {
-                    backgroundColor: 'transparent',
-                    overflow: 'hidden',
-                  }
-                ]}
-              >
-                <Animated.View
+            <View style={{ flexDirection: 'row', alignItems: 'center', height: 64 }}>
+              {bars.map((h, i) => (
+                <View
+                  key={i}
                   style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: '100%',
-                    backgroundColor: theme.colors.primary + '30',
-                    transform: [
-                      {
-                        scaleX: progressAnim.interpolate({
-                          inputRange: [0, 100],
-                          outputRange: [0, 1],
-                          extrapolate: 'clamp',
-                        }),
-                      },
-                      {
-                        translateX: 0,
-                      },
-                    ],
+                    width: barWidth,
+                    marginHorizontal: barGap,
+                    height: h,
+                    borderRadius: barWidth,
+                    backgroundColor: theme.colors.primary,
+                    opacity: 0.85,
                   }}
                 />
-              </View>
+              ))}
+            </View>
+          </ScrollView>
 
-            </TouchableOpacity>
+          {/* Fixed selection overlay */}
+          <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+            {/* Left dimmed */}
+            {selectionLeft > 0 && (
+              <View pointerEvents="none" style={{
+                position: 'absolute', left: 0, top: 0, bottom: 0,
+                width: selectionLeft,
+                backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
+              }} />
+            )}
+            {/* Right dimmed */}
+            {selectionLeft > 0 && (
+              <View pointerEvents="none" style={{
+                position: 'absolute', right: 0, top: 0, bottom: 0,
+                width: selectionLeft,
+                backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
+              }} />
+            )}
 
-            {/* Floating Timestamp Badge (only when dragging) */}
-            {isDragging && dragType && timelineLayoutRef.current && (
+            {/* Selection bracket — uses primary color */}
+            <View pointerEvents="box-none" style={{
+              position: 'absolute',
+              left: selectionLeft, top: 0, bottom: 0,
+              width: selectionWidth,
+              borderWidth: 2.5,
+              borderColor: bracketColor,
+              borderRadius: 8,
+            }}>
+              {/* Left handle */}
               <View
                 style={{
-                  position: 'absolute',
-                  left: timelinePaddingRef.current,
-                  top: 0,
+                  position: 'absolute', left: -1, top: 0, bottom: 0, width: 22,
+                  backgroundColor: bracketColor,
+                  borderTopLeftRadius: 8, borderBottomLeftRadius: 8,
+                  justifyContent: 'center', alignItems: 'center',
+                  zIndex: 10,
                 }}
+                hitSlop={{ top: 14, bottom: 14, left: 18, right: 10 }}
+                {...leftTrimPanResponder.panHandlers}
               >
-                <Animated.View
-                  style={[
-                    styles.floatingBadge,
-                    {
-                      opacity: floatingBadgeAnim,
-                      transform: [
-                        {
-                          // Badge follows the start position of the selection window
-                          translateX: startHandleAnim.interpolate({
-                            inputRange: [0, timelineLayoutRef.current.width],
-                            outputRange: [-28, timelineLayoutRef.current.width - 28],
-                            extrapolate: 'clamp',
-                          }),
-                        },
-                        { translateY: -44 }, // 12px above handle + 32px badge height
-                      ],
-                    },
-                  ]}
-                >
-                  <Text style={styles.floatingBadgeText}>
-                    {formatDuration(dragTime)}
-                  </Text>
-                </Animated.View>
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: '#fff' }} />
               </View>
-            )}
-
-            {/* Time Labels - Instagram Style (Below handles) */}
-            <View style={styles.timelineLabels}>
-              <View style={styles.timeLabelContainer}>
-                <View style={[styles.timeLabelBadge, { backgroundColor: theme.colors.primary + '20' }]}>
-                  <Text style={[styles.timeLabel, { color: theme.colors.primary, fontWeight: '700' }]}>
-                    {formatDuration(startTime)}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.timeLabelContainer}>
-                <Text style={[styles.timeLabelDuration, { color: theme.colors.textSecondary }]}>
-                  {formatDuration(endTime - startTime)}
-                </Text>
-              </View>
-              <View style={styles.timeLabelContainer}>
-                <View style={[styles.timeLabelBadge, { backgroundColor: theme.colors.primary + '20' }]}>
-                  <Text style={[styles.timeLabel, { color: theme.colors.primary, fontWeight: '700' }]}>
-                    {formatDuration(endTime)}
-                  </Text>
-                </View>
+              {/* Right handle */}
+              <View
+                style={{
+                  position: 'absolute', right: -1, top: 0, bottom: 0, width: 22,
+                  backgroundColor: bracketColor,
+                  borderTopRightRadius: 8, borderBottomRightRadius: 8,
+                  justifyContent: 'center', alignItems: 'center',
+                  zIndex: 10,
+                }}
+                hitSlop={{ top: 14, bottom: 14, left: 10, right: 18 }}
+                {...rightTrimPanResponder.panHandlers}
+              >
+                <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: '#fff' }} />
               </View>
             </View>
-
-            {/* Limit Warning Badge */}
-            {limitState === 'atMinimum' && (
-              <View style={[styles.limitWarningBadge, { backgroundColor: theme.colors.error }]}>
-                <Ionicons name="alert-circle" size={12} color="#FFFFFF" />
-                <Text style={styles.limitWarningText}>Minimum 0.5s</Text>
-              </View>
-            )}
-
-            {/* Loop Indicator — shown when selection is shorter than video */}
-            {videoDuration && videoDuration > 0 && selectionDuration < videoDuration - 0.5 && (() => {
-              const loopCount = videoDuration / selectionDuration;
-              const isExact = Math.abs(loopCount - Math.round(loopCount)) < 0.05;
-              const label = isExact
-                ? `Repeats ${Math.round(loopCount)}× to fill ${formatDuration(videoDuration)} video`
-                : `Loops to fill ${formatDuration(videoDuration)} video`;
-              return (
-                <View style={[styles.loopIndicator, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="repeat" size={13} color={theme.colors.primary} />
-                  <Text style={[styles.loopIndicatorText, { color: theme.colors.primary }]}>{label}</Text>
-                </View>
-              );
-            })()}
-          </View>
-
-          {/* Simplified Help Text - Instagram Style */}
-          <View style={styles.helpTextContainer}>
-            <Text style={[styles.helpText, { color: theme.colors.textSecondary + '80' }]}>
-              Drag bars to trim · Drag center to reposition
-            </Text>
           </View>
         </View>
 
-        {/* Enhanced Playback Controls */}
-        <View style={styles.playbackControls}>
-          <TouchableOpacity 
-            onPress={playAudio} 
-            style={[styles.playButton, { backgroundColor: theme.colors.primary }]}
-            activeOpacity={0.8}
-          >
-            <Ionicons 
-              name={isPlaying ? "pause" : "play"} 
-              size={28} 
-              color="#fff" 
-            />
-          </TouchableOpacity>
-          <View style={styles.timeDisplayContainer}>
-            <View style={styles.timeDisplayRow}>
-              <Text style={[styles.timeDisplayLabel, { color: theme.colors.textSecondary }]}>Current</Text>
-              <Text style={[styles.timeDisplay, { color: theme.colors.text }]}>
-                {formatDuration(currentTime)}
-              </Text>
-            </View>
-            <View style={styles.timeDisplayRow}>
-              <Text style={[styles.timeDisplayLabel, { color: theme.colors.textSecondary }]}>Total</Text>
-              <Text style={[styles.timeDisplay, { color: theme.colors.textSecondary }]}>
-                {formatDuration(duration)}
-              </Text>
-            </View>
-          </View>
+        {/* Time labels */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 10 }}>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>
+            {formatDuration(startTime)}
+          </Text>
+          <Text style={{ fontSize: 11, color: theme.colors.textSecondary + '80' }}>
+            Scroll to select · Drag handles to trim
+          </Text>
+          <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>
+            {formatDuration(endTime)}
+          </Text>
         </View>
       </View>
     );
+  };
+
+  // Go back to song list from trimmer
+  const handleBackToList = () => {
+    stopAudio();
+    setCurrentSong(null);
+    setCurrentPage('list');
   };
 
   return (
@@ -1240,191 +875,318 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        if (currentPage === 'trimmer') {
+          handleBackToList();
+        } else {
+          onClose();
+        }
+      }}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-      >
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        {/* Enhanced Header */}
-        <LinearGradient
-          colors={[theme.colors.surface, theme.colors.surfaceSecondary]}
-          style={styles.header}
-        >
-          <TouchableOpacity onPress={onClose} style={styles.cancelButton}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Ionicons name="musical-notes" size={24} color={theme.colors.primary} />
-            <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Select Music</Text>
-          </View>
-          <TouchableOpacity 
-            onPress={handleConfirm} 
-            style={[
-              styles.doneButton,
-              (!currentSong && !selectedSong) && styles.doneButtonDisabled
-            ]}
-            disabled={!currentSong && !selectedSong}
+
+        {/* ==================== PAGE 1: SONG LIST (Spotify-style) ==================== */}
+        {currentPage === 'list' && (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
-            <Text style={[
-              styles.doneButtonText, 
-              { color: theme.colors.primary },
-              (!currentSong && !selectedSong) && { color: theme.colors.textSecondary }
-            ]}>
-              Done
-            </Text>
-          </TouchableOpacity>
-        </LinearGradient>
+            {/* Header */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
+            }}>
+              <TouchableOpacity
+                onPress={onClose}
+                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.surfaceSecondary, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Ionicons name="close" size={20} color={theme.colors.text} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text, letterSpacing: 0.3 }}>
+                Add Music
+              </Text>
+              <View style={{ width: 36 }} />
+            </View>
 
-        {/* Enhanced Search */}
-        <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface }]}>
-          <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
-          <TextInput
-            style={[
-              styles.searchInput,
-              {
+            {/* Search bar — Spotify pill style */}
+            <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+              <View style={{
+                flexDirection: 'row', alignItems: 'center',
                 backgroundColor: theme.colors.surfaceSecondary,
-                color: theme.colors.text,
-              }
-            ]}
-            placeholder="Search songs..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-          />
-        </View>
+                borderRadius: 24, paddingHorizontal: 14, height: 44,
+              }}>
+                <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+                <TextInput
+                  style={{
+                    flex: 1, marginLeft: 10, fontSize: 15,
+                    color: theme.colors.text, paddingVertical: 0,
+                  }}
+                  placeholder="What do you want to listen to?"
+                  placeholderTextColor={theme.colors.textSecondary + '90'}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
 
-        {(currentSong || selectedSong) && renderTimeline()}
+            {/* Song List */}
+            {loading && songs.length === 0 ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 }}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>Finding songs...</Text>
+              </View>
+            ) : (
+              <FlatList
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                data={songs}
+                keyExtractor={(item) => item._id}
+                renderItem={({ item }) => {
+                  const isSelected = (selectedSong?._id === item._id);
+                  return (
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row', alignItems: 'center',
+                        paddingHorizontal: 16, paddingVertical: 10, gap: 12,
+                      }}
+                      onPress={() => handleSelect(item)}
+                      activeOpacity={0.6}
+                    >
+                      {/* Album art — square with rounded corners */}
+                      {item.imageUrl || item.thumbnailUrl ? (
+                        <Image
+                          source={{ uri: item.imageUrl || item.thumbnailUrl }}
+                          style={{
+                            width: 52, height: 52, borderRadius: 6,
+                            backgroundColor: theme.colors.surfaceSecondary,
+                          }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={{
+                          width: 52, height: 52, borderRadius: 6,
+                          backgroundColor: theme.colors.surfaceSecondary,
+                          justifyContent: 'center', alignItems: 'center',
+                        }}>
+                          <Ionicons name="musical-note" size={22} color={theme.colors.textSecondary} />
+                        </View>
+                      )}
 
-        {loading && songs.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
-              Loading songs...
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={songs}
-            keyExtractor={(item) => item._id}
-            renderItem={({ item }) => {
-              const isSelected = (currentSong?._id === item._id) || (selectedSong?._id === item._id);
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.songItem,
-                    { borderBottomColor: theme.colors.border },
-                    isSelected && { backgroundColor: theme.colors.primary + '15' }
-                  ]}
-                  onPress={() => handleSelect(item)}
-                  activeOpacity={0.7}
-                >
-                  {item.imageUrl || item.thumbnailUrl ? (
-                    <Image
-                      source={{ uri: item.imageUrl || item.thumbnailUrl }}
-                      style={[styles.songImage, { borderColor: isSelected ? theme.colors.primary : theme.colors.border }]}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={[styles.songIconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
-                      <Ionicons 
-                        name={isSelected ? "musical-notes" : "musical-note-outline"} 
-                        size={24} 
-                        color={isSelected ? theme.colors.primary : theme.colors.textSecondary} 
-                      />
-                    </View>
-                  )}
-                  <View style={styles.songInfo}>
-                    <Text style={[
-                      styles.songTitle,
-                      { color: theme.colors.text },
-                      isSelected && { color: theme.colors.primary, fontWeight: '700' }
-                    ]} numberOfLines={1}>
-                      {item.title}
+                      {/* Song info */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: 15, fontWeight: '600', color: isSelected ? theme.colors.primary : theme.colors.text,
+                          marginBottom: 3,
+                        }} numberOfLines={1}>
+                          {item.title}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: theme.colors.textSecondary }} numberOfLines={1}>
+                          {item.artist} · {formatDuration(item.duration)}
+                        </Text>
+                      </View>
+
+                      {/* Right indicator */}
+                      {isSelected ? (
+                        <View style={{
+                          width: 24, height: 24, borderRadius: 12,
+                          backgroundColor: theme.colors.primary,
+                          justifyContent: 'center', alignItems: 'center',
+                        }}>
+                          <Ionicons name="checkmark" size={15} color="#fff" />
+                        </View>
+                      ) : (
+                        <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary + '60'} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                }}
+                ItemSeparatorComponent={() => (
+                  <View style={{ height: 1, backgroundColor: theme.colors.border, marginLeft: 80 }} />
+                )}
+                ListEmptyComponent={
+                  <View style={{ padding: 60, alignItems: 'center', gap: 16 }}>
+                    <Ionicons name="musical-notes-outline" size={56} color={theme.colors.textSecondary + '30'} />
+                    <Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontWeight: '500' }}>
+                      No songs found
                     </Text>
-                    <Text style={[
-                      styles.songArtist,
-                      { color: theme.colors.textSecondary },
-                    ]} numberOfLines={1}>
-                      {item.artist} • {formatDuration(item.duration)}
+                    <Text style={{ fontSize: 13, color: theme.colors.textSecondary + '80', textAlign: 'center' }}>
+                      Try a different search term
                     </Text>
                   </View>
-                  {isSelected && (
-                    <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
-                      <Ionicons name="checkmark" size={18} color="#fff" />
+                }
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={
+                  loading && songs.length > 0 ? (
+                    <View style={{ padding: 20, alignItems: 'center' }}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
                     </View>
-                  )}
-                </TouchableOpacity>
-              );
-            }}
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Ionicons name="musical-notes-outline" size={64} color={theme.colors.textSecondary + '40'} />
-                <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                  No songs found
-                </Text>
-              </View>
-            }
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={
-              loading && songs.length > 0 ? (
-                <View style={styles.footerLoader}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                </View>
-              ) : null
-            }
-            // Performance optimizations
-            removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            updateCellsBatchingPeriod={50}
-            initialNumToRender={15}
-            windowSize={10}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          />
+                  ) : null
+                }
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                initialNumToRender={15}
+                windowSize={10}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              />
+            )}
+          </KeyboardAvoidingView>
         )}
 
-        {(currentSong || selectedSong) && (
-          <View style={[styles.selectedContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
-            <LinearGradient
-              colors={[theme.colors.primary + '20', theme.colors.secondary + '20']}
-              style={styles.selectedGradient}
-            >
-              <View style={styles.selectedInfo}>
-                <View style={styles.selectedHeader}>
-                  <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
-                  <Text style={[styles.selectedLabel, { color: theme.colors.textSecondary }]}>Selected</Text>
-                </View>
-                <Text style={[styles.selectedSongName, { color: theme.colors.text }]} numberOfLines={1}>
-                  {(currentSong || selectedSong)?.title}
-                </Text>
-                <Text style={[styles.selectedArtist, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                  {(currentSong || selectedSong)?.artist}
-                </Text>
-                <View style={styles.selectedTimeContainer}>
-                  <Ionicons name="time" size={14} color={theme.colors.primary} />
-                  <Text style={[styles.selectedTime, { color: theme.colors.primary }]}>
-                    {formatDuration(startTime)} - {formatDuration(endTime)}
-                  </Text>
-                </View>
+        {/* ==================== PAGE 2: TRIMMER (Spotify-style) ==================== */}
+        {currentPage === 'trimmer' && currentSong && (
+          <View style={{ flex: 1 }}>
+            {/* Trimmer Header */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
+            }}>
+              <TouchableOpacity
+                onPress={handleBackToList}
+                style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.surfaceSecondary, justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Ionicons name="chevron-back" size={20} color={theme.colors.text} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.textSecondary, letterSpacing: 0.3 }}>
+                Trim Selection
+              </Text>
+              <TouchableOpacity
+                onPress={handleConfirm}
+                style={{
+                  paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20,
+                  backgroundColor: theme.colors.primary,
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Song card — centered content area */}
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}>
+              {/* Album artwork with shadow */}
+              <View style={{
+                width: 200, height: 200, borderRadius: 12,
+                backgroundColor: theme.colors.surfaceSecondary,
+                overflow: 'hidden', marginBottom: 28,
+                ...Platform.select({
+                  ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16 },
+                  android: { elevation: 12 },
+                }),
+              }}>
+                {currentSong.imageUrl || currentSong.thumbnailUrl ? (
+                  <Image
+                    source={{ uri: currentSong.imageUrl || currentSong.thumbnailUrl }}
+                    style={{ width: 200, height: 200 }}
+                  />
+                ) : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.primary + '12' }}>
+                    <Ionicons name="musical-notes" size={72} color={theme.colors.primary + '60'} />
+                  </View>
+                )}
               </View>
-              <TouchableOpacity 
-                onPress={handleRemove} 
-                style={[styles.removeButton, { backgroundColor: theme.colors.error }]}
+
+              {/* Song title + artist */}
+              <Text style={{
+                fontSize: 22, fontWeight: '700', color: theme.colors.text,
+                textAlign: 'center', marginBottom: 6, letterSpacing: 0.2,
+              }} numberOfLines={2}>
+                {currentSong.title}
+              </Text>
+              <Text style={{
+                fontSize: 15, color: theme.colors.textSecondary,
+                textAlign: 'center', marginBottom: 28,
+              }} numberOfLines={1}>
+                {currentSong.artist}
+              </Text>
+
+              {/* Playback controls row */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 24, marginBottom: 8 }}>
+                {/* Time start */}
+                <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.primary, minWidth: 40, textAlign: 'right' }}>
+                  {formatDuration(startTime)}
+                </Text>
+
+                {/* Play/Pause — Spotify green circle */}
+                <TouchableOpacity
+                  onPress={playAudio}
+                  style={{
+                    width: 56, height: 56, borderRadius: 28,
+                    backgroundColor: theme.colors.primary,
+                    justifyContent: 'center', alignItems: 'center',
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={isPlaying ? "pause" : "play"}
+                    size={26} color="#fff"
+                    style={isPlaying ? {} : { marginLeft: 3 }}
+                  />
+                </TouchableOpacity>
+
+                {/* Time end */}
+                <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.primary, minWidth: 40 }}>
+                  {formatDuration(endTime)}
+                </Text>
+              </View>
+
+              {/* Duration chip */}
+              <View style={{
+                paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12,
+                backgroundColor: theme.colors.primary + '12',
+              }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.primary }}>
+                  {Math.round(endTime - startTime)}s selected
+                </Text>
+              </View>
+            </View>
+
+            {/* Waveform trimmer — pinned to bottom */}
+            {renderTimeline()}
+
+            {/* Bottom actions */}
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+              borderTopWidth: 1, borderTopColor: theme.colors.border,
+            }}>
+              <TouchableOpacity
+                onPress={handleBackToList}
+                style={{
+                  flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  paddingVertical: 12, borderRadius: 24,
+                  backgroundColor: theme.colors.surfaceSecondary,
+                }}
                 activeOpacity={0.7}
               >
-                <Ionicons name="trash-outline" size={18} color="#fff" />
-                <Text style={styles.removeButtonText}>Remove</Text>
+                <Ionicons name="swap-horizontal-outline" size={16} color={theme.colors.text} />
+                <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '600' }}>Change Song</Text>
               </TouchableOpacity>
-            </LinearGradient>
+
+              <TouchableOpacity
+                onPress={() => { handleRemove(); setCurrentPage('list'); }}
+                style={{
+                  width: 44, height: 44, borderRadius: 22,
+                  backgroundColor: theme.colors.error + '12',
+                  justifyContent: 'center', alignItems: 'center',
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
+
       </View>
-      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -1437,8 +1199,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
@@ -1687,33 +1449,34 @@ const styles = StyleSheet.create({
   songItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    gap: 12,
+    gap: 10,
   },
   songIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
   songImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 2,
   },
   songInfo: {
     flex: 1,
   },
   songTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   songArtist: {
-    fontSize: 14,
+    fontSize: 13,
   },
   checkmark: {
     width: 32,

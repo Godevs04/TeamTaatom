@@ -4089,6 +4089,7 @@ const createStyles = () => {
       fontFamily: getFontFamily('400'),
       marginLeft: isTabletLocal ? theme.spacing.md : 10,
       fontWeight: '400',
+      paddingVertical: 0,
       ...(isWebLocal && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
