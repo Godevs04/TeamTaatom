@@ -45,6 +45,7 @@ import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
+import { SongBar } from '../../components/SongBar';
 import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
@@ -3358,35 +3359,55 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{uploadError}</Text>
                       </View>
                     )}
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: theme.colors.surfaceSecondary,
-                        borderRadius: theme.borderRadius.md,
-                        paddingVertical: theme.spacing.md,
-                        paddingHorizontal: theme.spacing.md,
-                        marginTop: theme.spacing.md,
-                        borderWidth: 1,
-                        borderColor: selectedSong ? theme.colors.primary : theme.colors.border,
-                      }}
-                      onPress={() => setShowSongSelector(true)}
-                    >
-                      <Ionicons 
-                        name={selectedSong ? "musical-notes" : "musical-notes-outline"} 
-                        size={20} 
-                        color={selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
-                        style={{ marginRight: theme.spacing.xs }}
+                    {selectedSong ? (
+                      <SongBar
+                        song={selectedSong}
+                        startTime={songStartTime}
+                        endTime={songEndTime}
+                        songDuration={selectedSong.duration}
+                        onTrimChange={(newStart, newEnd) => {
+                          setSongStartTime(newStart);
+                          setSongEndTime(newEnd);
+                        }}
+                        onOpenSelector={() => setShowSongSelector(true)}
+                        onRemove={() => {
+                          setSelectedSong(null);
+                          setAudioChoice(null);
+                          setSongStartTime(0);
+                          setSongEndTime(60);
+                        }}
                       />
-                      <Text style={{ 
-                        color: selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
-                        fontSize: theme.typography.body.fontSize,
-                        fontWeight: selectedSong ? '600' : '400'
-                      }}>
-                        {selectedSong ? `${selectedSong.title} - ${selectedSong.artist}` : 'Add Music'}
-                      </Text>
-                    </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.colors.surfaceSecondary,
+                          borderRadius: theme.borderRadius.md,
+                          paddingVertical: theme.spacing.md,
+                          paddingHorizontal: theme.spacing.md,
+                          marginTop: theme.spacing.md,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                        }}
+                        onPress={() => setShowSongSelector(true)}
+                      >
+                        <Ionicons
+                          name="musical-notes-outline"
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          style={{ marginRight: theme.spacing.xs }}
+                        />
+                        <Text style={{
+                          color: theme.colors.textSecondary,
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: '400'
+                        }}>
+                          Add Music
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[
                         { 
@@ -3898,62 +3919,75 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{uploadError}</Text>
                       </View>
                     )}
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: audioChoice === 'background' && selectedSong ? theme.colors.primary + '15' : theme.colors.surfaceSecondary,
-                        borderRadius: theme.borderRadius.lg,
-                        paddingVertical: theme.spacing.md,
-                        paddingHorizontal: theme.spacing.md,
-                        marginTop: theme.spacing.md,
-                        marginBottom: theme.spacing.md,
-                        borderWidth: 2,
-                        borderColor: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.border,
-                      }}
-                      onPress={() => setShowSongSelector(true)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.border + '40',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginRight: theme.spacing.sm
-                      }}>
-                        <Ionicons 
-                          name={audioChoice === 'background' && selectedSong ? "musical-notes" : "musical-notes-outline"} 
-                          size={20} 
-                          color={audioChoice === 'background' && selectedSong ? 'white' : theme.colors.textSecondary} 
+                    {audioChoice === 'background' && selectedSong ? (
+                      <View style={{ marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
+                        <SongBar
+                          song={selectedSong}
+                          startTime={songStartTime}
+                          endTime={songEndTime}
+                          songDuration={selectedSong.duration}
+                          onTrimChange={(newStart, newEnd) => {
+                            setSongStartTime(newStart);
+                            setSongEndTime(newEnd);
+                          }}
+                          onOpenSelector={() => setShowSongSelector(true)}
+                          onRemove={() => {
+                            setSelectedSong(null);
+                            setAudioChoice(null);
+                            setSongStartTime(0);
+                            setSongEndTime(60);
+                          }}
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ 
-                          color: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
-                          fontSize: theme.typography.body.fontSize,
-                          fontWeight: audioChoice === 'background' && selectedSong ? '700' : '500'
+                    ) : (
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.colors.surfaceSecondary,
+                          borderRadius: theme.borderRadius.lg,
+                          paddingVertical: theme.spacing.md,
+                          paddingHorizontal: theme.spacing.md,
+                          marginTop: theme.spacing.md,
+                          marginBottom: theme.spacing.md,
+                          borderWidth: 2,
+                          borderColor: theme.colors.border,
+                        }}
+                        onPress={() => setShowSongSelector(true)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: theme.colors.border + '40',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.sm
                         }}>
-                          {audioChoice === 'background' && selectedSong ? 'Background Music Selected' : audioChoice === 'original' ? 'Using Original Audio' : 'Add Background Music'}
-                        </Text>
-                        {audioChoice === 'background' && selectedSong && (
-                          <Text style={{ 
-                            color: theme.colors.textSecondary, 
-                            fontSize: theme.typography.small.fontSize,
-                            marginTop: 2
+                          <Ionicons
+                            name="musical-notes-outline"
+                            size={20}
+                            color={theme.colors.textSecondary}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            color: theme.colors.textSecondary,
+                            fontSize: theme.typography.body.fontSize,
+                            fontWeight: '500'
                           }}>
-                            {selectedSong.title} - {selectedSong.artist}
+                            {audioChoice === 'original' ? 'Using Original Audio' : 'Add Background Music'}
                           </Text>
-                        )}
-                      </View>
-                      <Ionicons 
-                        name="chevron-forward" 
-                        size={20} 
-                        color={audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
-                      />
-                    </TouchableOpacity>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={20}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[
                         { 

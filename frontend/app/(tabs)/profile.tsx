@@ -1100,7 +1100,28 @@ export default function ProfileScreen() {
       >
         {/* Top Actions - Outside unified card */}
         <View style={styles.topActionsContainer}>
-          <View style={styles.topActionsLeft} />
+          <View style={styles.topActionsLeft}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Image
+                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
+                style={{ width: 56, height: 56 }}
+                resizeMode="contain"
+              />
+              <Text style={{
+                fontSize: 30,
+                fontWeight: '600',
+                color: profileTheme.textPrimary,
+                fontFamily: Platform.select({
+                  ios: 'Snell Roundhand',
+                  android: 'cursive',
+                  default: 'cursive',
+                }),
+                letterSpacing: 0.3,
+              }}>
+                Taatom
+              </Text>
+            </View>
+          </View>
           <View style={styles.topActionsRight}>
             <Pressable
               style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80' }]}
