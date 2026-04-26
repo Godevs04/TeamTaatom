@@ -53,8 +53,17 @@ interface FoundUser {
   profilePic: string;
   bio: string;
   language: string;
+  travelStyle: string;
   isFollowing: boolean;
 }
+
+const TRAVEL_STYLES = [
+  { code: 'solo', name: 'Solo Traveler' },
+  { code: 'couple', name: 'Couple' },
+  { code: 'group', name: 'Group' },
+  { code: 'backpacker', name: 'Backpacker' },
+  { code: 'luxury', name: 'Luxury' },
+];
 
 export default function ConnectHubScreen() {
   const { theme } = useTheme();
@@ -82,8 +91,10 @@ export default function ConnectHubScreen() {
   const [languages, setLanguages] = useState<GeoItem[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+  const [selectedTravelStyle, setSelectedTravelStyle] = useState<string>('');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+  const [showTravelStylePicker, setShowTravelStylePicker] = useState(false);
   const [foundUsers, setFoundUsers] = useState<FoundUser[]>([]);
   const [findLoading, setFindLoading] = useState(false);
   const [findSearched, setFindSearched] = useState(false);
@@ -164,6 +175,7 @@ export default function ConnectHubScreen() {
       setFindLoading(true);
       const response = await findUsers({
         target_country: selectedCountry || undefined,
+        travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         page: 1,
         limit: 30,
@@ -257,6 +269,11 @@ export default function ConnectHubScreen() {
           <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]} numberOfLines={1}>
             @{user.username}
           </Text>
+          {user.travelStyle ? (
+            <Text style={[styles.userTravelStyle, { color: theme.colors.primary }]} numberOfLines={1}>
+              {TRAVEL_STYLES.find(s => s.code === user.travelStyle)?.name || user.travelStyle}
+            </Text>
+          ) : null}
           {user.bio ? (
             <Text style={[styles.userBio, { color: theme.colors.textSecondary }]} numberOfLines={2}>
               {user.bio}
@@ -514,6 +531,19 @@ export default function ConnectHubScreen() {
           <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
         </TouchableOpacity>
 
+        {/* Travel Style Picker */}
+        <TouchableOpacity
+          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          onPress={() => setShowTravelStylePicker(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="compass-outline" size={18} color={theme.colors.textSecondary} />
+          <Text style={[styles.filterSelectText, { color: selectedTravelStyle ? theme.colors.text : theme.colors.textSecondary }]}>
+            {selectedTravelStyle ? TRAVEL_STYLES.find(s => s.code === selectedTravelStyle)?.name || 'Travel Style' : 'Select Travel Style (optional)'}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
         {/* Search Button */}
         <TouchableOpacity
           style={[styles.findButton, { backgroundColor: theme.colors.primary, opacity: !selectedLanguage || findLoading ? 0.5 : 1 }]}
@@ -657,6 +687,7 @@ export default function ConnectHubScreen() {
       {/* Picker Modals */}
       {renderPickerModal(showCountryPicker, countries, selectedCountry, setSelectedCountry, () => setShowCountryPicker(false), 'Select Country')}
       {renderPickerModal(showLanguagePicker, languages, selectedLanguage, setSelectedLanguage, () => setShowLanguagePicker(false), 'Select Language')}
+      {renderPickerModal(showTravelStylePicker, TRAVEL_STYLES, selectedTravelStyle, setSelectedTravelStyle, () => setShowTravelStylePicker(false), 'Select Travel Style')}
     </SafeAreaView>
   );
 }
@@ -723,7 +754,6 @@ const styles = StyleSheet.create({
     borderRadius: isTablet ? 30 : 28,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
   },
   // Find Tab
   findContainer: {
@@ -740,9 +770,9 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
   },
   filterTitle: {
-    fontSize: isTablet ? 20 : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? 17 : 16,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
   },
   filterSubtitle: {
@@ -775,7 +805,7 @@ const styles = StyleSheet.create({
   },
   findButtonText: {
     color: '#FFFFFF',
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
   },
@@ -819,7 +849,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   userName: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 1,
@@ -827,6 +857,12 @@ const styles = StyleSheet.create({
   userUsername: {
     fontSize: isTablet ? 13 : 12,
     fontFamily: getFontFamily('400'),
+    marginBottom: 2,
+  },
+  userTravelStyle: {
+    fontSize: isTablet ? 12 : 11,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     marginBottom: 2,
   },
   userBio: {
@@ -840,7 +876,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   followBtnText: {
-    fontSize: isTablet ? 14 : 13,
+    fontSize: 13,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
   },
@@ -870,7 +906,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
   pickerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
   },
@@ -921,7 +957,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetUserName: {
-    fontSize: isTablet ? 18 : 16,
+    fontSize: 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
   },
@@ -945,7 +981,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   sheetActionText: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
   },
@@ -955,7 +991,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sheetCancelText: {
-    fontSize: isTablet ? 16 : 15,
+    fontSize: 15,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
   },

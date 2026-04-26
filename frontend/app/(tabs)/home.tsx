@@ -964,7 +964,6 @@ export default function HomeScreen() {
       padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
       marginBottom: theme.spacing.lg,
       alignItems: 'center',
-      ...theme.shadows.medium,
     },
     emptyImage: {
       width: isTablet ? 160 : 120,
@@ -974,8 +973,8 @@ export default function HomeScreen() {
     },
     emptyTitle: {
       fontSize: isTablet ? theme.typography.h1.fontSize : theme.typography.h2.fontSize,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
       marginBottom: theme.spacing.sm,
       textAlign: 'center',
@@ -1006,26 +1005,25 @@ export default function HomeScreen() {
       backgroundColor: theme.colors.surface,
       borderRadius: theme.borderRadius.xl,
       padding: 4,
-      ...theme.shadows.small,
       borderWidth: 1,
       borderColor: theme.colors.border,
     },
     feedTabButton: {
       flex: 1,
-      paddingVertical: 10,
+      paddingVertical: 9,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: theme.borderRadius.lg,
       flexDirection: 'row',
-      gap: 8,
+      gap: 6,
     },
     feedTabButtonActive: {
       backgroundColor: theme.colors.primary,
-      ...theme.shadows.small,
     },
     feedTabText: {
-      fontSize: theme.typography.body.fontSize,
-      fontWeight: '700' as const,
+      fontSize: 14,
+      fontWeight: '600' as const,
+      letterSpacing: 0.2,
     },
     postsList: {
       paddingHorizontal: 0,
@@ -1090,7 +1088,7 @@ export default function HomeScreen() {
           >
             <Ionicons
               name={active ? tab.activeIcon : tab.icon}
-              size={20}
+              size={18}
               color={active ? 'white' : theme.colors.textSecondary}
             />
             <Text

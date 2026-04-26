@@ -572,9 +572,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
-    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h3.fontSize : 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -591,20 +591,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     borderWidth: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   appIconImage: {
     width: '100%',
     height: '100%',
   },
   appName: {
-    fontSize: isTablet ? theme.typography.h2.fontSize : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h2.fontSize : 22,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -642,8 +637,8 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginLeft: isTablet ? theme.spacing.md : 12,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

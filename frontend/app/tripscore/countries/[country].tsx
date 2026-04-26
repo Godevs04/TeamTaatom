@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '600',
     textAlign: 'center',
     letterSpacing: 0.5,
   },
@@ -371,14 +371,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 24,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
   countryHeader: {
     flexDirection: 'row',
@@ -398,8 +390,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   countryName: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '600',
     marginBottom: 4,
   },
   countryContinent: {
@@ -426,8 +418,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   statNumber: {
-    fontSize: 32,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '600',
     marginBottom: 4,
   },
   statLabel: {
@@ -448,14 +440,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 24,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -463,8 +447,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '600',
     marginLeft: 12,
     flex: 1,
   },
@@ -502,7 +486,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   placeName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     marginBottom: 4,
   },
@@ -519,7 +503,7 @@ const styles = StyleSheet.create({
   },
   scoreText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 
   // Map Card
@@ -527,14 +511,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 24,
     marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
   },
   mapCardContent: {
     flexDirection: 'row',
@@ -559,8 +535,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   mapTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '600',
     marginBottom: 4,
   },
   mapSubtitle: {
@@ -574,13 +550,5 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#4CAF50',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
   },
 });

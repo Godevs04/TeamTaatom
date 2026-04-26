@@ -412,8 +412,8 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

@@ -2429,7 +2429,7 @@ export default function PostScreen() {
               color={postType === 'photo' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '700' },
+              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
               postType === 'photo' ? { color: 'white' } : { color: theme.colors.textSecondary }
             ]}>
               Photo
@@ -2460,7 +2460,7 @@ export default function PostScreen() {
               color={postType === 'short' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '700' },
+              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
               postType === 'short' ? { color: 'white' } : { color: theme.colors.textSecondary }
             ]}>
               Short
@@ -2491,12 +2491,12 @@ export default function PostScreen() {
                   color={theme.colors.primary} 
               />
               </View>
-              <Text style={{ 
-                color: theme.colors.text, 
-                fontSize: theme.typography.h2.fontSize, 
-                fontWeight: '800', 
-                marginBottom: theme.spacing.xs, 
-                textAlign: 'center' 
+              <Text style={{
+                color: theme.colors.text,
+                fontSize: theme.typography.h2.fontSize,
+                fontWeight: '600',
+                marginBottom: theme.spacing.xs,
+                textAlign: 'center'
               }}>
                 {(() => {
                   if (postType === 'photo' && hasExistingPosts === false) {
@@ -2560,11 +2560,11 @@ export default function PostScreen() {
                 }}>
                   <Ionicons name={postType === 'photo' ? "images" : "film"} size={32} color={theme.colors.primary} />
                 </View>
-                <Text style={{ 
-                  color: theme.colors.text, 
-                  fontSize: theme.typography.body.fontSize, 
-                  fontWeight: '700',
-                  textAlign: "center" 
+                <Text style={{
+                  color: theme.colors.text,
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: '600',
+                  textAlign: "center"
                 }}>
                   Choose from Library
                 </Text>
@@ -2595,11 +2595,11 @@ export default function PostScreen() {
                 }}>
                   <Ionicons name={postType === 'photo' ? "camera" : "videocam"} size={32} color={theme.colors.primary} />
                 </View>
-                <Text style={{ 
-                  color: theme.colors.text, 
-                  fontSize: theme.typography.body.fontSize, 
-                  fontWeight: '700',
-                  textAlign: "center" 
+                <Text style={{
+                  color: theme.colors.text,
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: '600',
+                  textAlign: "center"
                 }}>
                   Take {postType === 'photo' ? 'Photo' : 'Video'}
                 </Text>
@@ -2738,7 +2738,7 @@ export default function PostScreen() {
                                 justifyContent: 'center',
                                 alignItems: 'center'
                               }}>
-                                <Text style={{ color: 'white', fontSize: theme.typography.h3.fontSize, fontWeight: '700' }}>
+                                <Text style={{ color: 'white', fontSize: theme.typography.h3.fontSize, fontWeight: '600' }}>
                                   +{selectedImages.length - 5}
                                 </Text>
                               </View>
@@ -2781,7 +2781,7 @@ export default function PostScreen() {
                     gap: 6
                   }}>
                     <Ionicons name="images" size={16} color="white" />
-                    <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: '700' }}>
+                    <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: '600' }}>
                       {selectedImages.length} photos
                     </Text>
                   </View>
@@ -2816,7 +2816,7 @@ export default function PostScreen() {
                     }}
                   >
                     <Ionicons name="create" size={18} color="white" />
-                    <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Edit</Text>
+                    <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize }}>Edit</Text>
                   </TouchableOpacity>
                   {selectedImages.length < 10 && (
                     <TouchableOpacity
@@ -2834,7 +2834,7 @@ export default function PostScreen() {
                       }}
                     >
                       <Ionicons name="add" size={20} color="white" />
-                      <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Add More</Text>
+                      <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize }}>Add More</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -3011,7 +3011,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Caption</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
@@ -3139,7 +3139,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
                           <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <TouchableOpacity
@@ -3263,7 +3263,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="leaf" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3309,7 +3309,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="car" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3420,12 +3420,12 @@ export default function PostScreen() {
                       {isLoading ? (
                         <>
                           <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Sharing...</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Sharing...</Text>
                         </>
                       ) : (
                         <>
                           <Ionicons name="send" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Share Post</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Share Post</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -3522,7 +3522,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Caption</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
@@ -3654,7 +3654,7 @@ export default function PostScreen() {
                     <View style={{ marginBottom: theme.spacing.lg }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                         <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Tags</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Tags</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TextInput
@@ -3681,7 +3681,7 @@ export default function PostScreen() {
                     <View style={{ marginBottom: theme.spacing.lg }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
                         <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3803,14 +3803,14 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="leaf" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
-                        style={{ 
-                          backgroundColor: theme.colors.surface, 
-                          borderRadius: theme.borderRadius.lg, 
-                          borderWidth: 2, 
+                        style={{
+                          backgroundColor: theme.colors.surface,
+                          borderRadius: theme.borderRadius.lg,
+                          borderWidth: 2,
                           borderColor: spotType ? theme.colors.primary : theme.colors.border,
                           paddingHorizontal: theme.spacing.lg,
                           paddingVertical: theme.spacing.md,
@@ -3849,7 +3849,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="car" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3982,12 +3982,12 @@ export default function PostScreen() {
                       {isLoading ? (
                         <>
                           <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Uploading...</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Uploading...</Text>
                         </>
                       ) : (
                         <>
                           <Ionicons name="cloud-upload" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Upload Short</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Upload Short</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -4083,9 +4083,9 @@ export default function PostScreen() {
                   }}>
                     <Ionicons name="leaf" size={16} color={theme.colors.primary} />
                   </View>
-                  <Text style={{ 
-                    fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '700', 
+                  <Text style={{
+                    fontSize: theme.typography.h3.fontSize,
+                    fontWeight: '600',
                     color: theme.colors.text,
                     letterSpacing: 0.2
                   }}>
@@ -4260,9 +4260,9 @@ export default function PostScreen() {
                   }}>
                     <Ionicons name="car" size={16} color={theme.colors.primary} />
                   </View>
-                  <Text style={{ 
-                    fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '700', 
+                  <Text style={{
+                    fontSize: theme.typography.h3.fontSize,
+                    fontWeight: '600',
                     color: theme.colors.text,
                     letterSpacing: 0.2
                   }}>
@@ -4629,7 +4629,7 @@ export default function PostScreen() {
                 </View>
                 <Text style={{
                   fontSize: theme.typography.h3.fontSize,
-                  fontWeight: '700',
+                  fontWeight: '600',
                   color: theme.colors.text,
                 }}>
                   Detect Place
@@ -4864,8 +4864,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: isTablet ? theme.typography.h1.fontSize : 24,
-    fontFamily: getFontFamily('800'),
-    fontWeight: '800',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
     letterSpacing: isIOS ? -0.5 : 0,
@@ -4899,8 +4899,8 @@ const styles = StyleSheet.create({
   },
   audioChoiceTitle: {
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: 'white',
     marginBottom: isTablet ? 8 : 6,
     ...(isWeb && {
@@ -4928,8 +4928,8 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

@@ -54,6 +54,8 @@ export default function UserProfileScreen() {
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
   const [loadingShorts, setLoadingShorts] = useState(false);
+  const failedThumbnailsRef = useRef<Set<string>>(new Set());
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(new Set());
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   // Ref to track if we're in the middle of a follow/unfollow action
@@ -192,11 +194,10 @@ export default function UserProfileScreen() {
     const CardContent = (
       <Animated.View 
         style={[
-          styles.statCard, 
-          { 
+          styles.statCard,
+          {
             backgroundColor: cardBgColor,
             borderColor: borderColor,
-            shadowColor: theme.colors.shadow,
             transform: [{ scale: scaleAnim }]
           }
         ]}
@@ -582,7 +583,7 @@ export default function UserProfileScreen() {
             <View style={styles.topActions}>
               <Pressable
                 onPress={() => router.back()}
-                style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80' }]}
               >
                 <Ionicons name="arrow-back" size={20} color={profileTheme.textPrimary} />
               </Pressable>
@@ -591,13 +592,13 @@ export default function UserProfileScreen() {
                   <>
                     <Pressable
                       onPress={() => setShowReportModal(true)}
-                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80' }]}
                     >
                       <Ionicons name="flag-outline" size={20} color={profileTheme.textPrimary} />
                     </Pressable>
                     <Pressable
                       onPress={() => setShowProfileMenu(true)}
-                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80', shadowColor: theme.colors.shadow }]}
+                      style={[styles.backButton, { backgroundColor: profileTheme.cardBg + '80' }]}
                     >
                       <Ionicons name="ellipsis-horizontal" size={20} color={profileTheme.textPrimary} />
                     </Pressable>
@@ -607,13 +608,13 @@ export default function UserProfileScreen() {
             </View>
 
             {/* Profile Card */}
-            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95', shadowColor: theme.colors.shadow }]}>
+            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95' }]}>
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
                   <Image
                     source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar, { borderColor: profileTheme.cardBg, shadowColor: theme.colors.shadow }]}
+                    style={[styles.avatar, { borderColor: profileTheme.cardBg }]}
                   />
                 </View>
               </View>
@@ -639,7 +640,6 @@ export default function UserProfileScreen() {
                   <Pressable
                     style={[
                       styles.actionButton,
-                      { shadowColor: theme.colors.shadow },
                       followState === 'FOLLOWING'
                         ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
                         : [styles.followButton, { backgroundColor: profileTheme.accent }]
@@ -698,7 +698,7 @@ export default function UserProfileScreen() {
         {/* TripScore Section - Compact */}
         {profile.tripScore && profile.canViewLocations && (
           <Pressable 
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
             onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
           >
             <View style={styles.sectionHeader}>
@@ -723,7 +723,7 @@ export default function UserProfileScreen() {
         {/* Friend's Travels Section - Only show if can view posts */}
         {profile.canViewPosts && (
           <Pressable
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
             onPress={() => router.push(`/journeys?userId=${id}`)}
           >
             <View style={styles.sectionHeader}>
@@ -741,7 +741,7 @@ export default function UserProfileScreen() {
 
         {/* Location Card - unified: base, verified summary, trips summary, globe */}
         <Pressable
-          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}
+          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
           onPress={() => {
             if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
               const name = profile?.fullName || profile?.username || 'User';
@@ -808,7 +808,7 @@ export default function UserProfileScreen() {
 
         {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
-          <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+          <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
             {/* Tabs */}
             <View style={styles.postsTabsSection}>
               <Pressable
@@ -841,11 +841,10 @@ export default function UserProfileScreen() {
               </Pressable>
             </View>
 
-            {/* Tab Content Container - maintains minimum height to prevent scroll reset on tab switch */}
-            <View style={{ minHeight: 400 }}>
-              {/* Posts Tab */}
-              {activeTab === 'posts' && (
-              profile.posts && profile.posts.length > 0 ? (
+            {/* Tab Content Container */}
+            {/* Posts Tab */}
+            <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
+              {profile.posts && profile.posts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {((profile.posts || [])
                     .sort((a: any, b: any) => {
@@ -859,8 +858,7 @@ export default function UserProfileScreen() {
                       key={item._id}
                       style={[
                         styles.postThumbnail,
-                        { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
-                        (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                        { backgroundColor: profileTheme.cardBg },
                       ]}
                       onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
                     >
@@ -879,8 +877,7 @@ export default function UserProfileScreen() {
                     This user hasn't shared any posts yet
                   </Text>
                 </View>
-              )
-            )}
+              )}
             </View>
 
             {/* Shorts Tab */}
@@ -895,65 +892,50 @@ export default function UserProfileScreen() {
                   {userShorts.map((s: any, index: number) => {
                     // Get thumbnail URL - check multiple fields for compatibility (same as own profile)
                     const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
-                    
-                    // Validate URI - check if it's a valid URL format
-                    const isValidUri = uri && typeof uri === 'string' && uri.trim() !== '' && 
+
+                    // Validate URI and check if this thumbnail already failed
+                    const isValidUri = uri && typeof uri === 'string' && uri.trim() !== '' &&
                                       (uri.startsWith('http://') || uri.startsWith('https://'));
-                    
-                    if (!isValidUri) {
+                    const hasFailed = failedThumbnails.has(s._id);
+
+                    if (!isValidUri || hasFailed) {
                       return (
-                        <Pressable 
-                          key={s._id} 
+                        <Pressable
+                          key={s._id}
                           style={[
                             styles.postThumbnail,
-                            { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
-                            (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                            { backgroundColor: profileTheme.cardBg },
                           ]}
+                          onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
                             <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
+                          </View>
+                          <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                            <Ionicons name="play" size={24} color="#FFFFFF" />
                           </View>
                         </Pressable>
                       );
                     }
                     return (
-                      <Pressable 
-                        key={s._id} 
+                      <Pressable
+                        key={s._id}
                         style={[
                           styles.postThumbnail,
-                          { backgroundColor: profileTheme.cardBg, shadowColor: theme.colors.shadow },
-                          (index + 1) % 3 === 0 && styles.postThumbnailLastInRow
+                          { backgroundColor: profileTheme.cardBg },
                         ]}
                         onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                       >
-                        <Image 
-                          source={{ uri }} 
-                          style={styles.postImage} 
+                        <Image
+                          source={{ uri }}
+                          style={styles.postImage}
                           resizeMode="cover"
-                          onError={(error) => {
-                            // Check if this is a 403 Forbidden error (expired signed URL)
-                            const errorMessage = error?.nativeEvent?.error?.message || '';
-                            const is403 = errorMessage.includes('403') || 
-                                         errorMessage.includes('Forbidden') ||
-                                         errorMessage.includes('forbidden');
-                            
-                            // Don't log 403 errors - they're expected for expired signed URLs
-                            // Only log non-403 errors to reduce noise in logs
-                            if (!is403) {
-                              logger.warn('Short thumbnail failed to load:', {
-                                shortId: s._id,
-                                uri: uri?.substring(0, 100),
-                                imageUrl: (s as any).imageUrl?.substring(0, 50),
-                                thumbnailUrl: (s as any).thumbnailUrl?.substring(0, 50),
-                                mediaUrl: (s as any).mediaUrl?.substring(0, 50),
-                                error: errorMessage || 'Unknown error'
-                              });
-                            } else if (__DEV__) {
-                              // Only log 403 errors in development for debugging
-                              logger.debug('Short thumbnail URL expired (403):', {
-                                shortId: s._id,
-                                uri: uri?.substring(0, 100)
-                              });
+                          onError={() => {
+                            // Only log once per short ID, then show placeholder
+                            if (!failedThumbnailsRef.current.has(s._id)) {
+                              failedThumbnailsRef.current.add(s._id);
+                              logger.warn('Short thumbnail failed to load:', { shortId: s._id });
+                              setFailedThumbnails(new Set(failedThumbnailsRef.current));
                             }
                           }}
                         />
@@ -982,7 +964,7 @@ export default function UserProfileScreen() {
         )}
 
         {!profile.canViewPosts && (
-          <View style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder, shadowColor: theme.colors.shadow }]}>
+          <View style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
             <View style={styles.emptyState}>
               <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
                 <Ionicons name="lock-closed-outline" size={56} color={profileTheme.accent} />
@@ -1163,10 +1145,6 @@ const styles = StyleSheet.create({
     borderRadius: Platform.OS === 'android' ? 24 : 22,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
     ...(Platform.OS === 'web' && {
       cursor: 'pointer',
       transition: 'all 0.2s ease',
@@ -1178,10 +1156,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 24,
     alignItems: 'center',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
   },
   avatarContainer: {
     marginBottom: 16,
@@ -1200,14 +1174,10 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     borderWidth: 4,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
   },
   username: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '600',
     marginBottom: 4,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -1244,10 +1214,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
     borderWidth: 1,
   },
   statIconContainer: {
@@ -1260,7 +1226,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 4,
     letterSpacing: 0.3,
     textAlign: 'center',
@@ -1287,10 +1253,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
     maxWidth: 180,
   },
   followButton: {
@@ -1303,7 +1265,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     letterSpacing: 0.3,
   },
 
@@ -1313,10 +1275,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 20,
     borderRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
   },
   sectionHeader: {
@@ -1334,7 +1292,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     flex: 1,
     letterSpacing: 0.2,
   },
@@ -1351,7 +1309,7 @@ const styles = StyleSheet.create({
   },
   tripScoreNumber: {
     fontSize: 28,
-    fontWeight: '800',
+    fontWeight: '600',
     marginBottom: 4,
     letterSpacing: -0.5,
   },
@@ -1367,10 +1325,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 20,
     borderRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
   },
   locationCardHeader: {
@@ -1394,7 +1348,7 @@ const styles = StyleSheet.create({
   },
   locationTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 4,
     letterSpacing: 0.2,
   },
@@ -1420,10 +1374,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 20,
     borderRadius: 20,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
     marginBottom: 24,
   },
@@ -1440,10 +1390,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   pillTabActive: {
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   pillTabText: {
     fontSize: 14,
@@ -1451,29 +1397,23 @@ const styles = StyleSheet.create({
   },
   postsSectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: 16,
     letterSpacing: 0.2,
   },
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    width: '100%',
+    gap: 1.5,
   },
   postThumbnail: {
-    width: '31%',
+    width: '32.5%',
     aspectRatio: 1,
-    marginBottom: 12,
-    borderRadius: 16,
+    borderRadius: 2,
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
   },
   postThumbnailLastInRow: {
-    marginRight: 0,
+    // No longer needed — gap handles spacing
   },
   postImage: {
     width: '100%',
@@ -1502,9 +1442,9 @@ const styles = StyleSheet.create({
   // Empty State
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 40,
     paddingHorizontal: 20,
-    minHeight: 400,
+    minHeight: 200,
   },
   emptyIconContainer: {
     width: 120,
@@ -1516,7 +1456,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 8,
     letterSpacing: 0.2,

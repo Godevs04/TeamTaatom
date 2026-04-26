@@ -446,8 +446,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   summaryTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     marginBottom: 16,
   },
   statsGrid: {
@@ -460,8 +460,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '600',
   },
   statLabel: {
     fontSize: 12,

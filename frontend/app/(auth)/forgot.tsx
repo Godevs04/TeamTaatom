@@ -476,7 +476,6 @@ const styles = StyleSheet.create({
       backgroundColor: 'rgba(255, 255, 255, 0.15)',
       boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
     } as any),
-    ...theme.shadows.large,
   },
   logo: {
     width: isTablet ? 120 : 100,
@@ -485,9 +484,9 @@ const styles = StyleSheet.create({
     tintColor: undefined,
   },
   title: {
-    fontSize: isTablet ? 44 : isWeb ? 40 : 38,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? 38 : 34,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: '#FFFFFF',
     marginTop: theme.spacing.md + 4,
     textAlign: 'center',
@@ -498,7 +497,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
     ...(isWeb && {
       fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
-      fontWeight: '700',
+      fontWeight: '600',
     }),
   },
   subtitle: {
@@ -529,11 +528,6 @@ const styles = StyleSheet.create({
       backgroundColor: 'rgba(20, 20, 30, 0.75)',
       boxShadow: '0 20px 60px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.05)',
     } as any),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.5,
-    shadowRadius: 30,
-    elevation: 20,
   },
   formFields: {
     width: '100%',
@@ -554,11 +548,6 @@ const styles = StyleSheet.create({
       background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primary}ee 100%)`,
       boxShadow: '0 8px 24px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
     } as any),
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
   },
   resetButtonDisabled: {
     opacity: 0.6,
@@ -569,8 +558,8 @@ const styles = StyleSheet.create({
   resetButtonText: {
     color: '#FFFFFF',
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : theme.typography.body.fontSize + 1,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     letterSpacing: 0.5,
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 1 },

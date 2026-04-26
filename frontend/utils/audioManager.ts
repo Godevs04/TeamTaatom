@@ -23,11 +23,16 @@ class AudioManager {
     this.notifyListeners(null);
     if (sound) {
       try {
-        await sound.stopAsync();
-      } catch (_) {}
-      try {
-        await sound.unloadAsync();
-      } catch (_) {}
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) {
+          if (status.isPlaying) {
+            await sound.stopAsync().catch(() => {});
+          }
+          await sound.unloadAsync().catch(() => {});
+        }
+      } catch (_) {
+        // Sound already gone — safe to ignore
+      }
       logger.debug('Stopped all audio');
     }
   }

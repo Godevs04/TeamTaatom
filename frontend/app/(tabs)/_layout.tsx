@@ -100,13 +100,14 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: isTablet ? (isWeb ? 14 : 13) : (isWeb ? 12 : 11),
+          fontSize: isTablet ? (isWeb ? 11 : 10) : (isWeb ? 10 : 10),
           fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
           fontWeight: '600',
-          letterSpacing: isIOS ? 0.2 : 0,
+          letterSpacing: 0.1,
+          marginTop: -2,
         },
         tabBarIconStyle: {
-          marginBottom: isWeb ? 0 : 4,
+          marginBottom: isWeb ? 0 : 2,
         },
       }}
     >
@@ -115,8 +116,8 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarAccessibilityLabel: 'Home tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -126,8 +127,8 @@ export default function TabsLayout() {
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
           unmountOnBlur: true,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="play-circle" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -136,8 +137,8 @@ export default function TabsLayout() {
         options={{
           title: 'Post',
           tabBarAccessibilityLabel: 'Create post tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'add-circle' : 'add-circle-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -146,8 +147,8 @@ export default function TabsLayout() {
         options={{
           title: 'Locale',
           tabBarAccessibilityLabel: 'Locale tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="location" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'location' : 'location-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -156,8 +157,8 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={22} color={color} />
           ),
         }}
       />

@@ -1008,7 +1008,7 @@ const styles = StyleSheet.create({
   },
   offlineRetryButtonText: {
     color: '#ffb300',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 14,
   },
   sessionExpiredBanner: {
@@ -1032,7 +1032,7 @@ const styles = StyleSheet.create({
   },
   sessionExpiredDismissText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 16,
   },
 });

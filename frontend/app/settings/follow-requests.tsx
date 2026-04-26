@@ -255,8 +255,8 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginTop: isTablet ? theme.spacing.lg : 16,
     marginBottom: isTablet ? theme.spacing.sm : 8,
     ...(isWeb && {

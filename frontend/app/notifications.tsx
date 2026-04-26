@@ -514,13 +514,11 @@ export default function NotificationsScreen() {
       style={[
         styles.notificationItem,
         {
-          backgroundColor: item.isRead 
-            ? (mode === 'dark' ? '#1C1C1E' : '#FFFFFF') 
+          backgroundColor: item.isRead
+            ? (mode === 'dark' ? '#1C1C1E' : '#FFFFFF')
             : (mode === 'dark' ? '#2C2C2E' : '#F8F9FA'),
           borderLeftWidth: item.isRead ? 0 : 4,
           borderLeftColor: item.isRead ? 'transparent' : '#007AFF',
-          shadowColor: mode === 'dark' ? '#000' : '#000',
-          shadowOpacity: mode === 'dark' ? 0.3 : 0.08,
         },
       ]}
       onPress={() => handleNotificationPress(item)}
@@ -800,8 +798,8 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: isTablet ? theme.typography.h1.fontSize : 28,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginTop: isTablet ? theme.spacing.xl : 20,
     marginBottom: isTablet ? theme.spacing.md : 12,
     textAlign: 'center',
@@ -853,9 +851,6 @@ const styles = StyleSheet.create({
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginVertical: isTablet ? 6 : 4,
     borderRadius: isTablet ? theme.borderRadius.lg : 16,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 3,
   },
   notificationContent: {
     flexDirection: 'row',
@@ -893,9 +888,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 4,
   },
   notificationText: {
     flex: 1,
@@ -929,10 +921,6 @@ const styles = StyleSheet.create({
     borderRadius: isTablet ? theme.borderRadius.md : 12,
     overflow: 'hidden',
     borderWidth: 2,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
   postThumbnail: {
     width: isTablet ? 60 : 48,
@@ -953,10 +941,6 @@ const styles = StyleSheet.create({
     borderRadius: isTablet ? 6 : 5,
     backgroundColor: '#FF3B30',
     borderWidth: 2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 3,
   },
   footerLoader: {
     paddingVertical: isTablet ? theme.spacing.xl : 24,

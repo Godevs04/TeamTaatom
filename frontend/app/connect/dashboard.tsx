@@ -295,9 +295,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statNumber: {
-    fontSize: isTablet ? 36 : 28,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 22,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
   },
   statLabel: {
     fontSize: isTablet ? 14 : 13,
@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: themeConstants.borderRadius.md,
   },
   chartTitle: {
-    fontSize: isTablet ? 18 : 16,
+    fontSize: 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginBottom: 2,

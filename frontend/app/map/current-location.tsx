@@ -137,14 +137,6 @@ const createStyles = () => {
       backgroundColor: 'white',
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-      elevation: 5,
     },
     directionButton: {
       position: 'absolute',
@@ -155,11 +147,6 @@ const createStyles = () => {
       borderRadius: 28,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-      elevation: 5,
       zIndex: 10,
     },
   });
@@ -873,7 +860,7 @@ const journeyStyles = StyleSheet.create({
   startBtnText: {
     color: 'white',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   statsRow: {
     flexDirection: 'row',
@@ -897,7 +884,7 @@ const journeyStyles = StyleSheet.create({
   },
   liveText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   actionRow: {
     flexDirection: 'row',

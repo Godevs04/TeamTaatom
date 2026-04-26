@@ -714,8 +714,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     textAlign: 'center',
   },
   countryChip: {
@@ -787,7 +787,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     marginTop: 2,
   },
   statLabel: {
@@ -828,6 +828,6 @@ const styles = StyleSheet.create({
   markerText: {
     color: 'white',
     fontSize: 11,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
 });
