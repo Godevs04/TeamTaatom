@@ -524,14 +524,7 @@ const getUserJourneys = async (req, res) => {
 
     const profileVisibility = targetUser.settings?.privacy?.profileVisibility || 'public';
 
-    if (!isOwner && profileVisibility === 'followers' && !isFollower) {
-      return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
-        journeys: [],
-        pagination: { page, limit, total: 0 }
-      });
-    }
-
-    if (!isOwner && profileVisibility === 'private') {
+    if (!isOwner && (profileVisibility === 'followers' || profileVisibility === 'private') && !isFollower) {
       return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
         journeys: [],
         pagination: { page, limit, total: 0 }
@@ -541,24 +534,32 @@ const getUserJourneys = async (req, res) => {
     // Include polyline data when requested (for map view)
     const includePolyline = req.query.includePolyline === 'true';
     const selectFields = includePolyline
-      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline tripScoreAwarded'
-      : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded';
+      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline tripScoreAwarded privacy'
+      : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
 
     // Get all journeys (active, paused, completed) for display
-    const journeys = await Journey.find({
+    // For non-owners, also filter by per-journey privacy
+    const journeyQuery = {
       user: userId,
       status: { $in: ['active', 'paused', 'completed'] }
-    })
+    };
+    if (!isOwner) {
+      // Non-owners only see public journeys, or followers-only if they are a follower
+      if (isFollower) {
+        journeyQuery.privacy = { $in: ['public', 'followers'] };
+      } else {
+        journeyQuery.privacy = 'public';
+      }
+    }
+
+    const journeys = await Journey.find(journeyQuery)
       .select(selectFields + ' status')
       .sort({ startedAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const total = await Journey.countDocuments({
-      user: userId,
-      status: { $in: ['active', 'paused', 'completed'] }
-    });
+    const total = await Journey.countDocuments(journeyQuery);
 
     // Add basic waypoint count (no full population for performance)
     const enrichedJourneys = journeys.map(j => ({

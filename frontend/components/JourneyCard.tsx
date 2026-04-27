@@ -4,12 +4,13 @@ import {
   View,
   Text,
   StyleSheet,
-  Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
-const { width: screenWidth } = Dimensions.get('window');
+const isIOS = Platform.OS === 'ios';
+const isWeb = Platform.OS === 'web';
 
 export interface Journey {
   _id: string;
@@ -31,47 +32,27 @@ interface JourneyCardProps {
 }
 
 const GROWTH_GREEN = '#22C55E';
-const ACTION_BLUE = '#3B82F6';
 
-/**
- * JourneyCard
- *
- * Summary card for a completed journey in a list
- * - Left: gradient placeholder with start→end arrow
- * - Right: title, location summary, date range, stats (distance, photos, score)
- * - Tappable to view full journey details on map
- */
 export default function JourneyCard({ journey, onPress }: JourneyCardProps) {
   const { theme } = useTheme();
 
-  // Format date range from ISO strings
   const startDate = new Date(journey.startedAt);
   const endDate = journey.completedAt ? new Date(journey.completedAt) : new Date();
   const isActive = journey.status === 'active' || journey.status === 'paused';
 
-  const formatDateRange = () => {
+  const formatDate = () => {
     if (isActive) {
-      const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
-      const startDay = startDate.getDate();
-      return `Started ${startMonth} ${startDay}`;
+      return `Started ${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
     }
-
-    const startMonth = startDate.toLocaleDateString('en-US', { month: 'short' });
-    const startDay = startDate.getDate();
-    const endMonth = endDate.toLocaleDateString('en-US', { month: 'short' });
-    const endDay = endDate.getDate();
-    const year = endDate.getFullYear();
-
-    if (startMonth === endMonth && startDay === endDay) {
-      return `${startMonth} ${startDay}, ${year}`;
-    } else if (startMonth === endMonth) {
-      return `${startMonth} ${startDay} - ${endDay}, ${year}`;
-    } else {
-      return `${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+    const startStr = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const sameDay = startDate.toDateString() === endDate.toDateString();
+    if (sameDay) {
+      return `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
+    return `${startStr} – ${endStr}`;
   };
 
-  // Format distance: convert meters to km or m
   const formatDistance = () => {
     if (journey.distanceTraveled >= 1000) {
       return `${(journey.distanceTraveled / 1000).toFixed(1)} km`;
@@ -79,88 +60,80 @@ export default function JourneyCard({ journey, onPress }: JourneyCardProps) {
     return `${Math.round(journey.distanceTraveled)} m`;
   };
 
-  const photoCount = journey.waypoints.length;
+  const photoCount = journey.waypoints?.length || 0;
+  const title = journey.title || 'Untitled Journey';
+  const countries = journey.countries?.length > 0 ? journey.countries.join(', ') : null;
 
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: theme.colors.surface }]}
-      activeOpacity={0.7}
+      activeOpacity={0.65}
       onPress={onPress}
     >
-      {/* Left: Map Thumbnail / Gradient Placeholder */}
-      <View style={[styles.thumbnailContainer, { backgroundColor: ACTION_BLUE + '10' }]}>
-        <View style={styles.thumbnailContent}>
-          {/* Start Pin */}
-          <View style={styles.startPin}>
-            <Ionicons name="location" size={16} color={GROWTH_GREEN} />
-          </View>
-
-          {/* Arrow */}
-          <View style={styles.arrowContainer}>
-            <Ionicons name="arrow-forward" size={20} color={ACTION_BLUE} />
-          </View>
-
-          {/* End Pin */}
-          <View style={styles.endPin}>
-            <Ionicons name="location" size={16} color="#EF4444" />
-          </View>
-        </View>
-
-        {/* Coordinates text (small, secondary) */}
-        <Text style={[styles.coordsText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-          {journey.countries.length > 0 ? journey.countries.join(', ') : 'Traveling'}
-        </Text>
+      {/* Icon */}
+      <View style={[styles.iconWrap, { backgroundColor: GROWTH_GREEN + '12' }]}>
+        <Ionicons name="map-outline" size={22} color={GROWTH_GREEN} />
       </View>
 
-      {/* Right: Details */}
-      <View style={styles.detailsContainer}>
-        {/* Title + Status */}
+      {/* Content */}
+      <View style={styles.content}>
+        {/* Title row */}
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: theme.colors.text, flex: 1 }]} numberOfLines={1}>
-            {journey.title || 'Journey'}
+          <Text style={[styles.title, { color: theme.colors.text }]} numberOfLines={1}>
+            {title}
           </Text>
           {isActive && (
-            <View style={[styles.statusBadge, { backgroundColor: journey.status === 'active' ? GROWTH_GREEN + '15' : ACTION_BLUE + '15' }]}>
-              <View style={[styles.statusDot, { backgroundColor: journey.status === 'active' ? GROWTH_GREEN : ACTION_BLUE }]} />
-              <Text style={[styles.statusText, { color: journey.status === 'active' ? GROWTH_GREEN : ACTION_BLUE }]}>
+            <View style={[styles.statusBadge, {
+              backgroundColor: journey.status === 'active' ? GROWTH_GREEN + '15' : theme.colors.primary + '15'
+            }]}>
+              <View style={[styles.statusDot, {
+                backgroundColor: journey.status === 'active' ? GROWTH_GREEN : theme.colors.primary
+              }]} />
+              <Text style={[styles.statusText, {
+                color: journey.status === 'active' ? GROWTH_GREEN : theme.colors.primary
+              }]}>
                 {journey.status === 'active' ? 'Live' : 'Paused'}
               </Text>
             </View>
           )}
         </View>
 
-        {/* Location summary */}
-        <Text style={[styles.locationSummary, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-          {journey.countries?.length > 0 ? journey.countries.join(', ') : 'Location'} • {formatDateRange()}
+        {/* Subtitle: date + country */}
+        <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+          {formatDate()}{countries ? ` · ${countries}` : ''}
         </Text>
 
-        {/* Stats Row */}
+        {/* Stats row */}
         <View style={styles.statsRow}>
-          {/* Distance */}
           <View style={styles.statItem}>
-            <Ionicons name="navigate" size={12} color={ACTION_BLUE} />
-            <Text style={[styles.statText, { color: ACTION_BLUE }]}>
+            <Ionicons name="navigate-outline" size={13} color={theme.colors.textSecondary} />
+            <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
               {formatDistance()}
             </Text>
           </View>
 
-          {/* Photo Count */}
-          <View style={styles.statItem}>
-            <Ionicons name="image" size={12} color={theme.colors.textSecondary} />
-            <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-              {photoCount}
-            </Text>
-          </View>
+          {photoCount > 0 && (
+            <View style={styles.statItem}>
+              <Ionicons name="image-outline" size={13} color={theme.colors.textSecondary} />
+              <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
+                {photoCount}
+              </Text>
+            </View>
+          )}
 
-          {/* Score Badge — only for completed */}
-          {!isActive && (
-            <View style={[styles.scoreBadge, { backgroundColor: GROWTH_GREEN + '15' }]}>
+          {!isActive && (journey.tripScoreAwarded || 0) > 0 && (
+            <View style={[styles.scoreBadge, { backgroundColor: GROWTH_GREEN + '12' }]}>
               <Text style={[styles.scoreText, { color: GROWTH_GREEN }]}>
-                +{journey.tripScoreAwarded || 0}pts
+                +{journey.tripScoreAwarded}pts
               </Text>
             </View>
           )}
         </View>
+      </View>
+
+      {/* Chevron */}
+      <View style={styles.chevronWrap}>
+        <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
       </View>
     </TouchableOpacity>
   );
@@ -169,90 +142,73 @@ export default function JourneyCard({ journey, onPress }: JourneyCardProps) {
 const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: 16,
-    marginVertical: 8,
-    borderRadius: 12,
-    overflow: 'hidden',
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+    ...(isWeb && {
+      transition: 'all 0.2s ease',
+    } as any),
   },
-  thumbnailContainer: {
-    width: 120,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
-  thumbnailContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 8,
-  },
-  startPin: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  arrowContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  endPin: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  coordsText: {
-    fontSize: 10,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  detailsContainer: {
+  content: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    justifyContent: 'space-between',
+    gap: 3,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: 8,
   },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
+    fontFamily: isIOS ? 'System' : 'Roboto',
+    flex: 1,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
     gap: 4,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   statusText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
-  locationSummary: {
-    fontSize: 12,
+  subtitle: {
+    fontSize: 13,
     fontWeight: '400',
-    marginBottom: 8,
+    fontFamily: isIOS ? 'System' : 'Roboto',
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+    marginTop: 2,
   },
   statItem: {
     flexDirection: 'row',
@@ -260,17 +216,21 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
   },
   scoreBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 6,
     marginLeft: 'auto',
   },
   scoreText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  chevronWrap: {
+    marginLeft: 8,
+    justifyContent: 'center',
   },
 });

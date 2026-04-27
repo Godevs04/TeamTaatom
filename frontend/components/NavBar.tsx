@@ -102,17 +102,22 @@ export default function NavBar(props: NavBarProps) {
           color: titleColor,
           textAlign: 'center',
           letterSpacing: isIOS ? 0.5 : 0.3,
-          paddingHorizontal: shouldShowBack ? (isTablet ? theme.spacing.md : theme.spacing.sm) : 0,
+          paddingHorizontal: 0,
         }}>{title}</Text>
-        {rightComponent && (
-          <View style={{ 
+        {rightComponent ? (
+          <View style={{
             marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
             minWidth: isAndroid ? 48 : 44,
             minHeight: isAndroid ? 48 : 44,
             justifyContent: 'center',
             alignItems: 'center',
           }}>{rightComponent}</View>
-        )}
+        ) : shouldShowBack ? (
+          <View style={{
+            width: isAndroid ? 48 : 44,
+            marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
+          }} />
+        ) : null}
       </View>
     </SafeAreaView>
   );

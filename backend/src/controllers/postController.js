@@ -574,7 +574,8 @@ const getPostById = async (req, res) => {
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: 1, // Include followers for follow status check
-                  'settings.privacy.showLocation': 1
+                  'settings.privacy.showLocation': 1,
+                  'settings.privacy.profileVisibility': 1
                 }
               }
             ]
@@ -686,6 +687,22 @@ const getPostById = async (req, res) => {
 
     if (!post) {
       return sendError(res, 'RES_3001', 'The requested post does not exist or has been deleted');
+    }
+
+    // Privacy check: ensure viewer is allowed to see this post based on author's profileVisibility
+    const postAuthorId = post.user?._id?.toString();
+    const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
+    if (visibility !== 'public' && postAuthorId !== userId) {
+      const viewerObjId = userId ? new mongoose.Types.ObjectId(userId) : null;
+      const authorFollowers = (post.user?.followers || []).map(f => f.toString());
+      const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
+
+      if (visibility === 'followers' && !isFollower) {
+        return sendError(res, 'AUTH_1003', 'This post is not available');
+      }
+      if (visibility === 'private' && !isFollower) {
+        return sendError(res, 'AUTH_1003', 'This post is not available');
+      }
     }
 
     // Use incremented views if we incremented earlier, otherwise use post viewsCount
@@ -2114,6 +2131,23 @@ const toggleLike = async (req, res) => {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
+    // Privacy check: ensure viewer is allowed to interact with this post
+    const postOwnerId = post.user?.toString();
+    if (postOwnerId && postOwnerId !== req.user._id.toString()) {
+      const postAuthor = await User.findById(postOwnerId)
+        .select('settings.privacy.profileVisibility followers')
+        .lean();
+      const vis = postAuthor?.settings?.privacy?.profileVisibility || 'public';
+      if (vis !== 'public') {
+        const isFollower = (postAuthor?.followers || []).some(
+          f => f.toString() === req.user._id.toString()
+        );
+        if (!isFollower) {
+          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+        }
+      }
+    }
+
     // Check current like status BEFORE update
     const currentlyLiked = post.likes.some(like => like.toString() === req.user._id.toString());
     
@@ -2274,6 +2308,23 @@ const addComment = async (req, res) => {
     const post = await Post.findById(req.params.id).populate('user', 'fullName profilePic');
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
+    }
+
+    // Privacy check: ensure viewer is allowed to interact with this post
+    const commentPostOwnerId = post.user?._id?.toString();
+    if (commentPostOwnerId && commentPostOwnerId !== req.user._id.toString()) {
+      const commentPostAuthor = await User.findById(commentPostOwnerId)
+        .select('settings.privacy.profileVisibility followers')
+        .lean();
+      const commentVis = commentPostAuthor?.settings?.privacy?.profileVisibility || 'public';
+      if (commentVis !== 'public') {
+        const isCommentFollower = (commentPostAuthor?.followers || []).some(
+          f => f.toString() === req.user._id.toString()
+        );
+        if (!isCommentFollower) {
+          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+        }
+      }
     }
 
     // Check if comments are disabled

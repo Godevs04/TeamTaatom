@@ -191,7 +191,7 @@ export default function AccountSettingsScreen() {
         onBack={() => router.back()}
       />
       
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -272,8 +272,8 @@ export default function AccountSettingsScreen() {
               disabled={resendingEmail}
             >
               <View style={styles.settingContent}>
-                <Ionicons name="mail-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Ionicons name="mail-outline" size={20} color={theme.colors.text} />
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   {resendingEmail ? 'Sending...' : 'Resend Verification Email'}
                 </Text>
               </View>
@@ -357,8 +357,8 @@ export default function AccountSettingsScreen() {
             onPress={() => router.push('/settings/appearance')}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="color-palette-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="color-palette-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Appearance & Theme
               </Text>
             </View>
@@ -380,8 +380,8 @@ export default function AccountSettingsScreen() {
             })}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="key-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="key-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Change Password
               </Text>
             </View>
@@ -470,8 +470,8 @@ export default function AccountSettingsScreen() {
             disabled={exportingData}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="download-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="download-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Download Your Data
               </Text>
             </View>
@@ -620,7 +620,8 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },

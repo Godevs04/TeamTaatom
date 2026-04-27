@@ -318,7 +318,8 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },
