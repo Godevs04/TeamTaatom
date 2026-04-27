@@ -1,40 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
+  FlatList,
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
-  Dimensions,
+  StatusBar,
+  RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
-import { WebView } from 'react-native-webview';
 import { useJourneyTracking } from '../../hooks/useJourneyTracking';
-import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
-import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
-import * as Location from 'expo-location';
+import JourneyCard from '../../components/JourneyCard';
+import { getUserJourneys } from '../../services/journey';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
 const ALERT_RED = '#EF4444';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 /**
  * Journey Home Screen
  *
- * Main entry point for journey tracking
- * - Shows current location on map
- * - Option to start new journey with optional title
- * - Shows summary if journey is paused
- * - Shows continue/end buttons if paused
+ * Shows list of user's past journeys
+ * - If a journey is paused, shows pause summary with continue/end
+ * - If a journey is active, redirects to tracking screen
+ * - Otherwise shows journey history list
  */
 export default function NavigateIndexScreen() {
   const router = useRouter();
@@ -47,38 +45,66 @@ export default function NavigateIndexScreen() {
     journey,
     distance,
     duration,
-    startJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourneyTracking();
 
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [titleInput, setTitleInput] = useState('');
+  const [userId, setUserId] = useState<string>('');
+  const [journeys, setJourneys] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [showTitleInput, setShowTitleInput] = useState(false);
-  const [mapReady, setMapReady] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // Get current location on mount
+  // Get current user ID
   useEffect(() => {
-    const getInitialLocation = async () => {
+    const loadUserId = async () => {
       try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.granted) {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
-          setCurrentLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          });
+        const userData = await AsyncStorage.getItem('userData');
+        if (userData) {
+          const parsed = JSON.parse(userData);
+          setUserId(parsed._id || '');
         }
       } catch (err) {
-        console.error('Failed to get location:', err);
+        console.error('Failed to get user data:', err);
       }
     };
-
-    getInitialLocation();
+    loadUserId();
   }, []);
+
+  // Fetch journeys
+  const loadJourneys = useCallback(async (pageNum: number = 1, isRefresh: boolean = false) => {
+    if (!userId) return;
+    try {
+      if (isRefresh) setRefreshing(true);
+      else if (pageNum === 1) setLoading(true);
+      else setLoadingMore(true);
+
+      const data = await getUserJourneys(userId, pageNum, 20);
+      const fetched = data?.journeys ?? [];
+
+      if (pageNum === 1) {
+        setJourneys(fetched);
+      } else {
+        setJourneys((prev) => [...prev, ...fetched]);
+      }
+
+      setHasMore(fetched.length >= 20);
+      setPage(pageNum);
+    } catch (err) {
+      console.error('Failed to load journeys:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) loadJourneys(1);
+  }, [userId, loadJourneys]);
 
   // Redirect to tracking screen if journey is active (only after hook initialized)
   useEffect(() => {
@@ -86,20 +112,6 @@ export default function NavigateIndexScreen() {
       router.replace('/navigate/tracking');
     }
   }, [initialized, isTracking, isPaused, router]);
-
-  const handleStartJourney = async () => {
-    try {
-      setIsLoading(true);
-      await startJourneyRecording(titleInput || undefined);
-      setTitleInput('');
-      setShowTitleInput(false);
-      router.push('/navigate/tracking');
-    } catch (err: any) {
-      showAlert('Failed to start journey', err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleContinueJourney = async () => {
     try {
@@ -138,6 +150,13 @@ export default function NavigateIndexScreen() {
     ]);
   };
 
+  const handleRefresh = () => loadJourneys(1, true);
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      loadJourneys(page + 1);
+    }
+  };
+
   const formatDistance = () => {
     if (distance < 1000) {
       return `${Math.round(distance)} m`;
@@ -158,8 +177,25 @@ export default function NavigateIndexScreen() {
     return `${seconds}s`;
   };
 
+  const totalDistance = () => {
+    const totalM = journeys.reduce((s: number, j: any) => s + (j.distanceTraveled || 0), 0);
+    return totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m`;
+  };
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <View style={[styles.emptyIcon, { backgroundColor: GROWTH_GREEN + '10' }]}>
+        <Ionicons name="map-outline" size={48} color={GROWTH_GREEN} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No journeys yet</Text>
+      <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
+        Start a journey from the map to begin tracking your travels
+      </Text>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
         <TouchableOpacity
@@ -168,190 +204,106 @@ export default function NavigateIndexScreen() {
         >
           <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey</Text>
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Journeys</Text>
         <View style={{ width: 44 }} />
       </View>
 
-      {/* Map View */}
-      {currentLocation && (
-        <View style={styles.mapContainer}>
-          {useWebViewFallback ? (() => {
-            const WV_KEY = getGoogleMapsApiKeyForWebView();
-            if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${currentLocation.latitude},lng:${currentLocation.longitude}},zoom:15,mapTypeId:'terrain'});new google.maps.Marker({position:{lat:${currentLocation.latitude},lng:${currentLocation.longitude}},map:map,title:'Current Location'});}</script></head><body><div id="map"></div>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
-            return (
-              <WebView
-                style={styles.map}
-                source={{ html }}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
-                onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
-                {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
-              />
-            );
-          })() : MapView ? (
-            <MapView
-              style={styles.map}
-              initialRegion={{
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                latitudeDelta: 0.05,
-                longitudeDelta: 0.05,
-              }}
-              onMapReady={() => setMapReady(true)}
-            >
-              {Marker && (
-                <Marker coordinate={currentLocation} title="Current Location" pinColor={ACTION_BLUE} />
-              )}
-            </MapView>
-          ) : (
-            <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
-              <Ionicons name="map-outline" size={48} color="#9CA3AF" />
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* No Journey - Start Screen */}
-      {!isTracking && !isPaused && (
-        <View style={[styles.contentContainer, { backgroundColor: theme.colors.background }]}>
-          {/* Title Input */}
-          {showTitleInput && (
-            <View style={[styles.titleInputContainer, { borderColor: theme.colors.border }]}>
-              <TextInput
-                style={[styles.titleInput, { color: theme.colors.text }]}
-                placeholder="Give your journey a name (optional)"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={titleInput}
-                onChangeText={setTitleInput}
-                maxLength={50}
-              />
-            </View>
-          )}
-
-          {/* Start Button */}
-          <TouchableOpacity
-            style={[styles.startButton, { backgroundColor: GROWTH_GREEN }]}
-            onPress={() => {
-              if (showTitleInput) {
-                handleStartJourney();
-              } else {
-                setShowTitleInput(true);
-              }
-            }}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <>
-                <Ionicons name="play-circle" size={24} color="white" />
-                <Text style={styles.startButtonText}>Start Journey</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {showTitleInput && (
-            <TouchableOpacity
-              style={[styles.secondaryButton, { borderColor: theme.colors.border }]}
-              onPress={() => {
-                setShowTitleInput(false);
-                setTitleInput('');
-              }}
-              disabled={isLoading}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.colors.text }]}>Cancel</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      {/* Paused Journey - Summary Screen */}
+      {/* Paused Journey Banner */}
       {isPaused && journey && (
-        <View style={[styles.contentContainer, { backgroundColor: theme.colors.background }]}>
-          {/* Journey Summary Card */}
+        <View style={[styles.pausedBanner, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
           <View style={[styles.summaryCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-            {/* Title */}
             {journey.title && (
-              <Text style={[styles.summaryTitle, { color: theme.colors.text }]}>
+              <Text style={[styles.summaryTitle, { color: theme.colors.text }]} numberOfLines={1}>
                 {journey.title}
               </Text>
             )}
 
-            {/* Stats Grid */}
             <View style={styles.statsGrid}>
-              {/* Distance */}
               <View style={styles.statBox}>
-                <Ionicons name="navigate" size={20} color={GROWTH_GREEN} />
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {formatDistance()}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                  Distance
-                </Text>
+                <Ionicons name="navigate" size={18} color={GROWTH_GREEN} />
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{formatDistance()}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Distance</Text>
               </View>
-
-              {/* Duration */}
               <View style={styles.statBox}>
-                <Ionicons name="time" size={20} color={ACTION_BLUE} />
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {formatDuration()}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                  Duration
-                </Text>
+                <Ionicons name="time" size={18} color={ACTION_BLUE} />
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{formatDuration()}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Duration</Text>
               </View>
-
-              {/* Waypoints Count */}
               <View style={styles.statBox}>
-                <Ionicons name="location-sharp" size={20} color={ALERT_RED} />
-                <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                  {journey.waypoints?.length || 0}
-                </Text>
-                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>
-                  Waypoints
-                </Text>
+                <Ionicons name="location-sharp" size={18} color={ALERT_RED} />
+                <Text style={[styles.statValue, { color: theme.colors.text }]}>{journey.waypoints?.length || 0}</Text>
+                <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Waypoints</Text>
               </View>
             </View>
 
-            {/* Status Badge */}
             <View style={[styles.statusBadge, { backgroundColor: ACTION_BLUE + '15' }]}>
-              <Ionicons name="pause-circle" size={16} color={ACTION_BLUE} />
+              <Ionicons name="pause-circle" size={14} color={ACTION_BLUE} />
               <Text style={[styles.statusText, { color: ACTION_BLUE }]}>Journey Paused</Text>
             </View>
           </View>
 
-          {/* Action Buttons */}
-          <TouchableOpacity
-            style={[styles.startButton, { backgroundColor: GROWTH_GREEN }]}
-            onPress={handleContinueJourney}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <>
-                <Ionicons name="play-circle" size={24} color="white" />
-                <Text style={styles.startButtonText}>Continue Journey</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <View style={styles.pausedActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: GROWTH_GREEN, flex: 1 }]}
+              onPress={handleContinueJourney}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="play-circle" size={20} color="white" />
+                  <Text style={styles.actionButtonText}>Continue</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.secondaryButton, { borderColor: ALERT_RED }]}
-            onPress={handleEndJourney}
-            disabled={isLoading}
-          >
-            <Ionicons name="stop-circle" size={20} color={ALERT_RED} />
-            <Text style={[styles.secondaryButtonText, { color: ALERT_RED }]}>End Journey</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, { borderColor: ALERT_RED, borderWidth: 1.5 }]}
+              onPress={handleEndJourney}
+              disabled={isLoading}
+            >
+              <Ionicons name="stop-circle" size={18} color={ALERT_RED} />
+              <Text style={[styles.actionButtonTextOutline, { color: ALERT_RED }]}>End</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
-      {/* Loading State */}
+      {/* Journey List */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+        </View>
+      ) : (
+        <FlatList
+          data={journeys}
+          keyExtractor={(item) => item._id}
+          ListHeaderComponent={journeys.length > 0 ? (
+            <View style={styles.summaryBar}>
+              <Text style={[styles.summaryBarText, { color: theme.colors.textSecondary }]}>
+                {journeys.length} journey{journeys.length !== 1 ? 's' : ''} · {totalDistance()} traveled
+              </Text>
+            </View>
+          ) : null}
+          renderItem={({ item }) => (
+            <JourneyCard
+              journey={item}
+              onPress={() => router.push(`/navigate/detail?journeyId=${item._id}`)}
+            />
+          )}
+          ListEmptyComponent={renderEmptyState}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={GROWTH_GREEN} colors={[GROWTH_GREEN]} />
+          }
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
+          contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
+        />
+      )}
+
+      {/* Loading Overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={GROWTH_GREEN} />
@@ -370,10 +322,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: Platform.OS === 'android' ? 16 : 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    minHeight: 56,
+    minHeight: Platform.OS === 'android' ? 60 : 56,
   },
   backButton: {
     width: 44,
@@ -385,100 +337,117 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  mapContainer: {
-    width: '100%',
-    height: screenHeight * 0.4,
-    backgroundColor: '#E5E7EB',
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  contentContainer: {
+  loadingContainer: {
     flex: 1,
-    padding: 20,
-    justifyContent: 'flex-end',
-    gap: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  titleInputContainer: {
-    borderWidth: 1,
-    borderRadius: 12,
+  // Paused journey banner
+  pausedBanner: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 12,
-  },
-  titleInput: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  startButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 10,
-    minHeight: 56,
-  },
-  startButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    gap: 8,
-    minHeight: 48,
-  },
-  secondaryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
   summaryCard: {
     borderWidth: 1,
     borderRadius: 12,
-    padding: 20,
-    marginBottom: 20,
+    padding: 16,
+    marginBottom: 12,
   },
   summaryTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   statsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   statBox: {
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   statValue: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '600',
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 8,
-    gap: 8,
+    gap: 6,
     alignSelf: 'flex-start',
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
+  },
+  pausedActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    gap: 6,
+    minHeight: 44,
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  actionButtonTextOutline: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Journey list
+  summaryBar: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginBottom: 4,
+  },
+  summaryBarText: {
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  // Empty state
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
   },
   loadingOverlay: {
     position: 'absolute',
