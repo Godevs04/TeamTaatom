@@ -153,7 +153,7 @@ export default function FollowRequestsScreen() {
         onBack={() => router.back()}
       />
       
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         refreshControl={
           <RefreshControl

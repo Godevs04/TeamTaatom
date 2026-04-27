@@ -417,8 +417,8 @@ export default function AboutSettingsScreen() {
             onPress={() => router.push('/support/contact')}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="help-circle-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="help-circle-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Contact Support
               </Text>
             </View>
@@ -430,8 +430,8 @@ export default function AboutSettingsScreen() {
             onPress={() => router.push('/support/help')}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="book-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="book-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Help Center
               </Text>
             </View>
@@ -458,8 +458,8 @@ export default function AboutSettingsScreen() {
             onPress={handleRateApp}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="star-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="star-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Rate Taatom
               </Text>
             </View>
@@ -471,8 +471,8 @@ export default function AboutSettingsScreen() {
             onPress={handleShareApp}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="share-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Share Taatom
               </Text>
             </View>
@@ -484,8 +484,8 @@ export default function AboutSettingsScreen() {
             onPress={handleCheckForUpdates}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="refresh-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Check for Updates
               </Text>
             </View>
@@ -567,7 +567,8 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },

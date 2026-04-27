@@ -265,7 +265,7 @@ export default function PrivacySettingsScreen() {
         onBack={() => router.back()}
       />
       
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -420,9 +420,9 @@ export default function PrivacySettingsScreen() {
             }}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="time-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="time-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Account Activity
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
@@ -487,9 +487,9 @@ export default function PrivacySettingsScreen() {
             }}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="person-add-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="person-add-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Manage Follow Requests
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
@@ -514,9 +514,9 @@ export default function PrivacySettingsScreen() {
             }}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="ban-outline" size={20} color={theme.colors.primary} />
+              <Ionicons name="ban-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingText}>
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Manage Blocked Users
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
@@ -566,7 +566,8 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },

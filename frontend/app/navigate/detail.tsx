@@ -46,7 +46,7 @@ export default function JourneyDetailScreen() {
   const { theme } = useTheme();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
 
-  const { showAlert } = useAlert();
+  const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
   const [journey, setJourney] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,10 +146,13 @@ export default function JourneyDetailScreen() {
                 await AsyncStorage.removeItem('activeJourneyId');
               }
               await deleteJourney(journeyId);
-              showAlert('Deleted', 'Journey has been deleted');
               router.back();
+              // Small delay so the previous screen is visible when the alert appears
+              setTimeout(() => {
+                showSuccess('Journey has been deleted');
+              }, 300);
             } catch (err: any) {
-              showAlert('Error', err.message || 'Failed to delete journey');
+              showErrorAlert(err.message || 'Failed to delete journey');
             }
           },
         },

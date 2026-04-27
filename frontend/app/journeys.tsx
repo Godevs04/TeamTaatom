@@ -5,13 +5,12 @@ import {
   StyleSheet,
   FlatList,
   ActivityIndicator,
-  TouchableOpacity,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
+import NavBar from '../components/NavBar';
 import JourneyCard from '../components/JourneyCard';
 import { getUserJourneys } from '../services/journey';
 import { ErrorBoundary } from '../utils/errorBoundary';
@@ -69,10 +68,15 @@ function JourneysListInner() {
     }
   };
 
+  const totalDistance = () => {
+    const totalM = journeys.reduce((s: number, j: any) => s + (j.distanceTraveled || 0), 0);
+    return totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m`;
+  };
+
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <View style={[styles.emptyIcon, { backgroundColor: GROWTH_GREEN + '15' }]}>
-        <Ionicons name="map-outline" size={56} color={GROWTH_GREEN} />
+      <View style={[styles.emptyIcon, { backgroundColor: GROWTH_GREEN + '10' }]}>
+        <Ionicons name="map-outline" size={48} color={GROWTH_GREEN} />
       </View>
       <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No journeys yet</Text>
       <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
@@ -83,49 +87,29 @@ function JourneysListInner() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Journeys</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="My Journeys" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={GROWTH_GREEN} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Journeys</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      {/* Summary */}
-      {journeys.length > 0 && (
-        <View style={[styles.summaryBar, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-          <Text style={[styles.summaryText, { color: theme.colors.textSecondary }]}>
-            {journeys.length} journey{journeys.length !== 1 ? 's' : ''}
-            {' · '}
-            {(() => {
-              const totalM = journeys.reduce((s: number, j: any) => s + (j.distanceTraveled || 0), 0);
-              return totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m`;
-            })()}
-            {' traveled'}
-          </Text>
-        </View>
-      )}
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <NavBar title="My Journeys" showBack onBack={() => router.back()} />
 
       <FlatList
         data={journeys}
         keyExtractor={(item) => item._id}
+        ListHeaderComponent={journeys.length > 0 ? (
+          <View style={styles.summaryBar}>
+            <Text style={[styles.summaryText, { color: theme.colors.textSecondary }]}>
+              {journeys.length} journey{journeys.length !== 1 ? 's' : ''} · {totalDistance()} traveled
+            </Text>
+          </View>
+        ) : null}
         renderItem={({ item }) => (
           <JourneyCard
             journey={item}
@@ -139,9 +123,9 @@ function JourneysListInner() {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.3}
         ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
-        contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingBottom: 30 }}
+        contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -157,30 +141,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'center',
-  },
   summaryBar: {
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
+    paddingHorizontal: 20,
+    marginBottom: 4,
   },
   summaryText: {
     fontSize: 13,
@@ -199,35 +163,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyIcon: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   emptySubtext: {
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 24,
     lineHeight: 20,
-  },
-  startBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    gap: 8,
-  },
-  startBtnText: {
-    color: 'white',
-    fontSize: 15,
-    fontWeight: '600',
+    marginBottom: 24,
   },
 });

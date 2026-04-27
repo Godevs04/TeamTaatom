@@ -403,7 +403,9 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   headerContainer: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
+    marginBottom: isTablet ? theme.spacing.md : 12,
     padding: isTablet ? theme.spacing.xl : 20,
     borderRadius: theme.borderRadius.md,
   },

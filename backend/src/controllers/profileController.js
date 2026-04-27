@@ -18,6 +18,36 @@ const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
+/**
+ * Check if viewer is allowed to access a target user's private content.
+ * Returns { allowed: true } or { allowed: false, reason: string }.
+ * Does NOT block the owner from viewing their own data.
+ */
+async function checkProfilePrivacy(targetUserId, viewerId) {
+  if (!targetUserId) return { allowed: false, reason: 'User not found' };
+  // Owner can always view their own data
+  if (viewerId && targetUserId.toString() === viewerId.toString()) {
+    return { allowed: true };
+  }
+  const targetUser = await User.findById(targetUserId)
+    .select('settings.privacy.profileVisibility settings.privacy.showLocation followers')
+    .lean();
+  if (!targetUser) return { allowed: false, reason: 'User not found' };
+
+  const visibility = targetUser.settings?.privacy?.profileVisibility || 'public';
+  if (visibility === 'public') return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
+
+  // For followers/private: check if viewer is in the target's followers array
+  const isFollower = viewerId
+    ? (targetUser.followers || []).some(f => f.toString() === viewerId.toString())
+    : false;
+
+  if (!isFollower) {
+    return { allowed: false, reason: 'This content is not available' };
+  }
+  return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
+}
+
 // @desc    Get user profile
 // @route   GET /profile/:id
 // @access  Public
@@ -939,7 +969,9 @@ const searchUsers = async (req, res) => {
             followers: 1,
             following: 1,
             totalLikes: 1,
-            matchScore: 1
+            matchScore: 1,
+            'settings.privacy.profileVisibility': 1,
+            'settings.privacy.showEmail': 1
           }
         },
         {
@@ -1032,17 +1064,39 @@ const searchUsers = async (req, res) => {
     }));
 
     const currentUserId = req.user?._id?.toString();
-    const usersWithFollowStatus = usersWithProfilePics.map(user => ({
-      ...user,
-      _id: user._id?.toString() || user._id,
-      // Keep profilePic as is (can be null/undefined/string - frontend handles it)
-      // Don't convert null to empty string - let frontend handle fallback
-      followersCount: user.followers ? user.followers.length : 0,
-      followingCount: user.following ? user.following.length : 0,
-      isFollowing: currentUserId && user.followers 
-        ? user.followers.some(follower => follower.toString() === currentUserId)
-        : false
-    }));
+    const usersWithFollowStatus = usersWithProfilePics.map(user => {
+      const visibility = user.settings?.privacy?.profileVisibility || 'public';
+      const showEmail = user.settings?.privacy?.showEmail !== false;
+      const isOwner = currentUserId && user._id?.toString() === currentUserId;
+      const isFollower = currentUserId && user.followers
+        ? user.followers.some(f => f.toString() === currentUserId)
+        : false;
+      const canSeeDetails = isOwner || visibility === 'public' || isFollower;
+
+      const result = {
+        _id: user._id?.toString() || user._id,
+        username: user.username,
+        fullName: user.fullName,
+        profilePic: user.profilePic,
+        followersCount: user.followers ? user.followers.length : 0,
+        followingCount: user.following ? user.following.length : 0,
+        isFollowing: currentUserId && user.followers
+          ? user.followers.some(follower => follower.toString() === currentUserId)
+          : false,
+        profileVisibility: visibility
+      };
+
+      // Only expose email if showEmail is true and viewer can see details
+      if (showEmail && canSeeDetails) {
+        result.email = user.email;
+      }
+      // Only expose totalLikes for accessible profiles
+      if (canSeeDetails) {
+        result.totalLikes = user.totalLikes;
+      }
+
+      return result;
+    });
 
     return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
@@ -1067,10 +1121,18 @@ const searchUsers = async (req, res) => {
 const getFollowersList = async (req, res) => {
   try {
     const { id } = req.params;
+    const viewerId = req.user?._id?.toString();
+
+    // Privacy check: only allow viewing followers if profile is accessible
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed) {
+      return sendSuccess(res, 'Followers list', { followers: [], totalFollowers: 0, page: 1, totalPages: 0 });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('followers');
     if (!user) return sendError(res, 'RES_3001', 'User does not exist');
@@ -1149,10 +1211,18 @@ const getFollowersList = async (req, res) => {
 const getFollowingList = async (req, res) => {
   try {
     const { id } = req.params;
+    const viewerId = req.user?._id?.toString();
+
+    // Privacy check: only allow viewing following if profile is accessible
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed) {
+      return sendSuccess(res, 'Following list', { following: [], totalFollowing: 0, page: 1, totalPages: 0 });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('following');
     if (!user) return sendError(res, 'RES_3001', 'User does not exist');
@@ -1592,6 +1662,13 @@ const getTripScoreContinents = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    // Privacy check: TripScore data is location-sensitive
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 'TripScore continents', { continents: [], totalScore: 0, totalUniqueLocations: 0, totalDistanceKm: 0 });
+    }
+
     // Get verified visits (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
@@ -1748,6 +1825,13 @@ const getTripScoreCountries = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 'TripScore countries', { countries: [], continent: decodeURIComponent(continent) });
+    }
+
     // URL decode continent name in case it has spaces or special characters
     const continentName = decodeURIComponent(continent).toUpperCase();
 
@@ -1864,6 +1948,13 @@ const getTripScoreCountryDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const { country } = req.params;
+
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 'TripScore country details', { locations: [], country: decodeURIComponent(country) });
+    }
 
     const { generateSignedUrl } = require('../services/mediaService');
 
@@ -2062,6 +2153,13 @@ const getTripScoreLocations = async (req, res) => {
     const { id, country } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
+    }
+
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 'TripScore locations', { locations: [], country: decodeURIComponent(country) });
     }
 
     const { generateSignedUrl } = require('../services/mediaService');
