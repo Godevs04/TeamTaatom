@@ -10,7 +10,11 @@ import {
   Dimensions,
   StatusBar,
   Platform,
+  Modal,
+  Animated,
+  KeyboardAvoidingView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -165,6 +169,10 @@ export default function CurrentLocationMap() {
   const [journeyTitleInput, setJourneyTitleInput] = useState('');
   const [showJourneyTitle, setShowJourneyTitle] = useState(false);
   const [journeyActionLoading, setJourneyActionLoading] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [instructionCountdown, setInstructionCountdown] = useState(10);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressAnim = useRef(new Animated.Value(1)).current;
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
@@ -201,6 +209,10 @@ export default function CurrentLocationMap() {
   const handleStartJourney = async () => {
     try {
       setJourneyActionLoading(true);
+      // Increment journey start count
+      const countStr = await AsyncStorage.getItem('journeyStartCount');
+      const count = countStr ? parseInt(countStr, 10) : 0;
+      await AsyncStorage.setItem('journeyStartCount', String(count + 1));
       await startJourneyRecording(journeyTitleInput || undefined);
       setJourneyTitleInput('');
       setShowJourneyTitle(false);
@@ -210,6 +222,59 @@ export default function CurrentLocationMap() {
       setJourneyActionLoading(false);
     }
   };
+
+  // Show instructions popup for the first 5 journeys
+  const handleStartPress = async () => {
+    try {
+      const countStr = await AsyncStorage.getItem('journeyStartCount');
+      const count = countStr ? parseInt(countStr, 10) : 0;
+      if (count < 5) {
+        setInstructionCountdown(10);
+        setShowInstructions(true);
+        progressAnim.setValue(1);
+        Animated.timing(progressAnim, {
+          toValue: 0,
+          duration: 10000,
+          useNativeDriver: false,
+        }).start();
+        countdownRef.current = setInterval(() => {
+          setInstructionCountdown((prev) => {
+            if (prev <= 1) {
+              if (countdownRef.current) clearInterval(countdownRef.current);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        await handleStartJourney();
+      }
+    } catch {
+      await handleStartJourney();
+    }
+  };
+
+  const dismissInstructions = async () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    progressAnim.stopAnimation();
+    setShowInstructions(false);
+    await handleStartJourney();
+  };
+
+  // Auto-dismiss when countdown reaches 0
+  useEffect(() => {
+    if (showInstructions && instructionCountdown === 0) {
+      const t = setTimeout(() => dismissInstructions(), 100);
+      return () => clearTimeout(t);
+    }
+  }, [instructionCountdown, showInstructions]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
 
   const handlePauseJourney = async () => {
     try {
@@ -633,6 +698,11 @@ function initMap(){
         </TouchableOpacity>
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
       {/* Map Container */}
       <View style={styles.mapContainer}>
         {renderMap()}
@@ -723,7 +793,7 @@ function initMap(){
                 style={[journeyStyles.startBtn, { backgroundColor: GROWTH_GREEN }]}
                 onPress={() => {
                   if (showJourneyTitle) {
-                    handleStartJourney();
+                    handleStartPress();
                   } else {
                     setShowJourneyTitle(true);
                   }
@@ -821,14 +891,187 @@ function initMap(){
           )}
         </View>
       )}
+      </KeyboardAvoidingView>
+
+      {/* Journey Instructions Modal */}
+      <Modal
+        visible={showInstructions}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissInstructions}
+      >
+        <View style={instructionStyles.overlay}>
+          <View style={[instructionStyles.modal, { backgroundColor: theme.colors.surface }]}>
+            {/* Header */}
+            <View style={instructionStyles.header}>
+              <View style={[instructionStyles.iconWrap, { backgroundColor: GROWTH_GREEN + '12' }]}>
+                <Ionicons name="compass-outline" size={28} color={GROWTH_GREEN} />
+              </View>
+              <Text style={[instructionStyles.title, { color: theme.colors.text }]}>
+                How Journeys Work
+              </Text>
+            </View>
+
+            {/* Tips */}
+            <View style={instructionStyles.list}>
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: GROWTH_GREEN + '12' }]}>
+                  <Ionicons name="pause-circle-outline" size={20} color={GROWTH_GREEN} />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  You can <Text style={{ fontWeight: '700' }}>pause and resume</Text> your journey anytime you want.
+                </Text>
+              </View>
+
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: '#3B82F6' + '12' }]}>
+                  <Ionicons name="location-outline" size={20} color="#3B82F6" />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  If your <Text style={{ fontWeight: '700' }}>location is turned off</Text>, the journey will automatically pause.
+                </Text>
+              </View>
+
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: '#EF4444' + '12' }]}>
+                  <Ionicons name="time-outline" size={20} color="#EF4444" />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  If paused for more than <Text style={{ fontWeight: '700' }}>24 hours</Text>, the journey ends automatically at your last known location.
+                </Text>
+              </View>
+
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: '#8B5CF6' + '12' }]}>
+                  <Ionicons name="camera-outline" size={20} color="#8B5CF6" />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  <Text style={{ fontWeight: '700' }}>Add posts</Text> along the way to mark waypoints on your route.
+                </Text>
+              </View>
+            </View>
+
+            {/* Progress bar + button */}
+            <View style={instructionStyles.footer}>
+              <View style={[instructionStyles.progressBg, { backgroundColor: theme.colors.border }]}>
+                <Animated.View
+                  style={[
+                    instructionStyles.progressFill,
+                    {
+                      backgroundColor: GROWTH_GREEN,
+                      width: progressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0%', '100%'],
+                      }),
+                    },
+                  ]}
+                />
+              </View>
+              <TouchableOpacity
+                style={[instructionStyles.gotItBtn, { backgroundColor: GROWTH_GREEN }]}
+                onPress={dismissInstructions}
+                activeOpacity={0.8}
+              >
+                <Text style={instructionStyles.gotItText}>
+                  Got it, start! ({instructionCountdown}s)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
+const instructionStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modal: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  list: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  tipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  text: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  footer: {
+    gap: 14,
+  },
+  progressBg: {
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  gotItBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  gotItText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+});
+
 const journeyStyles = StyleSheet.create({
   journeyBar: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 24,
     borderTopWidth: 1,
     gap: 10,
   },
