@@ -76,11 +76,12 @@ async function canChat(userId, otherId) {
 }
 
 exports.listChats = async (req, res) => {
+  try {
   logger.debug('Request headers:', req.headers);
   logger.debug('req.user in /chat:', req.user);
   const userId = req.user._id;
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
-  
+
   // Get all chats (user_chat, admin_support, connect_page)
   const chats = await Chat.find({ participants: userId })
     .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
@@ -96,7 +97,9 @@ exports.listChats = async (req, res) => {
     }
     
     // Generate signed URLs for participant profile pictures
+    // Filter out null participants (deleted users that populate couldn't resolve)
     if (chat.participants && Array.isArray(chat.participants)) {
+      chat.participants = chat.participants.filter(p => p != null);
       for (const participant of chat.participants) {
         // Special handling for Taatom Official user
         const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
@@ -235,6 +238,10 @@ exports.listChats = async (req, res) => {
   
   logger.debug('Chats found:', chats.length, 'Unique chats:', uniqueChats.length);
   return sendSuccess(res, 200, 'Chats fetched successfully', { chats: uniqueChats });
+  } catch (error) {
+    logger.error('Error in listChats:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch chats');
+  }
 };
 
 exports.getChat = async (req, res) => {

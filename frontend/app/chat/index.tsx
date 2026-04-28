@@ -2212,15 +2212,15 @@ export default function ChatModal() {
     );
   });
 
-  // Move handleNewMessage here with deduplication
-  const handleNewMessage = (msg: any) => {
+  // Move handleNewMessage here with deduplication — memoized to prevent socket resubscription churn
+  const handleNewMessage = useCallback((msg: any) => {
     if (!msg || !msg._id) {
       if (__DEV__) {
         logger.debug('[ChatWindow] handleNewMessage: Invalid message, returning');
       }
       return; // Guard against invalid messages
     }
-    
+
     setActiveMessages((prev: any[]) => {
       // Deduplicate by _id to prevent duplicate messages
       const exists = prev.some(m => {
@@ -2228,12 +2228,12 @@ export default function ChatModal() {
         const newId = normalizeId(msg._id);
         return prevId && newId && prevId === newId;
       });
-      
+
       if (exists) {
         logger.debug('Duplicate message detected, skipping:', msg._id);
         return prev;
       }
-      
+
       // If this is a real message (not optimistic), remove any optimistic messages with the same text and sender
       // This handles the case where optimistic message was added, then real message arrives
       if (!msg.isOptimistic && msg.text) {
@@ -2250,13 +2250,13 @@ export default function ChatModal() {
         logger.debug('Updated messages after adding real message:', { prevCount: prev.length, newCount: newMessages.length, messageId: msg._id });
         return newMessages;
       }
-      
+
       // For optimistic messages, just add them
       const newMessages = [...prev, msg];
       logger.debug('Added message:', { messageId: msg._id, isOptimistic: msg.isOptimistic, totalMessages: newMessages.length });
       return newMessages;
     });
-  };
+  }, []);
 
   // Handle call functionality
   const handleVoiceCall = async (otherUser: any) => {
@@ -2688,24 +2688,23 @@ export default function ChatModal() {
       // Use dynamic API URL detection for web
       const { getApiBaseUrl } = require('../../utils/config');
       const API_BASE_URL = getApiBaseUrl();
-      const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
-      socket.on('connect', () => {
-        logger.debug('[SOCKET] connected to backend');
-        socket.emit('test', { hello: 'world' });
-      });
-      socket.on('connect_error', (err) => {
-        logger.debug('[SOCKET] connect_error:', err);
-      });
       fetch(`${API_BASE_URL}/chat`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/json'
         }
       })
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) {
+            logger.error('Fetch /chat failed with status:', res.status);
+          }
+          return res.json();
+        })
         .then(data => {
-          logger.debug('Fetch /chat data:', JSON.stringify(data, null, 2));
-          let chats = data.chats || [];
+          if (!data || !data.success) {
+            logger.error('Fetch /chat returned error:', data?.message || 'Unknown error');
+          }
+          let chats = data?.chats || [];
           chats = chats.map((chat: any) => ({
             ...chat,
             me: myUserId,
@@ -2750,7 +2749,7 @@ export default function ChatModal() {
           }
         })
         .catch(err => {
-          logger.debug('Fetch /chat error:', err);
+          logger.error('Fetch /chat error:', err?.message || err);
           setConversations([]);
           setUsers([]);
           setLoading(false);
@@ -3665,14 +3664,15 @@ export default function ChatModal() {
           windowSize={7}
           initialNumToRender={15}
           renderItem={({ item }) => {
-            let other = item.participants.find((u: any) => {
+            const participants = (item.participants || []).filter((p: any) => p != null);
+            let other = participants.find((u: any) => {
               const uId = normalizeId(u?._id || u);
               const meId = normalizeId(item.me);
               return uId && meId && uId !== meId;
             });
             // If participants is array of ObjectIds, fallback
-            if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
-              other = item.participants.find((id: string) => {
+            if (!other && Array.isArray(participants) && typeof participants[0] === 'string') {
+              other = participants.find((id: string) => {
                 const idNormalized = normalizeId(id);
                 const meId = normalizeId(item.me);
                 return idNormalized && meId && idNormalized !== meId;
