@@ -490,54 +490,69 @@ export default function UserProfileScreen() {
     // ✅ ALL GUARDS FIRST — NO STATE CHANGES ABOVE THIS
     if (!profile?._id) return;
     if (isFollowActionInProgress.current === true) return;
-    
+
     // ✅ ENTER CRITICAL SECTION (after all guards pass)
     isFollowActionInProgress.current = true;
     setFollowLoading(true);
-    
+
+    // Save previous state for rollback on error
+    const prevIsFollowing = isFollowing;
+    const prevFollowRequestSent = followRequestSent;
+    const prevFollowState = followState;
+    const prevFollowersCount = profile?.followersCount ?? 0;
+
+    // ✅ OPTIMISTIC UPDATE: Change UI immediately before API call
+    // Toggle: if currently following → unfollow, if not following → follow
+    if (prevIsFollowing) {
+      // Optimistic unfollow
+      setIsFollowing(false);
+      setFollowRequestSent(false);
+      setFollowState('FOLLOW');
+      setProfile((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
+    } else {
+      // Optimistic follow (assume public profile — will correct to REQUESTED if private)
+      setIsFollowing(true);
+      setFollowRequestSent(false);
+      setFollowState('FOLLOWING');
+      setProfile((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
+    }
+    setFollowLoading(false); // Hide spinner immediately — optimistic update is shown
+
     try {
       // ✅ EVERYTHING ASYNC MUST BE INSIDE TRY
       // Use the service function for consistency
       const response = await toggleFollow(profile._id);
-      
+
       // Apply follow state from API response (source of truth)
+      // This confirms or corrects the optimistic update
       applyFollowState({
         isFollowing: Boolean(response.isFollowing),
         followRequestSent: Boolean(response.followRequestSent ?? false),
         followersCount: response.followersCount,
         followingCount: response.followingCount
       });
-      
-      // No success alert - silent update for better UX
-      
-      // Refresh profile data to get updated counts and ensure consistency
-      // Use a small delay to ensure the backend has processed the follow/unfollow
-      // --->
-      // No fetchProfile() call - update state optimistically to avoid loading screen
-      // The API response already contains the updated counts, so we don't need to reload
-      // setTimeout(() => {
-      //   fetchProfile();
-      // }, 500);
-      
+
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that
-      // Clear the ref after enough time has passed for cache to be invalidated
       setTimeout(() => {
         lastFollowApiResponse.current = null;
       }, 5000); // 5 seconds to prevent cache override
-      
+
     } catch (e: any) {
-      // Clear ref on error
+      // ❌ ROLLBACK optimistic update on error
       lastFollowApiResponse.current = null;
-      
+      setIsFollowing(prevIsFollowing);
+      setFollowRequestSent(prevFollowRequestSent);
+      setFollowState(prevFollowState);
+      setProfile((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
+
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
         logger.error('Error following/unfollowing user:', e);
       }
-      
+
       const errorMessage = e.response?.data?.message || e.message || 'Failed to update follow status';
-      
-      // ❌ DO NOT RETURN FROM CATCH - all cleanup happens in finally
+
       // Check if it's a follow request already pending message or conflict error
       if (e?.isConflict || e?.response?.status === 409 || errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent')) {
         // For conflict errors, set followRequestSent to true
@@ -654,7 +669,7 @@ export default function UserProfileScreen() {
                         styles.actionButtonText,
                         { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF' }
                       ]}>
-                        {followState === 'FOLLOWING' ? 'Following' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
+                        {followState === 'FOLLOWING' ? 'Unfollow' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
                       </Text>
                     )}
                   </Pressable>
