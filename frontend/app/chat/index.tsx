@@ -2781,6 +2781,51 @@ export default function ChatModal() {
     return () => { cancelled = true; };
   }, [params.chatId]);
 
+  // Reusable function to refresh chat list (called on mount + when closing a chat window)
+  const refreshChatList = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      let myUserId = '';
+      if (userData) {
+        try { myUserId = JSON.parse(userData)._id; } catch {}
+      }
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
+      const res = await fetch(`${API_BASE_URL}/chat`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      if (data?.success) {
+        let chats = (data.chats || []).map((chat: any) => ({ ...chat, me: myUserId }));
+        const chatMap = new Map<string, any>();
+        chats.forEach((chat: any) => {
+          let key;
+          if (chat.type === 'connect_page') {
+            key = `connect_page_${chat._id}`;
+          } else {
+            const participantIds = chat.participants
+              .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+              .sort()
+              .join('_');
+            key = chat.type === 'admin_support' ? `admin_support_${myUserId}` : participantIds;
+          }
+          if (!chatMap.has(key) || new Date(chat.updatedAt) > new Date(chatMap.get(key).updatedAt)) {
+            chatMap.set(key, chat);
+          }
+        });
+        const uniqueChats = Array.from(chatMap.values());
+        uniqueChats.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        setConversations(uniqueChats);
+      }
+    } catch (err: any) {
+      logger.error('refreshChatList error:', err?.message || err);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, []);
+
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
         logger.debug('Fetching chats useEffect running');
@@ -2869,6 +2914,45 @@ export default function ChatModal() {
       loadChats();
     }
   }, [params.userId, params.chatId]);
+
+  // Listen for chat:update socket events to update chat list in real-time
+  // This handles: last message preview, sorting (most recent on top), new message indicators
+  useEffect(() => {
+    const handleChatUpdate = (payload: any) => {
+      if (!payload || !payload.chatId) return;
+      logger.debug('[ChatList] chat:update received', { chatId: payload.chatId, lastMessage: payload.lastMessage });
+
+      setConversations(prev => {
+        // Find the chat that was updated
+        const chatIndex = prev.findIndex(c => normalizeId(c._id) === normalizeId(payload.chatId));
+        if (chatIndex === -1) return prev; // Chat not in list, will appear on next reload
+
+        const updatedChat = { ...prev[chatIndex] };
+
+        // Append a synthetic last message for preview display
+        const syntheticMsg: any = {
+          _id: `chatupdate_${Date.now()}`,
+          text: payload.lastMessage || '',
+          timestamp: payload.timestamp || new Date().toISOString(),
+          seen: false,
+        };
+        updatedChat.messages = [...(updatedChat.messages || []), syntheticMsg];
+
+        // Update timestamp for sorting
+        updatedChat.updatedAt = payload.timestamp || new Date().toISOString();
+
+        // Remove from old position and put at the top
+        const newConversations = prev.filter((_: any, i: number) => i !== chatIndex);
+        return [updatedChat, ...newConversations];
+      });
+    };
+
+    socketService.subscribe('chat:update', handleChatUpdate);
+
+    return () => {
+      socketService.unsubscribe('chat:update', handleChatUpdate);
+    };
+  }, []);
 
   // When user is selected from inbox or search, fetch chat and messages.
   // Skip if we already have this chat open (e.g. opened from list tap) to avoid double-fetch and stuck loading.
@@ -3016,8 +3100,13 @@ export default function ChatModal() {
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
-        if (shouldGoBack) router.back();
-      }} 
+        if (shouldGoBack) {
+          router.back();
+        } else {
+          // Refresh chat list when closing a chat to reflect latest messages and sorting
+          refreshChatList();
+        }
+      }}
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
       chatId={activeChat?._id}
@@ -3985,6 +4074,18 @@ export default function ChatModal() {
                           } catch { return null; }
                         })() : null;
 
+                        // Check for attachment-only messages
+                        const hasAttachments = lastMessage?.attachments && lastMessage.attachments.length > 0;
+                        const attachmentPreview = hasAttachments ? (() => {
+                          const att = lastMessage.attachments[0];
+                          const count = lastMessage.attachments.length;
+                          if (att.type === 'image') return count > 1 ? `📷 ${count} Photos` : '📷 Photo';
+                          if (att.type === 'video') return count > 1 ? `🎥 ${count} Videos` : '🎥 Video';
+                          if (att.type === 'post') return '📌 Shared Post';
+                          if (att.type === 'file') return `📎 ${att.fileName || 'File'}`;
+                          return '📎 Attachment';
+                        })() : null;
+
                         if (postShare) {
                           return (
                             <ChatListPostThumbnail
@@ -4002,6 +4103,18 @@ export default function ChatModal() {
                                 {journeyShare.title}{journeyShare.distance ? ` • ${journeyShare.distance}` : ''}
                               </Text>
                             </View>
+                          );
+                        } else if (!messageText && attachmentPreview) {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {attachmentPreview}
+                            </Text>
+                          );
+                        } else if (messageText && attachmentPreview) {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {attachmentPreview} {messageText}
+                            </Text>
                           );
                         } else {
                           return (
