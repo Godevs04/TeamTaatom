@@ -10,7 +10,12 @@ const shortUrlSchema = new mongoose.Schema({
   postId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post',
-    required: true
+    default: null
+  },
+  journeyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Journey',
+    default: null
   },
   createdAt: {
     type: Date,
@@ -30,6 +35,7 @@ const shortUrlSchema = new mongoose.Schema({
 // Index for faster lookups
 // Note: shortCode index is automatically created by unique: true
 shortUrlSchema.index({ postId: 1 });
+shortUrlSchema.index({ journeyId: 1 });
 // TTL index - expires documents after 1 year
 shortUrlSchema.index({ createdAt: 1 }, { expireAfterSeconds: 365 * 24 * 60 * 60 });
 

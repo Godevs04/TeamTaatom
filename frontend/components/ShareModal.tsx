@@ -16,8 +16,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { getPostShareUrl } from '../utils/config';
-import { getShortUrl } from '../services/shortUrl';
+import { getPostShareUrl, getJourneyShareUrl } from '../utils/config';
+import { getShortUrl, getJourneyShortUrl } from '../services/shortUrl';
 import { sendMessage } from '../services/chat';
 import { searchUsers, getSuggestedUsers } from '../services/profile';
 import api from '../services/api';
@@ -38,6 +38,14 @@ interface ShareModalProps {
       fullName: string;
     };
   };
+  journey?: {
+    _id: string;
+    title?: string;
+    distanceTraveled?: number;
+    startedAt?: string;
+    completedAt?: string;
+    status?: string;
+  };
   shareUrl?: string;
 }
 
@@ -45,8 +53,10 @@ export default function ShareModal({
   visible,
   onClose,
   post,
+  journey,
   shareUrl,
 }: ShareModalProps) {
+  const isJourneyShare = !!journey;
   const { theme } = useTheme();
   const [shortUrl, setShortUrl] = useState<string>('');
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
@@ -55,16 +65,32 @@ export default function ShareModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [sendingToUserId, setSendingToUserId] = useState<string | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Fetch short URL when modal opens (non-blocking)
   useEffect(() => {
-    if (visible && post?._id && !shareUrl) {
-      // Set fallback URL immediately so user can see something
+    if (visible && shareUrl) {
+      setShortUrl(shareUrl);
+      setIsLoadingUrl(false);
+    } else if (visible && journey?._id) {
+      // Journey share
+      const fallbackUrl = getJourneyShareUrl(journey._id);
+      setShortUrl(fallbackUrl);
+      setIsLoadingUrl(true);
+      getJourneyShortUrl(journey._id)
+        .then((url) => {
+          setShortUrl(url);
+          setIsLoadingUrl(false);
+        })
+        .catch((error) => {
+          logger.error('Failed to get journey short URL, using fallback:', error);
+          setIsLoadingUrl(false);
+        });
+    } else if (visible && post?._id) {
+      // Post share
       const fallbackUrl = getPostShareUrl(post._id);
       setShortUrl(fallbackUrl);
-      
-      // Try to get short URL in background (non-blocking)
       setIsLoadingUrl(true);
       getShortUrl(post._id)
         .then((url) => {
@@ -73,18 +99,13 @@ export default function ShareModal({
         })
         .catch((error) => {
           logger.error('Failed to get short URL, using fallback:', error);
-          // Keep using fallback URL - don't change it
           setIsLoadingUrl(false);
         });
-    } else if (visible && shareUrl) {
-      setShortUrl(shareUrl);
-      setIsLoadingUrl(false);
     } else if (!visible) {
-      // Reset when modal closes
       setShortUrl('');
       setIsLoadingUrl(false);
     }
-  }, [visible, post?._id, shareUrl]);
+  }, [visible, post?._id, journey?._id, shareUrl]);
 
   // Generate share URL (use short URL if available, otherwise fallback)
   const getShareUrl = () => {
@@ -98,6 +119,14 @@ export default function ShareModal({
 
   // Generate share text
   const getShareText = () => {
+    if (isJourneyShare && journey?.title) {
+      const dist = journey.distanceTraveled
+        ? journey.distanceTraveled >= 1000
+          ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
+          : `${Math.round(journey.distanceTraveled)} m`
+        : '';
+      return `${journey.title}${dist ? ` • ${dist}` : ''}\n\n${getShareUrl()}`;
+    }
     if (post?.caption) {
       return `${post.caption}\n\n${getShareUrl()}`;
     }
@@ -107,10 +136,13 @@ export default function ShareModal({
   // Share to native share sheet
   const handleNativeShare = async () => {
     try {
+      const shareTitle = isJourneyShare
+        ? journey?.title || 'Check out my journey on Taatom'
+        : post?.caption || 'Check out this post on Taatom';
       const result = await Share.share({
         message: getShareText(),
-        url: post?.imageUrl || getShareUrl(),
-        title: post?.caption || 'Check out this post on Taatom',
+        url: getShareUrl(),
+        title: shareTitle,
       });
 
       if (result.action === Share.sharedAction) {
@@ -276,71 +308,72 @@ export default function ShareModal({
     }
   }, [showUserPicker]);
 
-  // Send post to selected user
+  // Send post or journey to selected user
   const handleSendToUser = async (userId: string) => {
-    if (!post?._id) return;
-    
+    if (!post?._id && !journey?._id) return;
+
     setIsSendingMessage(true);
+    setSendingToUserId(userId);
     try {
-      const shareUrl = getShareUrl();
-      
-      // Extract image URL - try multiple sources
-      let imageUrl = '';
-      if (post.imageUrl) {
-        imageUrl = post.imageUrl;
-      } else if (post.images && Array.isArray(post.images) && post.images.length > 0) {
-        // Use first image from images array
-        imageUrl = post.images[0];
-      } else if (post.mediaUrl) {
-        // Use mediaUrl as fallback
-        imageUrl = post.mediaUrl;
-      } else if (post.videoUrl) {
-        // For videos, we might want to use a thumbnail or the video URL itself
-        imageUrl = post.videoUrl;
+      const currentShareUrl = getShareUrl();
+      let messageText = '';
+
+      if (isJourneyShare && journey?._id) {
+        // Format: [JOURNEY_SHARE]journeyId|shareUrl|title|distance|status
+        const dist = journey.distanceTraveled
+          ? journey.distanceTraveled >= 1000
+            ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
+            : `${Math.round(journey.distanceTraveled)} m`
+          : '';
+        const journeyData = [
+          journey._id,
+          currentShareUrl,
+          journey.title || 'Journey',
+          dist,
+          journey.status || 'completed'
+        ].join('|');
+        messageText = `[JOURNEY_SHARE]${journeyData}`;
+      } else if (post?._id) {
+        // Extract image URL - try multiple sources
+        let imageUrl = '';
+        if (post.imageUrl) {
+          imageUrl = post.imageUrl;
+        } else if (post.images && Array.isArray(post.images) && post.images.length > 0) {
+          imageUrl = post.images[0];
+        } else if (post.mediaUrl) {
+          imageUrl = post.mediaUrl;
+        } else if (post.videoUrl) {
+          imageUrl = post.videoUrl;
+        }
+
+        // Format: [POST_SHARE]postId|imageUrl|shareUrl|caption|authorName
+        const postData = [
+          post._id,
+          imageUrl || '',
+          currentShareUrl,
+          post.caption || '',
+          post.user?.fullName || ''
+        ].join('|');
+        messageText = `[POST_SHARE]${postData}`;
       }
-      
-      // Format: [POST_SHARE]postId|imageUrl|shareUrl|caption|authorName
-      // This allows the chat to parse and render as a post preview
-      const postData = [
-        post._id,
-        imageUrl || '',
-        shareUrl,
-        post.caption || '',
-        post.user?.fullName || ''
-      ].join('|');
-      
-      const messageText = `[POST_SHARE]${postData}`;
-      
-      // Debug logging
-      logger.debug('Sending post share:', {
-        postId: post._id,
-        imageUrl: imageUrl || 'NO IMAGE',
-        hasImageUrl: !!post.imageUrl,
-        hasImages: !!(post.images && post.images.length > 0),
-        hasMediaUrl: !!post.mediaUrl,
-      });
-      
+
       await sendMessage(userId, messageText);
-      
-      // Reset sending state immediately
+
       setIsSendingMessage(false);
-      
-      // Close user picker first
+      setSendingToUserId(null);
       setShowUserPicker(false);
-      
-      // Close main modal after a brief delay to allow state updates
+
       setTimeout(() => {
         onClose();
-        // Show success message after modal closes to prevent blocking UI
         setTimeout(() => {
-          Alert.alert('Success', 'Post sent successfully!');
+          Alert.alert('Success', isJourneyShare ? 'Journey sent successfully!' : 'Post sent successfully!');
         }, 200);
       }, 150);
     } catch (error: any) {
       logger.error('Error sending message:', error);
       setIsSendingMessage(false);
-      // Don't close modals on error - let user retry
-      Alert.alert('Error', error.message || 'Failed to send post. Please try again.');
+      setSendingToUserId(null);
+      Alert.alert('Error', error.message || 'Failed to send. Please try again.');
     }
   };
 
@@ -404,10 +437,44 @@ export default function ShareModal({
         <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
           <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
           
-          <Text style={[styles.title, { color: theme.colors.text }]}>Share Post</Text>
+          <Text style={[styles.title, { color: theme.colors.text }]}>
+            {isJourneyShare ? 'Share Journey' : 'Share Post'}
+          </Text>
+
+          {/* Journey Preview Card */}
+          {isJourneyShare && journey && (
+            <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <View style={[styles.journeyPreviewIcon, { backgroundColor: '#22C55E20' }]}>
+                <Ionicons name="navigate" size={28} color="#22C55E" />
+              </View>
+              <View style={styles.previewContent}>
+                <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
+                  {journey.title || 'Journey'}
+                </Text>
+                <Text style={[styles.previewCaption, { color: theme.colors.textSecondary }]}>
+                  {journey.distanceTraveled
+                    ? journey.distanceTraveled >= 1000
+                      ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
+                      : `${Math.round(journey.distanceTraveled)} m`
+                    : ''}
+                  {journey.status ? ` • ${journey.status.charAt(0).toUpperCase() + journey.status.slice(1)}` : ''}
+                </Text>
+                <View style={styles.urlContainer}>
+                  <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
+                    {getShareUrl()}
+                  </Text>
+                  {isLoadingUrl && (
+                    <View style={styles.loadingIndicator}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
 
           {/* Post Preview Card */}
-          {post && (
+          {!isJourneyShare && post && (
             <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
               {post.imageUrl && (
                 <Image
@@ -596,7 +663,7 @@ export default function ShareModal({
                         </Text>
                       )}
                     </View>
-                    {isSendingMessage && (
+                    {isSendingMessage && sendingToUserId === item._id && (
                       <ActivityIndicator size="small" color={theme.colors.primary} />
                     )}
                   </TouchableOpacity>
@@ -684,6 +751,12 @@ const styles = StyleSheet.create({
   previewImage: {
     width: 80,
     height: 80,
+  },
+  journeyPreviewIcon: {
+    width: 80,
+    height: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewContent: {
     flex: 1,

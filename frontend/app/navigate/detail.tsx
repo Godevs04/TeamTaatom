@@ -24,6 +24,7 @@ import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../servi
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
+import ShareModal from '../../components/ShareModal';
 import logger from '../../utils/logger';
 
 const GROWTH_GREEN = '#22C55E';
@@ -54,6 +55,7 @@ export default function JourneyDetailScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   useEffect(() => {
     const fetchJourney = async () => {
@@ -105,6 +107,11 @@ export default function JourneyDetailScreen() {
       case 'completed': return '#6B7280';
       default: return '#6B7280';
     }
+  };
+
+  const handleShare = () => {
+    setShowMenu(false);
+    setShowShareModal(true);
   };
 
   const handleEditTitle = () => {
@@ -219,6 +226,11 @@ export default function JourneyDetailScreen() {
       {/* Dropdown Menu */}
       {showMenu && (
         <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleShare}>
+            <Ionicons name="share-social-outline" size={18} color={theme.colors.text} />
+            <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Share Journey</Text>
+          </TouchableOpacity>
+          <View style={[styles.menuDivider, { backgroundColor: theme.colors.border }]} />
           <TouchableOpacity style={styles.menuItem} onPress={handleEditTitle}>
             <Ionicons name="pencil" size={18} color={theme.colors.text} />
             <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Edit Name</Text>
@@ -473,6 +485,20 @@ function initMap(){
           )}
         </View>
       </ScrollView>
+
+      {/* Share Modal */}
+      <ShareModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        journey={journey ? {
+          _id: journey._id,
+          title: journey.title,
+          distanceTraveled: journey.distanceTraveled,
+          startedAt: journey.startedAt,
+          completedAt: journey.completedAt,
+          status: journey.status,
+        } : undefined}
+      />
     </SafeAreaView>
   );
 }
@@ -528,7 +554,7 @@ const styles = StyleSheet.create({
   },
   mapContainer: {
     width: '100%',
-    height: screenHeight * 0.35,
+    height: screenHeight * 0.75,
     backgroundColor: '#E5E7EB',
   },
   map: {

@@ -92,9 +92,32 @@ var ROUTES = {
     title: 'Bangalore to Mysore (Highway)',
     durationHours: 3,
     points: [
-      [12.9716, 77.5946], [12.9200, 77.5500], [12.8500, 77.4800],
-      [12.8000, 77.3800], [12.7500, 77.2900], [12.6500, 77.1500],
-      [12.5500, 77.0000], [12.4500, 76.9000], [12.3100, 76.6600],
+      [12.9716, 77.5946], // Bangalore - Majestic
+      [12.9550, 77.5730], // Bangalore - Basavanagudi
+      [12.9350, 77.5500], // Bangalore - Kengeri approach
+      [12.9100, 77.5200], // Kengeri
+      [12.8800, 77.4900], // Rajarajeshwari Nagar
+      [12.8500, 77.4500], // Bidadi approach
+      [12.8200, 77.4100], // Bidadi
+      [12.8000, 77.3800], // After Bidadi
+      [12.7800, 77.3500], // Ramanagara approach
+      [12.7500, 77.2900], // Ramanagara
+      [12.7200, 77.2400], // After Ramanagara
+      [12.7000, 77.2000], // Channapatna approach
+      [12.6700, 77.1600], // Channapatna
+      [12.6500, 77.1300], // After Channapatna
+      [12.6200, 77.1000], // Maddur approach
+      [12.5900, 77.0500], // Maddur
+      [12.5600, 77.0200], // After Maddur
+      [12.5300, 76.9800], // Mandya approach
+      [12.5000, 76.9500], // Mandya
+      [12.4700, 76.9200], // After Mandya
+      [12.4400, 76.8800], // Srirangapatna approach
+      [12.4200, 76.8400], // Srirangapatna
+      [12.3900, 76.8000], // After Srirangapatna
+      [12.3600, 76.7500], // Mysore outskirts
+      [12.3400, 76.7100], // Mysore - Ring Road
+      [12.3100, 76.6600], // Mysore - City Center
     ],
   },
 };

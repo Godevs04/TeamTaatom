@@ -296,49 +296,50 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Validate environment variable safety (non-blocking).
-        try {
-          const { validateEnvironmentVariables } = require('../utils/envValidator');
-          const report = validateEnvironmentVariables();
-          if (!report.ok) {
-            logger.error('Environment validation reported critical issues:', report.errors);
-          }
-        } catch (envValidationError: any) {
-          logger.error('Environment validation failed unexpectedly (non-blocking):', envValidationError?.message);
-        }
-
-        // Run startup diagnostics to capture production-only startup conditions.
-        const startupReport = await runStartupDiagnostics();
-        if (!startupReport.ok) {
-          crashReportingService.captureMessage('Startup diagnostics reported errors', 'error', {
-            screen: 'root_layout',
-            action: 'startup_diagnostics',
-            details: startupReport.errors.join(' | '),
-          });
-        }
-
-        // Validate production environment configuration
-        try {
-          const { validateProductionEnvironment } = require('../utils/productionValidator');
-          const validationReport = validateProductionEnvironment();
-          if (!validationReport.ok) {
-            crashReportingService.captureMessage('Production validation errors detected', 'error', {
-              screen: 'root_layout',
-              action: 'production_validation',
-              details: validationReport.errors.join(' | '),
-            });
-          }
-        } catch (validationError: any) {
-          logger.warn('Production validation failed unexpectedly (non-blocking):', validationError?.message);
-        }
-
-        // Initialize analytics, feature flags, crash reporting, service worker, and update service
+        // Initialize analytics, feature flags, crash reporting, service worker first (critical path)
         await Promise.all([
           analyticsService.initialize(),
           featureFlagsService.initialize(),
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Defer non-critical validation and diagnostics (run after first paint)
+        setTimeout(() => {
+          try {
+            const { validateEnvironmentVariables } = require('../utils/envValidator');
+            const report = validateEnvironmentVariables();
+            if (!report.ok) {
+              logger.error('Environment validation reported critical issues:', report.errors);
+            }
+          } catch (envValidationError: any) {
+            logger.error('Environment validation failed unexpectedly (non-blocking):', envValidationError?.message);
+          }
+
+          runStartupDiagnostics().then((startupReport) => {
+            if (!startupReport.ok) {
+              crashReportingService.captureMessage('Startup diagnostics reported errors', 'error', {
+                screen: 'root_layout',
+                action: 'startup_diagnostics',
+                details: startupReport.errors.join(' | '),
+              });
+            }
+          }).catch(() => {});
+
+          try {
+            const { validateProductionEnvironment } = require('../utils/productionValidator');
+            const validationReport = validateProductionEnvironment();
+            if (!validationReport.ok) {
+              crashReportingService.captureMessage('Production validation errors detected', 'error', {
+                screen: 'root_layout',
+                action: 'production_validation',
+                details: validationReport.errors.join(' | '),
+              });
+            }
+          } catch (validationError: any) {
+            logger.warn('Production validation failed unexpectedly (non-blocking):', validationError?.message);
+          }
+        }, 3000); // Run 3 seconds after startup
 
         // Initialize ads (AdMob + UMP) on native only. Skip in Expo Go & web.
         const isExpoGo = Constants.appOwnership === 'expo';
@@ -500,8 +501,8 @@ function RootLayoutInner() {
       }
     };
 
-    // Check every 2 seconds (not too frequent to avoid performance issues)
-    const interval = setInterval(checkAuthState, 2000);
+    // Check every 15 seconds (reduced from 2s to avoid unnecessary AsyncStorage reads)
+    const interval = setInterval(checkAuthState, 15000);
     return () => clearInterval(interval);
   }, [isAuthenticated, isInitializing]);
 
