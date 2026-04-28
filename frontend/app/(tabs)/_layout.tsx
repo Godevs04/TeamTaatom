@@ -11,6 +11,14 @@ const isWeb = Platform.OS === 'web';
 const isTablet = screenWidth >= 768;
 const isIOS = Platform.OS === 'ios';
 
+const TAB_NAMES = new Set(['home', 'shorts', 'post', 'locale', 'profile']);
+const isTabPath = (p: string | null) => {
+  if (!p) return false;
+  const segment = p.split('/').pop() || '';
+  return TAB_NAMES.has(segment);
+};
+const isShorts = (p: string | null) => p ? p.endsWith('/shorts') : false;
+
 export default function TabsLayout() {
   const { theme } = useTheme();
   const pathname = usePathname();
@@ -41,17 +49,14 @@ export default function TabsLayout() {
 
     previousPathnameRef.current = pathname;
 
-    // Only handle tab navigation within tabs layout (not full route changes)
-    // Check if both paths are within tabs - be more specific to avoid false matches
-    const isCurrentTab = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname === '/(tabs)/post' || pathname === '/(tabs)/locale' || pathname === '/(tabs)/profile' ||
-                        pathname?.endsWith('/home') || pathname?.endsWith('/shorts') || pathname?.endsWith('/post') || pathname?.endsWith('/locale') || pathname?.endsWith('/profile');
-    const wasTab = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath === '/(tabs)/post' || previousPath === '/(tabs)/locale' || previousPath === '/(tabs)/profile' ||
-                   previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts') || previousPath?.endsWith('/post') || previousPath?.endsWith('/locale') || previousPath?.endsWith('/profile');
-    
+    // Only handle tab navigation within tabs layout
+    const isCurrentTab = isTabPath(pathname);
+    const wasTab = isTabPath(previousPath);
+
     // Only handle tab-to-tab navigation here
     if (isCurrentTab && wasTab) {
       // If leaving shorts, stop audio
-      const wasShorts = previousPath === '/(tabs)/shorts' || previousPath?.endsWith('/shorts');
+      const wasShorts = isShorts(previousPath);
       if (wasShorts) {
         isStoppingAudioRef.current = true;
         logger.debug('[TabsLayout] Stopping all audio - navigating away from home/shorts');
@@ -96,6 +101,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        lazy: true,
         tabBarStyle: tabBarStyle as any,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,

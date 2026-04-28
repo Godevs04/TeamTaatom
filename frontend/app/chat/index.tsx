@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
@@ -9,7 +9,7 @@ import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { io, Socket } from 'socket.io-client';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
@@ -151,13 +151,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, participants, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, connectPageId, participants, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
   otherUser: any,
   onClose: () => void,
   messages: any[],
   onSendMessage: (msg: any) => void,
   chatId: string,
   chatType?: string,
+  connectPageId?: any,
   participants?: any[],
   onVoiceCall: (user: any) => void,
   onVideoCall: (user: any) => void,
@@ -175,10 +176,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   // Render logging removed - too verbose, use React DevTools for component tracking
   
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
-  
+
   // Check if this is Taatom Official user - using properties set by backend
   // Backend sets isVerified: true and fullName: 'Taatom Official' for Taatom Official user
   const isTaatomOfficial = otherUser?.isVerified === true && 
@@ -222,6 +224,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       logger.error('Error parsing post share:', error);
     }
     return null;
+  };
+
+  // Parse journey share message
+  const parseJourneyShare = (text: string) => {
+    if (!text || !text.startsWith('[JOURNEY_SHARE]')) return null;
+    try {
+      const data = text.replace('[JOURNEY_SHARE]', '');
+      const parts = data.split('|');
+      if (parts.length >= 3) {
+        return {
+          journeyId: parts[0] || '',
+          shareUrl: parts[1] || '',
+          title: parts[2] || 'Journey',
+          distance: parts[3] || '',
+          status: parts[4] || 'completed',
+        };
+      }
+    } catch (error) {
+      logger.error('Error parsing journey share:', error);
+    }
+    return null;
+  };
+
+  // Handle journey preview click
+  const handleJourneyPreviewClick = (journeyId: string) => {
+    if (router && journeyId) {
+      router.push(`/navigate/detail?journeyId=${journeyId}`);
+    }
   };
 
   // Handle post preview click
@@ -764,11 +794,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           setLocalMessages(prev =>
             prev.map(m => {
               if (normalizeId(m._id) === normalizeId(messageId)) {
-                const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+                const currentSeenBy = Array.isArray(m.seenBy) ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) as string[] : [];
                 // Merge incoming seenBy with current
                 if (incomingSeenBy.length > 0) {
                   for (const id of incomingSeenBy) {
-                    if (!currentSeenBy.includes(id)) currentSeenBy.push(id);
+                    const nId = normalizeId(id);
+                    if (nId && !currentSeenBy.includes(nId)) currentSeenBy.push(nId);
                   }
                 } else if (fromUserId && !currentSeenBy.includes(fromUserId)) {
                   currentSeenBy.push(fromUserId);
@@ -877,6 +908,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   const prevMessageCountRef = useRef(0);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialLoadRef = useRef(true);
+  const hasScrolledToEndRef = useRef(false);
 
   useEffect(() => {
     const currentCount = allMessages.length;
@@ -953,7 +985,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         if (isGroupChat) {
           // Group chat: unseen = not sent by me AND I'm not in seenBy
           if (senderId === myId) return false;
-          if (Array.isArray(m.seenBy) && myId && m.seenBy.includes(myId)) return false;
+          if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
           return true;
         }
         // 1:1 chat: existing logic
@@ -1356,7 +1388,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       flexDirection: 'row',
       alignItems: 'flex-end',
       paddingHorizontal: isTablet ? theme.spacing.lg : 10,
-      paddingVertical: isTablet ? 8 : 6,
+      paddingTop: isTablet ? 8 : 6,
       paddingBottom: isTablet ? 10 : 8,
       backgroundColor: theme.colors.background,
     },
@@ -1537,11 +1569,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   return (
     <>
       
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
         {/* Modern Header */}
         <View style={styles.chatHeader}>
@@ -1557,13 +1589,20 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
             style={styles.headerUserInfo}
             activeOpacity={0.7}
             onPress={() => {
-              if (otherUser?._id && router && chatType !== 'connect_page') {
+              if (chatType === 'connect_page' && connectPageId?._id && router) {
+                router.push(`/connect/page/${connectPageId._id}`);
+              } else if (otherUser?._id && router) {
                 router.push(`/profile/${otherUser._id}`);
               }
             }}
           >
             <View style={styles.headerAvatarWrap}>
-              {otherUser.profilePic ? (
+              {chatType === 'connect_page' && connectPageId?.profileImage ? (
+                <Image
+                  source={{ uri: connectPageId.profileImage }}
+                  style={styles.headerAvatar}
+                />
+              ) : otherUser.profilePic ? (
                 <Image
                   source={{ uri: otherUser.profilePic }}
                   style={styles.headerAvatar}
@@ -1592,9 +1631,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               {isTaatomOfficial && (
                 <Text style={[styles.onlineStatus, { color: theme.colors.primary }]}>Online</Text>
               )}
-              {chatType === 'connect_page' && (
-                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>Group</Text>
-              )}
+              {chatType === 'connect_page' && connectPageId?.name ? (
+                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{connectPageId.name}</Text>
+              ) : !isTaatomOfficial && otherUser?.username ? (
+                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{otherUser.username}</Text>
+              ) : null}
             </View>
           </TouchableOpacity>
 
@@ -1703,7 +1744,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           <FlatList
             ref={flatListRef}
             data={sortedMessages}
-            keyExtractor={(_, idx) => idx.toString()}
+            keyExtractor={(item, idx) => item._id || idx.toString()}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={15}
+            windowSize={10}
+            initialNumToRender={20}
             renderItem={({ item, index }) => {
               // CRITICAL: Normalize sender IDs for proper comparison
               const senderId = normalizeId(item.sender?._id || item.sender);
@@ -1721,6 +1766,17 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               );
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
 
+              // Group chat: resolve sender name and pic from participants if not on the message
+              let resolvedSenderName = item.senderName || '';
+              let resolvedSenderPic = item.senderProfilePic || '';
+              if (isGroupChat && !resolvedSenderName && senderId && participants) {
+                const senderParticipant = participants.find((p: any) => normalizeId(p?._id || p) === senderId);
+                if (senderParticipant) {
+                  resolvedSenderName = senderParticipant.fullName || '';
+                  if (!resolvedSenderPic) resolvedSenderPic = senderParticipant.profilePic || '';
+                }
+              }
+
               // Group chat: determine if this is the first message in a sequence from the same sender
               let showSenderInfo = false;
               if (isGroupChat && !isOwn) {
@@ -1733,18 +1789,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                 }
               }
 
-              // Check if this is a post share
-              const postShare = parsePostShare(String(item.text || ''));
-
-              // Debug logging for post share
-              if (postShare && __DEV__) {
-                logger.debug('Rendering post share:', {
-                  postId: postShare.postId,
-                  hasImageUrl: !!postShare.imageUrl,
-                  imageUrl: postShare.imageUrl ? postShare.imageUrl.substring(0, 50) + '...' : 'NO IMAGE',
-                  authorName: postShare.authorName,
-                });
-              }
+              // Check if this is a post share or journey share
+              const messageTextStr = String(item.text || '');
+              const postShare = parsePostShare(messageTextStr);
+              const journeyShare = !postShare ? parseJourneyShare(messageTextStr) : null;
 
               // Group chat read receipts: check seenBy array
               // Double tick when all other participants have seen the message
@@ -1756,7 +1804,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                   const otherParticipantIds = participants
                     .map((p: any) => normalizeId(p?._id || p))
                     .filter((id: string | null) => id && id !== myUserId);
-                  return otherParticipantIds.length > 0 && otherParticipantIds.every((pId: string) => item.seenBy.includes(pId));
+                  return otherParticipantIds.length > 0 && otherParticipantIds.every((pId: string) => item.seenBy.some((id: any) => normalizeId(id) === pId));
                 }
                 // Fallback: use boolean seen
                 return item.seen === true;
@@ -1773,7 +1821,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         style={{ marginRight: 8, marginBottom: 2 }}
                       >
                         <Image
-                          source={item.senderProfilePic ? { uri: item.senderProfilePic } : require('../../assets/avatars/male_avatar.png')}
+                          source={resolvedSenderPic ? { uri: resolvedSenderPic } : require('../../assets/avatars/male_avatar.png')}
                           style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.border }}
                         />
                       </TouchableOpacity>
@@ -1798,7 +1846,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                           color: theme.colors.primary,
                           marginBottom: 3,
                         }} numberOfLines={1}>
-                          {item.senderName || 'Unknown'}
+                          {resolvedSenderName || 'Unknown'}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -1835,6 +1883,36 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                             <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
                             <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
                               View Post
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ) : journeyShare ? (
+                      // Render journey share card
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => handleJourneyPreviewClick(journeyShare.journeyId)}
+                        style={styles.postShareMessageContainer}
+                      >
+                        <View style={[
+                          styles.postShareIconContainer,
+                          { backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : '#22C55E15' }
+                        ]}>
+                          <Ionicons name="navigate" size={28} color={isOwn ? '#fff' : '#22C55E'} />
+                        </View>
+                        <View style={styles.postShareTextContainer}>
+                          <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
+                            {journeyShare.title}
+                          </Text>
+                          {journeyShare.distance ? (
+                            <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={1}>
+                              {journeyShare.distance} • {journeyShare.status.charAt(0).toUpperCase() + journeyShare.status.slice(1)}
+                            </Text>
+                          ) : null}
+                          <View style={styles.postShareFooter}>
+                            <Ionicons name="map-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : '#22C55E'} />
+                            <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : { color: '#22C55E' }]} numberOfLines={1}>
+                              View Journey
                             </Text>
                           </View>
                         </View>
@@ -1878,9 +1956,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
             }}
             contentContainerStyle={{ paddingVertical: 16 }}
             onContentSizeChange={() => {
-              if (isInitialLoadRef.current || prevMessageCountRef.current === 0) {
-                // Initial load — jump instantly so the last message is visible
-                flatListRef.current?.scrollToEnd({ animated: false });
+              if (!hasScrolledToEndRef.current && allMessages.length > 0) {
+                // First content render — jump instantly so the last message is visible
+                hasScrolledToEndRef.current = true;
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd({ animated: false });
+                }, 50);
               }
             }}
             showsVerticalScrollIndicator={false}
@@ -1931,7 +2012,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           )}
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
     
     {/* Global Call Screen - Render within ChatWindow */}
     {showGlobalCallScreen && (
@@ -2364,7 +2445,7 @@ export default function ChatModal() {
     setError(null);
     try {
       // Normalize: accept id string (e.g. admin chat when participants are ObjectIds) or user object
-      let user: { _id: string; fullName?: string; profilePic?: string } | null = null;
+      let user: { _id: string; fullName?: string; profilePic?: string; username?: string } | null = null;
       if (userArg != null) {
         if (typeof userArg === 'string') {
           user = { _id: userArg };
@@ -2373,6 +2454,7 @@ export default function ChatModal() {
             _id: String(userArg._id ?? userArg.id),
             fullName: userArg.fullName,
             profilePic: userArg.profilePic,
+            username: userArg.username,
           };
         }
       }
@@ -2696,13 +2778,19 @@ export default function ChatModal() {
     // Count total unread messages
     const totalUnread = conversations.reduce((count, chat) => {
       const currentUserId = normalizeId(chat.me);
+      const isGroupChat = (chat as any).type === 'connect_page';
       const unreadCount = chat.messages?.filter((m: any) => {
         if (!m || !m.sender) return false;
-        if (m.seen === true) return false;
         const senderId = normalizeId(m.sender?._id || m.sender);
         if (!senderId || !currentUserId || senderId === currentUserId) return false;
-        const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
-        return isUnseen;
+        // Group chat: check seenBy
+        if (isGroupChat) {
+          if (Array.isArray(m.seenBy) && currentUserId && m.seenBy.some((id: any) => normalizeId(id) === currentUserId)) return false;
+          return true;
+        }
+        // 1:1 chat: check seen boolean
+        if (m.seen === true) return false;
+        return m.seen === false || m.seen === undefined || m.seen === null;
       }).length || 0;
       return count + unreadCount;
     }, 0);
@@ -2801,6 +2889,7 @@ export default function ChatModal() {
       onSendMessage={handleNewMessage} 
       chatId={activeChat?._id}
       chatType={activeChat?.type}
+      connectPageId={activeChat?.connectPageId}
       participants={activeChat?.participants}
       onVoiceCall={handleVoiceCall}
       onVideoCall={handleVideoCall}
@@ -2813,21 +2902,35 @@ export default function ChatModal() {
       setForceRender={setForceRender}
       router={router}
       onMessagesSeen={(seenChatId, seenIds) => {
+        const isGroup = activeChat?.type === 'connect_page';
         // Update badge count in conversations list
         setConversations(prev => prev.map(conv => {
           if (conv._id !== seenChatId) return conv;
+          const myId = normalizeId(conv.me);
           const updatedMessages = (conv.messages || []).map((m: any) => {
             const msgId = normalizeId(m._id);
-            if (seenIds.includes(msgId)) return { ...m, seen: true };
-            return m;
+            if (!seenIds.includes(msgId)) return m;
+            if (isGroup && myId) {
+              // Group chat: add current user to seenBy so unread count clears
+              const currentSeenBy = Array.isArray(m.seenBy) ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) : [];
+              if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+              return { ...m, seenBy: currentSeenBy };
+            }
+            return { ...m, seen: true };
           });
           return { ...conv, messages: updatedMessages };
         }));
         // Update activeMessages so the read receipt ticks survive recomputes
         setActiveMessages(prev => prev.map((m: any) => {
           const msgId = normalizeId(m._id);
-          if (seenIds.includes(msgId)) return { ...m, seen: true };
-          return m;
+          if (!seenIds.includes(msgId)) return m;
+          if (isGroup) {
+            const myId = normalizeId(activeChat?.me);
+            const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+            if (myId && !currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+            return { ...m, seenBy: currentSeenBy };
+          }
+          return { ...m, seen: true };
         }));
       }}
       onClearChat={() => {
@@ -3557,13 +3660,11 @@ export default function ChatModal() {
           style={styles.chatList}
           data={filtered}
           keyExtractor={item => item._id}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          initialNumToRender={15}
           renderItem={({ item }) => {
-            if (__DEV__) {
-              logger.debug('Chat item', { 
-                chatId: item._id, 
-                messages: item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })) 
-              });
-            }
             let other = item.participants.find((u: any) => {
               const uId = normalizeId(u?._id || u);
               const meId = normalizeId(item.me);
@@ -3580,29 +3681,32 @@ export default function ChatModal() {
             // Calculate unread count - handle Buffer objects from backend
             const otherUserId = normalizeId(other?._id || other);
             const currentUserId = normalizeId(item.me);
-            
+            const isGroupChat = (item as any).type === 'connect_page';
+
             // Calculate unread count: messages from other user (not from current user) that are not seen
             // This includes admin messages from Taatom Official (000000000000000000000001) to regular users
             // SIMPLIFIED: Count any message that is NOT from current user and NOT seen
             const unreadCount = item.messages?.filter((m: any) => {
               // Skip invalid messages
               if (!m || !m.sender) return false;
-              
-              // Skip if already seen (explicitly true)
-              if (m.seen === true) return false;
-              
+
               // Normalize sender ID - handle Buffer objects from backend
               const senderId = normalizeId(m.sender?._id || m.sender);
-              
+
               // Skip if sender is current user (messages from current user are never unread)
               if (!senderId || !currentUserId) return false;
               if (senderId === currentUserId) return false;
-              
-              // Message is unread if:
-              // 1. It's NOT from the current user (already checked above)
-              // 2. It's not seen (m.seen is false, undefined, or null - default to unread)
+
+              // For group chats: check if current user is in seenBy array
+              if (isGroupChat) {
+                if (Array.isArray(m.seenBy) && currentUserId && m.seenBy.some((id: any) => normalizeId(id) === currentUserId)) return false;
+                return true; // Not in seenBy = unread for this user
+              }
+
+              // For 1:1 chats: check seen boolean
+              if (m.seen === true) return false;
               const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
-              
+
               // Debug logging for admin messages (Taatom Official ID: 000000000000000000000001)
               if (__DEV__ && senderId === '000000000000000000000001') {
                 logger.debug('[UNREAD DEBUG] Admin message check', {
@@ -3616,7 +3720,7 @@ export default function ChatModal() {
                   participants: item.participants?.map((p: any) => normalizeId(p?._id || p))
                 });
               }
-              
+
               return isUnseen;
             }).length || 0;
             
@@ -3740,6 +3844,12 @@ export default function ChatModal() {
                         const lastMessage = item.messages?.[item.messages.length-1];
                         const messageText = String(lastMessage?.text || '');
                         const postShare = parsePostShare(messageText);
+                        const journeyShare = !postShare && messageText.startsWith('[JOURNEY_SHARE]') ? (() => {
+                          try {
+                            const parts = messageText.replace('[JOURNEY_SHARE]', '').split('|');
+                            return parts.length >= 3 ? { title: parts[2], distance: parts[3] || '' } : null;
+                          } catch { return null; }
+                        })() : null;
 
                         if (postShare) {
                           return (
@@ -3749,6 +3859,15 @@ export default function ChatModal() {
                               authorName={postShare.authorName}
                               theme={theme}
                             />
+                          );
+                        } else if (journeyShare) {
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Ionicons name="navigate" size={14} color="#22C55E" />
+                              <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                                {journeyShare.title}{journeyShare.distance ? ` • ${journeyShare.distance}` : ''}
+                              </Text>
+                            </View>
                           );
                         } else {
                           return (
@@ -3810,8 +3929,10 @@ export default function ChatModal() {
               <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
             ) : (
               <FlatList
-                data={users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase()))}
+                data={search.trim() ? users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase())) : users}
                 keyExtractor={item => item._id}
+                removeClippedSubviews={true}
+                initialNumToRender={15}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.userItem}

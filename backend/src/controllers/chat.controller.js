@@ -83,7 +83,7 @@ exports.listChats = async (req, res) => {
   
   // Get all chats (user_chat, admin_support, connect_page)
   const chats = await Chat.find({ participants: userId })
-    .populate('participants', 'fullName profilePic profilePicStorageKey isVerified')
+    .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
     .populate('connectPageId', 'name profileImage followerCount')
     .sort('-updatedAt')
     .lean();
@@ -303,7 +303,7 @@ exports.getChat = async (req, res) => {
         type: 'admin_support',
         participants: { $all: [userIdObj, officialUserIdObj] }
       })
-        .populate('participants', 'fullName profilePic profilePicStorageKey')
+        .populate('participants', 'fullName username profilePic profilePicStorageKey')
         .select('+messages')
         .lean();
       
@@ -311,18 +311,21 @@ exports.getChat = async (req, res) => {
         // Try general query (might be user_chat that needs conversion)
         logger.info('🔍 [getChat] Admin support not found, trying general query');
         chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
-          .populate('participants', 'fullName profilePic profilePicStorageKey')
+          .populate('participants', 'fullName username profilePic profilePicStorageKey')
           .select('+messages')
           .lean();
       }
     } else {
-      // Regular user chat
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
-        .populate('participants', 'fullName profilePic profilePicStorageKey')
+      // Regular user chat - exclude connect_page chats
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      })
+        .populate('participants', 'fullName username profilePic profilePicStorageKey')
         .select('+messages')
         .lean();
     }
-    
+
     logger.info('🔍 [getChat] Query result', {
       found: !!chat,
       chatId: chat?._id?.toString(),
@@ -352,7 +355,7 @@ exports.getChat = async (req, res) => {
             refId: null
           });
           chat = await Chat.findById(convo._id)
-            .populate('participants', 'fullName profilePic profilePicStorageKey')
+            .populate('participants', 'fullName username profilePic profilePicStorageKey')
             .lean();
           logger.info('✅ [getChat] Created admin_support chat', {
             chatId: chat._id.toString(),
@@ -364,7 +367,7 @@ exports.getChat = async (req, res) => {
           const newChat = await Chat.create({ participants: [userIdObj, otherUserIdObj], messages: [] });
           // Populate the newly created chat
           chat = await Chat.findById(newChat._id)
-            .populate('participants', 'fullName profilePic profilePicStorageKey')
+            .populate('participants', 'fullName username profilePic profilePicStorageKey')
             .lean();
           logger.info('✅ [getChat] Created user_chat', {
             chatId: chat._id.toString()
@@ -477,7 +480,7 @@ exports.getChatByRoomId = async (req, res) => {
     }
 
     let chat = await Chat.findById(chatId)
-      .populate('participants', 'fullName profilePic profilePicStorageKey')
+      .populate('participants', 'fullName username profilePic profilePicStorageKey')
       .populate('connectPageId', 'name profileImage followerCount')
       .select('+messages')
       .lean();
@@ -575,7 +578,7 @@ exports.getMessagesByRoomId = async (req, res) => {
 
     const chat = await Chat.findById(chatId)
       .select('messages participants type')
-      .populate('participants', 'fullName profilePic profilePicStorageKey')
+      .populate('participants', 'fullName username profilePic profilePicStorageKey')
       .lean();
 
     if (!chat) {
@@ -843,12 +846,15 @@ exports.getMessages = async (req, res) => {
           .lean();
       }
     } else {
-      // Regular user chat
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
+      // Regular user chat - exclude connect_page chats
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      })
         .select('messages type participants')
         .lean();
     }
-    
+
     logger.info('🔍 [getMessages] Query result', {
       found: !!chat,
       chatId: chat?._id?.toString(),
@@ -1023,8 +1029,11 @@ exports.sendMessage = async (req, res) => {
         }
       }
     } else {
-      // Regular user chat - find by participants only
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } });
+      // Regular user chat - find by participants AND type (exclude connect_page chats)
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      });
     }
     
     logger.info('🔍 [sendMessage] Query result', {
@@ -1347,8 +1356,8 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
 exports.markAllMessagesSeen = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
-  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-  if (!chat) return sendError(res, 'RES_3001', 'Chat not found');
+  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
+  if (!chat) return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
   const seenMessageIds = [];
   chat.messages.forEach(msg => {
     if (msg.sender.toString() === otherUserId && !msg.seen) {
@@ -1379,11 +1388,11 @@ exports.clearChat = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
       return sendError(res, 'RES_3001', 'Chat not found');
     }
-    
+
     // Clear all messages
     chat.messages = [];
     await chat.save();
@@ -1454,11 +1463,11 @@ exports.toggleMuteChat = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
       return sendError(res, 'RES_3001', 'Chat not found');
     }
-    
+
     const user = await User.findById(userId);
     const muteIndex = user.mutedChats.findIndex(
       m => m.chatId.toString() === chat._id.toString()
@@ -1491,16 +1500,17 @@ exports.getMuteStatus = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
-      return sendError(res, 'RES_3001', 'Chat not found');
+      // No 1:1 chat exists yet — default to not muted
+      return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: false });
     }
-    
+
     const user = await User.findById(userId);
     const isMuted = user.mutedChats.some(
       m => m.chatId.toString() === chat._id.toString()
     );
-    
+
     return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: isMuted });
   } catch (error) {
     logger.error('Error getting mute status:', error);

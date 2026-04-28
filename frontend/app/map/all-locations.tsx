@@ -58,6 +58,9 @@ interface JourneyPolyline {
   startedAt: string;
   completedAt: string;
   waypoints: any[];
+  // Resolved city names (set on frontend after reverse geocoding)
+  startCity?: string;
+  endCity?: string;
 }
 
 function AllLocationsMapInner() {
@@ -65,6 +68,7 @@ function AllLocationsMapInner() {
   const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
@@ -151,6 +155,44 @@ function AllLocationsMapInner() {
       setLoading(false);
     }
   };
+
+  // Cache for reverse geocoding results to avoid redundant API calls
+  const geocodeCacheRef = useRef<Map<string, string>>(new Map());
+
+  // Reverse geocode journey start/end coords to get city names
+  useEffect(() => {
+    if (journeys.length === 0) return;
+    const cache = geocodeCacheRef.current;
+
+    const geocode = async (lat: number, lng: number): Promise<string> => {
+      const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+      if (cache.has(key)) return cache.get(key)!;
+      try {
+        const geo = await ExpoLocation.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+        const city = geo[0]?.city || geo[0]?.subregion || geo[0]?.region || '';
+        cache.set(key, city);
+        return city;
+      } catch {
+        return '';
+      }
+    };
+
+    const resolveNames = async () => {
+      const updated = await Promise.all(
+        journeys.map(async (j) => {
+          if (j.startCity && j.endCity) return j; // Already resolved
+          const startCity = j.startCoords?.lat && j.startCoords?.lng
+            ? await geocode(j.startCoords.lat, j.startCoords.lng) : '';
+          const endCity = j.endCoords?.lat && j.endCoords?.lng
+            ? await geocode(j.endCoords.lat, j.endCoords.lng) : '';
+          return { ...j, startCity, endCity };
+        })
+      );
+      const hasChanges = updated.some((j, i) => j.startCity !== journeys[i].startCity || j.endCity !== journeys[i].endCity);
+      if (hasChanges) setJourneys(updated);
+    };
+    resolveNames();
+  }, [journeys.length]); // Only run when journey count changes, not on every journeys update
 
   // Fit map to show all markers + polylines after data loads
   useEffect(() => {
@@ -253,9 +295,9 @@ function AllLocationsMapInner() {
   // ──────────────────────────────────────────────────────
   const getWebMapHTML = useCallback(() => {
     const region = getMapRegion();
-    const validLocations = locations.filter(
-      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
-    );
+    const validLocations = (mapFilter === 'posts' || mapFilter === 'both')
+      ? locations.filter((loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
+      : [];
     const markersData = validLocations.map((loc) => ({
       lat: loc.latitude,
       lng: loc.longitude,
@@ -264,9 +306,16 @@ function AllLocationsMapInner() {
       photo: loc.photo || null,
       postId: loc.postId || null,
     }));
-    const polylinePaths = journeys.map((j) => ({
+    const filteredJourneys = (mapFilter === 'journeys' || mapFilter === 'both') ? journeys : [];
+    const polylinePaths = filteredJourneys.map((j) => ({
       title: j.title || 'Journey',
       path: j.polyline.map((p) => ({ lat: p.lat, lng: p.lng })),
+      startCoords: j.startCoords,
+      endCoords: j.endCoords,
+      startLetter: j.startCity ? j.startCity[0].toUpperCase() : 'S',
+      endLetter: j.endCity ? j.endCity[0].toUpperCase() : 'E',
+      startCity: j.startCity || 'Start',
+      endCity: j.endCity || 'End',
     }));
     const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
 
@@ -283,12 +332,38 @@ function initMap(){
   var bounds=new google.maps.LatLngBounds();
   var activeOverlays=[];
 
-  // Journey polylines
+  // Journey polylines + start/end markers
   var journeys=${JSON.stringify(polylinePaths)};
   journeys.forEach(function(j){
     if(j.path&&j.path.length>1){
       new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:0.9,strokeWeight:4,map:map});
       j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
+    }
+    // Start marker
+    if(j.startCoords&&j.startCoords.lat&&j.startCoords.lng){
+      new google.maps.Marker({
+        position:{lat:j.startCoords.lat,lng:j.startCoords.lng},
+        map:map,
+        title:j.startCity||'Start',
+        icon:{
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${GROWTH_GREEN}" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="Arial">'+j.startLetter+'</text></svg>'),
+          scaledSize:new google.maps.Size(32,32),
+          anchor:new google.maps.Point(16,16)
+        }
+      });
+    }
+    // End marker
+    if(j.endCoords&&j.endCoords.lat&&j.endCoords.lng){
+      new google.maps.Marker({
+        position:{lat:j.endCoords.lat,lng:j.endCoords.lng},
+        map:map,
+        title:j.endCity||'End',
+        icon:{
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="Arial">'+j.endLetter+'</text></svg>'),
+          scaledSize:new google.maps.Size(32,32),
+          anchor:new google.maps.Point(16,16)
+        }
+      });
     }
   });
 
@@ -415,7 +490,7 @@ function initMap(){
 <div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
 </body></html>`;
-  }, [locations, journeys, getMapRegion, WEBVIEW_API_KEY]);
+  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY]);
 
   // ──────────────────────────────────────────────────────
   // renderMap — native MapView preferred, WebView fallback
@@ -513,24 +588,51 @@ function initMap(){
           }
         }}
       >
-        {/* Journey polylines */}
-        {journeys.map((j) => {
+        {/* Journey polylines + start/end markers — hidden when filter is 'posts' */}
+        {(mapFilter === 'journeys' || mapFilter === 'both') && journeys.map((j) => {
           if (!j.polyline || j.polyline.length < 2) return null;
           const coords = j.polyline.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+          const startLetter = j.startCity ? j.startCity[0].toUpperCase() : 'S';
+          const endLetter = j.endCity ? j.endCity[0].toUpperCase() : 'E';
           return (
-            <PolylineRenderer
-              key={`polyline-${j._id}`}
-              coordinates={coords}
-              color={GROWTH_GREEN}
-              strokeWidth={4}
-              simplifyDistance={10}
-              applyKalman={true}
-            />
+            <React.Fragment key={`journey-${j._id}`}>
+              <PolylineRenderer
+                coordinates={coords}
+                color={GROWTH_GREEN}
+                strokeWidth={4}
+                simplifyDistance={10}
+                applyKalman={true}
+              />
+              {/* Start marker */}
+              {j.startCoords?.lat && j.startCoords?.lng && (
+                <Marker
+                  coordinate={{ latitude: j.startCoords.lat, longitude: j.startCoords.lng }}
+                  title={j.startCity || 'Start'}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={markerStyles.journeyMarker}>
+                    <Text style={markerStyles.journeyMarkerText}>{startLetter}</Text>
+                  </View>
+                </Marker>
+              )}
+              {/* End marker */}
+              {j.endCoords?.lat && j.endCoords?.lng && (
+                <Marker
+                  coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
+                  title={j.endCity || 'End'}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={[markerStyles.journeyMarker, markerStyles.journeyMarkerEnd]}>
+                    <Text style={markerStyles.journeyMarkerText}>{endLetter}</Text>
+                  </View>
+                </Marker>
+              )}
+            </React.Fragment>
           );
         })}
 
-        {/* Post location markers with photo thumbnails */}
-        {validLocations.map((location, index) => (
+        {/* Post location markers — hidden when filter is 'journeys' */}
+        {(mapFilter === 'posts' || mapFilter === 'both') && validLocations.map((location, index) => (
           <Marker
             key={`marker-${location.number}-${index}`}
             coordinate={{ latitude: location.latitude, longitude: location.longitude }}
@@ -665,6 +767,33 @@ function initMap(){
         ) : null}
       </View>
 
+      {/* Map layer toggle */}
+      <View style={[styles.toggleContainer, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        {(['posts', 'journeys', 'both'] as const).map((filter) => {
+          const isActive = mapFilter === filter;
+          const label = filter === 'posts' ? 'Posts' : filter === 'journeys' ? 'Journeys' : 'Both';
+          const icon = filter === 'posts' ? 'location' : filter === 'journeys' ? 'map' : 'layers';
+          const activeColor = filter === 'posts' ? ALERT_RED : filter === 'journeys' ? GROWTH_GREEN : ACTION_BLUE;
+          return (
+            <TouchableOpacity
+              key={filter}
+              style={[
+                styles.togglePill,
+                { borderColor: isActive ? activeColor : theme.colors.border },
+                isActive && { backgroundColor: activeColor + '15' },
+              ]}
+              onPress={() => setMapFilter(filter)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={icon as any} size={14} color={isActive ? activeColor : theme.colors.textSecondary} />
+              <Text style={[styles.toggleText, { color: isActive ? activeColor : theme.colors.textSecondary }]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Full-screen map */}
       <View style={styles.mapContainer}>
         {locations.length === 0 && journeys.length === 0 ? (
@@ -774,6 +903,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  toggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  togglePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  toggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   statsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -829,5 +980,31 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 11,
     fontWeight: '600',
+  },
+});
+
+const markerStyles = StyleSheet.create({
+  journeyMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: GROWTH_GREEN,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  journeyMarkerEnd: {
+    backgroundColor: ALERT_RED,
+  },
+  journeyMarkerText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

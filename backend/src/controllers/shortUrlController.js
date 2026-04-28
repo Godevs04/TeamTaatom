@@ -1,5 +1,6 @@
 const ShortUrl = require('../models/ShortUrl');
 const Post = require('../models/Post');
+const Journey = require('../models/Journey');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 
@@ -26,31 +27,41 @@ function generateShortCode(length = 8) {
  */
 const createShortUrl = async (req, res) => {
   try {
-    const { postId } = req.body;
+    const { postId, journeyId } = req.body;
 
-    if (!postId) {
-      return sendError(res, 'VAL_2001', 'Post ID is required');
+    if (!postId && !journeyId) {
+      return sendError(res, 'VAL_2001', 'Post ID or Journey ID is required');
     }
 
-    // Validate post exists
-    const post = await Post.findById(postId);
-    if (!post) {
-      return sendError(res, 'RES_3001', 'Post not found');
+    // Determine type and validate
+    const isJourney = !!journeyId;
+    const resourceId = isJourney ? journeyId : postId;
+    const resourceField = isJourney ? 'journeyId' : 'postId';
+
+    if (isJourney) {
+      const journey = await Journey.findById(journeyId);
+      if (!journey) {
+        return sendError(res, 'RES_3001', 'Journey not found');
+      }
+    } else {
+      const post = await Post.findById(postId);
+      if (!post) {
+        return sendError(res, 'RES_3001', 'Post not found');
+      }
     }
 
-    // Check if short URL already exists for this post
-    let shortUrl = await ShortUrl.findOne({ postId });
-    
+    // Check if short URL already exists
+    let shortUrl = await ShortUrl.findOne({ [resourceField]: resourceId });
+
     if (shortUrl) {
-      // Return existing short URL
       const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
       const shortUrlString = `${baseUrl}/s/${shortUrl.shortCode}`;
-      
+
       return sendSuccess(res, 200, 'Short URL retrieved successfully', {
         data: {
           shortUrl: shortUrlString,
           shortCode: shortUrl.shortCode,
-          postId: postId
+          [resourceField]: resourceId
         }
       });
     }
@@ -77,7 +88,7 @@ const createShortUrl = async (req, res) => {
     // Create new short URL
     shortUrl = new ShortUrl({
       shortCode,
-      postId
+      [resourceField]: resourceId
     });
 
     await shortUrl.save();
@@ -89,7 +100,7 @@ const createShortUrl = async (req, res) => {
       data: {
         shortUrl: shortUrlString,
         shortCode: shortCode,
-        postId: postId
+        [resourceField]: resourceId
       }
     });
 
@@ -145,32 +156,65 @@ const redirectShortUrl = async (req, res) => {
     shortUrl.lastClickedAt = new Date();
     await shortUrl.save().catch(err => logger.error('Error updating short URL click count:', err));
 
-    // Get post to verify it exists
-    const post = await Post.findById(shortUrl.postId);
-    if (!post || !post.isActive) {
-      return res.status(404).send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Post Not Found</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <style>
-            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-            h1 { color: #333; }
-            p { color: #666; }
-          </style>
-        </head>
-        <body>
-          <h1>Post Not Found</h1>
-          <p>This post is no longer available.</p>
-        </body>
-        </html>
-      `);
+    // Determine if this is a journey or post short URL
+    const isJourney = !!shortUrl.journeyId;
+
+    if (isJourney) {
+      const journey = await Journey.findById(shortUrl.journeyId);
+      if (!journey) {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Journey Not Found</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #333; }
+              p { color: #666; }
+            </style>
+          </head>
+          <body>
+            <h1>Journey Not Found</h1>
+            <p>This journey is no longer available.</p>
+          </body>
+          </html>
+        `);
+      }
+    } else {
+      // Get post to verify it exists
+      const post = await Post.findById(shortUrl.postId);
+      if (!post || !post.isActive) {
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Post Not Found</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #333; }
+              p { color: #666; }
+            </style>
+          </head>
+          <body>
+            <h1>Post Not Found</h1>
+            <p>This post is no longer available.</p>
+          </body>
+          </html>
+        `);
+      }
     }
 
-    // Always redirect to app (regardless of device type)
-    const deepLink = `taatom://post/${shortUrl.postId}`;
-    const universalLink = `https://taatom.com/post/${shortUrl.postId}`;
+    // Build deep link and universal link based on type
+    let deepLink, universalLink;
+    if (isJourney) {
+      deepLink = `taatom://navigate/detail?journeyId=${shortUrl.journeyId}`;
+      universalLink = `https://taatom.com/journey/${shortUrl.journeyId}`;
+    } else {
+      deepLink = `taatom://post/${shortUrl.postId}`;
+      universalLink = `https://taatom.com/post/${shortUrl.postId}`;
+    }
     
     logger.debug('Redirecting to app:', { deepLink, postId: shortUrl.postId });
     

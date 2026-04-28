@@ -133,7 +133,7 @@ export const clearChat = async (otherUserId: string): Promise<{ success: boolean
 // Mute or unmute chat notifications
 export const toggleMuteChat = async (otherUserId: string): Promise<{ success: boolean; muted: boolean; message: string }> => {
   try {
-    const response = await api.post(`/api/v1/chat/${otherUserId}/mute`);
+    const response = await api.post(`/chat/${otherUserId}/mute`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -144,7 +144,7 @@ export const toggleMuteChat = async (otherUserId: string): Promise<{ success: bo
 // Get mute status for a chat
 export const getMuteStatus = async (otherUserId: string): Promise<{ muted: boolean }> => {
   try {
-    const response = await api.get(`/api/v1/chat/${otherUserId}/mute-status`);
+    const response = await api.get(`/chat/${otherUserId}/mute-status`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
