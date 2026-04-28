@@ -524,15 +524,36 @@ exports.getChatByRoomId = async (req, res) => {
       }
     }
 
+    // Build participants map for sender info in group chat messages
+    const participantsMap = {};
+    const isGroupChat = chat.type === 'connect_page';
+    if (isGroupChat && chat.participants) {
+      for (const p of chat.participants) {
+        const pId = (p._id || p).toString();
+        participantsMap[pId] = { fullName: p.fullName || '', profilePic: p.profilePic || '' };
+      }
+    }
+
     // Format messages
     const rawMessages = chat.messages || [];
-    chat.messages = rawMessages.map((msg) => ({
-      _id: msg._id ? msg._id.toString() : null,
-      sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
-      text: msg.text || '',
-      timestamp: msg.timestamp || new Date(),
-      seen: typeof msg.seen === 'boolean' ? msg.seen : false,
-    }));
+    chat.messages = rawMessages.map((msg) => {
+      const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
+      const formatted = {
+        _id: msg._id ? msg._id.toString() : null,
+        sender: senderId,
+        text: msg.text || '',
+        timestamp: msg.timestamp || new Date(),
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+      };
+      // Include sender info and seenBy for group chats
+      if (isGroupChat) {
+        const senderInfo = participantsMap[senderId] || {};
+        formatted.senderName = senderInfo.fullName || '';
+        formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
+      }
+      return formatted;
+    });
 
     logger.info('✅ [getChatByRoomId] Returning chat', { chatId: chat._id.toString(), type: chat.type, messageCount: chat.messages.length });
     return sendSuccess(res, 200, 'Chat fetched successfully', { chat });
@@ -553,7 +574,8 @@ exports.getMessagesByRoomId = async (req, res) => {
     }
 
     const chat = await Chat.findById(chatId)
-      .select('messages participants')
+      .select('messages participants type')
+      .populate('participants', 'fullName profilePic profilePicStorageKey')
       .lean();
 
     if (!chat) {
@@ -568,14 +590,43 @@ exports.getMessagesByRoomId = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
     }
 
+    // Build participants map for sender info lookup (group chats)
+    const participantsMap = {};
+    if (chat.type === 'connect_page' && chat.participants) {
+      for (const p of chat.participants) {
+        const pId = (p._id || p).toString();
+        let profilePic = p.profilePic || null;
+        if (!profilePic && p.profilePicStorageKey) {
+          try {
+            profilePic = await generateSignedUrl(p.profilePicStorageKey, 'PROFILE');
+          } catch (err) {
+            logger.warn('Failed to generate profile pic URL in getMessagesByRoomId:', { userId: pId, error: err.message });
+          }
+        }
+        participantsMap[pId] = { fullName: p.fullName || '', profilePic: profilePic || '' };
+      }
+    }
+
     const rawMessages = chat.messages || [];
-    const messages = rawMessages.map((msg) => ({
-      _id: msg._id ? msg._id.toString() : null,
-      sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
-      text: msg.text || '',
-      timestamp: msg.timestamp || new Date(),
-      seen: typeof msg.seen === 'boolean' ? msg.seen : false,
-    }));
+    const isGroupChat = chat.type === 'connect_page';
+    const messages = rawMessages.map((msg) => {
+      const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
+      const formatted = {
+        _id: msg._id ? msg._id.toString() : null,
+        sender: senderId,
+        text: msg.text || '',
+        timestamp: msg.timestamp || new Date(),
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+      };
+      // Include sender info and seenBy for group chats
+      if (isGroupChat) {
+        const senderInfo = participantsMap[senderId] || {};
+        formatted.senderName = senderInfo.fullName || '';
+        formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
+      }
+      return formatted;
+    });
 
     logger.info('✅ [getMessagesByRoomId] Returning messages', { chatId, messageCount: messages.length });
     return sendSuccess(res, 200, 'Messages fetched successfully', { messages });
@@ -628,12 +679,32 @@ exports.sendMessageToRoom = async (req, res) => {
     }
 
     const chatIdStr = chat._id.toString();
+
+    // Fetch sender info for group chat message display
+    let senderName = '';
+    let senderProfilePic = '';
+    try {
+      const senderUser = await User.findById(userId).select('fullName profilePic profilePicStorageKey').lean();
+      if (senderUser) {
+        senderName = senderUser.fullName || '';
+        senderProfilePic = senderUser.profilePic || '';
+        if (!senderProfilePic && senderUser.profilePicStorageKey) {
+          senderProfilePic = await generateSignedUrl(senderUser.profilePicStorageKey, 'PROFILE') || '';
+        }
+      }
+    } catch (err) {
+      logger.warn('[sendMessageToRoom] Failed to fetch sender info:', err.message);
+    }
+
     const messageToEmit = {
       _id: savedMessage._id.toString(),
       sender: savedMessage.sender.toString(),
       text: savedMessage.text,
       timestamp: savedMessage.timestamp,
       seen: savedMessage.seen || false,
+      senderName,
+      senderProfilePic,
+      seenBy: [],
     };
 
     // Emit socket events to ALL participants (group chat)
@@ -1233,17 +1304,40 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
     return;
   }
   // Only allow if user is a participant
-  if (!chat.participants.map(id => id.toString()).includes(userId.toString())) {
+  const participantIds = chat.participants.map(id => id.toString());
+  if (!participantIds.includes(userId.toString())) {
     logger.debug('[markMessageSeen] user not a participant');
     return;
   }
   const msg = chat.messages.id(messageId);
-  if (msg && !msg.seen) {
+  if (!msg) {
+    logger.debug('[markMessageSeen] message not found');
+    return;
+  }
+
+  // For group chats (connect_page): use seenBy array
+  if (chat.type === 'connect_page') {
+    if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
+    const alreadySeen = msg.seenBy.some(id => id.toString() === userId.toString());
+    if (!alreadySeen) {
+      msg.seenBy.push(userId);
+      // Mark boolean seen as true when ALL other participants have seen it
+      const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
+      const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
+      if (allSeen) msg.seen = true;
+      await chat.save();
+      logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
+    } else {
+      logger.debug('[markMessageSeen] user already in seenBy');
+    }
+    return;
+  }
+
+  // For 1:1 chats: use boolean seen (existing behavior)
+  if (!msg.seen) {
     msg.seen = true;
     await chat.save();
     logger.debug('[markMessageSeen] message marked as seen:', { messageId });
-  } else if (!msg) {
-    logger.debug('[markMessageSeen] message not found');
   } else {
     logger.debug('[markMessageSeen] message already seen');
   }

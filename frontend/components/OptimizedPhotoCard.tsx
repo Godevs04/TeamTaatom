@@ -283,6 +283,8 @@ function PhotoCard({
   const [imageUri, setImageUri] = useState<string | null>(null);
 
   React.useEffect(() => {
+    let cancelled = false;
+
     if (!post.imageUrl) {
       setImageLoading(false);
       setImageError(true);
@@ -292,7 +294,7 @@ function PhotoCard({
     // Reset retry count and flags when image URL changes
     imageRetryCountRef.current = 0;
     isRetryingRef.current = false;
-    
+
     // Clear any pending retry timeout
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
@@ -310,9 +312,11 @@ function PhotoCard({
         // For other URLs, try prefetch with fallback
         if (post.imageUrl.includes('r2.cloudflarestorage.com') || post.imageUrl.includes('cloudflarestorage.com')) {
           // R2 URLs: Use directly without prefetch
-          setImageUri(post.imageUrl);
-          setImageLoading(false);
-          setImageError(false);
+          if (!cancelled) {
+            setImageUri(post.imageUrl);
+            setImageLoading(false);
+            setImageError(false);
+          }
           return;
         }
 
@@ -320,34 +324,42 @@ function PhotoCard({
         // Web: Faster timeout, fewer retries for better UX
         const timeout = isWeb ? 5000 : 8000;
         const retries = isWeb ? 1 : 2;
-        
+
         const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
           timeout,
           retries,
           retryDelay: 1000
         });
-        
+
         // Even if prefetch fails, set the URI and let Image component try loading directly
-        setImageUri(optimizedUrl);
-        setImageLoading(false);
-        setImageError(false);
-        
+        if (!cancelled) {
+          setImageUri(optimizedUrl);
+          setImageLoading(false);
+          setImageError(false);
+        }
+
       } catch (error) {
         // Don't set error immediately - try using the original URL directly
         // React Native's Image component can load images even if prefetch fails
         if (process.env.NODE_ENV === 'development') {
           logger.warn('Image prefetch failed, using direct URL', { postId: post._id, error });
         }
-        
+
         // Set the original URL and let Image component handle loading
         // Only set error if Image component's onError is called
-        setImageUri(post.imageUrl);
-        setImageLoading(false);
-        setImageError(false);
+        if (!cancelled) {
+          setImageUri(post.imageUrl);
+          setImageLoading(false);
+          setImageError(false);
+        }
       }
     };
 
     loadImage();
+
+    return () => {
+      cancelled = true;
+    };
   }, [post.imageUrl, post._id, isWeb]);
 
   const handleLike = async () => {

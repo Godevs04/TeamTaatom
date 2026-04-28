@@ -5,7 +5,9 @@ const MessageSchema = new Schema({
   sender: { type: Types.ObjectId, ref: 'User', required: true },
   text: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
-  seen: { type: Boolean, default: false }
+  seen: { type: Boolean, default: false },
+  // For group chats: tracks which participants have seen this message
+  seenBy: [{ type: Types.ObjectId, ref: 'User' }]
 });
 
 const ChatSchema = new Schema({

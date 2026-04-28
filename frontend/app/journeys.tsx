@@ -8,7 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import NavBar from '../components/NavBar';
 import JourneyCard from '../components/JourneyCard';
@@ -57,9 +57,23 @@ function JourneysListInner() {
     }
   }, [userId]);
 
+  const hasInitiallyLoaded = React.useRef(false);
+
   useEffect(() => {
     loadJourneys(1);
   }, [loadJourneys]);
+
+  // Reload list when screen regains focus (e.g. after deleting a journey on detail screen)
+  useFocusEffect(
+    useCallback(() => {
+      if (hasInitiallyLoaded.current) {
+        // Screen regained focus after navigating away — silently refresh the list
+        loadJourneys(1, true);
+      } else {
+        hasInitiallyLoaded.current = true;
+      }
+    }, [loadJourneys])
+  );
 
   const handleRefresh = () => loadJourneys(1, true);
   const handleLoadMore = () => {

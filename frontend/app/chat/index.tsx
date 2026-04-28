@@ -151,13 +151,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, participants, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
   otherUser: any,
   onClose: () => void,
   messages: any[],
   onSendMessage: (msg: any) => void,
   chatId: string,
   chatType?: string,
+  participants?: any[],
   onVoiceCall: (user: any) => void,
   onVideoCall: (user: any) => void,
   isCalling: boolean,
@@ -751,7 +752,40 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       }
     };
     const onSeen = (payload: any) => {
-      if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
+      const isGroupChat = chatType === 'connect_page';
+
+      if (isGroupChat) {
+        // Group chat: update seenBy array on the specific message
+        const messageId = payload.messageId;
+        const fromUserId = normalizeId(payload.from);
+        const incomingSeenBy = Array.isArray(payload.seenBy) ? payload.seenBy : [];
+
+        if (messageId && fromUserId) {
+          setLocalMessages(prev =>
+            prev.map(m => {
+              if (normalizeId(m._id) === normalizeId(messageId)) {
+                const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+                // Merge incoming seenBy with current
+                if (incomingSeenBy.length > 0) {
+                  for (const id of incomingSeenBy) {
+                    if (!currentSeenBy.includes(id)) currentSeenBy.push(id);
+                  }
+                } else if (fromUserId && !currentSeenBy.includes(fromUserId)) {
+                  currentSeenBy.push(fromUserId);
+                }
+                return { ...m, seenBy: currentSeenBy };
+              }
+              return m;
+            })
+          );
+
+          // Also update parent activeMessages
+          if (onMessagesSeen && chatId) {
+            onMessagesSeen(chatId, [messageId]);
+          }
+        }
+      } else if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
+        // 1:1 chat: existing behavior
         setLastSeenId(payload.messageId);
         const otherUserId = normalizeId(otherUser._id);
 
@@ -910,38 +944,55 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   // Mark messages as seen only after user has had time to view them (3 seconds after chat window is visible)
   // This ensures unread count persists until user actually views the chat
   useEffect(() => {
+    const isGroupChat = chatType === 'connect_page';
     // Only mark as seen once per chat session, and only after a delay to ensure user has viewed messages
     if (sortedMessages.length > 0 && !hasMarkedAsSeenRef.current && chatId) {
+      const myId = normalizeId(currentUserId);
       const unseen = sortedMessages.filter(m => {
         const senderId = normalizeId(m.sender?._id || m.sender);
+        if (isGroupChat) {
+          // Group chat: unseen = not sent by me AND I'm not in seenBy
+          if (senderId === myId) return false;
+          if (Array.isArray(m.seenBy) && myId && m.seenBy.includes(myId)) return false;
+          return true;
+        }
+        // 1:1 chat: existing logic
         const otherUserId = normalizeId(otherUser._id);
         return senderId && otherUserId && senderId === otherUserId && !m.seen;
       });
-      
+
       if (unseen.length > 0) {
         // Clear any existing timeout
         if (markSeenTimeoutRef.current) {
           clearTimeout(markSeenTimeoutRef.current);
         }
-        
+
         // Wait 3 seconds after chat window is visible before marking as seen
         // This gives user time to actually view the messages
         markSeenTimeoutRef.current = setTimeout(() => {
           if (!hasMarkedAsSeenRef.current) {
             logger.debug('[UNREAD DEBUG] Marking messages as seen after 3s delay', {
               chatId,
-              unseenCount: unseen.length
+              unseenCount: unseen.length,
+              isGroupChat
             });
-            
+
             // Mark as seen via socket (for real-time)
             unseen.forEach(msg => {
-              socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+              if (isGroupChat) {
+                // Group chat: emit with chatId, no specific 'to' user needed
+                socketService.emit('seen', { messageId: msg._id, chatId });
+              } else {
+                socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+              }
             });
-            
-            // Mark as seen in backend + clear push notification badge/tray
-            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
-              logger.debug('Failed to mark messages as seen in backend:', e);
-            });
+
+            // Mark as seen in backend (only for 1:1 chats — group chats handled via socket markMessageSeen)
+            if (!isGroupChat) {
+              api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+                logger.debug('Failed to mark messages as seen in backend:', e);
+              });
+            }
             clearChatNotifications();
 
             // Update local state
@@ -949,6 +1000,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               const msgId = normalizeId(m._id);
               const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
               if (isUnseen) {
+                if (isGroupChat && myId) {
+                  const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+                  if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+                  return { ...m, seenBy: currentSeenBy };
+                }
                 return { ...m, seen: true };
               }
               return m;
@@ -1664,10 +1720,22 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                 (!isGroupChat && senderId && otherUserId && senderId !== otherUserId && !myUserId)
               );
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
-              
+
+              // Group chat: determine if this is the first message in a sequence from the same sender
+              let showSenderInfo = false;
+              if (isGroupChat && !isOwn) {
+                if (index === 0) {
+                  showSenderInfo = true;
+                } else {
+                  const prevMsg = sortedMessages[index - 1];
+                  const prevSenderId = normalizeId(prevMsg?.sender?._id || prevMsg?.sender);
+                  showSenderInfo = prevSenderId !== senderId;
+                }
+              }
+
               // Check if this is a post share
               const postShare = parsePostShare(String(item.text || ''));
-              
+
               // Debug logging for post share
               if (postShare && __DEV__) {
                 logger.debug('Rendering post share:', {
@@ -1677,81 +1745,133 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                   authorName: postShare.authorName,
                 });
               }
-              
+
+              // Group chat read receipts: check seenBy array
+              // Double tick when all other participants have seen the message
+              const isSeenByAll = (() => {
+                if (!isOwn) return false;
+                if (!isGroupChat) return item.seen === true;
+                // For group chats: check seenBy includes all participants except sender
+                if (Array.isArray(item.seenBy) && participants && participants.length > 0) {
+                  const otherParticipantIds = participants
+                    .map((p: any) => normalizeId(p?._id || p))
+                    .filter((id: string | null) => id && id !== myUserId);
+                  return otherParticipantIds.length > 0 && otherParticipantIds.every((pId: string) => item.seenBy.includes(pId));
+                }
+                // Fallback: use boolean seen
+                return item.seen === true;
+              })();
+
               return (
-                <View style={[
-                  styles.bubble, 
-                  isOwn ? styles.bubbleOwn : styles.bubbleOther
-                ]}>
-                  {postShare ? (
-                    // Render post share as attractive text message with small image thumbnail
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
-                      style={styles.postShareMessageContainer}
-                    >
-                      <View style={[
-                        styles.postShareIconContainer,
-                        isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
-                      ]}>
-                        <PostShareThumbnail
-                          imageUrl={postShare.imageUrl}
-                          postId={postShare.postId}
-                          isOwn={isOwn}
-                          theme={theme}
+                <View style={isGroupChat && !isOwn ? { flexDirection: 'row', alignItems: 'flex-end', marginBottom: showSenderInfo ? 6 : 2 } : undefined}>
+                  {/* Group chat: sender profile pic */}
+                  {isGroupChat && !isOwn && (
+                    showSenderInfo ? (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => senderId && router.push(`/profile/${senderId}`)}
+                        style={{ marginRight: 8, marginBottom: 2 }}
+                      >
+                        <Image
+                          source={item.senderProfilePic ? { uri: item.senderProfilePic } : require('../../assets/avatars/male_avatar.png')}
+                          style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.border }}
                         />
-                      </View>
-                      <View style={styles.postShareTextContainer}>
-                        {postShare.authorName && (
-                          <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
-                            {postShare.authorName}
-                          </Text>
-                        )}
-                        {postShare.caption && (
-                          <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
-                            {postShare.caption}
-                          </Text>
-                        )}
-                        <View style={styles.postShareFooter}>
-                          <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
-                          <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
-                            View Post
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ) : (
-                    // Regular text message
-                    <Text style={[
-                      styles.bubbleText,
-                      isOwn ? styles.bubbleOwnText : {}
-                    ]}>
-                      {String(item.text || '')}
-                    </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={{ width: 28, marginRight: 8 }} />
+                    )
                   )}
-                  
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    marginTop: 2,
-                    gap: 3,
-                  }}>
-                    <Text style={[
-                      styles.bubbleTime,
-                      isOwn ? styles.bubbleOwnTime : styles.bubbleOtherTime
-                    ]}>
-                      {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                    </Text>
-                    {isOwn && (
-                      <View>
-                        {item.seen === true ? (
-                          <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
-                        ) : (
-                          <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
-                        )}
-                      </View>
+                  <View style={[
+                    styles.bubble,
+                    isOwn ? styles.bubbleOwn : styles.bubbleOther,
+                    isGroupChat && !isOwn ? { maxWidth: '75%' } : undefined
+                  ]}>
+                    {/* Group chat: sender name on first message in sequence */}
+                    {isGroupChat && !isOwn && showSenderInfo && (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => senderId && router.push(`/profile/${senderId}`)}
+                      >
+                        <Text style={{
+                          fontSize: 12,
+                          fontWeight: '600',
+                          color: theme.colors.primary,
+                          marginBottom: 3,
+                        }} numberOfLines={1}>
+                          {item.senderName || 'Unknown'}
+                        </Text>
+                      </TouchableOpacity>
                     )}
+                    {postShare ? (
+                      // Render post share as attractive text message with small image thumbnail
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
+                        style={styles.postShareMessageContainer}
+                      >
+                        <View style={[
+                          styles.postShareIconContainer,
+                          isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
+                        ]}>
+                          <PostShareThumbnail
+                            imageUrl={postShare.imageUrl}
+                            postId={postShare.postId}
+                            isOwn={isOwn}
+                            theme={theme}
+                          />
+                        </View>
+                        <View style={styles.postShareTextContainer}>
+                          {postShare.authorName && (
+                            <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
+                              {postShare.authorName}
+                            </Text>
+                          )}
+                          {postShare.caption && (
+                            <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
+                              {postShare.caption}
+                            </Text>
+                          )}
+                          <View style={styles.postShareFooter}>
+                            <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
+                            <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
+                              View Post
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ) : (
+                      // Regular text message
+                      <Text style={[
+                        styles.bubbleText,
+                        isOwn ? styles.bubbleOwnText : {}
+                      ]}>
+                        {String(item.text || '')}
+                      </Text>
+                    )}
+
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      marginTop: 2,
+                      gap: 3,
+                    }}>
+                      <Text style={[
+                        styles.bubbleTime,
+                        isOwn ? styles.bubbleOwnTime : styles.bubbleOtherTime
+                      ]}>
+                        {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </Text>
+                      {isOwn && (
+                        <View>
+                          {isSeenByAll ? (
+                            <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
+                          ) : (
+                            <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
+                          )}
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -2681,6 +2801,7 @@ export default function ChatModal() {
       onSendMessage={handleNewMessage} 
       chatId={activeChat?._id}
       chatType={activeChat?.type}
+      participants={activeChat?.participants}
       onVoiceCall={handleVoiceCall}
       onVideoCall={handleVideoCall}
       isCalling={isCalling}
