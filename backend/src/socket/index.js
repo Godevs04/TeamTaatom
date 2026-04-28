@@ -75,7 +75,7 @@ function setupSocket(server) {
       let chatIdToUse = chatId;
       if (!chatIdToUse && to && messageId) {
         const Chat = require('../models/Chat');
-        const chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, 'messages._id': messageId });
+        const chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, 'messages._id': messageId, type: { $ne: 'connect_page' } });
         if (chat) chatIdToUse = chat._id;
       }
       if (chatIdToUse && messageId) {
@@ -122,9 +122,9 @@ function setupSocket(server) {
       if (!to || !text) return;
       try {
         const Chat = require('../models/Chat');
-        let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] } });
+        let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, type: { $ne: 'connect_page' } });
         if (!chat) {
-          chat = await Chat.create({ participants: [socket.userId, to], messages: [] });
+          chat = await Chat.create({ participants: [socket.userId, to], messages: [], type: 'user_chat' });
         }
         const message = { sender: socket.userId, text, timestamp: new Date() };
         chat.messages.push(message);

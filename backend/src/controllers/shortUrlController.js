@@ -161,7 +161,7 @@ const redirectShortUrl = async (req, res) => {
 
     if (isJourney) {
       const journey = await Journey.findById(shortUrl.journeyId);
-      if (!journey) {
+      if (!journey || !journey.isActive) {
         return res.status(404).send(`
           <!DOCTYPE html>
           <html>
