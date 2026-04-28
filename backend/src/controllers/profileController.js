@@ -27,7 +27,7 @@ async function checkProfilePrivacy(targetUserId, viewerId) {
   if (!targetUserId) return { allowed: false, reason: 'User not found' };
   // Owner can always view their own data
   if (viewerId && targetUserId.toString() === viewerId.toString()) {
-    return { allowed: true };
+    return { allowed: true, showLocation: true };
   }
   const targetUser = await User.findById(targetUserId)
     .select('settings.privacy.profileVisibility settings.privacy.showLocation followers')
@@ -1126,7 +1126,7 @@ const getFollowersList = async (req, res) => {
     // Privacy check: only allow viewing followers if profile is accessible
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed) {
-      return sendSuccess(res, 'Followers list', { followers: [], totalFollowers: 0, page: 1, totalPages: 0 });
+      return sendSuccess(res, 200, 'Followers list', { followers: [], totalFollowers: 0, page: 1, totalPages: 0 });
     }
 
     const page = parseInt(req.query.page) || 1;
@@ -1216,7 +1216,7 @@ const getFollowingList = async (req, res) => {
     // Privacy check: only allow viewing following if profile is accessible
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed) {
-      return sendSuccess(res, 'Following list', { following: [], totalFollowing: 0, page: 1, totalPages: 0 });
+      return sendSuccess(res, 200, 'Following list', { following: [], totalFollowing: 0, page: 1, totalPages: 0 });
     }
 
     const page = parseInt(req.query.page) || 1;
@@ -1666,7 +1666,7 @@ const getTripScoreContinents = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed || !privacyCheck.showLocation) {
-      return sendSuccess(res, 'TripScore continents', { continents: [], totalScore: 0, totalUniqueLocations: 0, totalDistanceKm: 0 });
+      return sendSuccess(res, 200, 'TripScore continents', { continents: [], totalScore: 0, totalUniqueLocations: 0, totalDistanceKm: 0 });
     }
 
     // Get verified visits (TripScore v2.1 - unique places only)
@@ -1829,7 +1829,7 @@ const getTripScoreCountries = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed || !privacyCheck.showLocation) {
-      return sendSuccess(res, 'TripScore countries', { countries: [], continent: decodeURIComponent(continent) });
+      return sendSuccess(res, 200, 'TripScore countries', { countries: [], continent: decodeURIComponent(continent) });
     }
 
     // URL decode continent name in case it has spaces or special characters
@@ -1953,7 +1953,7 @@ const getTripScoreCountryDetails = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed || !privacyCheck.showLocation) {
-      return sendSuccess(res, 'TripScore country details', { locations: [], country: decodeURIComponent(country) });
+      return sendSuccess(res, 200, 'TripScore country details', { locations: [], country: decodeURIComponent(country) });
     }
 
     const { generateSignedUrl } = require('../services/mediaService');
@@ -2159,7 +2159,7 @@ const getTripScoreLocations = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const privacyCheck = await checkProfilePrivacy(id, viewerId);
     if (!privacyCheck.allowed || !privacyCheck.showLocation) {
-      return sendSuccess(res, 'TripScore locations', { locations: [], country: decodeURIComponent(country) });
+      return sendSuccess(res, 200, 'TripScore locations', { locations: [], country: decodeURIComponent(country) });
     }
 
     const { generateSignedUrl } = require('../services/mediaService');

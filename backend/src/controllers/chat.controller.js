@@ -1,11 +1,13 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const Post = require('../models/Post');
 const ConnectPage = require('../models/ConnectPage');
 const mongoose = require('mongoose');
 const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 const { generateSignedUrl } = require('../services/mediaService');
+const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
 
 // Import socket and fetch with proper error handling
 let getIO;
@@ -625,6 +627,7 @@ exports.getMessagesByRoomId = async (req, res) => {
         _id: msg._id ? msg._id.toString() : null,
         sender: senderId,
         text: msg.text || '',
+        attachments: msg.attachments || [],
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
       };
@@ -653,14 +656,14 @@ exports.getMessagesByRoomId = async (req, res) => {
 exports.sendMessageToRoom = async (req, res) => {
   const userId = req.user._id;
   const { chatId } = req.params;
-  const { text } = req.body;
+  const { text, attachments } = req.body;
 
   try {
     if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
       return sendError(res, 'VAL_2001', 'Invalid chat ID');
     }
-    if (!text) {
-      return sendError(res, 'VAL_2001', 'Text required');
+    if (!text && (!attachments || attachments.length === 0)) {
+      return sendError(res, 'VAL_2001', 'Text or attachments required');
     }
 
     const chat = await Chat.findById(chatId);
@@ -675,7 +678,10 @@ exports.sendMessageToRoom = async (req, res) => {
     }
 
     // Add message
-    const message = { sender: userId, text, timestamp: new Date() };
+    const message = { sender: userId, text: text || '', timestamp: new Date() };
+    if (attachments && attachments.length > 0) {
+      message.attachments = attachments;
+    }
     chat.messages.push(message);
     await chat.save();
 
@@ -709,7 +715,8 @@ exports.sendMessageToRoom = async (req, res) => {
     const messageToEmit = {
       _id: savedMessage._id.toString(),
       sender: savedMessage.sender.toString(),
-      text: savedMessage.text,
+      text: savedMessage.text || '',
+      attachments: savedMessage.attachments || [],
       timestamp: savedMessage.timestamp,
       seen: savedMessage.seen || false,
       senderName,
@@ -730,7 +737,8 @@ exports.sendMessageToRoom = async (req, res) => {
             // Other participants get message:new
             nsp.to(`user:${participantId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
           }
-          nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+          const roomLastMsg = messageToEmit.text || (messageToEmit.attachments.length > 0 ? `📎 ${messageToEmit.attachments[0].type === 'image' ? 'Photo' : messageToEmit.attachments[0].type === 'video' ? 'Video' : 'Attachment'}` : '');
+          nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: roomLastMsg, timestamp: messageToEmit.timestamp });
         }
         logger.info('✅ [sendMessageToRoom] Socket events emitted to all participants', { chatId: chatIdStr, participantCount: participantIds.length });
       }
@@ -760,7 +768,7 @@ exports.sendMessageToRoom = async (req, res) => {
                 to: recipient.expoPushToken,
                 sound: 'default',
                 title: pageName,
-                body: `${req.user.fullName || 'Someone'}: ${text}`,
+                body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
                 data: { chatId: chatIdStr, type: 'connect_page' },
               }),
             });
@@ -897,14 +905,15 @@ exports.getMessages = async (req, res) => {
         _id: msg._id ? msg._id.toString() : null,
         sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
         text: msg.text || '',
+        attachments: msg.attachments || [],
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false
       };
-      
+
       if (index < 3) {
         logger.debug(`📨 [getMessages] Message ${index}:`, formatted);
       }
-      
+
       return formatted;
     });
     
@@ -925,29 +934,30 @@ exports.getMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
-  const { text } = req.body;
-  
+  const { text, attachments } = req.body;
+
   try {
     const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
     const userIdStr = userId.toString();
     const otherUserIdStr = otherUserId ? otherUserId.toString() : null;
-    
+
     logger.info('📤 [sendMessage] Request received', {
       userId: userIdStr,
       otherUserId: otherUserId,
       textLength: text?.length,
+      attachmentCount: attachments?.length || 0,
       officialId,
       userRole: req.user.role,
       isSuperAdmin: !!req.superAdmin
     });
-    
+
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
       logger.warn('❌ [sendMessage] Invalid otherUserId:', otherUserId);
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
-    if (!text) {
-      logger.warn('❌ [sendMessage] Text required');
-      return sendError(res, 'VAL_2001', 'Text required');
+    if (!text && (!attachments || attachments.length === 0)) {
+      logger.warn('❌ [sendMessage] Text or attachments required');
+      return sendError(res, 'VAL_2001', 'Text or attachments required');
     }
     
     // Use constant from imports (handles fallback logic)
@@ -1128,11 +1138,15 @@ exports.sendMessage = async (req, res) => {
     
     logger.info('📝 [sendMessage] Creating message', {
       sender: userId.toString(),
-      textLength: text.length,
+      textLength: (text || '').length,
+      attachmentCount: attachments?.length || 0,
       chatId: chat._id.toString()
     });
-    
-    const message = { sender: userId, text, timestamp: new Date() };
+
+    const message = { sender: userId, text: text || '', timestamp: new Date() };
+    if (attachments && attachments.length > 0) {
+      message.attachments = attachments;
+    }
     chat.messages.push(message);
     
     // Update conversation status for admin_support chats
@@ -1203,7 +1217,8 @@ exports.sendMessage = async (req, res) => {
         const messageToEmit = {
           _id: savedMessage._id.toString(),
           sender: savedMessage.sender.toString(),
-          text: savedMessage.text,
+          text: savedMessage.text || '',
+          attachments: savedMessage.attachments || [],
           timestamp: savedMessage.timestamp,
           seen: savedMessage.seen || false
         };
@@ -1227,14 +1242,15 @@ exports.sendMessage = async (req, res) => {
         nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
         
         // Emit chat list update to both users
+        const lastMessagePreview = messageToEmit.text || (messageToEmit.attachments.length > 0 ? `📎 ${messageToEmit.attachments[0].type === 'image' ? 'Photo' : messageToEmit.attachments[0].type === 'video' ? 'Video' : 'Attachment'}` : '');
         logger.info('📡 [sendMessage] Emitting chat:update to both users', {
           recipient: otherUserId.toString(),
           sender: userId.toString(),
           chatId: chatIdStr,
-          lastMessage: messageToEmit.text.substring(0, 50)
+          lastMessage: lastMessagePreview.substring(0, 50)
         });
-        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
-        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: lastMessagePreview, timestamp: messageToEmit.timestamp });
+        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: lastMessagePreview, timestamp: messageToEmit.timestamp });
         
         // For admin_support conversations, also emit to admin rooms
         if (chat.type === 'admin_support') {
@@ -1250,9 +1266,9 @@ exports.sendMessage = async (req, res) => {
             userId: userId.toString(),
             otherUserId: otherUserId.toString()
           });
-          nsp.to('admin_support').emit('admin_support:chat:update', { 
-            chatId: chatIdStr, 
-            lastMessage: messageToEmit.text, 
+          nsp.to('admin_support').emit('admin_support:chat:update', {
+            chatId: chatIdStr,
+            lastMessage: lastMessagePreview,
             timestamp: messageToEmit.timestamp,
             userId: userId.toString()
           });
@@ -1286,13 +1302,13 @@ exports.sendMessage = async (req, res) => {
             to: recipient.expoPushToken,
             sound: 'default',
             title: 'New Message',
-            body: `${req.user.fullName || 'Someone'}: ${text}`,
+            body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
             data: { chatWith: userId }
           })
         });
         logger.debug('Push notification sent successfully');
       } else {
-        logger.debug('Push notification skipped:', { 
+        logger.debug('Push notification skipped:', {
           hasRecipient: !!recipient, 
           hasToken: !!recipient?.expoPushToken, 
           hasFetch: !!fetch,
@@ -1383,6 +1399,94 @@ exports.markAllMessagesSeen = async (req, res) => {
     }
   }
   return sendSuccess(res, 200, 'Messages marked as seen');
+};
+
+/**
+ * Mark all messages as seen in a group/room chat
+ * POST /api/v1/chat/room/:chatId/mark-all-seen
+ */
+exports.markAllMessagesSeenInRoom = async (req, res) => {
+  const userId = req.user._id;
+  const { chatId } = req.params;
+
+  try {
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
+    }
+
+    // Verify user is a participant
+    const participantIds = chat.participants.map(p => p.toString());
+    if (!participantIds.includes(userId.toString())) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    const seenMessageIds = [];
+    const userIdStr = userId.toString();
+
+    chat.messages.forEach(msg => {
+      // Skip own messages
+      if (msg.sender.toString() === userIdStr) return;
+
+      // Initialize seenBy if needed
+      if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
+
+      // Add user to seenBy if not already there
+      const alreadySeen = msg.seenBy.some(id => id.toString() === userIdStr);
+      if (!alreadySeen) {
+        msg.seenBy.push(userId);
+        seenMessageIds.push(msg._id.toString());
+
+        // Check if ALL other participants have now seen it
+        const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
+        const allSeen = otherParticipants.every(pId =>
+          msg.seenBy.some(sId => sId.toString() === pId)
+        );
+        if (allSeen) msg.seen = true;
+      }
+    });
+
+    if (seenMessageIds.length > 0) {
+      await chat.save();
+
+      // Notify all other participants via socket so their read receipts update
+      try {
+        const io = getSocketInstance();
+        if (io && io.of('/app')) {
+          const nsp = io.of('/app');
+          const chatIdStr = chat._id.toString();
+
+          for (const messageId of seenMessageIds) {
+            // Build current seenBy for this message
+            const msg = chat.messages.find(m => m._id.toString() === messageId);
+            const seenBy = msg ? (msg.seenBy || []).map(id => id.toString()) : [userIdStr];
+
+            for (const pId of participantIds) {
+              if (pId !== userIdStr) {
+                nsp.to(`user:${pId}`).emit('seen', {
+                  from: userIdStr,
+                  messageId,
+                  chatId: chatIdStr,
+                  seenBy
+                });
+              }
+            }
+          }
+        }
+      } catch (socketError) {
+        logger.error('[markAllMessagesSeenInRoom] Socket error:', socketError);
+      }
+    }
+
+    return sendSuccess(res, 200, 'Messages marked as seen', { markedCount: seenMessageIds.length });
+  } catch (error) {
+    logger.error('Error in markAllMessagesSeenInRoom:', error);
+    return sendError(res, 'SRV_6001', 'Failed to mark messages as seen');
+  }
 };
 
 // Clear all messages in a chat
@@ -1522,5 +1626,228 @@ exports.getMuteStatus = async (req, res) => {
   } catch (error) {
     logger.error('Error getting mute status:', error);
     return sendError(res, 'SRV_6001', 'Failed to get mute status');
+  }
+};
+
+/**
+ * Upload media/files for chat attachments
+ * POST /api/v1/chat/upload
+ * Accepts multipart form data with up to 5 files
+ * Returns array of attachment metadata objects ready to include in a message
+ */
+exports.uploadChatMedia = async (req, res) => {
+  const userId = req.user._id;
+
+  try {
+    if (!req.files || req.files.length === 0) {
+      return sendError(res, 'VAL_2001', 'No files provided');
+    }
+
+    logger.info('[uploadChatMedia] Uploading files', {
+      userId: userId.toString(),
+      fileCount: req.files.length
+    });
+
+    const attachments = [];
+
+    for (const file of req.files) {
+      const extension = file.originalname.split('.').pop() || 'bin';
+      const storageKey = buildMediaKey({
+        type: 'chat',
+        userId: userId.toString(),
+        filename: file.originalname,
+        extension
+      });
+
+      // Upload to storage
+      const { key } = await uploadObject(file.buffer, storageKey, file.mimetype);
+
+      // Generate a download URL (7 day expiry for chat media)
+      const url = await getDownloadUrl(key, 604800);
+
+      // Determine attachment type from mimetype
+      let attachmentType = 'file';
+      if (file.mimetype.startsWith('image/')) {
+        attachmentType = 'image';
+      } else if (file.mimetype.startsWith('video/')) {
+        attachmentType = 'video';
+      }
+
+      const attachment = {
+        type: attachmentType,
+        url,
+        storageKey: key,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype
+      };
+
+      attachments.push(attachment);
+
+      logger.info('[uploadChatMedia] File uploaded', {
+        type: attachmentType,
+        fileName: file.originalname,
+        size: file.size,
+        key
+      });
+    }
+
+    return sendSuccess(res, 200, 'Files uploaded successfully', { attachments });
+  } catch (error) {
+    logger.error('Error in uploadChatMedia:', error);
+    return sendError(res, 'SRV_6001', 'Failed to upload files');
+  }
+};
+
+/**
+ * Share/forward a post to a chat
+ * POST /api/v1/chat/share-post
+ * Body: { postId, otherUserId (for 1:1) OR chatId (for group) }
+ */
+exports.sharePost = async (req, res) => {
+  const userId = req.user._id;
+  const { postId, otherUserId, chatId } = req.body;
+
+  try {
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return sendError(res, 'VAL_2001', 'Invalid post ID');
+    }
+
+    if (!otherUserId && !chatId) {
+      return sendError(res, 'VAL_2001', 'Must provide either otherUserId or chatId');
+    }
+
+    // Fetch the post
+    const post = await Post.findById(postId)
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .lean();
+
+    if (!post) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Post not found');
+    }
+
+    // Build post preview for attachment
+    let authorProfilePic = post.user?.profilePic || '';
+    if (!authorProfilePic && post.user?.profilePicStorageKey) {
+      authorProfilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || '';
+    }
+
+    // Get first image URL from post media
+    let postImageUrl = '';
+    if (post.media && post.media.length > 0) {
+      const firstMedia = post.media[0];
+      if (firstMedia.storageKey) {
+        postImageUrl = await generateSignedUrl(firstMedia.storageKey, 'IMAGE') || '';
+      } else if (firstMedia.url) {
+        postImageUrl = firstMedia.url;
+      }
+    }
+
+    const attachment = {
+      type: 'post',
+      postId: post._id,
+      postPreview: {
+        caption: (post.caption || '').substring(0, 150),
+        imageUrl: postImageUrl,
+        authorName: post.user?.fullName || 'Unknown',
+        authorProfilePic
+      }
+    };
+
+    const message = {
+      sender: userId,
+      text: '',
+      attachments: [attachment],
+      timestamp: new Date()
+    };
+
+    let chat;
+
+    if (chatId) {
+      // Group chat
+      if (!mongoose.Types.ObjectId.isValid(chatId)) {
+        return sendError(res, 'VAL_2001', 'Invalid chat ID');
+      }
+      chat = await Chat.findById(chatId);
+      if (!chat) {
+        return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+      }
+      const participantIds = chat.participants.map(p => p.toString());
+      if (!participantIds.includes(userId.toString())) {
+        return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+      }
+    } else {
+      // 1:1 chat
+      if (!mongoose.Types.ObjectId.isValid(otherUserId)) {
+        return sendError(res, 'VAL_2001', 'Invalid user ID');
+      }
+
+      const userIdObj = new mongoose.Types.ObjectId(userId);
+      const otherUserIdObj = new mongoose.Types.ObjectId(otherUserId);
+
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      });
+
+      if (!chat) {
+        chat = await Chat.create({
+          type: 'user_chat',
+          participants: [userIdObj, otherUserIdObj],
+          messages: []
+        });
+      }
+    }
+
+    chat.messages.push(message);
+    await chat.save();
+
+    // Get saved message with _id
+    const savedChat = await Chat.findById(chat._id);
+    const savedMessage = savedChat.messages[savedChat.messages.length - 1];
+
+    const chatIdStr = chat._id.toString();
+
+    // Emit socket events
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const messageToEmit = {
+          _id: savedMessage._id.toString(),
+          sender: savedMessage.sender.toString(),
+          text: savedMessage.text || '',
+          attachments: savedMessage.attachments || [],
+          timestamp: savedMessage.timestamp,
+          seen: savedMessage.seen || false
+        };
+
+        if (chatId) {
+          // Group chat - emit to all participants
+          const participantIds = chat.participants.map(p => p.toString());
+          for (const participantId of participantIds) {
+            if (participantId === userId.toString()) {
+              nsp.to(`user:${participantId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+            } else {
+              nsp.to(`user:${participantId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+            }
+            nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+          }
+        } else {
+          // 1:1 chat
+          nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+          nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+          nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+          nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+        }
+      }
+    } catch (socketError) {
+      logger.error('[sharePost] Socket error:', socketError);
+    }
+
+    return sendSuccess(res, 201, 'Post shared successfully', { message: savedMessage });
+  } catch (error) {
+    logger.error('Error in sharePost:', error);
+    return sendError(res, 'SRV_6001', 'Failed to share post');
   }
 };

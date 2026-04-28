@@ -15,11 +15,14 @@ import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
 import ThreeDotMenu from '../../components/ThreeDotMenu';
 import { toggleBlockUser, getBlockStatus } from '../../services/profile';
-import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
+import { clearChat, toggleMuteChat, getMuteStatus, ChatAttachment } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import { getPostById } from '../../services/posts';
+import ChatAttachmentPicker from '../../components/chat/ChatAttachmentPicker';
+import ChatAttachmentPreview from '../../components/chat/ChatAttachmentPreview';
+import MessageAttachment from '../../components/chat/MessageAttachment';
 
 // Clear push notification badge and dismiss tray notifications when messages are read.
 // Works for both Firebase (FCM) and Expo notification channels.
@@ -180,6 +183,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Check if this is Taatom Official user - using properties set by backend
   // Backend sets isVerified: true and fullName: 'Taatom Official' for Taatom Official user
@@ -1019,8 +1025,12 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               }
             });
 
-            // Mark as seen in backend (only for 1:1 chats — group chats handled via socket markMessageSeen)
-            if (!isGroupChat) {
+            // Mark as seen in backend (REST call to persist)
+            if (isGroupChat) {
+              api.post(`/chat/room/${chatId}/mark-all-seen`).catch(e => {
+                logger.debug('Failed to mark group messages as seen in backend:', e);
+              });
+            } else {
               api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
                 logger.debug('Failed to mark messages as seen in backend:', e);
               });
@@ -1060,13 +1070,24 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         markSeenTimeoutRef.current = null;
         // Fire immediately on close so the badge clears when returning to chat list
         if (!hasMarkedAsSeenRef.current && chatId) {
-          const otherUserIdNorm = normalizeId(otherUser._id);
-          const unseenNow = sortedMessagesRef.current.filter(m => {
+          const myId = normalizeId(currentUserId);
+          const isGroup = chatType === 'connect_page';
+          const unseenNow = sortedMessagesRef.current.filter((m: any) => {
             const senderId = normalizeId(m.sender?._id || m.sender);
+            if (isGroup) {
+              if (senderId === myId) return false;
+              if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
+              return true;
+            }
+            const otherUserIdNorm = normalizeId(otherUser._id);
             return senderId && otherUserIdNorm && senderId === otherUserIdNorm && !m.seen;
           });
           if (unseenNow.length > 0) {
-            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            if (isGroup) {
+              api.post(`/chat/room/${chatId}/mark-all-seen`).catch(() => {});
+            } else {
+              api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            }
             clearChatNotifications();
             if (onMessagesSeen && chatId) {
               onMessagesSeen(chatId, unseenNow.map((u: any) => normalizeId(u._id)));
@@ -1076,33 +1097,52 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         }
       }
     };
-  }, [sortedMessages, otherUser, chatId]);
+  }, [sortedMessages, otherUser, chatId, chatType, currentUserId]);
 
   // Also mark as seen immediately when user sends a message (they're actively viewing the chat)
   const markMessagesAsSeenIfNeeded = useCallback(() => {
     if (hasMarkedAsSeenRef.current) return;
-    
+
+    const myId = normalizeId(currentUserId);
+    const isGroup = chatType === 'connect_page';
+
     const unseen = sortedMessages.filter(m => {
       const senderId = normalizeId(m.sender?._id || m.sender);
+      if (isGroup) {
+        if (senderId === myId) return false;
+        if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
+        return true;
+      }
       const otherUserId = normalizeId(otherUser._id);
       return senderId && otherUserId && senderId === otherUserId && !m.seen;
     });
-    
+
     if (unseen.length > 0) {
       logger.debug('[UNREAD DEBUG] Marking messages as seen (user sent message)', {
         chatId,
-        unseenCount: unseen.length
+        unseenCount: unseen.length,
+        isGroup
       });
-      
+
       // Mark as seen via socket
       unseen.forEach(msg => {
-        socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+        if (isGroup) {
+          socketService.emit('seen', { messageId: msg._id, chatId });
+        } else {
+          socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+        }
       });
-      
+
       // Mark as seen in backend + clear push notification badge/tray
-      api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
-        logger.debug('Failed to mark messages as seen in backend:', e);
-      });
+      if (isGroup) {
+        api.post(`/chat/room/${chatId}/mark-all-seen`).catch(e => {
+          logger.debug('Failed to mark group messages as seen in backend:', e);
+        });
+      } else {
+        api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+          logger.debug('Failed to mark messages as seen in backend:', e);
+        });
+      }
       clearChatNotifications();
 
       // Update local state
@@ -1110,6 +1150,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         const msgId = normalizeId(m._id);
         const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
         if (isUnseen) {
+          if (isGroup && myId) {
+            const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+            if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+            return { ...m, seenBy: currentSeenBy };
+          }
           return { ...m, seen: true };
         }
         return m;
@@ -1132,9 +1177,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
   // In handleSend, update local state via onSendMessage
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && pendingAttachments.length === 0) return;
     const messageText = input;
-    logger.debug('Sending message:', messageText);
+    const attachmentsToSend = [...pendingAttachments];
+    logger.debug('Sending message:', messageText, 'attachments:', attachmentsToSend.length);
     
     // Mark messages as seen when user sends a message (they're actively viewing the chat)
     markMessagesAsSeenIfNeeded();
@@ -1154,15 +1200,17 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     const optimisticMessage = {
       _id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       text: messageText,
+      attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
       sender: currentUserId,
       timestamp: new Date().toISOString(),
       seen: false,
       isOptimistic: true, // Flag to identify optimistic messages
     };
-    
+
     // Add optimistic message immediately to UI for instant feedback
     onSendMessage(optimisticMessage);
     setInput(''); // Clear input immediately for better UX
+    setPendingAttachments([]); // Clear attachments
     
     // Scroll to bottom after adding optimistic message
     setTimeout(() => {
@@ -1175,7 +1223,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
       const endpoint = isGroupChat
         ? `/chat/room/${chatId}/messages`
         : `/chat/${otherUser._id}/messages`;
-      const res = await api.post(endpoint, { text: messageText });
+      const payload: { text?: string; attachments?: ChatAttachment[] } = {};
+      if (messageText) payload.text = messageText;
+      if (attachmentsToSend.length > 0) payload.attachments = attachmentsToSend;
+      const res = await api.post(endpoint, payload);
       logger.debug('Message sent successfully:', res.data.message);
       
       // Clear any existing fallback timeout
@@ -1387,10 +1438,19 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      paddingHorizontal: isTablet ? theme.spacing.lg : 10,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 8,
       paddingTop: isTablet ? 8 : 6,
-      paddingBottom: isTablet ? 10 : 8,
+      paddingBottom: Math.max(isTablet ? 10 : 10, insets.bottom > 0 ? insets.bottom : 12),
       backgroundColor: theme.colors.background,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.colors.border || 'rgba(0,0,0,0.08)',
+    },
+    attachButton: {
+      width: 38,
+      height: 38,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 4,
     },
     inputWrapper: {
       flex: 1,
@@ -1918,13 +1978,30 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         </View>
                       </TouchableOpacity>
                     ) : (
-                      // Regular text message
-                      <Text style={[
-                        styles.bubbleText,
-                        isOwn ? styles.bubbleOwnText : {}
-                      ]}>
-                        {String(item.text || '')}
-                      </Text>
+                      // Regular text message (with optional attachments)
+                      <View>
+                        {/* Render attachments if present */}
+                        {item.attachments && item.attachments.length > 0 && (
+                          <View style={{ marginBottom: item.text ? 6 : 0 }}>
+                            {item.attachments.map((att: any, attIdx: number) => (
+                              <MessageAttachment
+                                key={attIdx}
+                                attachment={att}
+                                isOwnMessage={isOwn}
+                              />
+                            ))}
+                          </View>
+                        )}
+                        {/* Render text if present */}
+                        {item.text ? (
+                          <Text style={[
+                            styles.bubbleText,
+                            isOwn ? styles.bubbleOwnText : {}
+                          ]}>
+                            {String(item.text)}
+                          </Text>
+                        ) : null}
+                      </View>
                     )}
 
                     <View style={{
@@ -1981,8 +2058,27 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           </View>
         )}
 
+        {/* Attachment Preview */}
+        {pendingAttachments.length > 0 && (
+          <ChatAttachmentPreview
+            attachments={pendingAttachments}
+            onRemove={(index) => {
+              setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+            }}
+          />
+        )}
+
         {/* Clean Input Bar */}
         <View style={styles.inputContainer}>
+          <TouchableOpacity
+            onPress={() => setShowAttachmentPicker(true)}
+            style={styles.attachButton}
+            accessibilityRole="button"
+            accessibilityLabel="Add attachment"
+          >
+            <Ionicons name="add-circle-outline" size={26} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}
@@ -1994,23 +2090,32 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               textAlignVertical="center"
             />
           </View>
-          
-          {input.trim() && (
-            <TouchableOpacity 
-              onPress={handleSend} 
+
+          {(input.trim() || pendingAttachments.length > 0) && (
+            <TouchableOpacity
+              onPress={handleSend}
               style={styles.sendButton}
               accessibilityRole="button"
               accessibilityLabel="Send message"
               accessibilityHint="Sends the message in the input field"
             >
-              <Ionicons 
-                name="send" 
-                size={18} 
-                color="#fff" 
+              <Ionicons
+                name="send"
+                size={18}
+                color="#fff"
               />
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Attachment Picker Modal */}
+        <ChatAttachmentPicker
+          visible={showAttachmentPicker}
+          onClose={() => setShowAttachmentPicker(false)}
+          onAttachmentsReady={(attachments) => {
+            setPendingAttachments(prev => [...prev, ...attachments]);
+          }}
+        />
       </KeyboardAvoidingView>
     </View>
     
@@ -2236,11 +2341,16 @@ export default function ChatModal() {
 
       // If this is a real message (not optimistic), remove any optimistic messages with the same text and sender
       // This handles the case where optimistic message was added, then real message arrives
-      if (!msg.isOptimistic && msg.text) {
+      if (!msg.isOptimistic) {
         const filtered = prev.filter(m => {
-          // Remove optimistic messages that match this real message's text and sender
-          // Match by text content and sender to ensure we're replacing the right message
-          if (m.isOptimistic && m.text === msg.text && String(m.sender) === String(msg.sender)) {
+          if (!m.isOptimistic) return true;
+          // Remove optimistic messages that match this real message's sender
+          if (String(m.sender) !== String(msg.sender)) return true;
+          // Match by text content (including both empty for attachment-only messages)
+          const textsMatch = (m.text || '') === (msg.text || '');
+          // For attachment messages, also check attachment count matches
+          const attachmentsMatch = (m.attachments?.length || 0) === (msg.attachments?.length || 0);
+          if (textsMatch && (m.text || attachmentsMatch)) {
             logger.debug('Removing optimistic message, replacing with real message:', { optimisticId: m._id, realId: msg._id });
             return false;
           }
@@ -2818,19 +2928,31 @@ export default function ChatModal() {
             try {
               // Mark all messages as seen in all conversations
               const updatePromises = conversations.map(async (chat) => {
-                const other = chat.participants.find((u: any) => {
-                  const uId = normalizeId(u?._id || u);
-                  const meId = normalizeId(chat.me);
-                  return uId && meId && uId !== meId;
-                });
-                
-                if (other) {
-                  const otherId = normalizeId(other?._id || other);
-                  if (otherId) {
-                    try {
-                      await api.post(`/chat/${otherId}/mark-all-seen`);
-                    } catch (error) {
-                      logger.debug(`Failed to mark messages as seen for chat ${chat._id}:`, error);
+                const isGroup = (chat as any).type === 'connect_page';
+
+                if (isGroup) {
+                  // Group chat: use room endpoint
+                  try {
+                    await api.post(`/chat/room/${chat._id}/mark-all-seen`);
+                  } catch (error) {
+                    logger.debug(`Failed to mark group messages as seen for chat ${chat._id}:`, error);
+                  }
+                } else {
+                  // 1:1 chat: use user endpoint
+                  const other = chat.participants.find((u: any) => {
+                    const uId = normalizeId(u?._id || u);
+                    const meId = normalizeId(chat.me);
+                    return uId && meId && uId !== meId;
+                  });
+
+                  if (other) {
+                    const otherId = normalizeId(other?._id || other);
+                    if (otherId) {
+                      try {
+                        await api.post(`/chat/${otherId}/mark-all-seen`);
+                      } catch (error) {
+                        logger.debug(`Failed to mark messages as seen for chat ${chat._id}:`, error);
+                      }
                     }
                   }
                 }
@@ -2840,11 +2962,23 @@ export default function ChatModal() {
 
               // Update local state - mark all messages as seen
               setConversations(prev => prev.map(chat => {
-                const currentUserId = normalizeId(chat.me);
+                const myId = normalizeId(chat.me);
+                const isGroup = (chat as any).type === 'connect_page';
                 const updatedMessages = (chat.messages || []).map((m: any) => {
                   const senderId = normalizeId(m.sender?._id || m.sender);
-                  // Mark as seen if it's from someone else and not already seen
-                  if (senderId && currentUserId && senderId !== currentUserId && (m.seen === false || m.seen === undefined || m.seen === null)) {
+                  if (!senderId || !myId || senderId === myId) return m;
+
+                  if (isGroup) {
+                    // Group chat: add me to seenBy
+                    const currentSeenBy = Array.isArray(m.seenBy)
+                      ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean)
+                      : [];
+                    if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+                    return { ...m, seenBy: currentSeenBy };
+                  }
+
+                  // 1:1 chat: set seen = true
+                  if (m.seen === false || m.seen === undefined || m.seen === null) {
                     return { ...m, seen: true };
                   }
                   return m;
