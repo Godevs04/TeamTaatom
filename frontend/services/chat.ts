@@ -2,6 +2,39 @@ import api from './api';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 
+export interface ChatAttachment {
+  type: 'image' | 'video' | 'file' | 'post';
+  url?: string;
+  thumbnailUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  mimeType?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  storageKey?: string;
+  // For shared posts
+  postId?: string;
+  postPreview?: {
+    caption: string;
+    imageUrl: string;
+    authorName: string;
+    authorProfilePic: string;
+  };
+}
+
+export interface ChatMessage {
+  _id: string;
+  sender: string;
+  text: string;
+  attachments?: ChatAttachment[];
+  timestamp: string;
+  seen: boolean;
+  seenBy?: string[];
+  senderName?: string;
+  senderProfilePic?: string;
+}
+
 export interface Chat {
   _id: string;
   participants: Array<{
@@ -9,13 +42,7 @@ export interface Chat {
     fullName: string;
     profilePic: string;
   }>;
-  messages: Array<{
-    _id: string;
-    sender: string;
-    text: string;
-    timestamp: string;
-    seen: boolean;
-  }>;
+  messages: ChatMessage[];
   type?: 'user_chat' | 'admin_support' | 'connect_page';
   connectPageId?: {
     _id: string;
@@ -36,13 +63,7 @@ export interface ChatResponse {
 }
 
 export interface MessagesResponse {
-  messages: Array<{
-    _id: string;
-    sender: string;
-    text: string;
-    timestamp: string;
-    seen: boolean;
-  }>;
+  messages: ChatMessage[];
 }
 
 /**
@@ -88,17 +109,91 @@ export const getMessages = async (otherUserId: string): Promise<MessagesResponse
 };
 
 /**
- * Send a message in a chat
+ * Send a message in a chat (1:1)
  */
 export const sendMessage = async (
   otherUserId: string,
-  text: string
+  text: string,
+  attachments?: ChatAttachment[]
 ): Promise<{ success: boolean; message: any }> => {
   try {
-    const response = await api.post(`/api/v1/chat/${otherUserId}/messages`, { text });
+    const body: { text?: string; attachments?: ChatAttachment[] } = {};
+    if (text) body.text = text;
+    if (attachments && attachments.length > 0) body.attachments = attachments;
+    const response = await api.post(`/api/v1/chat/${otherUserId}/messages`, body);
     return response.data;
   } catch (error: any) {
     logger.error('sendMessage', error);
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+/**
+ * Send a message to a group/room chat
+ */
+export const sendMessageToRoom = async (
+  chatId: string,
+  text: string,
+  attachments?: ChatAttachment[]
+): Promise<{ success: boolean; message: any }> => {
+  try {
+    const body: { text?: string; attachments?: ChatAttachment[] } = {};
+    if (text) body.text = text;
+    if (attachments && attachments.length > 0) body.attachments = attachments;
+    const response = await api.post(`/api/v1/chat/room/${chatId}/messages`, body);
+    return response.data;
+  } catch (error: any) {
+    logger.error('sendMessageToRoom', error);
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+/**
+ * Upload media/files for chat attachments
+ * Returns array of attachment metadata ready to be sent with a message
+ */
+export const uploadChatMedia = async (
+  files: Array<{ uri: string; name: string; type: string }>
+): Promise<{ attachments: ChatAttachment[] }> => {
+  try {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      } as any);
+    });
+
+    const response = await api.post('/api/v1/chat/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000, // 60s timeout for file uploads
+    });
+    return response.data;
+  } catch (error: any) {
+    logger.error('uploadChatMedia', error);
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+/**
+ * Share/forward a post to a chat
+ */
+export const sharePostToChat = async (
+  postId: string,
+  target: { otherUserId?: string; chatId?: string }
+): Promise<{ success: boolean; message: any }> => {
+  try {
+    const response = await api.post('/api/v1/chat/share-post', {
+      postId,
+      ...target,
+    });
+    return response.data;
+  } catch (error: any) {
+    logger.error('sharePostToChat', error);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }

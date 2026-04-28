@@ -75,6 +75,9 @@ const buildMediaKey = ({ type, userId, filename, extension }) => {
     case 'locale':
       basePath = `locales/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
       break;
+    case 'chat':
+      basePath = `chats/${userId || 'unknown'}/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
+      break;
     default:
       basePath = `misc/${timestamp}-${uniqueId}${sanitizedFilename ? `-${sanitizedFilename}` : ''}`;
   }

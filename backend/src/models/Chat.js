@@ -1,13 +1,47 @@
 const mongoose = require('mongoose');
 const { Schema, Types } = mongoose;
 
+const AttachmentSchema = new Schema({
+  type: {
+    type: String,
+    enum: ['image', 'video', 'file', 'post'],
+    required: true
+  },
+  url: { type: String }, // Cloudinary URL for media/files
+  thumbnailUrl: { type: String }, // Thumbnail for videos
+  fileName: { type: String },
+  fileSize: { type: Number }, // in bytes
+  mimeType: { type: String },
+  duration: { type: Number }, // video duration in seconds
+  width: { type: Number },
+  height: { type: Number },
+  // For shared posts
+  postId: { type: Types.ObjectId, ref: 'Post' },
+  postPreview: {
+    caption: { type: String },
+    imageUrl: { type: String },
+    authorName: { type: String },
+    authorProfilePic: { type: String }
+  }
+}, { _id: false });
+
 const MessageSchema = new Schema({
   sender: { type: Types.ObjectId, ref: 'User', required: true },
-  text: { type: String, required: true },
+  text: { type: String, default: '' },
+  attachments: [AttachmentSchema],
   timestamp: { type: Date, default: Date.now },
   seen: { type: Boolean, default: false },
   // For group chats: tracks which participants have seen this message
   seenBy: [{ type: Types.ObjectId, ref: 'User' }]
+});
+
+// Ensure message has either text or attachments
+MessageSchema.pre('validate', function (next) {
+  if (!this.text && (!this.attachments || this.attachments.length === 0)) {
+    next(new Error('Message must have either text or at least one attachment'));
+  } else {
+    next();
+  }
 });
 
 const ChatSchema = new Schema({
