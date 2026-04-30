@@ -2899,7 +2899,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: followingIds },
         interests: { $in: userInterests },
       })
-        .select('username fullName profilePic bio followers isVerified createdAt interests')
+        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt interests')
         .limit(limit * 2)
         .lean();
 
@@ -2927,7 +2927,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: excludeIds },
         isVerified: true,
       })
-        .select('username fullName profilePic bio followers isVerified createdAt')
+        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
         .limit(need * 2)
         .sort({ followers: -1, createdAt: -1 })
         .lean();
@@ -2936,7 +2936,7 @@ const getSuggestedUsers = async (req, res) => {
         const more = await User.find({
           _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
         })
-          .select('username fullName profilePic bio followers isVerified createdAt')
+          .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
           .limit(need * 2 - fillUsers.length)
           .sort({ followers: -1, createdAt: -1 })
           .lean();
@@ -2953,7 +2953,16 @@ const getSuggestedUsers = async (req, res) => {
           user: user._id,
           isActive: true,
         });
-        const { interests: _i, ...rest } = user;
+        // Resolve profile pic from R2 storage key
+        if (user.profilePicStorageKey) {
+          try {
+            const signedUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+            if (signedUrl) user.profilePic = signedUrl;
+          } catch (err) {
+            // keep existing profilePic
+          }
+        }
+        const { interests: _i, profilePicStorageKey: _psk, ...rest } = user;
         return {
           ...rest,
           postsCount: postCount,

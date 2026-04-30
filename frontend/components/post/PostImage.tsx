@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, FlatList, Dimensions } from 'react-native';
+import { View, Text, Image as RNImage, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, FlatList, Dimensions } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
-import { loadImageWithFallback, generateBlurUpUrl, generateWebPUrl } from '../../utils/imageLoader';
+import { generateBlurUpUrl } from '../../utils/imageLoader';
 import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
@@ -12,6 +13,15 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
+
+// Strip the query string from a signed URL so the cache key stays stable across
+// sessions. Without this, a fresh signature on each backend response would miss
+// the cache and force a re-download of an image we already have on disk.
+const getStableCacheKey = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  const q = url.indexOf('?');
+  return q >= 0 ? url.slice(0, q) : url;
+};
 
 interface PostImageProps {
   post: PostType;
@@ -40,15 +50,13 @@ export default function PostImage({
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
-  const [showBlur, setShowBlur] = useState(!imageUri);
-  const [mainImageLoaded, setMainImageLoaded] = useState(!!imageUri);
   const [isMuted, setIsMuted] = useState(true); // Default to muted
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const songPlayerRef = useRef<any>(null);
   const isTogglingMuteRef = useRef(false);
   const isMutedRef = useRef(true); // Use ref to track mute state to avoid dependency issues, default to muted
-  
+
   // Double-tap detection
   const lastTapRef = useRef<number>(0);
   const doubleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -62,22 +70,20 @@ export default function PostImage({
     .onEnd(() => { scale.value = withSpring(1, { damping: 15, stiffness: 150 }); });
   const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
-  // Generate blur-up placeholder for progressive loading
+  // expo-image handles caching natively; we just pass the array through.
+  const resolvedImages = post.images && post.images.length > 1 ? post.images : (post.images || []);
+
+  // Generate a low-res placeholder for Cloudinary URLs (legacy posts). For R2
+  // signed URLs, generateBlurUpUrl returns the original URL unchanged — we
+  // detect that and skip the placeholder so we don't double-fetch.
   useEffect(() => {
     if (post.imageUrl && !blurUpUri) {
       const blurUrl = generateBlurUpUrl(post.imageUrl);
-      setBlurUpUri(blurUrl);
+      if (blurUrl && blurUrl !== post.imageUrl) {
+        setBlurUpUri(blurUrl);
+      }
     }
   }, [post.imageUrl, blurUpUri]);
-
-  // Hide blur once main image is loaded
-  const handleMainImageLoad = () => {
-    setMainImageLoaded(true);
-    // Small delay to ensure smooth transition
-    setTimeout(() => {
-      setShowBlur(false);
-    }, 100);
-  };
 
   // Track mute state for this post - reset to muted (default) when post changes
   useEffect(() => {
@@ -208,7 +214,7 @@ export default function PostImage({
   useEffect(() => {
     if (post.aspectRatio !== 'full' || !imageUri) return;
     let cancelled = false;
-    Image.getSize(
+    RNImage.getSize(
       imageUri,
       (w, h) => { if (!cancelled && w && h) setNaturalAspect(w / h); },
       () => { /* ignore — falls back to 1 */ },
@@ -239,7 +245,7 @@ export default function PostImage({
             <View style={StyleSheet.absoluteFill}>
               <FlatList
                 ref={flatListRef}
-                data={post.images}
+                data={resolvedImages}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
@@ -249,15 +255,17 @@ export default function PostImage({
                   setCurrentImageIndex(index);
                 }}
                 renderItem={({ item }) => (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     activeOpacity={1}
                     onPress={handleDoubleTap}
                     style={{ width: screenWidth, height: '100%' }}
                   >
-                    <Image
-                      source={{ uri: item }}
+                    <ExpoImage
+                      source={{ uri: item, cacheKey: getStableCacheKey(item) }}
+                      cachePolicy="memory-disk"
+                      contentFit="cover"
+                      transition={250}
                       style={styles.image}
-                      resizeMode="cover"
                     />
                     {/* Heart animation overlay */}
                     <View style={styles.heartContainer} pointerEvents="none">
@@ -310,25 +318,16 @@ export default function PostImage({
                   activeOpacity={0.9}
                   style={StyleSheet.absoluteFill}
                 >
-                  {/* Single image with blur-up placeholder */}
-                  {blurUpUri && showBlur && (
-                    <Image
-                      source={{ uri: blurUpUri }}
-                      style={[styles.image, styles.blurImage]}
-                      resizeMode="cover"
-                      blurRadius={Platform.OS === 'ios' ? 10 : 5}
-                    />
-                  )}
-
-                  <Image
-                    source={{ uri: imageUri }}
-                    style={[styles.image, styles.imageLoaded]}
-                    resizeMode="cover"
-                    fadeDuration={0}
-                    onLoad={handleMainImageLoad}
-                    onError={(error) => {
-                      onImageError();
-                    }}
+                  <ExpoImage
+                    source={{ uri: imageUri, cacheKey: getStableCacheKey(imageUri) }}
+                    placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
+                    placeholderContentFit="cover"
+                    cachePolicy="memory-disk"
+                    contentFit="cover"
+                    transition={250}
+                    priority="high"
+                    style={styles.image}
+                    onError={() => onImageError()}
                   />
 
                   {/* Heart animation overlay */}

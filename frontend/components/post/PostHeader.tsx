@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { PostType } from '../../types/post';
 import PostLocation from './PostLocation';
+import { imageCacheManager } from '../../utils/imageCacheManager';
 
 interface PostHeaderProps {
   post: PostType;
@@ -18,11 +19,15 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
   const router = useRouter();
 
   // Handle case where user might be undefined (from fallback user object)
-  const user = post.user || { 
-    _id: 'unknown', 
-    fullName: 'Unknown User', 
-    profilePic: 'https://via.placeholder.com/40' 
+  const user = post.user || {
+    _id: 'unknown',
+    fullName: 'Unknown User',
+    profilePic: 'https://via.placeholder.com/40'
   };
+
+  // Use sync cache lookup for instant display, fallback to direct URL
+  const profileUrl = user.profilePic || 'https://via.placeholder.com/40';
+  const cachedProfilePic = imageCacheManager.getCachedPathSync(profileUrl);
 
   return (
     <View style={styles.header}>
@@ -37,9 +42,10 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
       >
         <Image
           source={{
-            uri: user.profilePic || 'https://via.placeholder.com/40',
+            uri: cachedProfilePic,
           }}
           style={styles.profilePic}
+          onLoad={() => imageCacheManager.cacheAfterDisplay(profileUrl)}
         />
         <View style={styles.userDetails}>
           <Text style={[styles.username, { color: theme.colors.text }]}>

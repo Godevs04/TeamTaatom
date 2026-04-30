@@ -13,6 +13,7 @@ import { useTheme } from '../context/ThemeContext';
 import { ConnectPageType } from '../services/connect';
 import { theme as themeConstants } from '../constants/theme';
 import { optimizeCloudinaryUrl } from '../utils/imageCache';
+import { imageCacheManager } from '../utils/imageCacheManager';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -42,9 +43,15 @@ export default function ConnectCard({
 }: ConnectCardProps) {
   const { theme } = useTheme();
 
-  const ownerName = typeof page.userId === 'object' ? page.userId.fullName : '';
-  const ownerUsername = typeof page.userId === 'object' ? page.userId.username : '';
-  const ownerProfilePic = typeof page.userId === 'object' ? page.userId.profilePic : '';
+  const ownerName = typeof page.userId === 'object' && page.userId ? page.userId.fullName : '';
+  const ownerUsername = typeof page.userId === 'object' && page.userId ? page.userId.username : '';
+  const ownerProfilePic = typeof page.userId === 'object' && page.userId ? page.userId.profilePic : '';
+
+  // Use sync cache lookup — instant if cached, direct URL otherwise
+  const rawImageUrl = page.profileImage || ownerProfilePic || '';
+  const cachedImageUri = rawImageUrl
+    ? imageCacheManager.getCachedPathSync(rawImageUrl) || optimizeCloudinaryUrl(rawImageUrl, { width: 96, height: 96 })
+    : '';
 
   return (
     <TouchableOpacity
@@ -55,10 +62,8 @@ export default function ConnectCard({
       <View style={styles.cardContent}>
         {/* Profile Image */}
         <View style={styles.imageContainer}>
-          {page.profileImage ? (
-            <Image source={{ uri: optimizeCloudinaryUrl(page.profileImage, { width: 96, height: 96 }) }} style={styles.profileImage} />
-          ) : ownerProfilePic ? (
-            <Image source={{ uri: optimizeCloudinaryUrl(ownerProfilePic, { width: 96, height: 96 }) }} style={styles.profileImage} />
+          {cachedImageUri ? (
+            <Image source={{ uri: cachedImageUri }} style={styles.profileImage} onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)} />
           ) : (
             <View style={[styles.profileImagePlaceholder, { backgroundColor: theme.colors.border }]}>
               <Ionicons name="people" size={24} color={theme.colors.textSecondary} />

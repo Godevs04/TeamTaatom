@@ -7,20 +7,24 @@ const User = require('../models/User');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
-const { generateSignedUrl } = require('../services/mediaService');
+const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
 
 // Helper: resolve storage keys to signed URLs for page images
 const resolvePageImages = async (page) => {
   if (page.profileImage && !page.profileImage.startsWith('http')) {
     try {
-      page.profileImage = await generateSignedUrl(page.profileImage, 'PROFILE');
+      const url = await generateSignedUrl(page.profileImage, 'PROFILE');
+      if (url) page.profileImage = url;
+      else page.profileImage = '';
     } catch {
       page.profileImage = '';
     }
   }
   if (page.bannerImage && !page.bannerImage.startsWith('http')) {
     try {
-      page.bannerImage = await generateSignedUrl(page.bannerImage, 'PROFILE');
+      const url = await generateSignedUrl(page.bannerImage, 'PROFILE');
+      if (url) page.bannerImage = url;
+      else page.bannerImage = '';
     } catch {
       page.bannerImage = '';
     }
@@ -39,7 +43,8 @@ const resolvePageImages = async (page) => {
 const createPage = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { name, type, bio, features } = req.body;
+    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
+    const { getCurrencyFromCountry, validatePrice, getCurrencyConfig } = require('../utils/currencyConfig');
 
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
       return sendError(res, 'VALIDATION_FAILED', 'Connect page name must be 3-50 characters');
@@ -101,6 +106,46 @@ const createPage = async (req, res) => {
         subscription: parsedFeatures?.subscription === true || parsedFeatures?.subscription === 'true' || false
       }
     };
+
+    // Determine currency from country or explicit selection
+    const resolvedCurrency = subscriptionCurrency || getCurrencyFromCountry(country || 'IN');
+    pageData.subscriptionCurrency = resolvedCurrency;
+
+    // Set creator payout info from country + bank details
+    if (country) {
+      const { isInternational } = require('../utils/currencyConfig');
+      pageData.creatorPayoutInfo = {
+        country: country.toUpperCase(),
+        isInternational: isInternational(country),
+      };
+    }
+
+    // Merge payout/bank details if provided
+    if (payoutInfo) {
+      let parsedPayout = payoutInfo;
+      if (typeof payoutInfo === 'string') {
+        try { parsedPayout = JSON.parse(payoutInfo); } catch { parsedPayout = {}; }
+      }
+      if (!pageData.creatorPayoutInfo) pageData.creatorPayoutInfo = {};
+      if (parsedPayout.bankAccountName) pageData.creatorPayoutInfo.bankAccountName = parsedPayout.bankAccountName;
+      if (parsedPayout.bankAccountNumber) pageData.creatorPayoutInfo.bankAccountNumber = parsedPayout.bankAccountNumber;
+      if (parsedPayout.bankIfsc) pageData.creatorPayoutInfo.bankIfsc = parsedPayout.bankIfsc;
+      if (parsedPayout.upiId) pageData.creatorPayoutInfo.upiId = parsedPayout.upiId;
+      if (parsedPayout.wiseEmail) pageData.creatorPayoutInfo.wiseEmail = parsedPayout.wiseEmail;
+    }
+
+    // Set subscription price if provided — requires admin approval before going live
+    if (pageData.features.subscription && subscriptionPrice) {
+      const price = parseFloat(subscriptionPrice);
+      const priceValidation = validatePrice(price, resolvedCurrency);
+      if (priceValidation.valid) {
+        pageData.subscriptionApproval = {
+          status: 'pending',
+          requestedPrice: price,
+        };
+        // subscriptionPrice stays null until admin approves
+      }
+    }
 
     const page = new ConnectPage(pageData);
 
@@ -172,7 +217,8 @@ const getPageDetail = async (req, res) => {
 
     // Check if current user is the owner
     const currentUserId = req.user?._id;
-    const isOwner = currentUserId && page.userId._id.toString() === currentUserId.toString();
+    const pageOwnerId = page.userId?._id || page.userId;
+    const isOwner = currentUserId && pageOwnerId && pageOwnerId.toString() === currentUserId.toString();
 
     // Check if current user follows this page
     let isFollowing = false;
@@ -186,6 +232,45 @@ const getPageDetail = async (req, res) => {
     }
 
     await resolvePageImages(page);
+
+    // Resolve image storage keys in content blocks
+    // Also handle corrupted data: expired signed URLs stored in DB
+    for (const block of (page.websiteContent || [])) {
+      if (block.type === 'image' && block.content) {
+        if (!block.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(block.content, 'DEFAULT');
+            if (url) block.content = url;
+          } catch { /* keep original key */ }
+        } else if (isSignedUrl(block.content)) {
+          const storageKey = extractStorageKeyFromUrl(block.content);
+          if (storageKey) {
+            try {
+              const url = await generateSignedUrl(storageKey, 'DEFAULT');
+              if (url) block.content = url;
+            } catch { /* keep existing URL */ }
+          }
+        }
+      }
+    }
+    for (const block of (page.subscriptionContent || [])) {
+      if (block.type === 'image' && block.content) {
+        if (!block.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(block.content, 'DEFAULT');
+            if (url) block.content = url;
+          } catch { /* keep original key */ }
+        } else if (isSignedUrl(block.content)) {
+          const storageKey = extractStorageKeyFromUrl(block.content);
+          if (storageKey) {
+            try {
+              const url = await generateSignedUrl(storageKey, 'DEFAULT');
+              if (url) block.content = url;
+            } catch { /* keep existing URL */ }
+          }
+        }
+      }
+    }
 
     return sendSuccess(res, 200, 'Page detail fetched', {
       page,
@@ -215,11 +300,67 @@ const updatePage = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit this page');
     }
 
-    const allowedFields = ['name', 'type', 'bio', 'profileImage', 'features', 'subscriptionPrice'];
+    const allowedFields = ['name', 'type', 'bio', 'profileImage', 'features', 'creatorPayoutInfo'];
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
+      }
+    }
+
+    // Handle currency update from country change
+    if (req.body.subscriptionCurrency) {
+      updates['subscriptionCurrency'] = req.body.subscriptionCurrency;
+    } else if (req.body.country) {
+      const { getCurrencyFromCountry } = require('../utils/currencyConfig');
+      updates['subscriptionCurrency'] = getCurrencyFromCountry(req.body.country);
+    }
+
+    // Handle country in creatorPayoutInfo
+    if (req.body.country) {
+      const { isInternational } = require('../utils/currencyConfig');
+      if (!updates['creatorPayoutInfo']) {
+        updates['creatorPayoutInfo'] = page.creatorPayoutInfo?.toObject?.() || {};
+      }
+      updates['creatorPayoutInfo'].country = req.body.country.toUpperCase();
+      updates['creatorPayoutInfo'].isInternational = isInternational(req.body.country);
+    }
+
+    // Merge payout/bank details if provided via payoutInfo field
+    if (req.body.payoutInfo) {
+      let parsedPayout = req.body.payoutInfo;
+      if (typeof parsedPayout === 'string') {
+        try { parsedPayout = JSON.parse(parsedPayout); } catch { parsedPayout = {}; }
+      }
+      if (!updates['creatorPayoutInfo']) {
+        updates['creatorPayoutInfo'] = page.creatorPayoutInfo?.toObject?.() || {};
+      }
+      if (parsedPayout.bankAccountName !== undefined) updates['creatorPayoutInfo'].bankAccountName = parsedPayout.bankAccountName;
+      if (parsedPayout.bankAccountNumber !== undefined) updates['creatorPayoutInfo'].bankAccountNumber = parsedPayout.bankAccountNumber;
+      if (parsedPayout.bankIfsc !== undefined) updates['creatorPayoutInfo'].bankIfsc = parsedPayout.bankIfsc;
+      if (parsedPayout.upiId !== undefined) updates['creatorPayoutInfo'].upiId = parsedPayout.upiId;
+      if (parsedPayout.wiseEmail !== undefined) updates['creatorPayoutInfo'].wiseEmail = parsedPayout.wiseEmail;
+    }
+
+    // Handle subscription price change — goes to pending approval
+    if (req.body.subscriptionPrice !== undefined) {
+      const { validatePrice, getCurrencyConfig } = require('../utils/currencyConfig');
+      const currency = updates['subscriptionCurrency'] || page.subscriptionCurrency || 'INR';
+      const price = parseFloat(req.body.subscriptionPrice);
+      const priceValidation = validatePrice(price, currency);
+      if (priceValidation.valid) {
+        updates['subscriptionApproval'] = {
+          status: 'pending',
+          requestedPrice: price,
+          approvedAt: null,
+          rejectedAt: null,
+          rejectionReason: '',
+          reviewedBy: null
+        };
+        // Don't update subscriptionPrice directly — wait for admin approval
+      } else {
+        const config = getCurrencyConfig(currency);
+        return sendError(res, 'VALIDATION_FAILED', `Price must be between ${config.symbol}${config.minPrice} and ${config.symbol}${config.maxPrice}`);
       }
     }
 
@@ -319,6 +460,11 @@ const getCommunities = async (req, res) => {
       ConnectPage.countDocuments(query)
     ]);
 
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
+
     // Check follow status for current user
     const currentUserId = req.user?._id;
     if (currentUserId) {
@@ -373,6 +519,11 @@ const searchByName = async (req, res) => {
         .lean(),
       ConnectPage.countDocuments(query)
     ]);
+
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
 
     // Check follow status
     const currentUserId = req.user?._id;
@@ -651,6 +802,11 @@ const getFollowing = async (req, res) => {
       .filter(f => f.connectPageId && f.connectPageId.status === 'active')
       .map(f => ({ ...f.connectPageId, isFollowing: true }));
 
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
+
     return sendSuccess(res, 200, 'Following list fetched', {
       pages,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
@@ -688,6 +844,11 @@ const getArchived = async (req, res) => {
     const pages = follows
       .filter(f => f.connectPageId)
       .map(f => ({ ...f.connectPageId, isFollowing: false }));
+
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
 
     return sendSuccess(res, 200, 'Archived list fetched', {
       pages,
@@ -818,13 +979,25 @@ const updateWebsiteContent = async (req, res) => {
     }
 
     // Filter out empty blocks and strip _id to avoid subdocument conflicts
+    // For image blocks: restore storage keys from signed URLs to prevent
+    // expired signed URLs from being stored in the database
     const sanitized = content
       .filter(block => block.content && block.content.trim() !== '')
-      .map((block, idx) => ({
-        type: block.type,
-        content: block.content,
-        order: idx,
-      }));
+      .map((block, idx) => {
+        let blockContent = block.content;
+        if (block.type === 'image' && blockContent && isSignedUrl(blockContent)) {
+          const storageKey = extractStorageKeyFromUrl(blockContent);
+          if (storageKey) blockContent = storageKey;
+        }
+        const clean = {
+          type: block.type,
+          content: blockContent,
+          order: idx,
+        };
+        if (block.url) clean.url = block.url;
+        if (block.embedType) clean.embedType = block.embedType;
+        return clean;
+      });
 
     page.websiteContent = sanitized;
     await page.save();
@@ -866,6 +1039,30 @@ const getWebsiteContent = async (req, res) => {
       }
     }
 
+    // Resolve image storage keys to signed URLs
+    // Also handle corrupted data: if a signed URL was previously stored (now expired),
+    // extract the storage key and re-generate a fresh signed URL
+    for (const block of (page.websiteContent || [])) {
+      if (block.type === 'image' && block.content) {
+        if (!block.content.startsWith('http')) {
+          // Storage key — generate signed URL
+          try {
+            const url = await generateSignedUrl(block.content, 'DEFAULT');
+            if (url) block.content = url;
+          } catch { /* keep original key */ }
+        } else if (isSignedUrl(block.content)) {
+          // Expired signed URL stored in DB — extract key and re-sign
+          const storageKey = extractStorageKeyFromUrl(block.content);
+          if (storageKey) {
+            try {
+              const url = await generateSignedUrl(storageKey, 'DEFAULT');
+              if (url) block.content = url;
+            } catch { /* keep existing URL */ }
+          }
+        }
+      }
+    }
+
     return sendSuccess(res, 200, 'Website content fetched', { websiteContent: page.websiteContent || [] });
   } catch (error) {
     logger.error('Error fetching website content:', error);
@@ -899,13 +1096,25 @@ const updateSubscriptionContent = async (req, res) => {
     }
 
     // Filter out empty blocks and strip _id to avoid subdocument conflicts
+    // For image blocks: restore storage keys from signed URLs to prevent
+    // expired signed URLs from being stored in the database
     const sanitized = content
       .filter(block => block.content && block.content.trim() !== '')
-      .map((block, idx) => ({
-        type: block.type,
-        content: block.content,
-        order: idx,
-      }));
+      .map((block, idx) => {
+        let blockContent = block.content;
+        if (block.type === 'image' && blockContent && isSignedUrl(blockContent)) {
+          const storageKey = extractStorageKeyFromUrl(blockContent);
+          if (storageKey) blockContent = storageKey;
+        }
+        const clean = {
+          type: block.type,
+          content: blockContent,
+          order: idx,
+        };
+        if (block.url) clean.url = block.url;
+        if (block.embedType) clean.embedType = block.embedType;
+        return clean;
+      });
 
     page.subscriptionContent = sanitized;
     await page.save();
@@ -928,6 +1137,27 @@ const getSubscriptionContent = async (req, res) => {
     const page = await ConnectPage.findById(pageId).select('subscriptionContent features').lean();
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Resolve image storage keys to signed URLs
+    // Also handle corrupted data: expired signed URLs stored in DB
+    for (const block of (page.subscriptionContent || [])) {
+      if (block.type === 'image' && block.content) {
+        if (!block.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(block.content, 'DEFAULT');
+            if (url) block.content = url;
+          } catch { /* keep original key */ }
+        } else if (isSignedUrl(block.content)) {
+          const storageKey = extractStorageKeyFromUrl(block.content);
+          if (storageKey) {
+            try {
+              const url = await generateSignedUrl(storageKey, 'DEFAULT');
+              if (url) block.content = url;
+            } catch { /* keep existing URL */ }
+          }
+        }
+      }
     }
 
     return sendSuccess(res, 200, 'Subscription content fetched', { subscriptionContent: page.subscriptionContent || [] });
@@ -1077,6 +1307,48 @@ const getPageAnalytics = async (req, res) => {
   }
 };
 
+/**
+ * Upload a content block image to R2 storage
+ * POST /api/v1/connect/page/:pageId/content-image
+ * Expects multer file in req.file (field: 'image')
+ * Returns { storageKey, signedUrl }
+ */
+const uploadContentImage = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+
+    const page = await ConnectPage.findById(pageId).select('userId');
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can upload images');
+    }
+
+    const file = req.file;
+    if (!file) {
+      return sendError(res, 'VALIDATION_FAILED', 'No image file provided');
+    }
+
+    const extension = file.originalname?.split('.').pop() || 'jpg';
+    const storageKey = buildMediaKey({
+      type: 'connect-content',
+      userId: userId.toString(),
+      filename: file.originalname || 'content.jpg',
+      extension
+    });
+    await uploadObject(file.buffer, storageKey, file.mimetype);
+
+    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT');
+
+    return sendSuccess(res, 200, 'Image uploaded', { storageKey, signedUrl });
+  } catch (error) {
+    logger.error('Error uploading content block image:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to upload image');
+  }
+};
+
 module.exports = {
   // CRUD
   createPage,
@@ -1101,6 +1373,7 @@ module.exports = {
   getWebsiteContent,
   updateSubscriptionContent,
   getSubscriptionContent,
+  uploadContentImage,
   // Views
   recordView,
   // Analytics

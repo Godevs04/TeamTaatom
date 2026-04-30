@@ -29,6 +29,9 @@ const TripScoreAnalytics = lazyWithRetry(() => import('./pages/TripScoreAnalytic
 const TravelVerification = lazyWithRetry(() => import('./pages/TravelVerification'))
 const System = lazyWithRetry(() => import('./pages/System'))
 const SupportInbox = lazyWithRetry(() => import('./pages/SupportInbox'))
+const ConnectSubscriptions = lazyWithRetry(() => import('./pages/ConnectSubscriptions'))
+const CommunityPages = lazyWithRetry(() => import('./pages/CommunityPages'))
+const CommunityPageEditor = lazyWithRetry(() => import('./pages/CommunityPageEditor'))
 
 // Loading component
 const LoadingSpinner = () => (
@@ -102,6 +105,9 @@ function App() {
                         <Route path="/tripscore-analytics" element={<TripScoreAnalytics />} />
                         <Route path="/travel-verification" element={<TravelVerification />} />
                         <Route path="/support-inbox" element={<SupportInbox />} />
+                        <Route path="/connect-subscriptions" element={<ConnectSubscriptions />} />
+                        <Route path="/community-pages" element={<CommunityPages />} />
+                        <Route path="/community-pages/:pageId/edit" element={<CommunityPageEditor />} />
                         <Route path="/system" element={<System />} />
                         {TestPage ? <Route path="/test" element={<TestPage />} /> : <Route path="/test" element={<Navigate to="/dashboard" replace />} />}
                       </Routes>

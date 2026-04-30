@@ -10,6 +10,8 @@ import {
   Platform,
   Dimensions,
   StatusBar,
+  Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -20,8 +22,16 @@ import { theme as themeConstants } from '../../constants/theme';
 import {
   getWebsiteContent,
   getSubscriptionContent,
+  getPageDetail,
+  getSubscriptionStatus,
+  createSubscription,
+  cancelSubscription as cancelSubApi,
+  getCurrencySymbol,
   ContentBlock,
+  ConnectPageType,
+  SubscriptionStatus,
 } from '../../services/connect';
+import { crashReportingService } from '../../services/crashReporting';
 import logger from '../../utils/logger';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -73,8 +83,13 @@ export default function ContentPreviewScreen() {
 
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState<ContentBlock[]>([]);
+  const [pageData, setPageData] = useState<ConnectPageType | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
 
   const isWebsite = section === 'website';
+  const isSubscription = section === 'subscription';
   const title = pageName
     ? decodeURIComponent(pageName)
     : isWebsite
@@ -86,13 +101,29 @@ export default function ContentPreviewScreen() {
       if (!pageId) return;
       try {
         setLoading(true);
-        const response = isWebsite
-          ? await getWebsiteContent(pageId)
-          : await getSubscriptionContent(pageId);
+        const [contentResponse, pageResponse] = await Promise.all([
+          isWebsite
+            ? getWebsiteContent(pageId)
+            : getSubscriptionContent(pageId),
+          isSubscription ? getPageDetail(pageId).catch(() => null) : Promise.resolve(null),
+        ]);
         const data = isWebsite
-          ? (response as any).websiteContent
-          : (response as any).subscriptionContent;
+          ? (contentResponse as any).websiteContent
+          : (contentResponse as any).subscriptionContent;
         setContent(data || []);
+        if (pageResponse) {
+          setPageData(pageResponse.page);
+          setIsOwner(pageResponse.isOwner);
+          // Load subscription status for non-owners
+          if (!pageResponse.isOwner && pageResponse.page.features?.subscription && pageResponse.page.subscriptionPrice) {
+            try {
+              const status = await getSubscriptionStatus(pageId);
+              setSubscriptionStatus(status);
+            } catch (err) {
+              logger.warn('Error loading subscription status:', err);
+            }
+          }
+        }
       } catch (error) {
         logger.error('Error loading preview content:', error);
       } finally {
@@ -101,6 +132,46 @@ export default function ContentPreviewScreen() {
     };
     load();
   }, [pageId, section]);
+
+  const handleSubscribe = async () => {
+    if (!pageData || subscribing) return;
+    try {
+      setSubscribing(true);
+      const result = await createSubscription(pageData._id);
+      // Refresh subscription status after subscribing
+      const status = await getSubscriptionStatus(pageData._id);
+      setSubscriptionStatus(status);
+    } catch (error: any) {
+      crashReportingService.recordError(error, { context: 'subscribe_from_preview' });
+      Alert.alert('Error', error.message || 'Failed to subscribe. Please try again.');
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!subscriptionStatus?.subscription?._id) return;
+    Alert.alert(
+      'Cancel Subscription',
+      'Are you sure you want to cancel your subscription?',
+      [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Cancel Subscription',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await cancelSubApi(subscriptionStatus.subscription!._id);
+              const status = await getSubscriptionStatus(pageData!._id);
+              setSubscriptionStatus(status);
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to cancel subscription.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const sorted = [...content].sort((a, b) => a.order - b.order);
 
@@ -125,9 +196,9 @@ export default function ContentPreviewScreen() {
           </Text>
         );
       case 'image':
-        return (
+        return block.content ? (
           <PreviewImage key={block._id || index} uri={block.content} />
-        );
+        ) : null;
       case 'video':
         return (
           <View key={block._id || index} style={styles.videoContainer}>
@@ -139,6 +210,45 @@ export default function ContentPreviewScreen() {
               shouldPlay={false}
             />
           </View>
+        );
+      case 'button':
+        return (
+          <TouchableOpacity
+            key={block._id || index}
+            style={[styles.buttonBlock, { backgroundColor: theme.colors.primary }]}
+            onPress={() => {
+              if (block.url) Linking.openURL(block.url).catch(() => {});
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.buttonBlockText}>{block.content || 'Button'}</Text>
+          </TouchableOpacity>
+        );
+      case 'divider':
+        return (
+          <View
+            key={block._id || index}
+            style={[styles.dividerBlock, { backgroundColor: theme.colors.border }]}
+          />
+        );
+      case 'embed':
+        return (
+          <TouchableOpacity
+            key={block._id || index}
+            style={[styles.embedBlock, { backgroundColor: theme.colors.border }]}
+            onPress={() => {
+              if (block.content) Linking.openURL(block.content).catch(() => {});
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="open-outline" size={28} color={theme.colors.textSecondary} />
+            <Text style={[styles.embedBlockLabel, { color: theme.colors.textSecondary }]}>
+              {block.embedType === 'youtube' ? 'YouTube Video' : block.embedType === 'map' ? 'Google Map' : 'External Content'}
+            </Text>
+            <Text style={[styles.embedBlockLink, { color: theme.colors.primary }]}>
+              Tap to open
+            </Text>
+          </TouchableOpacity>
         );
       default:
         return null;
@@ -200,6 +310,86 @@ export default function ContentPreviewScreen() {
           showsVerticalScrollIndicator={false}
         >
           {sorted.map((block, idx) => renderBlock(block, idx))}
+
+          {/* Subscribe section */}
+          {isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
+            const approvalStatus = pageData.subscriptionApproval?.status || 'none';
+            const approvedPrice = pageData.subscriptionPrice;
+            const requestedPrice = pageData.subscriptionApproval?.requestedPrice;
+            const displayPrice = approvalStatus === 'approved' ? approvedPrice : requestedPrice || approvedPrice;
+            const currSym = getCurrencySymbol(pageData.subscriptionCurrency || 'INR');
+
+            // Owner view — static preview
+            if (isOwner) {
+              return (
+                <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
+                  <View style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}>
+                    <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.subscribeButtonText}>
+                      Subscribe · {currSym}{displayPrice}/month
+                    </Text>
+                  </View>
+                  <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary }]}>
+                    This is a preview — subscribers will see this button on your page
+                  </Text>
+                </View>
+              );
+            }
+
+            // Visitor — already subscribed
+            if (subscriptionStatus?.isSubscribed) {
+              return (
+                <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
+                  <View style={[styles.subscribedBadge, { backgroundColor: (theme.colors as any).success + '15' }]}>
+                    <Ionicons name="checkmark-circle" size={18} color={(theme.colors as any).success} />
+                    <Text style={[styles.subscribedText, { color: (theme.colors as any).success }]}>Subscribed</Text>
+                  </View>
+                  {subscriptionStatus.subscription?.currentPeriodEnd && (
+                    <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary, fontStyle: 'normal' }]}>
+                      Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    onPress={handleCancelSubscription}
+                    activeOpacity={0.7}
+                    style={{ marginTop: 8, paddingVertical: 4 }}
+                  >
+                    <Text style={{ color: theme.colors.error, fontSize: 13, fontFamily: getFontFamily('500'), fontWeight: '500' }}>
+                      Cancel subscription
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
+            // Visitor — can subscribe (price approved)
+            if (approvalStatus === 'approved' && approvedPrice) {
+              return (
+                <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
+                  <TouchableOpacity
+                    style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
+                    onPress={handleSubscribe}
+                    activeOpacity={0.7}
+                    disabled={subscribing}
+                  >
+                    {subscribing ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.subscribeButtonText}>
+                          Subscribe · {currSym}{approvedPrice}/month
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
+            return null;
+          })()}
+
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
@@ -319,5 +509,118 @@ const styles = StyleSheet.create({
   videoBlock: {
     width: '100%',
     height: '100%',
+  },
+  buttonBlock: {
+    paddingVertical: 14,
+    borderRadius: themeConstants.borderRadius.sm,
+    alignItems: 'center',
+    marginBottom: isTablet ? 20 : 16,
+  },
+  buttonBlockText: {
+    color: '#FFFFFF',
+    fontSize: isTablet ? 16 : 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  dividerBlock: {
+    height: 1,
+    marginVertical: isTablet ? 16 : 12,
+  },
+  embedBlock: {
+    width: '100%',
+    height: isTablet ? 160 : 120,
+    borderRadius: themeConstants.borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: isTablet ? 20 : 16,
+  },
+  embedBlockLabel: {
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  embedBlockLink: {
+    fontSize: 13,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  subscribeSection: {
+    borderTopWidth: 1,
+    marginTop: 20,
+    paddingTop: 20,
+    alignItems: 'center',
+  },
+  subscribePriceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 14,
+  },
+  subscribePrice: {
+    fontSize: isTablet ? 28 : 24,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  subscribePeriod: {
+    fontSize: isTablet ? 16 : 14,
+    fontFamily: getFontFamily('400'),
+    marginLeft: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  subscribeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: themeConstants.borderRadius.sm,
+  },
+  subscribeButtonText: {
+    color: '#FFFFFF',
+    fontSize: isTablet ? 16 : 15,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  subscribeNote: {
+    fontSize: 11,
+    fontFamily: getFontFamily('400'),
+    marginTop: 10,
+    fontStyle: 'italic',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  subscribedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  subscribedText: {
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
   },
 });

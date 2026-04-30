@@ -4,8 +4,10 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useRealTime } from '../context/RealTimeContext'
 import AIInsights from '../components/AIInsights'
 import RealTimeAnalytics from '../components/RealTimeAnalytics'
-import { Users, MessageSquare, TrendingUp, Activity, Globe, Shield, AlertTriangle, ArrowUp, ArrowDown, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Users, MessageSquare, TrendingUp, Activity, Globe, Shield, AlertTriangle, ArrowUp, ArrowDown, RefreshCw, ToggleLeft, ToggleRight, Star, CreditCard, IndianRupee } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import StorageUsageCard from '../components/StorageUsageCard'
+import { getSubscriptionStats } from '../services/subscriptionService'
 
 const Dashboard = () => {
   const navigate = useNavigate()
@@ -24,7 +26,28 @@ const Dashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [loadingTimeout, setLoadingTimeout] = useState(false)
   const isMountedRef = useRef(true)
-  
+
+  // Subscription stats for dashboard
+  const [subStats, setSubStats] = useState(null)
+  const [subStatsLoading, setSubStatsLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSubStats = async () => {
+      try {
+        setSubStatsLoading(true)
+        const data = await getSubscriptionStats()
+        if (!cancelled) setSubStats(data)
+      } catch (e) {
+        // silent — subscription stats are non-critical
+      } finally {
+        if (!cancelled) setSubStatsLoading(false)
+      }
+    }
+    loadSubStats()
+    return () => { cancelled = true }
+  }, [])
+
   // Load auto-refresh preference from localStorage (default: false/off)
   const [autoRefreshEnabled, setAutoRefreshEnabledLocal] = useState(() => {
     const saved = localStorage.getItem('dashboard_auto_refresh')
@@ -674,6 +697,103 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               <StorageUsageCard autoRefresh={autoRefreshEnabled} className="sm:col-span-2 lg:col-span-1" />
             </div>
+
+            {/* Subscription Stats */}
+            {!subStatsLoading && subStats && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-purple-100 rounded-lg">
+                        <Star className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">Total Subscribers</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">{(subStats.totalSubscribers || 0).toLocaleString()}</p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.05 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-green-100 rounded-lg">
+                        <CreditCard className="w-5 h-5 text-green-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">Active Subscriptions</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">{(subStats.activeSubscriptions || 0).toLocaleString()}</p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <IndianRupee className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">Monthly Revenue (MRR)</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">₹{(subStats.monthlyRecurringRevenue || 0).toLocaleString()}</p>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-amber-100 rounded-lg">
+                        <AlertTriangle className="w-5 h-5 text-amber-600" />
+                      </div>
+                      <span className="text-sm font-medium text-gray-500">Pending Approvals</span>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">{subStats.pendingApprovals || 0}</p>
+                  </motion.div>
+                </div>
+
+                {/* Monthly Payouts Chart */}
+                {subStats.monthlyChart && subStats.monthlyChart.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-6">
+                      <CreditCard className="w-5 h-5 text-green-600" />
+                      Monthly Payouts
+                    </h3>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={subStats.monthlyChart} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
+                        <Tooltip
+                          formatter={(value, name) => [`₹${Number(value).toLocaleString()}`, name]}
+                          labelStyle={{ fontWeight: 'bold' }}
+                          contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb' }}
+                        />
+                        <Legend />
+                        <Bar dataKey="gross" name="Gross Revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="commission" name="Commission" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="creatorPayout" name="Creator Payout" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </motion.div>
+                )}
+              </>
+            )}
 
             {/* Recent Activity - Enhanced */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">

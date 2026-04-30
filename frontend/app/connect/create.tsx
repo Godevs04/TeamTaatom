@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Image,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,8 +22,27 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
-import { createConnectPage } from '../../services/connect';
+import { createConnectPage, fetchCurrencyConfig, getCurrencySymbol, CurrencyConfig } from '../../services/connect';
 import logger from '../../utils/logger';
+
+// Common countries for quick selection
+const COUNTRY_LIST = [
+  { code: 'IN', name: 'India' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'AE', name: 'UAE' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'KR', name: 'South Korea' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'IT', name: 'Italy' },
+];
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -43,9 +64,41 @@ export default function CreateConnectPageScreen() {
   const [websiteEnabled, setWebsiteEnabled] = useState(true);
   const [groupChatEnabled, setGroupChatEnabled] = useState(true);
   const [subscriptionEnabled, setSubscriptionEnabled] = useState(false);
+  const [subscriptionPrice, setSubscriptionPrice] = useState('');
   const [creating, setCreating] = useState(false);
   const [profileImage, setProfileImage] = useState<{ uri: string; type?: string; name?: string } | null>(null);
   const [bannerImage, setBannerImage] = useState<{ uri: string; type?: string; name?: string } | null>(null);
+  // Multi-currency
+  const [selectedCountry, setSelectedCountry] = useState('IN');
+  const [currency, setCurrency] = useState('INR');
+  const [currencyConfig, setCurrencyConfig] = useState<Record<string, CurrencyConfig> | null>(null);
+  const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
+  // Bank / payout details
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankIfsc, setBankIfsc] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [wiseEmail, setWiseEmail] = useState('');
+
+  const isDomestic = selectedCountry === 'IN';
+
+  useEffect(() => {
+    fetchCurrencyConfig().then((config) => {
+      setCurrencyConfig(config.currencies);
+      setCountryToCurrency(config.countryToCurrency);
+    }).catch(() => {});
+  }, []);
+
+  const handleCountryChange = useCallback((countryCode: string) => {
+    setSelectedCountry(countryCode);
+    const newCurrency = countryToCurrency[countryCode] || 'USD';
+    setCurrency(newCurrency);
+    setSubscriptionPrice(''); // reset price when currency changes
+    setShowCountryPicker(false);
+  }, [countryToCurrency]);
+
+  const activeCurrencyConfig = currencyConfig?.[currency] || { symbol: getCurrencySymbol(currency), minPrice: 1, maxPrice: 10000, decimals: 2, code: currency, name: currency };
 
   const pickImage = async (type: 'profile' | 'banner') => {
     try {
@@ -84,6 +137,13 @@ export default function CreateConnectPageScreen() {
       Alert.alert('Too Short', 'Page name must be at least 3 characters.');
       return;
     }
+    if (subscriptionEnabled && subscriptionPrice) {
+      const price = parseFloat(subscriptionPrice);
+      if (isNaN(price) || price < activeCurrencyConfig.minPrice || price > activeCurrencyConfig.maxPrice) {
+        Alert.alert('Invalid Price', `Price must be between ${activeCurrencyConfig.symbol}${activeCurrencyConfig.minPrice} and ${activeCurrencyConfig.symbol}${activeCurrencyConfig.maxPrice}.`);
+        return;
+      }
+    }
 
     try {
       setCreating(true);
@@ -96,9 +156,19 @@ export default function CreateConnectPageScreen() {
           groupChat: groupChatEnabled,
           subscription: subscriptionEnabled,
         },
+        subscriptionPrice: subscriptionEnabled && subscriptionPrice ? parseFloat(subscriptionPrice) : undefined,
+        subscriptionCurrency: currency,
+        country: selectedCountry,
+        payoutInfo: subscriptionEnabled ? {
+          bankAccountName: isDomestic ? bankAccountName.trim() : undefined,
+          bankAccountNumber: isDomestic ? bankAccountNumber.trim() : undefined,
+          bankIfsc: isDomestic ? bankIfsc.trim() : undefined,
+          upiId: isDomestic ? upiId.trim() : undefined,
+          wiseEmail: !isDomestic ? wiseEmail.trim() : undefined,
+        } : undefined,
         profileImage,
         bannerImage,
-      });
+      } as any);
       router.replace(`/connect/page/${response.page._id}`);
     } catch (error: any) {
       logger.error('Error creating connect page:', error);
@@ -353,15 +423,210 @@ export default function CreateConnectPageScreen() {
                 </View>
                 <Switch
                   value={subscriptionEnabled}
-                  onValueChange={setSubscriptionEnabled}
+                  onValueChange={(val) => {
+                    setSubscriptionEnabled(val);
+                    if (!val) setSubscriptionPrice('');
+                  }}
                   trackColor={{ false: theme.colors.border, true: theme.colors.primary + '80' }}
                   thumbColor={subscriptionEnabled ? theme.colors.primary : theme.colors.textSecondary}
                 />
               </View>
+              {subscriptionEnabled && (
+                <View style={[styles.priceInputRow, { borderTopColor: theme.colors.border }]}>
+                  {/* Country / Currency selector */}
+                  <TouchableOpacity
+                    style={[styles.countrySelector, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+                    onPress={() => setShowCountryPicker(true)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
+                    <Text style={[styles.countrySelectorText, { color: theme.colors.text }]}>
+                      {COUNTRY_LIST.find(c => c.code === selectedCountry)?.name || selectedCountry} · {currency}
+                    </Text>
+                    <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+
+                  <Text style={[styles.priceLabel, { color: theme.colors.textSecondary }]}>
+                    Monthly Price ({activeCurrencyConfig.symbol})
+                  </Text>
+                  <View style={[styles.priceInputWrapper, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                    <Text style={[styles.currencySymbol, { color: theme.colors.textSecondary }]}>{activeCurrencyConfig.symbol}</Text>
+                    <TextInput
+                      style={[styles.priceInput, { color: theme.colors.text }]}
+                      value={subscriptionPrice}
+                      onChangeText={(text) => setSubscriptionPrice(text.replace(/[^0-9.]/g, ''))}
+                      placeholder={`e.g. ${activeCurrencyConfig.minPrice * 3}`}
+                      placeholderTextColor={theme.colors.textSecondary + '80'}
+                      keyboardType="decimal-pad"
+                      maxLength={8}
+                    />
+                  </View>
+                  <Text style={[styles.priceHint, { color: theme.colors.textSecondary }]}>
+                    Min {activeCurrencyConfig.symbol}{activeCurrencyConfig.minPrice} · Max {activeCurrencyConfig.symbol}{activeCurrencyConfig.maxPrice.toLocaleString()}
+                  </Text>
+
+                  {/* Subscription Button Preview */}
+                  {subscriptionPrice && parseFloat(subscriptionPrice) > 0 && (
+                    <View style={styles.buttonPreviewContainer}>
+                      <Text style={[styles.buttonPreviewLabel, { color: theme.colors.textSecondary }]}>
+                        Button preview — how subscribers will see it
+                      </Text>
+                      <View style={[styles.buttonPreview, { backgroundColor: theme.colors.primary }]}>
+                        <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.buttonPreviewText}>
+                          Subscribe · {activeCurrencyConfig.symbol}{subscriptionPrice}/month
+                        </Text>
+                      </View>
+                      <Text style={[styles.buttonPreviewNote, { color: theme.colors.textSecondary }]}>
+                        Price requires admin approval before going live
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Payout Details Section */}
+              {subscriptionEnabled && (
+                <View style={[styles.payoutSection, { borderTopColor: theme.colors.border }]}>
+                  <View style={styles.payoutSectionHeader}>
+                    <Ionicons name="wallet-outline" size={18} color={theme.colors.primary} />
+                    <Text style={[styles.payoutSectionTitle, { color: theme.colors.text }]}>
+                      Payout Details
+                    </Text>
+                  </View>
+                  <Text style={[styles.payoutSectionDesc, { color: theme.colors.textSecondary }]}>
+                    {isDomestic
+                      ? 'Enter your bank account or UPI to receive subscription payouts'
+                      : 'Enter your Wise email to receive international payouts'}
+                  </Text>
+
+                  {isDomestic ? (
+                    <>
+                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                        Account Holder Name
+                      </Text>
+                      <TextInput
+                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                        value={bankAccountName}
+                        onChangeText={setBankAccountName}
+                        placeholder="Full name as on bank account"
+                        placeholderTextColor={theme.colors.textSecondary + '80'}
+                        autoCapitalize="words"
+                      />
+
+                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                        Bank Account Number
+                      </Text>
+                      <TextInput
+                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                        value={bankAccountNumber}
+                        onChangeText={(text) => setBankAccountNumber(text.replace(/[^0-9]/g, ''))}
+                        placeholder="e.g. 1234567890123"
+                        placeholderTextColor={theme.colors.textSecondary + '80'}
+                        keyboardType="number-pad"
+                        maxLength={18}
+                      />
+
+                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                        IFSC Code
+                      </Text>
+                      <TextInput
+                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                        value={bankIfsc}
+                        onChangeText={(text) => setBankIfsc(text.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                        placeholder="e.g. SBIN0001234"
+                        placeholderTextColor={theme.colors.textSecondary + '80'}
+                        autoCapitalize="characters"
+                        maxLength={11}
+                      />
+
+                      <View style={styles.payoutDividerRow}>
+                        <View style={[styles.payoutDividerLine, { backgroundColor: theme.colors.border }]} />
+                        <Text style={[styles.payoutDividerText, { color: theme.colors.textSecondary }]}>or</Text>
+                        <View style={[styles.payoutDividerLine, { backgroundColor: theme.colors.border }]} />
+                      </View>
+
+                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                        UPI ID
+                      </Text>
+                      <TextInput
+                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                        value={upiId}
+                        onChangeText={setUpiId}
+                        placeholder="e.g. name@upi"
+                        placeholderTextColor={theme.colors.textSecondary + '80'}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                        Wise Email
+                      </Text>
+                      <TextInput
+                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                        value={wiseEmail}
+                        onChangeText={setWiseEmail}
+                        placeholder="your@email.com"
+                        placeholderTextColor={theme.colors.textSecondary + '80'}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                      <Text style={[styles.payoutFieldHint, { color: theme.colors.textSecondary }]}>
+                        Payouts are sent monthly via Wise in {currency}
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
             </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Country Picker Modal */}
+      <Modal
+        visible={showCountryPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowCountryPicker(false)}
+      >
+        <View style={styles.countryModalOverlay}>
+          <View style={[styles.countryModalContent, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.countryModalHeader, { borderBottomColor: theme.colors.border }]}>
+              <Text style={[styles.countryModalTitle, { color: theme.colors.text }]}>Select Your Country</Text>
+              <TouchableOpacity onPress={() => setShowCountryPicker(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={COUNTRY_LIST}
+              keyExtractor={(item) => item.code}
+              renderItem={({ item }) => {
+                const itemCurrency = countryToCurrency[item.code] || 'USD';
+                const isSelected = selectedCountry === item.code;
+                return (
+                  <TouchableOpacity
+                    style={[styles.countryItem, isSelected && { backgroundColor: theme.colors.primary + '10' }]}
+                    onPress={() => handleCountryChange(item.code)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.countryItemName, { color: theme.colors.text }]}>{item.name}</Text>
+                      <Text style={[styles.countryItemCurrency, { color: theme.colors.textSecondary }]}>
+                        {getCurrencySymbol(itemCurrency)} {itemCurrency}
+                      </Text>
+                    </View>
+                    {isSelected && <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} />}
+                  </TouchableOpacity>
+                );
+              }}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -526,6 +791,230 @@ const styles = StyleSheet.create({
   featureDivider: {
     borderBottomWidth: 1,
     marginHorizontal: 16,
+  },
+  priceInputRow: {
+    borderTopWidth: 1,
+    paddingHorizontal: isTablet ? 20 : 16,
+    paddingVertical: isTablet ? 14 : 12,
+  },
+  priceLabel: {
+    fontSize: isTablet ? 14 : 13,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    marginBottom: 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  priceInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    paddingHorizontal: 12,
+    height: isTablet ? 48 : 44,
+  },
+  currencySymbol: {
+    fontSize: isTablet ? 18 : 16,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    marginRight: 6,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: isTablet ? 18 : 16,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    paddingVertical: 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
+    } as any),
+  },
+  priceHint: {
+    fontSize: 11,
+    fontFamily: getFontFamily('400'),
+    marginTop: 6,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  buttonPreviewContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  buttonPreviewLabel: {
+    fontSize: 11,
+    fontFamily: getFontFamily('400'),
+    marginBottom: 10,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  buttonPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    borderRadius: themeConstants.borderRadius.sm,
+    width: '100%',
+  },
+  buttonPreviewText: {
+    color: '#FFFFFF',
+    fontSize: isTablet ? 16 : 15,
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  buttonPreviewNote: {
+    fontSize: 11,
+    fontFamily: getFontFamily('400'),
+    marginTop: 8,
+    fontStyle: 'italic',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  // Payout details section
+  payoutSection: {
+    borderTopWidth: 1,
+    paddingHorizontal: isTablet ? 20 : 16,
+    paddingVertical: isTablet ? 16 : 14,
+  },
+  payoutSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  payoutSectionTitle: {
+    fontSize: isTablet ? 16 : 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  payoutSectionDesc: {
+    fontSize: isTablet ? 13 : 12,
+    fontFamily: getFontFamily('400'),
+    marginBottom: 14,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  payoutFieldLabel: {
+    fontSize: isTablet ? 13 : 12,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    marginBottom: 6,
+    marginTop: 10,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  payoutInput: {
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    paddingHorizontal: 14,
+    paddingVertical: isIOS ? 12 : 10,
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('400'),
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
+    } as any),
+  },
+  payoutFieldHint: {
+    fontSize: 11,
+    fontFamily: getFontFamily('400'),
+    marginTop: 6,
+    fontStyle: 'italic',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  payoutDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+    gap: 10,
+  },
+  payoutDividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  payoutDividerText: {
+    fontSize: 12,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  // Country selector
+  countrySelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    marginBottom: 12,
+  },
+  countrySelectorText: {
+    flex: 1,
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+  },
+  // Country picker modal
+  countryModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  countryModalContent: {
+    maxHeight: '70%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  countryModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  countryModalTitle: {
+    fontSize: 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  countryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  countryItemName: {
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+  },
+  countryItemCurrency: {
+    fontSize: 13,
+    fontFamily: getFontFamily('400'),
+    marginTop: 2,
   },
   bannerPicker: {
     width: '100%',

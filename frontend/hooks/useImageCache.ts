@@ -43,7 +43,18 @@ export const useImageCache = (imageUrl: string | null): UseImageCacheResult => {
     }, 8000); // 8 second timeout
 
     try {
-      // Use global cache manager for better performance
+      // For R2 URLs, sync cache check — no async needed
+      if (imageUrl.includes('r2.cloudflarestorage.com') || imageUrl.includes('cloudflarestorage.com')) {
+        const cachedUri = imageCacheManager.getCachedPathSync(imageUrl);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        setImageUri(cachedUri);
+        setLoading(false);
+        return;
+      }
+
+      // Use global cache manager for better performance (non-R2 URLs)
       await imageCacheManager.prefetchImage(imageUrl);
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);

@@ -117,8 +117,8 @@ function RootLayoutInner() {
   // Use default Expo splash screen (no longer hiding immediately for Lottie)
   // The native splash screen will show until app is ready
   useEffect(() => {
-    // Keep native splash visible until app initialization is complete
-    // This provides better UX with the default splash icon
+    // expo-image manages its own memory + disk cache lifecycle, so no manual
+    // populate/cleanup is needed at startup.
   }, []);
 
   // Re-check connectivity when app comes to foreground and periodically when active.
