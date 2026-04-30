@@ -156,12 +156,62 @@ const getStorageKeyFromDocument = (doc, urlField = null) => {
   return null;
 };
 
+/**
+ * Resolve a user's profile picture to a fresh, loadable URL.
+ *
+ * This is the SINGLE source of truth for converting a User document's
+ * { profilePic, profilePicStorageKey } into a URL the client can render.
+ *
+ * Rules:
+ *   1. If profilePicStorageKey exists → sign it fresh (always preferred).
+ *   2. Else if profilePic is a permanent URL (Cloudinary, public CDN) → use it.
+ *   3. Else if profilePic looks like an expired signed URL → extract key and re-sign.
+ *   4. Else → '' (empty; client renders default avatar).
+ *
+ * Never returns an expired signed URL. Never throws.
+ *
+ * @param {Object} user - Plain user object (lean) with profilePic / profilePicStorageKey
+ * @returns {Promise<string>} Fresh signed URL, permanent URL, or ''
+ */
+const resolveProfilePic = async (user) => {
+  if (!user || typeof user !== 'object') return '';
+
+  // 1. Storage key — always preferred, always fresh
+  if (user.profilePicStorageKey && typeof user.profilePicStorageKey === 'string') {
+    try {
+      const signed = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
+      if (signed) return signed;
+    } catch (_) { /* fall through */ }
+  }
+
+  // 2 & 3. Legacy profilePic field
+  if (user.profilePic && typeof user.profilePic === 'string') {
+    // 3. Stale signed URL stored in DB — extract key, re-sign
+    if (isSignedUrl(user.profilePic)) {
+      const key = extractStorageKeyFromUrl(user.profilePic);
+      if (key) {
+        try {
+          const signed = await generateSignedUrl(key, 'PROFILE');
+          if (signed) return signed;
+        } catch (_) { /* fall through */ }
+      }
+      // Could not recover — never serve an expired URL
+      return '';
+    }
+    // 2. Permanent URL (Cloudinary or other public CDN)
+    return user.profilePic;
+  }
+
+  return '';
+};
+
 module.exports = {
   generateSignedUrl,
   generateSignedUrls,
   extractStorageKeyFromUrl,
   isSignedUrl,
   getStorageKeyFromDocument,
+  resolveProfilePic,
   EXPIRY_TIMES
 };
 

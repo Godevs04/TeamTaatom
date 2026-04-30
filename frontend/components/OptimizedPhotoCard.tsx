@@ -77,10 +77,10 @@ function PhotoCard({
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Handle case where user might be undefined (from fallback user object)
-  const postUser = post.user || { 
-    _id: 'unknown', 
-    fullName: 'Unknown User', 
-    profilePic: 'https://via.placeholder.com/40' 
+  const postUser = post.user || {
+    _id: 'unknown',
+    fullName: 'Unknown User',
+    profilePic: ''
   };
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);

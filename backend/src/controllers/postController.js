@@ -7,7 +7,7 @@ const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
 const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
+const { generateSignedUrl, generateSignedUrls, isSignedUrl, extractStorageKeyFromUrl, resolveProfilePic } = require('../services/mediaService');
 const Song = require('../models/Song');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
@@ -293,43 +293,14 @@ const getPosts = async (req, res) => {
           }
         }
 
-        // Generate signed URL for post author's profile picture
-        if (post.user && post.user.profilePicStorageKey) {
-          try {
-            post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile picture URL for post author:', { 
-              postId: post._id, 
-              userId: post.user._id,
-              error: error.message 
-            });
-            // Fallback to legacy URL if available
-            post.user.profilePic = post.user.profilePic || null;
-          }
-        } else if (post.user && post.user.profilePic) {
-          // Legacy: use existing profilePic if no storage key
-          // Keep the existing profilePic value
+        // Resolve fresh profile pic URL for post author and all commenters
+        if (post.user) {
+          post.user.profilePic = await resolveProfilePic(post.user);
         }
-
-        // Generate signed URLs for comment users' profile pictures
         if (post.comments && post.comments.length > 0) {
           for (const comment of post.comments) {
-            if (comment.user && comment.user.profilePicStorageKey) {
-              try {
-                comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-              } catch (error) {
-                logger.warn('Failed to generate profile picture URL for comment user:', { 
-                  postId: post._id, 
-                  commentId: comment._id,
-                  userId: comment.user._id,
-                  error: error.message 
-                });
-                // Fallback to legacy URL if available
-                comment.user.profilePic = comment.user.profilePic || null;
-              }
-            } else if (comment.user && comment.user.profilePic) {
-              // Legacy: use existing profilePic if no storage key
-              // Keep the existing profilePic value
+            if (comment.user) {
+              comment.user.profilePic = await resolveProfilePic(comment.user);
             }
           }
         }
@@ -768,43 +739,14 @@ const getPostById = async (req, res) => {
       }
     }
 
-    // Generate signed URL for post author's profile picture
-    if (post.user && post.user.profilePicStorageKey) {
-      try {
-        post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-      } catch (error) {
-        logger.warn('Failed to generate profile picture URL for post author:', { 
-          postId: post._id, 
-          userId: post.user._id,
-          error: error.message 
-        });
-        // Fallback to legacy URL if available
-        post.user.profilePic = post.user.profilePic || null;
-      }
-    } else if (post.user && post.user.profilePic) {
-      // Legacy: use existing profilePic if no storage key
-      // Keep the existing profilePic value
+    // Resolve fresh profile pic URL for post author and all commenters
+    if (post.user) {
+      post.user.profilePic = await resolveProfilePic(post.user);
     }
-
-    // Generate signed URLs for comment users' profile pictures
     if (post.comments && post.comments.length > 0) {
       for (const comment of post.comments) {
-        if (comment.user && comment.user.profilePicStorageKey) {
-          try {
-            comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile picture URL for comment user:', { 
-              postId: post._id, 
-              commentId: comment._id,
-              userId: comment.user._id,
-              error: error.message 
-            });
-            // Fallback to legacy URL if available
-            comment.user.profilePic = comment.user.profilePic || null;
-          }
-        } else if (comment.user && comment.user.profilePic) {
-          // Legacy: use existing profilePic if no storage key
-          // Keep the existing profilePic value
+        if (comment.user) {
+          comment.user.profilePic = await resolveProfilePic(comment.user);
         }
       }
     }
@@ -1463,22 +1405,8 @@ const getUserShorts = async (req, res) => {
 
     // Generate signed URLs for profile pictures and short thumbnails
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
-      // Generate signed URL for short author's profile picture
-      if (short.user && short.user.profilePicStorageKey) {
-        try {
-          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for short author:', { 
-            shortId: short._id, 
-            userId: short.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          short.user.profilePic = short.user.profilePic || null;
-        }
-      } else if (short.user && short.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (short.user) {
+        short.user.profilePic = await resolveProfilePic(short.user);
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -1716,25 +1644,10 @@ const getUserShorts = async (req, res) => {
         short.thumbnailUrl = null;
       }
 
-      // Generate signed URLs for comment users' profile pictures
       if (short.comments && short.comments.length > 0) {
         for (const comment of short.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                shortId: short._id, 
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -2057,43 +1970,13 @@ const getUserPosts = async (req, res) => {
         }
       }
 
-      // Generate signed URL for post author's profile picture
-      if (post.user && post.user.profilePicStorageKey) {
-        try {
-          post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for post author:', { 
-            postId: post._id, 
-            userId: post.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          post.user.profilePic = post.user.profilePic || null;
-        }
-      } else if (post.user && post.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
       }
-
-      // Generate signed URLs for comment users' profile pictures
       if (post.comments && post.comments.length > 0) {
         for (const comment of post.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', {
-                postId: post._id,
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -2368,25 +2251,8 @@ const addComment = async (req, res) => {
     await post.populate('comments.user', 'fullName profilePic profilePicStorageKey');
     const populatedComment = post.comments.id(newComment._id);
     
-    // Generate signed URL for commenter's profile picture
     if (populatedComment && populatedComment.user) {
-      if (populatedComment.user.profilePicStorageKey) {
-        try {
-          populatedComment.user.profilePic = await generateSignedUrl(populatedComment.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for new comment user:', { 
-            postId: post._id, 
-            commentId: populatedComment._id,
-            userId: populatedComment.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          populatedComment.user.profilePic = populatedComment.user.profilePic || null;
-        }
-      } else if (populatedComment.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
-      }
+      populatedComment.user.profilePic = await resolveProfilePic(populatedComment.user);
     }
 
     // Create mention notifications for comment
@@ -2689,15 +2555,14 @@ const getArchivedPosts = async (req, res) => {
           if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
         } catch { /* keep existing */ }
       }
-      // Author profile pic
-      if (post.user?.profilePicStorageKey) {
-        try { post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || post.user.profilePic; } catch { /* keep existing */ }
+      // Author + comment profile pics
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
       }
-      // Comment user profile pics
       if (post.comments) {
         for (const comment of post.comments) {
-          if (comment.user?.profilePicStorageKey) {
-            try { comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE') || comment.user.profilePic; } catch { /* keep existing */ }
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -2803,15 +2668,14 @@ const getHiddenPosts = async (req, res) => {
           if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
         } catch { /* keep existing */ }
       }
-      // Author profile pic
-      if (post.user?.profilePicStorageKey) {
-        try { post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || post.user.profilePic; } catch { /* keep existing */ }
+      // Author + comment profile pics
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
       }
-      // Comment user profile pics
       if (post.comments) {
         for (const comment of post.comments) {
-          if (comment.user?.profilePicStorageKey) {
-            try { comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE') || comment.user.profilePic; } catch { /* keep existing */ }
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -3107,43 +2971,13 @@ const getShorts = async (req, res) => {
         }
       }
       
-      // Generate signed URL for short author's profile picture
-      if (short.user && short.user.profilePicStorageKey) {
-        try {
-          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for short author:', { 
-            shortId: short._id, 
-            userId: short.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          short.user.profilePic = short.user.profilePic || null;
-        }
-      } else if (short.user && short.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (short.user) {
+        short.user.profilePic = await resolveProfilePic(short.user);
       }
-      
-      // Generate signed URLs for comment users' profile pictures
       if (short.comments && short.comments.length > 0) {
         for (const comment of short.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                shortId: short._id, 
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }

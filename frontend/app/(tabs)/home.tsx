@@ -851,38 +851,32 @@ export default function HomeScreen() {
     // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
     
-    // Scroll to top immediately for better UX
+    // Animated scroll to top for visual feedback (scrolls the old list).
     if (flatListRef.current && posts.length > 0) {
       try {
         flatListRef.current.scrollToOffset({ offset: 0, animated: true });
       } catch (error) {
         logger.debug('Error scrolling to top:', error);
-        // Fallback: try scrolling to index 0
-        try {
-          flatListRef.current.scrollToIndex({ index: 0, animated: true });
-        } catch (indexError) {
-          logger.debug('Error scrolling to index 0:', indexError);
-        }
       }
     }
-    
+
     setRefreshing(true);
     try {
       await Promise.all([
         fetchPosts(1, false),
         fetchUnseenMessageCount()
       ]);
-      
-      // Ensure scroll to top after posts are loaded
-      if (flatListRef.current) {
-        setTimeout(() => {
-          try {
-            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-          } catch (error) {
-            logger.debug('Error scrolling to top after refresh:', error);
-          }
-        }, 100);
-      }
+
+      // After the new posts have been applied to state, defer a final scroll-to-top
+      // to the next frame so FlashList lands at offset 0 on the fresh data instead
+      // of preserving its prior scroll offset.
+      requestAnimationFrame(() => {
+        try {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        } catch (error) {
+          logger.debug('Error scrolling to top after refresh:', error);
+        }
+      });
     } finally {
       setRefreshing(false);
     }
@@ -908,10 +902,9 @@ export default function HomeScreen() {
 
     setFeedMode(mode);
     hasScrolledToPostIdRef.current = null;
-    // Scroll list to top so the first post of the new feed is visible.
-    try {
-      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-    } catch (_) {}
+    // Scroll-to-top is handled by the `key={feedMode}` prop on FlashList:
+    // changing feedMode remounts the list, which guarantees offset 0 on the new tab.
+    // FlashList v2's scrollToOffset is unreliable across data-swap re-renders.
   }, [feedMode, posts, page, hasMore]);
 
   // Throttle load more for web performance
@@ -1219,6 +1212,7 @@ export default function HomeScreen() {
         {renderFeedTabs()}
 
         <FlashList
+        key={feedMode}
         ref={flatListRef}
         data={feedData}
         keyExtractor={keyExtractor}

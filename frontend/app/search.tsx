@@ -248,10 +248,13 @@ export default function SearchScreen() {
         router.push(`/profile/${item._id}`);
       }}
     >
-      <Image 
-        source={{ uri: item.profilePic || 'https://via.placeholder.com/50' }} 
-        style={styles.userAvatar}
-      />
+      {item.profilePic ? (
+        <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+      ) : (
+        <View style={[styles.userAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+        </View>
+      )}
       <View style={styles.userInfo}>
         {/* Show fullName as primary, username as secondary below */}
         <Text style={[styles.userName, { color: theme.colors.text }]}>
