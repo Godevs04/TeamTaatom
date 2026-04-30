@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -15,8 +15,8 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Image
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
 import { useTheme } from '../context/ThemeContext';
 import logger from '../utils/logger';
@@ -55,6 +55,145 @@ const hapticSuccess = () => {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_SELECTION_DURATION = 30; // 30 seconds max (short max length)
 
+// Memoized waveform — bars only re-render when the song or its duration changes.
+// Without this, every drag tick (setStartTime/setEndTime) re-runs the 80-300 bar
+// math + recreates that many <View> children, which is the primary cause of
+// laggy trim handles and scroll on the trimmer page.
+type WaveformBarsProps = {
+  duration: number;
+  barColor: string;
+  totalWidth: number;
+  numBars: number;
+};
+const WaveformBars: React.FC<WaveformBarsProps> = memo(({ duration, barColor, totalWidth, numBars }) => {
+  const { bars, barWidth, barGap } = useMemo(() => {
+    const barTotalWidth = totalWidth / numBars;
+    const w = Math.max(2, barTotalWidth * 0.55);
+    const gap = (barTotalWidth - w) / 2;
+    const arr = Array.from({ length: numBars }, (_, i) => {
+      const base = 8;
+      const wave =
+        Math.sin(i * 0.18) * 16 +
+        Math.cos(i * 0.32) * 12 +
+        Math.sin(i * 0.55) * 8 +
+        Math.cos(i * 0.12) * 6;
+      return Math.max(4, base + wave);
+    });
+    return { bars: arr, barWidth: w, barGap: gap };
+  }, [totalWidth, numBars]);
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', height: 64 }}>
+      {bars.map((h, i) => (
+        <View
+          key={i}
+          style={{
+            width: barWidth,
+            marginHorizontal: barGap,
+            height: h,
+            borderRadius: barWidth,
+            backgroundColor: barColor,
+            opacity: 0.85,
+          }}
+        />
+      ))}
+    </View>
+  );
+}, (prev, next) =>
+  prev.duration === next.duration &&
+  prev.barColor === next.barColor &&
+  prev.totalWidth === next.totalWidth &&
+  prev.numBars === next.numBars
+);
+
+// Memoized song-list row. Without this, every render of SongSelector (e.g. on
+// every audio status tick) recreates renderItem and re-renders all visible rows.
+// expo-image is used for album art so thumbnails are cached across opens / scrolls.
+type SongRowProps = {
+  item: Song;
+  isSelected: boolean;
+  isLoading: boolean;
+  onPress: (song: Song) => void;
+  textColor: string;
+  selectedColor: string;
+  secondaryColor: string;
+  surfaceColor: string;
+  durationLabel: string;
+};
+const SongRow: React.FC<SongRowProps> = memo(({
+  item,
+  isSelected,
+  isLoading,
+  onPress,
+  textColor,
+  selectedColor,
+  secondaryColor,
+  surfaceColor,
+  durationLabel,
+}) => {
+  const art = item.imageUrl || item.thumbnailUrl;
+  return (
+    <TouchableOpacity
+      style={{
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 16, paddingVertical: 10, gap: 12,
+        opacity: isLoading ? 0.6 : 1,
+      }}
+      onPress={() => onPress(item)}
+      disabled={isLoading}
+      activeOpacity={0.6}
+    >
+      {art ? (
+        <ExpoImage
+          source={{ uri: art }}
+          style={{
+            width: 52, height: 52, borderRadius: 6,
+            backgroundColor: surfaceColor,
+          }}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={120}
+        />
+      ) : (
+        <View style={{
+          width: 52, height: 52, borderRadius: 6,
+          backgroundColor: surfaceColor,
+          justifyContent: 'center', alignItems: 'center',
+        }}>
+          <Ionicons name="musical-note" size={22} color={secondaryColor} />
+        </View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        <Text style={{
+          fontSize: 15, fontWeight: '600',
+          color: isSelected ? selectedColor : textColor,
+          marginBottom: 3,
+        }} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={{ fontSize: 13, color: secondaryColor }} numberOfLines={1}>
+          {item.artist} · {durationLabel}
+        </Text>
+      </View>
+
+      {isLoading ? (
+        <ActivityIndicator size="small" color={selectedColor} />
+      ) : isSelected ? (
+        <View style={{
+          width: 24, height: 24, borderRadius: 12,
+          backgroundColor: selectedColor,
+          justifyContent: 'center', alignItems: 'center',
+        }}>
+          <Ionicons name="checkmark" size={15} color="#fff" />
+        </View>
+      ) : (
+        <Ionicons name="chevron-forward" size={18} color={secondaryColor + '60'} />
+      )}
+    </TouchableOpacity>
+  );
+});
+
 interface SongSelectorProps {
   onSelect: (song: Song | null, startTime?: number, endTime?: number) => void;
   selectedSong: Song | null;
@@ -82,6 +221,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  // ID of the song whose audio is being loaded after a row tap; used to show
+  // an inline spinner so the tap feels responsive instead of "did anything happen?".
+  const [loadingSongId, setLoadingSongId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<'list' | 'trimmer'>('list');
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -92,11 +234,6 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [limitState, setLimitState] = useState<'normal' | 'approachingMin' | 'atMinimum' | 'atMaximum'>('normal');
   const [dragTime, setDragTime] = useState(0);
   const soundRef = useRef<Audio.Sound | null>(null);
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const startHandleAnim = useRef(new Animated.Value(0)).current;
-  const endHandleAnim = useRef(new Animated.Value(0)).current;
-  const floatingBadgeAnim = useRef(new Animated.Value(0)).current;
-  const floatingBadgeXAnim = useRef(new Animated.Value(0)).current;
   const timelineWidthRef = useRef<number>(SCREEN_WIDTH - 64);
   const timelineLayoutRef = useRef<{ x: number; width: number } | null>(null);
   const lastDragXRef = useRef<number | null>(null);
@@ -115,10 +252,13 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const timelinePaddingRef = useRef<number>(28); // Padding from timelineWrapper
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isDraggingRef = useRef<boolean>(false); // Sync ref to avoid stale closure in PanResponder
+  const lastSearchQueryRef = useRef<string>(''); // tracks last query we kicked a search for; prevents double-load on modal open
 
   useEffect(() => {
     if (visible) {
-      loadSongs();
+      // Immediate first load — the search-debounce effect below skips on visible
+      // transitions so we only fire one request when the modal opens.
+      loadSongs(1);
       // Auto-match song selection duration with video duration if provided
       if (videoDuration && videoDuration > 0) {
         const matchedDuration = Math.min(videoDuration, MAX_SELECTION_DURATION);
@@ -149,7 +289,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setIsPlaying(false);
       setCurrentTime(0);
       setLimitState('normal');
-      
+      // Reset the "last query we searched for" tracker so reopening the modal
+      // never double-fires (open-load + debounce chasing a stale prev query).
+      lastSearchQueryRef.current = '';
+
       // Clear preview timeout
       if (previewTimeoutRef.current) {
         clearTimeout(previewTimeoutRef.current);
@@ -166,74 +309,59 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [selectedSong, selectedStartTime, selectedEndTime, visible]);
 
-  // Optimized audio status polling - reduce frequency to 200ms for better performance
-  // Loop playback within selected range (startTime to endTime) to match video duration
+  // Audio status polling. Reads startTime/endTime via refs so dragging the trim
+  // handles (which rapidly mutates those values) does NOT recreate the interval
+  // 60+ times a second. Skips currentTime state updates while the user is
+  // dragging to avoid extra renders on top of the per-move setStartTime/setEndTime.
   useEffect(() => {
-    if (currentSong && isPlaying && soundRef.current) {
-      const interval = setInterval(async () => {
-        if (soundRef.current) {
+    if (!currentSong || !isPlaying || !soundRef.current) return;
+
+    const interval = setInterval(async () => {
+      const sound = soundRef.current;
+      if (!sound) return;
+      try {
+        const status = await sound.getStatusAsync();
+        if (!status.isLoaded) return;
+
+        const time = status.positionMillis / 1000;
+        const start = startTimeRef.current;
+        const end = endTimeRef.current;
+
+        // Skip the React state update while the user is dragging — the
+        // drag itself owns the visible state, and adding currentTime renders
+        // on top causes the trim handles to feel laggy.
+        if (!isDraggingRef.current) {
+          setCurrentTime(time);
+        }
+
+        // Loop playback: when reaching endTime, restart from startTime so
+        // the preview matches the eventual video clip duration.
+        if (end && time >= end) {
           try {
-            const status = await soundRef.current.getStatusAsync();
-            if (status.isLoaded) {
-              const time = status.positionMillis / 1000;
-              setCurrentTime(time);
-              
-              // Loop playback: when reaching endTime, restart from startTime
-              // This ensures song plays only within video duration and loops seamlessly
-              if (endTime && time >= endTime) {
-                try {
-                  // Seek back to startTime and continue playing (loop)
-                  await soundRef.current.setPositionAsync(startTime * 1000);
-                  setCurrentTime(startTime);
-                  
-                  // Ensure playback continues (in case it was paused)
-                  if (!status.isPlaying) {
-                    await soundRef.current.playAsync();
-                  }
-                  
-                  logger.debug('Song playback looped back to start:', {
-                    startTime,
-                    endTime,
-                    videoDuration,
-                    selectionDuration: endTime - startTime
-                  });
-                } catch (loopError) {
-                  logger.warn('Error looping playback:', loopError);
-                  // Fallback: pause if loop fails
-                  await soundRef.current.pauseAsync();
-                  setIsPlaying(false);
-                  setCurrentTime(startTime);
-                }
-              }
+            await sound.setPositionAsync(start * 1000);
+            if (!isDraggingRef.current) setCurrentTime(start);
+            if (!status.isPlaying) {
+              await sound.playAsync();
             }
-          } catch (error) {
-            logger.error('Error getting audio status:', error);
+          } catch (loopError) {
+            logger.warn('Error looping playback:', loopError);
+            await sound.pauseAsync();
+            setIsPlaying(false);
+            setCurrentTime(start);
           }
         }
-      }, 200); // Reduced from 100ms to 200ms for better performance
+      } catch (error) {
+        logger.error('Error getting audio status:', error);
+      }
+    }, 200);
 
-      return () => clearInterval(interval);
-    }
-  }, [currentSong, isPlaying, startTime, endTime, videoDuration]);
+    return () => clearInterval(interval);
+  }, [currentSong, isPlaying]);
 
-  useEffect(() => {
-    if (currentSong && timelineLayoutRef.current) {
-      const duration = currentSong.duration || 0;
-      const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-      
-      // Convert time to pixel position using translateX
-      // translateX = (time / duration) * timelineWidth
-      const { width } = timelineLayoutRef.current;
-      const startX = duration > 0 ? (startTime / duration) * width : 0;
-      const endX = duration > 0 ? (endTime / duration) * width : width;
-      
-      progressAnim.setValue(progress);
-      // Update handle positions directly in pixels (translateX)
-      // Clamp to valid range to prevent handles from going out of bounds
-      startHandleAnim.setValue(Math.max(0, Math.min(startX, width)));
-      endHandleAnim.setValue(Math.max(0, Math.min(endX, width)));
-    }
-  }, [currentTime, startTime, endTime, currentSong]);
+  // Note: previous versions wrote progressAnim / startHandleAnim / endHandleAnim
+  // here on every currentTime tick — but those Animated.Values were never bound
+  // to any <Animated.View> in the JSX, so the work was thrown away. Removed to
+  // stop ~5 setValue() calls per 200ms while playing.
 
   // Sync refs for scroll handler (avoid stale closures in callbacks)
   useEffect(() => {
@@ -286,20 +414,23 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     }
   }, [loading, searchQuery]);
 
-  // Debounced search to prevent excessive API calls
+  // Debounced search — only fires on USER-driven searchQuery changes. The
+  // visible-effect above handles the immediate first load when the modal opens,
+  // so this effect tracks the "last query we kicked a search for" (via
+  // lastSearchQueryRef declared above) and skips when the query hasn't actually
+  // changed.
   useEffect(() => {
     if (!visible) return;
-    
-    // Clear previous debounce
+    if (searchQuery === lastSearchQueryRef.current) return;
+    lastSearchQueryRef.current = searchQuery;
+
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
-    
-    // Reset state for new search
+
     setPage(1);
     setSongs([]);
-    
-    // Debounce search by 300ms
+
     searchDebounceRef.current = setTimeout(() => {
       loadSongs(1);
     }, 300);
@@ -429,8 +560,16 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   };
 
   const handleSelect = useCallback(async (song: Song) => {
-    await loadAudio(song);
-    setCurrentPage('trimmer'); // Navigate to trimmer page after selecting
+    // Show a per-row spinner while the audio resolves so the tap is never silent.
+    // Page switch happens AFTER load so the trimmer renders with audio ready
+    // (otherwise the trimmer briefly shows 0:00 / no playback while createAsync runs).
+    setLoadingSongId(song._id);
+    try {
+      await loadAudio(song);
+      setCurrentPage('trimmer');
+    } finally {
+      setLoadingSongId(null);
+    }
   }, [getMaxSelectionDuration]);
 
   const handleConfirm = () => {
@@ -618,6 +757,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         initialX: evt.nativeEvent.pageX,
         initialStartTime: startTimeRef.current,
       };
+      isDraggingRef.current = true;
       hapticMedium();
     },
     onPanResponderMove: (evt) => {
@@ -635,19 +775,27 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         Math.max(0, Math.min(trimStartRef.current.initialStartTime + deltaTime, maxStart))
       );
 
-      setStartTime(newStart);
-      startTimeRef.current = newStart;
-      selectionDurationRef.current = endTimeRef.current - newStart;
+      // Only commit to React state if the snapped value actually changed —
+      // saves redundant renders when the finger moves within a single 0.1s tick.
+      if (newStart !== startTimeRef.current) {
+        startTimeRef.current = newStart;
+        selectionDurationRef.current = endTimeRef.current - newStart;
+        setStartTime(newStart);
+      }
 
       // Scroll to keep waveform aligned with new start position
       waveformScrollRef.current?.scrollTo({ x: newStart * pps, animated: false });
     },
     onPanResponderRelease: () => {
+      isDraggingRef.current = false;
       hapticLight();
       if (soundRef.current) {
         soundRef.current.setPositionAsync(startTimeRef.current * 1000).catch(() => {});
         setCurrentTime(startTimeRef.current);
       }
+    },
+    onPanResponderTerminate: () => {
+      isDraggingRef.current = false;
     },
   }), []);
 
@@ -660,6 +808,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         initialX: evt.nativeEvent.pageX,
         initialEndTime: endTimeRef.current,
       };
+      isDraggingRef.current = true;
       hapticMedium();
     },
     onPanResponderMove: (evt) => {
@@ -679,12 +828,18 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         Math.max(minEnd, Math.min(trimEndRef.current.initialEndTime + deltaTime, maxEnd))
       );
 
-      setEndTime(newEnd);
-      endTimeRef.current = newEnd;
-      selectionDurationRef.current = newEnd - startTimeRef.current;
+      if (newEnd !== endTimeRef.current) {
+        endTimeRef.current = newEnd;
+        selectionDurationRef.current = newEnd - startTimeRef.current;
+        setEndTime(newEnd);
+      }
     },
     onPanResponderRelease: () => {
+      isDraggingRef.current = false;
       hapticLight();
+    },
+    onPanResponderTerminate: () => {
+      isDraggingRef.current = false;
     },
   }), []);
 
@@ -733,18 +888,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     const selectionLeft = (SCREEN_WIDTH - selectionWidth) / 2;
     const SIDE_PADDING = selectionLeft;
 
-    // Generate bars proportional to song length (~3 bars per second, max 300)
+    // Bars proportional to song length (~3 bars per second, max 300).
+    // Bar generation/rendering is delegated to <WaveformBars> which is memo'd
+    // so the 300-bar tree does NOT re-render during drag/poll.
     const NUM_BARS = Math.min(300, Math.max(80, Math.ceil(duration * 3)));
-    const barTotalWidth = totalWaveformWidth / NUM_BARS;
-    const barWidth = Math.max(2, barTotalWidth * 0.55);
-    const barGap = (barTotalWidth - barWidth) / 2;
-
-    // Smooth waveform pattern with multiple harmonics
-    const bars = Array.from({ length: NUM_BARS }, (_, i) => {
-      const base = 8;
-      const wave = Math.sin(i * 0.18) * 16 + Math.cos(i * 0.32) * 12 + Math.sin(i * 0.55) * 8 + Math.cos(i * 0.12) * 6;
-      return Math.max(4, base + wave);
-    });
 
     return (
       <View key="timeline-container" style={{
@@ -770,21 +917,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               height: 72,
             }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', height: 64 }}>
-              {bars.map((h, i) => (
-                <View
-                  key={i}
-                  style={{
-                    width: barWidth,
-                    marginHorizontal: barGap,
-                    height: h,
-                    borderRadius: barWidth,
-                    backgroundColor: theme.colors.primary,
-                    opacity: 0.85,
-                  }}
-                />
-              ))}
-            </View>
+            <WaveformBars
+              duration={duration}
+              barColor={theme.colors.primary}
+              totalWidth={totalWaveformWidth}
+              numBars={NUM_BARS}
+            />
           </ScrollView>
 
           {/* Fixed selection overlay */}
@@ -870,6 +1008,27 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     setCurrentPage('list');
   };
 
+  // Stable list callbacks — prevent FlatList rows from re-rendering on every
+  // poll tick / drag tick while the modal is open.
+  const keyExtractor = useCallback((item: Song) => item._id, []);
+  const renderSongItem = useCallback(({ item }: { item: Song }) => {
+    const isSelected = selectedSong?._id === item._id;
+    const isLoading = loadingSongId === item._id;
+    return (
+      <SongRow
+        item={item}
+        isSelected={isSelected}
+        isLoading={isLoading}
+        onPress={handleSelect}
+        textColor={theme.colors.text}
+        selectedColor={theme.colors.primary}
+        secondaryColor={theme.colors.textSecondary}
+        surfaceColor={theme.colors.surfaceSecondary}
+        durationLabel={formatDuration(item.duration)}
+      />
+    );
+  }, [selectedSong?._id, loadingSongId, handleSelect, theme.colors.text, theme.colors.primary, theme.colors.textSecondary, theme.colors.surfaceSecondary]);
+
   return (
     <Modal
       visible={visible}
@@ -947,66 +1106,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 style={{ flex: 1 }}
                 contentContainerStyle={{ paddingBottom: 20 }}
                 data={songs}
-                keyExtractor={(item) => item._id}
-                renderItem={({ item }) => {
-                  const isSelected = (selectedSong?._id === item._id);
-                  return (
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row', alignItems: 'center',
-                        paddingHorizontal: 16, paddingVertical: 10, gap: 12,
-                      }}
-                      onPress={() => handleSelect(item)}
-                      activeOpacity={0.6}
-                    >
-                      {/* Album art — square with rounded corners */}
-                      {item.imageUrl || item.thumbnailUrl ? (
-                        <Image
-                          source={{ uri: item.imageUrl || item.thumbnailUrl }}
-                          style={{
-                            width: 52, height: 52, borderRadius: 6,
-                            backgroundColor: theme.colors.surfaceSecondary,
-                          }}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={{
-                          width: 52, height: 52, borderRadius: 6,
-                          backgroundColor: theme.colors.surfaceSecondary,
-                          justifyContent: 'center', alignItems: 'center',
-                        }}>
-                          <Ionicons name="musical-note" size={22} color={theme.colors.textSecondary} />
-                        </View>
-                      )}
-
-                      {/* Song info */}
-                      <View style={{ flex: 1 }}>
-                        <Text style={{
-                          fontSize: 15, fontWeight: '600', color: isSelected ? theme.colors.primary : theme.colors.text,
-                          marginBottom: 3,
-                        }} numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                        <Text style={{ fontSize: 13, color: theme.colors.textSecondary }} numberOfLines={1}>
-                          {item.artist} · {formatDuration(item.duration)}
-                        </Text>
-                      </View>
-
-                      {/* Right indicator */}
-                      {isSelected ? (
-                        <View style={{
-                          width: 24, height: 24, borderRadius: 12,
-                          backgroundColor: theme.colors.primary,
-                          justifyContent: 'center', alignItems: 'center',
-                        }}>
-                          <Ionicons name="checkmark" size={15} color="#fff" />
-                        </View>
-                      ) : (
-                        <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary + '60'} />
-                      )}
-                    </TouchableOpacity>
-                  );
-                }}
+                keyExtractor={keyExtractor}
+                renderItem={renderSongItem}
                 ItemSeparatorComponent={() => (
                   <View style={{ height: 1, backgroundColor: theme.colors.border, marginLeft: 80 }} />
                 )}
@@ -1083,9 +1184,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 }),
               }}>
                 {currentSong.imageUrl || currentSong.thumbnailUrl ? (
-                  <Image
+                  <ExpoImage
                     source={{ uri: currentSong.imageUrl || currentSong.thumbnailUrl }}
                     style={{ width: 200, height: 200 }}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={150}
                   />
                 ) : (
                   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.primary + '12' }}>

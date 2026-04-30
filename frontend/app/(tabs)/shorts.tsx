@@ -144,6 +144,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
 
+  // Per-short source-URL "version". Bumped when onError refetches a fresh
+  // signed URL — appended to the Video's key so React fully unmounts the
+  // expo-av native player and remounts it with the new source. The previous
+  // approach of manually calling unloadAsync/loadAsync inside nested setTimeouts
+  // raced with scroll/unmount and was a likely cause of native player crashes.
+  const [sourceVersions, setSourceVersions] = useState<Record<string, number>>({});
+  // Throttle for the defensive mute-enforcement inside onPlaybackStatusUpdate
+  // (status callbacks fire ~5x/sec per video; firing setIsMutedAsync each time
+  // is bridge churn that has been correlated with native crashes on Android).
+  const lastMuteEnforceAtRef = useRef<Record<string, number>>({});
+
   // Frequency control: no ad before 5 reels watched, no ad before 20s session, max 3 ads per Shorts session
   const [hasWatchedFiveReels, setHasWatchedFiveReels] = useState(false);
   const [adsAllowedAfter20s, setAdsAllowedAfter20s] = useState(false);
@@ -1800,9 +1811,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
 
     // Reel item
-    const distanceFromVisible = Math.abs(index - currentVisibleIndex);
-    // Keep current + 1 ahead + 1 behind mounted; unmount beyond that to free GPU/memory.
-    const shouldRenderVideo = distanceFromVisible <= 1;
+    const distanceFromVisible = index - currentVisibleIndex;
+    // Mount only current + the next one ahead. The previous reel is unmounted
+    // immediately on scroll forward — keeping 3 native expo-av players alive
+    // simultaneously was a known OOM source on low-RAM Android devices, which
+    // is the most common shorts crash pattern. Scrolling backward causes a
+    // brief reload, which is acceptable.
+    const shouldRenderVideo = distanceFromVisible === 0 || distanceFromVisible === 1;
 
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
@@ -1855,7 +1870,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
               {shouldRenderVideo ? (
                 <Video
-                key={`video-${item._id}`}
+                key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
@@ -1894,115 +1909,57 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   }
                 }}
                 onError={(error) => {
-                  // Handle video loading errors (likely expired signed URL or timeout)
+                  // Handle video loading errors (likely expired signed URL or timeout).
+                  // Strategy: don't manually call unload/load on the native player —
+                  // those calls race with React's lifecycle and have crashed expo-av
+                  // when the user scrolls during the retry. Instead refresh the URL
+                  // via setShorts and bump a per-item key version so React fully
+                  // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
-                  
-                  // Clear cache for this video URL to force refresh
                   videoCacheRef.current.delete(item._id);
-                  
-                  // Update state to show video failed
-                  setVideoStates(prev => ({
-                    ...prev,
-                    [item._id]: false
-                  }));
-                  
-                  // Check if this is likely an expired URL error (403, 404, or network error)
-                  // Also check for timeout errors (-1001, NSURLErrorTimedOut)
+                  setVideoStates(prev => ({ ...prev, [item._id]: false }));
+
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
                   const errorCode = (error as any)?.code;
                   const errorDomain = (error as any)?.domain;
-                  
-                  // Check for timeout error (-1001 is NSURLErrorTimedOut)
-                  const isTimeoutError = errorCode === -1001 || 
-                                       errorCode === '-1001' ||
-                                       errorDomain === 'NSURLErrorDomain' ||
-                                       errorMessage.includes('-1001') ||
-                                       errorMessage.includes('NSURLErrorDomain') ||
-                                       errorMessage.includes('timeout') ||
-                                       errorMessage.includes('Timeout') ||
-                                       errorMessage.includes('timed out');
-                  
-                  // Check for expired URL errors
-                  const isExpiredUrl = errorMessage.includes('403') || 
-                                     errorMessage.includes('404') || 
-                                     errorMessage.includes('Forbidden') ||
-                                     errorMessage.includes('expired') ||
-                                     errorMessage.includes('ExpiredRequest');
-                  
-                  // Retry loading with fresh URL from backend if this is the current visible video
-                  // Treat timeout errors similarly to expired URLs - they may need a fresh URL
-                  if (index === currentVisibleIndex) {
-                    if (isExpiredUrl || isTimeoutError) {
-                      // URL likely expired or timed out - refetch short data to get fresh signed URL
-                      const errorType = isTimeoutError ? 'timeout' : 'expired URL';
-                      logger.debug(`Video ${item._id} ${errorType} error detected, refetching from backend...`, {
-                        errorCode,
-                        errorDomain,
-                        errorMessage
-                      });
-                      handlersRef.current.refetchShortWithFreshUrl(item._id).then((freshShort: PostType | null) => {
-                        if (freshShort && freshShort.mediaUrl) {
-                          // Update the short in state with fresh URL
-                          setShorts(prev => prev.map(s => 
-                            s._id === item._id ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl } : s
-                          ));
-                          
-                          // Clear cache and reload video with fresh URL
-                          videoCacheRef.current.delete(item._id);
-                          const video = videoRefs.current[item._id];
-                          if (video) {
-                            setTimeout(() => {
-                              // Re-check video ref inside setTimeout (it might have been cleared)
-                              const videoInTimeout = videoRefs.current[item._id];
-                              if (!videoInTimeout) {
-                                logger.debug(`Video ${item._id} ref is null in setTimeout, skipping refresh`);
-                                return;
-                              }
-                              
-                              const freshVideoUrl = freshShort.mediaUrl || freshShort.videoUrl || freshShort.imageUrl;
-                              
-                              // Check if unloadAsync exists before calling
-                              if (typeof videoInTimeout.unloadAsync === 'function') {
-                                videoInTimeout.unloadAsync().then(() => {
-                                  // Re-check video ref after unload
-                                  const videoAfterUnload = videoRefs.current[item._id];
-                                  if (videoAfterUnload && typeof videoAfterUnload.loadAsync === 'function') {
-                                    videoAfterUnload.loadAsync({ uri: freshVideoUrl }).then(() => {
-                                      const videoForPlay = videoRefs.current[item._id];
-                                      if (videoForPlay && typeof videoForPlay.playAsync === 'function') {
-                                        videoForPlay.playAsync().catch(() => {
-                                          logger.error(`Video ${item._id} retry play failed after refresh`);
-                                        });
-                                      }
-                                    }).catch((loadError) => {
-                                      logger.error(`Video ${item._id} retry load failed after refresh:`, loadError);
-                                    });
-                                  }
-                                }).catch(() => {
-                                  // If unload fails, try to reload with fresh URL (re-check video ref)
-                                  const videoAfterError = videoRefs.current[item._id];
-                                  if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
-                                    videoAfterError.loadAsync({ uri: freshVideoUrl }).catch(() => {});
-                                  }
-                                });
-                              } else {
-                                // If unloadAsync doesn't exist, try to reload directly
-                                if (typeof videoInTimeout.loadAsync === 'function') {
-                                  videoInTimeout.loadAsync({ uri: freshVideoUrl }).catch(() => {});
-                                }
-                              }
-                            }, 500);
-                          }
+                  const isTimeoutError =
+                    errorCode === -1001 ||
+                    errorCode === '-1001' ||
+                    errorDomain === 'NSURLErrorDomain' ||
+                    /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
+                  const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+
+                  if (index !== currentVisibleIndex) return;
+
+                  if (isExpiredUrl || isTimeoutError) {
+                    const errorType = isTimeoutError ? 'timeout' : 'expired URL';
+                    logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
+                    handlersRef.current
+                      .refetchShortWithFreshUrl(item._id)
+                      .then((freshShort: PostType | null) => {
+                        const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
+                        if (!freshShort || !freshVideoUrl) {
+                          handlersRef.current.retryVideoLoad(item._id, 1000);
+                          return;
                         }
-                      }).catch((refetchError: any) => {
+                        // Swap the URL in feed state.
+                        setShorts(prev => prev.map(s =>
+                          s._id === item._id
+                            ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
+                            : s
+                        ));
+                        // Bump source version → key changes → Video remounts cleanly.
+                        setSourceVersions(prev => ({
+                          ...prev,
+                          [item._id]: (prev[item._id] ?? 0) + 1,
+                        }));
+                      })
+                      .catch((refetchError: any) => {
                         logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                        // Fallback: retry with current URL after delay
                         handlersRef.current.retryVideoLoad(item._id, 1000);
                       });
-                    } else {
-                      // Not an expired URL error, just retry loading
-                      retryVideoLoad(item._id, 1000);
-                    }
+                  } else {
+                    handlersRef.current.retryVideoLoad(item._id, 1000);
                   }
                 }}
                 onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
@@ -2015,9 +1972,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     if (hasMusic && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
-                        // Force mute if music is playing
-                        video.setIsMutedAsync(true).catch(() => {});
-                        video.setVolumeAsync(0.0).catch(() => {});
+                        // Throttle to once/second per video. Status callbacks fire
+                        // ~5x/sec; calling setIsMutedAsync/setVolumeAsync that
+                        // often was bridge churn correlated with native crashes.
+                        const now = Date.now();
+                        const lastEnforce = lastMuteEnforceAtRef.current[item._id] ?? 0;
+                        if (now - lastEnforce > 1000) {
+                          lastMuteEnforceAtRef.current[item._id] = now;
+                          video.setIsMutedAsync(true).catch(() => {});
+                          video.setVolumeAsync(0.0).catch(() => {});
+                        }
                       }
                     }
                     
@@ -2418,7 +2382,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation, isScreenFocused]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation, isScreenFocused, sourceVersions]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;

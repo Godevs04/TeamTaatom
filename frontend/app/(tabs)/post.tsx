@@ -846,6 +846,14 @@ export default function PostScreen() {
           aspect: [9, 16], // Vertical aspect ratio for shorts
           quality: 0.8,
           exif: true, // Preserve EXIF data including location
+          // PERMANENT FIX FOR PLAYBACK CRASHES: force H.264 + AAC export so the
+          // uploaded file is universally decodable. Without this, iPhone hands
+          // us HEVC (default since iOS 11) which crashes on many older Android
+          // decoders and some lower-end iOS chipsets — that was the dominant
+          // "crashes when I play a short" signature.
+          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
+          videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
       } catch (pickerError: any) {
         logger.debug('Video ImagePicker error:', pickerError);
@@ -859,7 +867,23 @@ export default function PostScreen() {
       
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        
+
+        // Defense in depth: even with VideoExportPreset.MediumQuality, the
+        // gallery may surface pre-existing oversized HEVC/4K files. Reject
+        // anything over 200MB to keep decoder pressure (and upload time)
+        // bounded — a 60s H.264 medium-quality short is well under 50MB, so
+        // this only trips on files that were going to crash playback anyway.
+        const fileSizeBytes = (asset as any).fileSize as number | undefined;
+        if (typeof fileSizeBytes === 'number' && fileSizeBytes > 200 * 1024 * 1024) {
+          const sizeMB = (fileSizeBytes / (1024 * 1024)).toFixed(0);
+          Alert.alert(
+            'Video Too Large',
+            `This video is ${sizeMB}MB. Shorts must be under 200MB so they play smoothly on all devices. Please pick a shorter or lower-resolution video.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         // Check video duration (max 60 minutes = 3600 seconds for upload, but max 60 seconds for shorts)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
         let durationInSeconds: number | null = null;
@@ -868,14 +892,14 @@ export default function PostScreen() {
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
           durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
-          
+
           // Log for debugging
           logger.debug('Video duration check:', {
             rawDuration: asset.duration,
             durationInSeconds: durationInSeconds,
             isMilliseconds: asset.duration > 100
           });
-          
+
           if (durationInSeconds > MAX_VIDEO_DURATION) {
             const minutes = Math.floor(durationInSeconds / 60);
             const seconds = Math.floor(durationInSeconds % 60);
@@ -887,7 +911,7 @@ export default function PostScreen() {
             return;
           }
         }
-        
+
         clearUploadState();
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
@@ -1172,6 +1196,14 @@ export default function PostScreen() {
           aspect: [9, 16], // Vertical aspect ratio for shorts
           quality: 0.8,
           exif: true, // Preserve EXIF data including location
+          // PERMANENT FIX FOR PLAYBACK CRASHES: force H.264 + AAC at capture
+          // time. iPhones record HEVC by default — the resulting file decodes
+          // fine on the original device but crashes expo-av on many Android
+          // devices and lower-end iPads, which is the root cause of the
+          // "shorts page crashes on play" reports.
+          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
+          videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
       } catch (pickerError: any) {
         logger.debug('Camera video ImagePicker error:', pickerError);
@@ -1185,7 +1217,22 @@ export default function PostScreen() {
       
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        
+
+        // Defense in depth: reject oversized files even if they came through
+        // the camera (e.g. user disabled the export preset, or 4K capture on
+        // future SDK changes). A 60s H.264-medium short is < 50MB; 200MB is
+        // already well into "going to crash playback" territory.
+        const fileSizeBytes = (asset as any).fileSize as number | undefined;
+        if (typeof fileSizeBytes === 'number' && fileSizeBytes > 200 * 1024 * 1024) {
+          const sizeMB = (fileSizeBytes / (1024 * 1024)).toFixed(0);
+          Alert.alert(
+            'Video Too Large',
+            `This video is ${sizeMB}MB. Shorts must be under 200MB so they play smoothly on all devices. Please record a shorter clip.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         // Check video duration (max 60 minutes = 3600 seconds)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
         let durationInSeconds: number | null = null;
@@ -1194,14 +1241,14 @@ export default function PostScreen() {
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
           durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
-          
+
           // Log for debugging
           logger.debug('Video duration check:', {
             rawDuration: asset.duration,
             durationInSeconds: durationInSeconds,
             isMilliseconds: asset.duration > 100
           });
-          
+
           if (durationInSeconds > MAX_VIDEO_DURATION) {
             const minutes = Math.floor(durationInSeconds / 60);
             const seconds = Math.floor(durationInSeconds % 60);
@@ -1213,7 +1260,7 @@ export default function PostScreen() {
             return;
           }
         }
-        
+
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
           setSelectedVideo(asset.uri);
@@ -4034,12 +4081,18 @@ export default function PostScreen() {
         )}
       </ScrollView>
       
-      {/* Progress Alert */}
+      {/* Progress Alert.
+          For shorts: bytes-uploaded progress goes 0→95% (frontend cap), then
+          the bar hovers there while the backend pushes the file to R2 and
+          writes the DB record. Without an explicit "Processing on server..."
+          message users assumed it was frozen. */}
       <ProgressAlert
         visible={isUploading}
-        message={postType === 'short' 
-          ? `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`
-          : uploadProgress.total > 1 
+        message={postType === 'short'
+          ? (uploadProgress.percentage >= 95
+              ? 'Processing on server... almost done'
+              : `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`)
+          : uploadProgress.total > 1
           ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
           : "Please wait while your media is being uploaded..."}
         progress={uploadProgress.percentage || 0}
