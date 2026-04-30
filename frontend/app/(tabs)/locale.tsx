@@ -20,6 +20,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -1981,6 +1982,17 @@ export default function LocaleScreen() {
     return savedLocales;
   }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
+  // Whether any user-applied filter is active (search query or filter modal selection).
+  // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
+  // directly to decide between filteredLocales and sortedAdminLocales.
+  const hasActiveFilters = useMemo(() => (
+    !!filters.countryCode ||
+    !!filters.stateCode ||
+    filters.spotTypes.length > 0 ||
+    !!(filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0) ||
+    searchQuery.trim() !== ''
+  ), [filters, searchQuery]);
+
   // Memoized sorted admin locales - always sorted by distance (or createdAt if no location)
   // This ensures locales are always in the correct order for display
   // CRITICAL: Include userState in dependencies so sorting updates when state is detected
@@ -2007,6 +2019,13 @@ export default function LocaleScreen() {
     
     return sorted;
   }, [adminLocales, sortLocalesByDistance, userState, userCity, userCountryCode]);
+
+  // The list the locale-tab FlatList actually renders. Lifted from
+  // renderAdminLocales() so the FlatList can read it directly and so it
+  // doesn't re-allocate on every parent render.
+  const localesToShow = useMemo(() => (
+    (hasActiveFilters || filteredLocales.length > 0) ? filteredLocales : sortedAdminLocales
+  ), [hasActiveFilters, filteredLocales, sortedAdminLocales]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -3268,10 +3287,12 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image
+          <ExpoImage
             source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
           />
         ) : (
           <LinearGradient
@@ -3385,6 +3406,23 @@ export default function LocaleScreen() {
     );
   };
 
+  // Stable callbacks for the locale-tab FlatList. Using a separate render
+  // function (not the useCallback'd renderAdminLocaleCard) keeps the FlatList
+  // happy with a `(item) =>` signature without re-allocating per render.
+  const renderAdminLocaleItem = useCallback(({ item, index }: { item: Locale; index: number }) => (
+    renderAdminLocaleCard({ locale: item, index })
+  ), [renderAdminLocaleCard]);
+
+  const localeKeyExtractor = useCallback((item: Locale, index: number) => item._id || `locale-${index}`, []);
+
+  const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
+    // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
+    // Plus the inline marginBottom: 16 applied in renderAdminLocaleCard.
+    const cardHeight = isTabletLocal ? 200 : 160;
+    const totalHeight = cardHeight + 16;
+    return { length: totalHeight, offset: totalHeight * index, index };
+  }, []);
+
   const renderCustomLayout = useCallback(() => {
     return (
       <View style={{ paddingBottom: isTabletLocal ? 30 : 40 }}>
@@ -3447,10 +3485,12 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image
+          <ExpoImage
             source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
           />
         ) : (
           <LinearGradient
@@ -3933,13 +3973,29 @@ export default function LocaleScreen() {
 
       {/* Content */}
       {activeTab === 'locale' ? (
-        <ScrollView 
+        // FlatList replaces the previous ScrollView+map: cards are virtualised
+        // (only ~6-10 mounted at a time) so scrolling stays smooth even with
+        // 100+ admin locales. ListHeader keeps the "Featured Locales" title
+        // sticky-ish at the top; ListFooter holds the Load More / loading
+        // indicator; ListEmpty handles both initial-loading and empty state.
+        <FlatList
+          data={localesToShow}
+          renderItem={renderAdminLocaleItem}
+          keyExtractor={localeKeyExtractor}
+          getItemLayout={localeGetItemLayout}
+          removeClippedSubviews
+          initialNumToRender={6}
+          maxToRenderPerBatch={4}
+          windowSize={7}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ paddingBottom: isTabletLocal ? 80 : 100 }}
+          contentContainerStyle={{
+            paddingBottom: isTabletLocal ? 80 : 100,
+            paddingHorizontal: 0,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -3948,9 +4004,57 @@ export default function LocaleScreen() {
               tintColor="#4A90E2"
             />
           }
-        >
-          {renderCustomLayout()}
-        </ScrollView>
+          ListHeaderComponent={
+            <View style={styles.adminLocalesSection}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Featured Locales</Text>
+            </View>
+          }
+          ListEmptyComponent={
+            loadingLocales ? (
+              <View style={styles.adminLocalesSection}>
+                <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+              </View>
+            ) : (
+              <View style={styles.adminLocalesSection}>
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+                  <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+                  <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                    {hasActiveFilters
+                      ? 'Try adjusting your search or filters'
+                      : 'Check back later for exciting new destinations!'}
+                  </Text>
+                </View>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            localesToShow.length > 0 ? (
+              <View>
+                {hasMore && !loadingMore && !loadingLocales && (
+                  <View style={styles.loadMoreButtonContainer}>
+                    <TouchableOpacity
+                      style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
+                      onPress={handleLoadMore}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+                      <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {loadingMore && (
+                  <View style={styles.loadMoreContainer}>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
+                      Loading more locales...
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null
+          }
+        />
       ) : (
         <FlatList
           data={filteredSavedLocales}
