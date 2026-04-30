@@ -3217,29 +3217,54 @@ const createShort = async (req, res) => {
       finalCopyrightAcceptedAt = new Date();
     }
 
-    // Upload video to Sevalla Object Storage
-    const extension = videoFile.originalname.split('.').pop() || 'mp4';
+    // PERMANENT FIX FOR ANDROID HEAP-OOM CRASHES ON SHORTS PLAYBACK:
+    // Re-encode incoming videos to H.264 720p / AAC before uploading to
+    // storage. iPhones default to recording HEVC (H.265); HEVC decoders
+    // allocate 3-4× more native heap than H.264 and aren't present on every
+    // Android device — those two facts together produced the
+    // "GC tried cleanup, allocating 240 bytes failed" crash reports.
+    // Transcoding fails open: any error returns the original buffer
+    // unchanged, so a missing/broken ffmpeg never blocks an upload.
+    const { transcodeIfNeeded } = require('../services/videoTranscode');
+    let workingBuffer = videoFile.buffer;
+    let workingMimetype = videoFile.mimetype;
+    let workingExtension = videoFile.originalname.split('.').pop() || 'mp4';
+    try {
+      const transcodeResult = await transcodeIfNeeded(workingBuffer, workingMimetype);
+      workingBuffer = transcodeResult.buffer;
+      workingMimetype = transcodeResult.mimetype;
+      if (transcodeResult.transcoded) {
+        workingExtension = 'mp4'; // we always emit H.264 in an .mp4 container
+      }
+    } catch (e) {
+      // transcodeIfNeeded itself doesn't throw, but defend in depth so a
+      // bug here can't break uploads.
+      logger.error('Unexpected transcode error — passthrough', e);
+    }
+
+    // Upload (transcoded or original) video to Sevalla Object Storage
     const videoStorageKey = buildMediaKey({
       type: 'short',
       userId: req.user._id.toString(),
       filename: videoFile.originalname,
-      extension
+      extension: workingExtension
     });
-    
+
     // Log file size for monitoring large uploads
-    const fileSizeMB = (videoFile.buffer.length / (1024 * 1024)).toFixed(2);
+    const fileSizeMB = (workingBuffer.length / (1024 * 1024)).toFixed(2);
     logger.info('Starting video upload:', {
       key: videoStorageKey,
       size: `${fileSizeMB}MB`,
-      mimetype: videoFile.mimetype,
-      userId: req.user._id.toString()
+      mimetype: workingMimetype,
+      userId: req.user._id.toString(),
+      originalSizeMB: (videoFile.buffer.length / (1024 * 1024)).toFixed(2),
     });
-    
+
     let videoUploadResult;
     try {
       // uploadObject automatically uses multipart upload for files > 100MB
       const uploadStartTime = Date.now();
-      videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      videoUploadResult = await uploadObject(workingBuffer, videoStorageKey, workingMimetype);
       const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
       
       logger.info('Video upload completed:', {

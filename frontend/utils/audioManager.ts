@@ -5,9 +5,36 @@ import logger from './logger';
 class AudioManager {
   currentSound: Audio.Sound | null = null;
   currentPostId: string | null = null;
+  // When frozen, playSound refuses to start playback and unloads the incoming
+  // sound instead. Used by screens (e.g. Shorts) during their tab-blur cleanup
+  // to defeat the race where an in-flight Audio.Sound.loadAsync resolves AFTER
+  // the user has navigated away and would otherwise start playback in the
+  // background. The freeze auto-clears after a short window (long enough for
+  // any pending load to resolve, short enough to not block legitimate audio
+  // on the next screen).
+  private frozenUntil = 0;
   private listeners: Set<(postId: string | null) => void> = new Set();
 
+  /**
+   * Reject any new playSound calls for `windowMs`. Existing playback is
+   * stopped via the regular stopAll() path. Called by Shorts on tab blur.
+   */
+  freeze(windowMs: number = 400): void {
+    this.frozenUntil = Date.now() + windowMs;
+  }
+
+  isFrozen(): boolean {
+    return Date.now() < this.frozenUntil;
+  }
+
   async playSound(sound: Audio.Sound, postId: string) {
+    if (this.isFrozen()) {
+      // Caller's screen is mid-blur. Don't start playback — just unload the
+      // sound the caller already loaded so we don't leak a native player.
+      try { await sound.unloadAsync(); } catch (_) {}
+      logger.debug('audioManager.playSound bypassed (frozen):', postId);
+      return;
+    }
     await this.stopAll();
     this.currentSound = sound;
     this.currentPostId = postId;
