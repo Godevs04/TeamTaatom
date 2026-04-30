@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -484,6 +485,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // isVisible=false so it won't re-create audio after stopAll() clears it.
         isScreenFocusedRef.current = false;
         setIsScreenFocused(false);
+
+        // Freeze audioManager BEFORE the cleanup teardown. Any SongPlayer load
+        // that's mid-flight will resolve, attempt audioManager.playSound, and
+        // get rejected — the in-flight Audio.Sound is unloaded instead of
+        // starting playback in the background. This is the fix for "song
+        // keeps playing after I switch from shorts to home". The freeze
+        // auto-clears after 400ms, well after any reasonable load completes.
+        audioManager.freeze(400);
 
         // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
@@ -1812,12 +1821,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     // Reel item
     const distanceFromVisible = index - currentVisibleIndex;
-    // Mount only current + the next one ahead. The previous reel is unmounted
-    // immediately on scroll forward — keeping 3 native expo-av players alive
-    // simultaneously was a known OOM source on low-RAM Android devices, which
-    // is the most common shorts crash pattern. Scrolling backward causes a
-    // brief reload, which is acceptable.
-    const shouldRenderVideo = distanceFromVisible === 0 || distanceFromVisible === 1;
+    // Mount ONLY the currently-visible reel. Each native expo-av Video owns a
+    // hardware decoder + GPU surface + PCM buffer; on Android this is 50-150MB
+    // for H.264 and 200-400MB for HEVC. Pre-mounting even one extra reel
+    // doubles peak heap pressure and is the dominant cause of the heap-OOM
+    // crashes ("allocating 240 bytes failed" — heap was already saturated).
+    // Trade-off: a brief poster flash when scrolling to the next reel; far
+    // better than crashing. With the page-snap FlatList paging the next reel
+    // mounts and starts streaming the moment it scrolls into view.
+    const shouldRenderVideo = distanceFromVisible === 0;
 
     const videoState = videoStates[item._id];
     const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
@@ -2070,9 +2082,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 }}
               />
               ) : (
-                // Lightweight placeholder for unmounted videos
-                // Maintains layout without consuming video resources
-                <View style={styles.shortVideo} />
+                // Lightweight placeholder for unmounted videos. Show the
+                // poster/thumbnail (cached on disk by expo-image) so the user
+                // sees the next reel's frame instead of a black void during
+                // the brief mount window. No native decoder allocated — image
+                // bitmap is cheap (~3MB) compared to a Video instance (50-400MB).
+                item.imageUrl ? (
+                  <ExpoImage
+                    source={{ uri: item.imageUrl }}
+                    style={styles.shortVideo as any}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={0}
+                  />
+                ) : (
+                  <View style={styles.shortVideo} />
+                )
               )}
             </TouchableWithoutFeedback>
           </View>

@@ -30,6 +30,15 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   const soundRef = useRef<Audio.Sound | null>(null);
   const isInitializedRef = useRef(false);
   const isMountedRef = useRef(true); // Track if component is mounted
+  // Mirrors the isVisible prop synchronously so loadAndPlaySong can detect a
+  // nav-during-load (tab switch or scroll to next reel) and abort instead of
+  // starting playback in the background after the user has already navigated.
+  const isVisibleRef = useRef(isVisible);
+  // Token bumped on every loadAndPlaySong invocation. After awaiting loadAsync
+  // we compare the captured token against the current ref — if they differ a
+  // newer load was started or the component unmounted, and this stale load
+  // should silently unload and bail.
+  const loadTokenRef = useRef(0);
 
   // Get song data from post
   const song = post.song?.songId;
@@ -79,22 +88,30 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     };
   }, []);
 
+  // Keep isVisibleRef aligned with the prop. Assigned in the render body
+  // (NOT a useEffect) so the ref reflects the new value the moment React
+  // hands us the new prop — before commit, before child effects run. A
+  // useEffect-based sync leaves a brief race window during which an
+  // in-flight loadAsync can resolve and decide it's still "visible".
+  isVisibleRef.current = isVisible;
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       isMountedRef.current = false; // Mark as unmounted
+      // Bump the load token so any awaited loadAndPlaySong knows it's stale
+      // and unloads its sound instead of playing it on a dead component.
+      loadTokenRef.current += 1;
       onPlayingChange?.(null);
       if (soundRef.current) {
         // Silently cleanup - cancellations are expected on unmount
         soundRef.current.stopAsync().catch(() => {});
         soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
-        setSound(null);
-        if (isMountedRef.current) {
-          setIsPlaying(false);
-        }
+        // Note: setSound / setIsPlaying intentionally NOT called here —
+        // the component is already unmounted, calling state setters is a no-op
+        // at best and a "can't update unmounted" warning at worst.
       }
-      // Audio manager handles cleanup automatically via stopAll()
       isInitializedRef.current = false;
     };
   }, [post._id, onPlayingChange]);
@@ -133,9 +150,15 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       return;
     }
 
+    // Each load attempt gets a fresh token. After every async step we compare
+    // the captured token to the current ref — if they differ, a newer load was
+    // initiated OR the component unmounted, and this run is stale.
+    const myLoadToken = ++loadTokenRef.current;
+    const isStale = () => myLoadToken !== loadTokenRef.current || !isMountedRef.current || !isVisibleRef.current;
+
     try {
-      // Check if component is still mounted before starting
-      if (!isMountedRef.current) {
+      // Check if component is still mounted/visible before starting
+      if (!isMountedRef.current || !isVisibleRef.current) {
         return;
       }
 
@@ -191,11 +214,32 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         false // 🔴 MUST be false (no preload blocking - enables streaming)
       );
 
+      // ABORT GUARD: If the user navigated away (tab switch / reel scroll)
+      // while loadAsync was in flight, this run is stale. Unload the sound
+      // immediately rather than letting it play in the background. This is
+      // the fix for "song keeps playing after switching to home" and prevents
+      // the orphaned-player crash that follows.
+      if (isStale()) {
+        logger.debug('[SONGPLAYER] Stale load — unloading without play', { postId: String(post._id) });
+        try { await newSound.unloadAsync(); } catch (_) {}
+        return;
+      }
+
       soundRef.current = newSound;
       setSound(newSound);
-      
+
       // Use audioManager.playSound to ensure previous audio stops (only if we're going to play)
       if (shouldPlayNow && post._id) {
+        // Re-check between awaits — playSound starts native playback and
+        // wires the sound into audioManager.currentSound; if we navigated
+        // away during the brief window between loadAsync resolving and now,
+        // we'd start playback for nothing.
+        if (isStale()) {
+          try { await newSound.unloadAsync(); } catch (_) {}
+          soundRef.current = null;
+          if (isMountedRef.current) setSound(null);
+          return;
+        }
         await audioManager.playSound(newSound, post._id.toString());
         onPlayingChange?.(newSound);
       }
@@ -441,14 +485,19 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     }
 
     // Stop and unload when component becomes invisible (only for auto-play mode)
-    if (!isVisible && !showPlayPause && soundRef.current) {
-      onPlayingChange?.(null);
-      // Stop + unload instantly to prevent audio bleeding
-      soundRef.current.stopAsync().catch(() => {});
-      soundRef.current.unloadAsync().catch(() => {});
-      soundRef.current = null;
-      setSound(null);
-      setIsPlaying(false);
+    if (!isVisible && !showPlayPause) {
+      // Bump the load token so any in-flight loadAndPlaySong sees a stale
+      // token when its loadAsync resolves and unloads instead of playing.
+      loadTokenRef.current += 1;
+      if (soundRef.current) {
+        onPlayingChange?.(null);
+        // Stop + unload instantly to prevent audio bleeding
+        soundRef.current.stopAsync().catch(() => {});
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+        setSound(null);
+        setIsPlaying(false);
+      }
     }
   }, [isVisible, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
 
