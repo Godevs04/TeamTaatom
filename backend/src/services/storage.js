@@ -207,40 +207,59 @@ const uploadObjectMultipart = async (buffer, key, contentType) => {
     uploadId = createResult.UploadId;
     logger.debug('Multipart upload initialized:', { key, uploadId });
 
-    // Step 2: Upload parts
-    const parts = [];
+    // Step 2: Upload parts with bounded concurrency.
+    // The previous implementation awaited each part serially, which on a 200MB
+    // video meant 20 sequential round-trips to R2 — the dominant chunk of
+    // backend latency for short uploads. S3-compatible multipart accepts parts
+    // out of order, so we run a small pool of in-flight uploads instead.
     const totalParts = Math.ceil(buffer.length / PART_SIZE);
-    
-    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      const start = (partNumber - 1) * PART_SIZE;
-      const end = Math.min(start + PART_SIZE, buffer.length);
-      const partBuffer = buffer.slice(start, end);
+    const PART_CONCURRENCY = Math.min(4, totalParts); // 4 × 10MB = 40MB in flight max
+    const parts = new Array(totalParts);
+    let completedParts = 0;
+    let nextPartIndex = 0; // 0-based; PartNumber is index+1
 
-      const uploadPartCommand = new UploadPartCommand({
-        Bucket: BUCKET_NAME,
-        Key: key,
-        PartNumber: partNumber,
-        UploadId: uploadId,
-        Body: partBuffer,
-      });
+    const uploadOnePart = async () => {
+      while (true) {
+        const idx = nextPartIndex++;
+        if (idx >= totalParts) return;
 
-      const { ETag } = await s3Client.send(uploadPartCommand);
-      parts.push({ PartNumber: partNumber, ETag });
-      
-      // Log progress every 10% or at key milestones
-      if (partNumber % Math.max(1, Math.floor(totalParts / 10)) === 0 || 
-          partNumber === 1 || 
-          partNumber === totalParts) {
-        logger.debug(`Uploaded part ${partNumber}/${totalParts}:`, { 
-          key, 
-          partNumber, 
-          partSize: `${(partBuffer.length / (1024 * 1024)).toFixed(2)}MB`,
-          progress: `${Math.round((partNumber / totalParts) * 100)}%`
+        const partNumber = idx + 1;
+        const start = idx * PART_SIZE;
+        const end = Math.min(start + PART_SIZE, buffer.length);
+        const partBuffer = buffer.slice(start, end);
+
+        const uploadPartCommand = new UploadPartCommand({
+          Bucket: BUCKET_NAME,
+          Key: key,
+          PartNumber: partNumber,
+          UploadId: uploadId,
+          Body: partBuffer,
         });
-      }
-    }
 
-    // Step 3: Complete multipart upload
+        const { ETag } = await s3Client.send(uploadPartCommand);
+        parts[idx] = { PartNumber: partNumber, ETag };
+
+        completedParts += 1;
+        // Log progress every ~10% (or first/last) so we can spot stalls in prod.
+        if (
+          completedParts === 1 ||
+          completedParts === totalParts ||
+          completedParts % Math.max(1, Math.floor(totalParts / 10)) === 0
+        ) {
+          logger.debug(`Uploaded part ${completedParts}/${totalParts}:`, {
+            key,
+            partNumber,
+            partSize: `${(partBuffer.length / (1024 * 1024)).toFixed(2)}MB`,
+            progress: `${Math.round((completedParts / totalParts) * 100)}%`,
+            concurrency: PART_CONCURRENCY,
+          });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: PART_CONCURRENCY }, uploadOnePart));
+
+    // Step 3: Complete multipart upload (parts must be sorted by PartNumber).
     const completeCommand = new CompleteMultipartUploadCommand({
       Bucket: BUCKET_NAME,
       Key: key,
