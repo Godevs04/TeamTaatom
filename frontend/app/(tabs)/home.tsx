@@ -199,8 +199,12 @@ export default function HomeScreen() {
   const isFetchingMessagesRef = useRef(false);
   const lastMessageFetchRef = useRef(0);
   
-  // Request guards for pull-to-refresh and pagination race safety
-  const isRefreshingRef = useRef(false);
+  // Request guards for pull-to-refresh and pagination race safety.
+  // fetchingTabsRef tracks which feed tabs currently have a first-page fetch
+  // in flight — we allow concurrent fetches across DIFFERENT tabs (so a tab
+  // switch never gets blocked by a previous tab's still-running request) but
+  // de-duplicate concurrent first-page fetches WITHIN the same tab.
+  const fetchingTabsRef = useRef<Set<FeedMode>>(new Set());
   const isPaginatingRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
@@ -234,6 +238,13 @@ export default function HomeScreen() {
     popular: { posts: [], page: 1, hasMore: true },
   });
 
+  // Tracks the currently-active feed tab so in-flight fetches can detect tab switches
+  // and discard stale responses (prevents writing recents data into friends cache, etc).
+  const feedModeRef = useRef<FeedMode>(feedMode);
+  useEffect(() => {
+    feedModeRef.current = feedMode;
+  }, [feedMode]);
+
   const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
     () => [
       { id: 'recents', label: 'Recent', icon: 'time-outline', activeIcon: 'time' },
@@ -257,41 +268,44 @@ export default function HomeScreen() {
   }, []);
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
-    // Request guards: prevent overlapping refresh and pagination
+    // Capture feedMode at request time so the response can only be applied to
+    // the tab that asked for it. Tab switches mid-flight produce stale responses
+    // that must be discarded (otherwise friends data lands in popular cache, etc).
+    const requestFeedMode = feedMode;
+
+    // Request guards. Tab switches must be allowed to fetch even while a
+    // previous tab's request is still in flight — fetchingTabsRef is keyed
+    // per-tab so we only de-duplicate WITHIN the same tab. Pagination is
+    // blocked if any first-page fetch is in flight for the current tab.
     if (shouldAppend) {
-      // Pagination request
-      if (isPaginatingRef.current || isRefreshingRef.current) {
+      if (isPaginatingRef.current || fetchingTabsRef.current.has(requestFeedMode)) {
         logger.debug('Pagination blocked: refresh or pagination already in progress');
         return;
       }
       isPaginatingRef.current = true;
     } else {
-      // Refresh request
-      if (isRefreshingRef.current || isPaginatingRef.current) {
-        logger.debug('Refresh blocked: refresh or pagination already in progress');
+      if (fetchingTabsRef.current.has(requestFeedMode)) {
+        logger.debug('Refresh blocked: same-tab refresh already in progress', requestFeedMode);
         return;
       }
-      isRefreshingRef.current = true;
+      fetchingTabsRef.current.add(requestFeedMode);
     }
-    
-    // Prevent multiple simultaneous calls
-    if (isFetchingRef.current && !shouldAppend) {
-      logger.debug('Already fetching posts, skipping...');
-      if (shouldAppend) {
-        isPaginatingRef.current = false;
-      } else {
-        isRefreshingRef.current = false;
-      }
-      return;
-    }
-    
+
     isFetchingRef.current = true;
     try {
-      logger.debug('Fetching posts for page:', pageNum);
-      
+      logger.debug(`Fetching posts page=${pageNum} feed=${requestFeedMode}`);
+
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
-      const response = await getPosts(pageNum, postsPerPage, feedMode);
+      const response = await getPosts(pageNum, postsPerPage, requestFeedMode);
+
+      // Stale-response guard: if user switched tabs while this request was in
+      // flight, drop the result. Otherwise we would overwrite the new tab's
+      // posts and corrupt feedCacheRef for the wrong tab.
+      if (feedModeRef.current !== requestFeedMode) {
+        logger.debug(`Discarding stale ${requestFeedMode} response (current tab is ${feedModeRef.current})`);
+        return;
+      }
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -300,29 +314,34 @@ export default function HomeScreen() {
           setPosts([]);
           setHasMore(false);
           setPage(1);
+          // Persist the empty/finished state into the per-tab cache so revisiting
+          // this tab restores instantly with the empty state instead of refetching.
+          feedCacheRef.current[requestFeedMode] = { posts: [], page: 1, hasMore: false };
           logger.debug('No posts returned (may be filtered or empty database)');
         } else {
           // Pagination with no more posts
           setHasMore(false);
+          if (feedCacheRef.current[requestFeedMode]) {
+            feedCacheRef.current[requestFeedMode].hasMore = false;
+          }
         }
         return;
       }
-      
+
       if (shouldAppend) {
         // Feed de-duplication: merge items by unique _id, never append duplicates
         setPosts(prev => {
           const existingIds = new Set(prev.map(p => p._id));
           const newPosts = response.posts.filter(p => !existingIds.has(p._id));
           const merged = mergeLikedIntoPosts([...prev, ...newPosts]);
-          // Update in-memory cache for this tab
-          feedCacheRef.current[feedMode] = { posts: merged, page: pageNum, hasMore: true };
+          // Update in-memory cache for this tab (using captured request mode)
+          feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
           return merged;
         });
       } else {
         const merged = mergeLikedIntoPosts(response.posts);
         setPosts(merged);
-        // Update in-memory cache for this tab
-        feedCacheRef.current[feedMode] = { posts: merged, page: pageNum, hasMore: true };
+        feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
       }
 
       // If fewer posts returned than requested, we've reached the end regardless
@@ -331,9 +350,9 @@ export default function HomeScreen() {
       const newHasMore = receivedLessThanRequested ? false : (response.pagination?.hasNextPage ?? false);
       setHasMore(newHasMore);
       setPage(pageNum);
-      // Sync hasMore into cache
-      feedCacheRef.current[feedMode].hasMore = newHasMore;
-      feedCacheRef.current[feedMode].page = pageNum;
+      // Sync hasMore into cache (using captured request mode)
+      feedCacheRef.current[requestFeedMode].hasMore = newHasMore;
+      feedCacheRef.current[requestFeedMode].page = pageNum;
       
       // Scroll to specific post if postId is provided in params
       if (params.postId && typeof params.postId === 'string' && response.posts.length > 0) {
@@ -374,10 +393,10 @@ export default function HomeScreen() {
         }
       }
       
-      // Cache posts for offline support
+      // Cache posts for offline support (per-tab key)
       if (pageNum === 1 && !shouldAppend) {
         try {
-          await AsyncStorage.setItem(`cachedPosts_${feedMode}`, JSON.stringify({
+          await AsyncStorage.setItem(`cachedPosts_${requestFeedMode}`, JSON.stringify({
             data: response.posts,
             timestamp: Date.now()
           }));
@@ -427,10 +446,12 @@ export default function HomeScreen() {
         error?.code === 'ERR_NETWORK' ||
         error?.message === 'Network Error';
       
-      // Load cached posts on network error (only for first page, not pagination)
+      // Load cached posts on network error (only for first page, not pagination).
+      // Must use the per-tab key — falling back to a global 'cachedPosts' key would
+      // mix recents data into friends/popular tabs after offline recovery.
       if (isNetworkError && pageNum === 1 && !shouldAppend) {
         try {
-          const cachedData = await AsyncStorage.getItem('cachedPosts');
+          const cachedData = await AsyncStorage.getItem(`cachedPosts_${requestFeedMode}`);
           if (cachedData) {
             const parsed = JSON.parse(cachedData);
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
@@ -473,11 +494,11 @@ export default function HomeScreen() {
       // For pagination errors, silently fail - user can retry by scrolling
     } finally {
       isFetchingRef.current = false;
-      // Clear request guards
+      // Clear request guards (release the per-tab lock with the same key we acquired)
       if (shouldAppend) {
         isPaginatingRef.current = false;
       } else {
-        isRefreshingRef.current = false;
+        fetchingTabsRef.current.delete(requestFeedMode);
       }
     }
   }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
@@ -656,11 +677,11 @@ export default function HomeScreen() {
       if (hasInitializedRef.current) return;
       hasInitializedRef.current = true;
 
-      // Only show full-page loader on first ever load (no posts yet).
-      // Tab switches already have posts on screen — skip the loader.
-      if (posts.length === 0) {
-        setLoading(true);
-      }
+      // Capture feed mode at load start. If the user switches tabs while we're
+      // loading, this run is "stale" and must not setLoading(false) (the new run
+      // owns that state) and must not write the wrong tab's AsyncStorage cache.
+      const requestFeedMode = feedMode;
+
       try {
         // Load persisted liked post IDs first so mergeLikedIntoPosts is correct
         try {
@@ -684,14 +705,14 @@ export default function HomeScreen() {
         // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
-        
-        // Try to load cached posts first for instant display
+
+        // Try to load AsyncStorage-cached posts first for instant display.
+        // Only honor if user is still on the tab we started loading for.
         try {
-          const cachedData = await AsyncStorage.getItem(`cachedPosts_${feedMode}`);
-          if (cachedData) {
+          const cachedData = await AsyncStorage.getItem(`cachedPosts_${requestFeedMode}`);
+          if (cachedData && feedModeRef.current === requestFeedMode) {
             const parsed = JSON.parse(cachedData);
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
-              // Check if cache is not too old (24 hours)
               const cacheAge = Date.now() - (parsed.timestamp || 0);
               // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
               // posts never contain stale URLs that would render blank.
@@ -700,33 +721,38 @@ export default function HomeScreen() {
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false);
                 setPage(1);
-                setLoading(false); // Show cached data immediately
+                setLoading(false);
               }
             }
           }
         } catch (cacheError) {
           logger.debug('No cached posts available or cache error', cacheError);
         }
-        
+
         // Fetch unseen message count (non-blocking)
         fetchUnseenMessageCount().catch(err => {
           logger.debug('Failed to fetch message count (non-critical)', err);
         });
-        
+
         // Try to load fresh posts (will update cache if successful)
-        logger.debug('Loading fresh posts...');
+        logger.debug('Loading fresh posts for', requestFeedMode);
         await fetchPosts(1, false);
       } catch (error) {
         logger.error('Error loading initial data', error);
         // If we don't have cached data, show error
-        if (posts.length === 0) {
+        if (posts.length === 0 && feedModeRef.current === requestFeedMode) {
           setTimeout(() => {
             showError('Failed to load content. Please pull down to refresh.');
           }, 100);
         }
         hasInitializedRef.current = false; // Allow retry
       } finally {
-        setLoading(false);
+        // Only clear the loader if this run is still the current tab's run.
+        // Otherwise the next loadInitialData (started by handleFeedTabPress)
+        // owns the loading state and will clear it when its own fetch lands.
+        if (feedModeRef.current === requestFeedMode) {
+          setLoading(false);
+        }
       }
     };
 
@@ -839,8 +865,8 @@ export default function HomeScreen() {
   }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
-    // Request guard: prevent refresh if already refreshing or paginating
-    if (isRefreshingRef.current || isPaginatingRef.current) {
+    // Request guard: prevent refresh if a same-tab refresh or pagination is in flight.
+    if (fetchingTabsRef.current.has(feedMode) || isPaginatingRef.current) {
       logger.debug('Refresh blocked: already in progress');
       return;
     }
@@ -880,7 +906,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount, posts.length]);
+  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
@@ -890,13 +916,21 @@ export default function HomeScreen() {
 
     // Restore cached posts for the new tab (instant, no image reload)
     const cached = feedCacheRef.current[mode];
-    if (cached.posts.length > 0) {
+    if (cached.posts.length > 0 || cached.hasMore === false) {
+      // Have cache OR previously confirmed empty — restore instantly, no fetch.
       setPosts(cached.posts);
       setPage(cached.page);
       setHasMore(cached.hasMore);
-      hasInitializedRef.current = true; // Already have data — skip fetch
+      setLoading(false);
+      hasInitializedRef.current = true;
     } else {
-      // No cache — let the useEffect fetch fresh
+      // No cache yet for this tab — clear stale content from the previous tab
+      // immediately so the user does NOT see e.g. recents posts under the
+      // friends header, and show a loader until the fresh fetch lands.
+      setPosts([]);
+      setPage(1);
+      setHasMore(true);
+      setLoading(true);
       hasInitializedRef.current = false;
     }
 
@@ -907,15 +941,16 @@ export default function HomeScreen() {
     // FlashList v2's scrollToOffset is unreliable across data-swap re-renders.
   }, [feedMode, posts, page, hasMore]);
 
-  // Throttle load more for web performance
-  // Request guard: prevent pagination if already paginating or refreshing
+  // Throttle load more for web performance.
+  // Pagination is blocked while a same-tab refresh is in flight (resetting to
+  // page 1 mid-pagination would corrupt the list ordering).
   const handleLoadMore = useCallback(
     throttle(async () => {
-      if (!loading && hasMore && !isPaginatingRef.current && !isRefreshingRef.current) {
+      if (!loading && hasMore && !isPaginatingRef.current && !fetchingTabsRef.current.has(feedMode)) {
         await fetchPosts(page + 1, true);
       }
     }, 1000),
-    [loading, hasMore, page, fetchPosts]
+    [loading, hasMore, page, fetchPosts, feedMode]
   );
 
   const styles = StyleSheet.create({
@@ -1171,6 +1206,7 @@ export default function HomeScreen() {
           backgroundColor={theme.colors.background}
         />
         {renderTopHeader()}
+        {renderFeedTabs()}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>

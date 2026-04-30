@@ -45,5 +45,21 @@ superAdmin/**
 claude/
 CLAUDE.md
 
-# Note: frontend/app.json must be tracked — EAS builds from git and app.config.js reads it;
-# use .env / EXPO_PUBLIC_* for machine-specific overrides, not a gitignored app.json.
+# ─── Personal docs / planning notes (never in repo) ────────────────────────
+*.pdf
+BSD-*.md
+IMAGE_MIGRATION_REPORT.md
+feature1.md
+
+# ─── Production-risk files: NOT listed here ────────────────────────────────
+# package.json, package-lock.json, app.json, eas.json are TRACKED on purpose
+# (EAS / build pipeline reads them from git). Listing them here would be a
+# no-op since gitignore is bypassed for already-tracked files.
+#
+# To stop your local edits from being staged accidentally, use skip-worktree
+# (per-machine, doesn't propagate):
+#   git update-index --skip-worktree frontend/package.json frontend/package-lock.json frontend/app.json
+#   git update-index --skip-worktree SuperAdmin/package.json SuperAdmin/package-lock.json
+# Undo with:  git update-index --no-skip-worktree <file>
+#
+# For machine-specific config, use .env / EXPO_PUBLIC_* overrides.
