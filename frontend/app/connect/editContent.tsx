@@ -76,10 +76,31 @@ export default function EditContentScreen() {
     if (!pageId || !section) return;
     try {
       setSaving(true);
+
+      // Prepare blocks for saving:
+      // - Use _storageKey for newly uploaded images (uploaded on pick)
+      // - Skip broken file:// URIs (old corrupted data)
+      // - Signed R2 URLs are handled by backend (extracts storage key)
+      const processedBlocks = blocks
+        .filter((block) => {
+          // Remove image blocks with broken local file URIs
+          if (block.type === 'image' && block.content && block.content.startsWith('file://')) {
+            return false;
+          }
+          return true;
+        })
+        .map((block) => {
+          // Use storage key if available (set during immediate upload)
+          if (block.type === 'image' && (block as any)._storageKey) {
+            return { ...block, content: (block as any)._storageKey };
+          }
+          return block;
+        });
+
       if (section === 'website') {
-        await updateWebsiteContent(pageId, blocks);
+        await updateWebsiteContent(pageId, processedBlocks);
       } else {
-        await updateSubscriptionContent(pageId, blocks);
+        await updateSubscriptionContent(pageId, processedBlocks);
       }
       setHasChanges(false);
       Alert.alert('Saved', `${sectionTitle} content has been updated.`, [
@@ -175,13 +196,14 @@ export default function EditContentScreen() {
         >
           <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
             {section === 'website'
-              ? 'Build your page with text, images, and videos. Content is visible to all visitors.'
-              : 'List the services you offer. Visitors can see what you provide.'}
+              ? 'Build your page with headings, text, images, buttons, and more. Content is visible to all visitors.'
+              : 'List the services you offer with text, images, and buttons. Visitors can see what you provide.'}
           </Text>
 
           <ContentBlockBuilder
             blocks={blocks}
             onChange={handleBlocksChange}
+            pageId={pageId}
           />
         </ScrollView>
       </KeyboardAvoidingView>

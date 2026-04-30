@@ -4655,4 +4655,670 @@ router.get('/analytics/engagement', authenticateSuperAdmin, async (req, res) => 
   }
 });
 
+// ─────────────────────────────────────────────
+// Subscription Approval & Payout Management
+// ─────────────────────────────────────────────
+
+const ConnectPage = require('../models/ConnectPage')
+const Payout = require('../models/Payout')
+const Subscription = require('../models/Subscription')
+
+// GET /api/v1/superadmin/subscription-approvals — List pages pending subscription approval
+router.get('/subscription-approvals', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const { status = 'pending', page = 1, limit = 20 } = req.query
+    const skip = (parseInt(page) - 1) * parseInt(limit)
+
+    const filter = {}
+    if (status === 'all') {
+      filter['subscriptionApproval.status'] = { $in: ['pending', 'approved', 'rejected'] }
+    } else {
+      filter['subscriptionApproval.status'] = status
+    }
+
+    const [pages, total] = await Promise.all([
+      ConnectPage.find(filter)
+        .populate('userId', 'username fullName email')
+        .populate('subscriptionApproval.reviewedBy', 'name email')
+        .sort({ 'subscriptionApproval.requestedPrice': -1, updatedAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      ConnectPage.countDocuments(filter)
+    ])
+
+    return sendSuccess(res, 200, 'Subscription approvals fetched', {
+      pages,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    })
+  } catch (error) {
+    logger.error('Error fetching subscription approvals:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch subscription approvals')
+  }
+})
+
+// PUT /api/v1/superadmin/subscription-approvals/:pageId/approve — Approve subscription price
+router.put('/subscription-approvals/:pageId/approve', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const adminId = req.superAdmin?._id || req.user?._id
+
+    const page = await ConnectPage.findById(pageId)
+    if (!page) {
+      return sendError(res, 'RES_3001', 'Connect page not found')
+    }
+    if (page.subscriptionApproval?.status !== 'pending') {
+      return sendError(res, 'BIZ_7001', 'No pending approval request for this page')
+    }
+
+    // Set the actual price from the requested price
+    page.subscriptionPrice = page.subscriptionApproval.requestedPrice
+    page.subscriptionApproval.status = 'approved'
+    page.subscriptionApproval.approvedAt = new Date()
+    page.subscriptionApproval.reviewedBy = adminId
+    page.subscriptionApproval.rejectedAt = null
+    page.subscriptionApproval.rejectionReason = ''
+    await page.save()
+
+    const currency = page.subscriptionCurrency || 'INR'
+    logger.info(`Subscription price approved for page ${pageId}: ${currency} ${page.subscriptionPrice}`)
+
+    return sendSuccess(res, 200, 'Subscription price approved', {
+      pageId: page._id,
+      pageName: page.name,
+      approvedPrice: page.subscriptionPrice,
+      currency,
+    })
+  } catch (error) {
+    logger.error('Error approving subscription:', error)
+    return sendError(res, 'SRV_6001', 'Failed to approve subscription price')
+  }
+})
+
+// PUT /api/v1/superadmin/subscription-approvals/:pageId/reject — Reject subscription price
+router.put('/subscription-approvals/:pageId/reject', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const { reason } = req.body
+    const adminId = req.superAdmin?._id || req.user?._id
+
+    const page = await ConnectPage.findById(pageId)
+    if (!page) {
+      return sendError(res, 'RES_3001', 'Connect page not found')
+    }
+    if (page.subscriptionApproval?.status !== 'pending') {
+      return sendError(res, 'BIZ_7001', 'No pending approval request for this page')
+    }
+
+    page.subscriptionApproval.status = 'rejected'
+    page.subscriptionApproval.rejectedAt = new Date()
+    page.subscriptionApproval.rejectionReason = reason || 'Price not approved by admin'
+    page.subscriptionApproval.reviewedBy = adminId
+    // Do NOT set subscriptionPrice — keep it null or previous value
+    await page.save()
+
+    logger.info(`Subscription price rejected for page ${pageId}: ${reason}`)
+
+    return sendSuccess(res, 200, 'Subscription price rejected', {
+      pageId: page._id,
+      pageName: page.name,
+      reason: page.subscriptionApproval.rejectionReason
+    })
+  } catch (error) {
+    logger.error('Error rejecting subscription:', error)
+    return sendError(res, 'SRV_6001', 'Failed to reject subscription price')
+  }
+})
+
+// GET /api/v1/superadmin/payouts — List all payouts
+router.get('/payouts', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const { status, month, year, page = 1, limit = 20 } = req.query
+    const skip = (parseInt(page) - 1) * parseInt(limit)
+
+    const filter = {}
+    if (status) filter.status = status
+    if (month) filter.periodMonth = parseInt(month)
+    if (year) filter.periodYear = parseInt(year)
+
+    const [payouts, total] = await Promise.all([
+      Payout.find(filter)
+        .populate('creatorId', 'username fullName email')
+        .populate('connectPageId', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Payout.countDocuments(filter)
+    ])
+
+    // Summary stats
+    const summaryPipeline = [
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          totalGross: { $sum: '$grossAmount' },
+          totalCommission: { $sum: '$commissionAmount' },
+          totalGst: { $sum: '$gstAmount' },
+          totalCreatorPayout: { $sum: '$creatorPayout' },
+          totalWiseFee: { $sum: '$wiseFee' },
+          count: { $sum: 1 }
+        }
+      }
+    ]
+    const [summary] = await Payout.aggregate(summaryPipeline)
+
+    return sendSuccess(res, 200, 'Payouts fetched', {
+      payouts,
+      summary: summary || { totalGross: 0, totalCommission: 0, totalGst: 0, totalCreatorPayout: 0, totalWiseFee: 0, count: 0 },
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    })
+  } catch (error) {
+    logger.error('Error fetching payouts:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch payouts')
+  }
+})
+
+// GET /api/v1/superadmin/subscription-stats — Overview stats + monthly chart data
+router.get('/subscription-stats', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const [pendingCount, activeSubCount, totalSubCount, totalRevenue, monthlyPayouts] = await Promise.all([
+      ConnectPage.countDocuments({ 'subscriptionApproval.status': 'pending' }),
+      Subscription.countDocuments({ status: 'active' }),
+      Subscription.countDocuments({ status: { $in: ['active', 'cancelled', 'completed'] } }),
+      Subscription.aggregate([
+        { $match: { status: 'active' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]),
+      // Monthly payout chart data (last 12 months)
+      Payout.aggregate([
+        {
+          $group: {
+            _id: { year: '$periodYear', month: '$periodMonth' },
+            grossAmount: { $sum: '$grossAmount' },
+            commissionAmount: { $sum: '$commissionAmount' },
+            creatorPayout: { $sum: '$creatorPayout' },
+            subscriberCount: { $sum: '$subscriberCount' },
+            count: { $sum: 1 },
+          }
+        },
+        { $sort: { '_id.year': -1, '_id.month': -1 } },
+        { $limit: 12 },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
+      ])
+    ])
+
+    // Format monthly data for chart
+    const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    const monthlyChart = monthlyPayouts.map(p => ({
+      label: `${monthNames[p._id.month]} ${p._id.year}`,
+      month: p._id.month,
+      year: p._id.year,
+      gross: Math.round(p.grossAmount * 100) / 100,
+      commission: Math.round(p.commissionAmount * 100) / 100,
+      creatorPayout: Math.round(p.creatorPayout * 100) / 100,
+      subscribers: p.subscriberCount,
+    }))
+
+    return sendSuccess(res, 200, 'Subscription stats fetched', {
+      pendingApprovals: pendingCount,
+      activeSubscriptions: activeSubCount,
+      totalSubscribers: totalSubCount,
+      monthlyRecurringRevenue: totalRevenue[0]?.total || 0,
+      monthlyChart,
+    })
+  } catch (error) {
+    logger.error('Error fetching subscription stats:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch subscription stats')
+  }
+})
+
+// ─────────────────────────────────────────────
+// Community Pages (admin-created Connect pages)
+// ─────────────────────────────────────────────
+// ConnectPage already required above (subscription stats section)
+const ChatModel = require('../models/Chat')
+const { uploadObject, buildMediaKey } = require('../services/storage')
+const { generateSignedUrl } = require('../services/mediaService')
+
+// Multer for community page images (profile + banner)
+const communityUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Only image files are allowed'), false)
+  }
+}).fields([
+  { name: 'profileImage', maxCount: 1 },
+  { name: 'bannerImage', maxCount: 1 }
+])
+
+/**
+ * GET /api/v1/superadmin/community-pages
+ * List all community pages (isAdminPage: true)
+ */
+router.get('/community-pages', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1
+    const limit = parseInt(req.query.limit) || 20
+    const skip = (page - 1) * limit
+    const status = req.query.status || 'all'
+
+    const query = { isAdminPage: true }
+    if (status !== 'all') query.status = status
+
+    const [pages, total] = await Promise.all([
+      ConnectPage.find(query)
+        .populate('userId', 'username fullName profilePic')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ConnectPage.countDocuments(query)
+    ])
+
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      if (p.profileImage && !p.profileImage.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(p.profileImage, 'PROFILE')
+          if (url) p.profileImage = url
+          else p.profileImage = ''
+        } catch { p.profileImage = '' }
+      }
+      if (p.bannerImage && !p.bannerImage.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(p.bannerImage, 'PROFILE')
+          if (url) p.bannerImage = url
+          else p.bannerImage = ''
+        } catch { p.bannerImage = '' }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Community pages fetched', {
+      pages,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    })
+  } catch (error) {
+    logger.error('Error fetching community pages:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch community pages')
+  }
+})
+
+/**
+ * POST /api/v1/superadmin/community-pages
+ * Create a new community page (isAdminPage: true)
+ */
+router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
+  communityUpload(req, res, (err) => {
+    if (err) {
+      logger.error('Multer error on community page create:', err)
+      return sendError(res, 'VALIDATION_FAILED', `File upload error: ${err.message}`)
+    }
+    next()
+  })
+}, async (req, res) => {
+  try {
+    const adminUser = req.superAdmin
+    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency } = req.body
+
+    if (!name || name.trim().length < 3 || name.trim().length > 50) {
+      return sendError(res, 'VALIDATION_FAILED', 'Page name must be 3-50 characters')
+    }
+
+    // Parse features
+    let parsedFeatures = features
+    if (typeof features === 'string') {
+      try { parsedFeatures = JSON.parse(features) } catch { parsedFeatures = {} }
+    }
+
+    let profileImageStorageKey = ''
+    let bannerImageStorageKey = ''
+
+    // Handle profile image
+    const profileFile = req.files?.profileImage?.[0]
+    if (profileFile) {
+      try {
+        const ext = profileFile.originalname?.split('.').pop() || 'jpg'
+        profileImageStorageKey = buildMediaKey({
+          type: 'connect',
+          userId: adminUser._id.toString(),
+          filename: profileFile.originalname || 'profile.jpg',
+          extension: ext
+        })
+        await uploadObject(profileFile.buffer, profileImageStorageKey, profileFile.mimetype)
+      } catch (err) {
+        logger.error('Community page profile image upload error:', err)
+      }
+    }
+
+    // Handle banner image
+    const bannerFile = req.files?.bannerImage?.[0]
+    if (bannerFile) {
+      try {
+        const ext = bannerFile.originalname?.split('.').pop() || 'jpg'
+        bannerImageStorageKey = buildMediaKey({
+          type: 'connect',
+          userId: adminUser._id.toString(),
+          filename: bannerFile.originalname || 'banner.jpg',
+          extension: ext
+        })
+        await uploadObject(bannerFile.buffer, bannerImageStorageKey, bannerFile.mimetype)
+      } catch (err) {
+        logger.error('Community page banner image upload error:', err)
+      }
+    }
+
+    const pageData = {
+      userId: adminUser._id,
+      name: name.trim(),
+      type: type || 'public',
+      bio: bio ? bio.trim() : '',
+      profileImage: profileImageStorageKey,
+      bannerImage: bannerImageStorageKey,
+      isAdminPage: true,
+      features: {
+        website: parsedFeatures?.website === true || parsedFeatures?.website === 'true' || false,
+        groupChat: parsedFeatures?.groupChat === true || parsedFeatures?.groupChat === 'true' || false,
+        subscription: parsedFeatures?.subscription === true || parsedFeatures?.subscription === 'true' || false
+      }
+    }
+
+    // Handle subscription pricing (auto-approved for admin pages)
+    if (pageData.features.subscription && subscriptionPrice) {
+      const price = parseFloat(subscriptionPrice)
+      if (price > 0) {
+        pageData.subscriptionPrice = price
+        pageData.subscriptionCurrency = subscriptionCurrency || 'INR'
+        pageData.subscriptionApproval = {
+          status: 'approved',
+          requestedPrice: price,
+          approvedAt: new Date(),
+          reviewedBy: adminUser._id,
+        }
+      }
+    }
+
+    const connectPage = new ConnectPage(pageData)
+
+    // Create group chat room if enabled
+    if (pageData.features.groupChat) {
+      await connectPage.save()
+      const chatRoom = new ChatModel({
+        participants: [adminUser._id],
+        type: 'connect_page',
+        connectPageId: connectPage._id,
+        messages: [],
+        status: 'open'
+      })
+      await chatRoom.save()
+      connectPage.chatRoomId = chatRoom._id
+    }
+
+    await connectPage.save()
+
+    return sendSuccess(res, 201, 'Community page created', { page: connectPage })
+  } catch (error) {
+    logger.error('Error creating community page:', error?.message, error?.stack)
+    return sendError(res, 'SRV_6001', `Failed to create community page: ${error?.message || 'Unknown error'}`)
+  }
+})
+
+/**
+ * PUT /api/v1/superadmin/community-pages/:pageId
+ * Update a community page
+ */
+router.put('/community-pages/:pageId', authenticateSuperAdmin, communityUpload, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, status } = req.body
+
+    if (name) page.name = name.trim()
+    if (type) page.type = type
+    if (bio !== undefined) page.bio = bio.trim()
+    if (status) page.status = status
+
+    // Parse and update features
+    if (features) {
+      let parsedFeatures = features
+      if (typeof features === 'string') {
+        try { parsedFeatures = JSON.parse(features) } catch { parsedFeatures = {} }
+      }
+      if (parsedFeatures.website !== undefined) page.features.website = parsedFeatures.website === true || parsedFeatures.website === 'true'
+      if (parsedFeatures.groupChat !== undefined) page.features.groupChat = parsedFeatures.groupChat === true || parsedFeatures.groupChat === 'true'
+      if (parsedFeatures.subscription !== undefined) page.features.subscription = parsedFeatures.subscription === true || parsedFeatures.subscription === 'true'
+    }
+
+    // Handle image uploads
+    const profileFile = req.files?.profileImage?.[0]
+    if (profileFile) {
+      try {
+        const ext = profileFile.originalname?.split('.').pop() || 'jpg'
+        const key = buildMediaKey({ type: 'connect', userId: page.userId.toString(), filename: profileFile.originalname || 'profile.jpg', extension: ext })
+        await uploadObject(profileFile.buffer, key, profileFile.mimetype)
+        page.profileImage = key
+      } catch (err) {
+        logger.error('Community page profile image update error:', err)
+      }
+    }
+
+    const bannerFile = req.files?.bannerImage?.[0]
+    if (bannerFile) {
+      try {
+        const ext = bannerFile.originalname?.split('.').pop() || 'jpg'
+        const key = buildMediaKey({ type: 'connect', userId: page.userId.toString(), filename: bannerFile.originalname || 'banner.jpg', extension: ext })
+        await uploadObject(bannerFile.buffer, key, bannerFile.mimetype)
+        page.bannerImage = key
+      } catch (err) {
+        logger.error('Community page banner image update error:', err)
+      }
+    }
+
+    // Update subscription pricing (auto-approved for admin)
+    if (subscriptionPrice !== undefined && page.features.subscription) {
+      const price = parseFloat(subscriptionPrice)
+      if (price > 0) {
+        page.subscriptionPrice = price
+        page.subscriptionCurrency = subscriptionCurrency || page.subscriptionCurrency || 'INR'
+        page.subscriptionApproval = {
+          status: 'approved',
+          requestedPrice: price,
+          approvedAt: new Date(),
+          reviewedBy: req.superAdmin._id,
+        }
+      }
+    }
+
+    await page.save()
+    return sendSuccess(res, 200, 'Community page updated', { page })
+  } catch (error) {
+    logger.error('Error updating community page:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update community page')
+  }
+})
+
+/**
+ * DELETE /api/v1/superadmin/community-pages/:pageId
+ * Archive (soft-delete) a community page
+ */
+router.delete('/community-pages/:pageId', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    page.status = 'archived'
+    await page.save()
+
+    return sendSuccess(res, 200, 'Community page archived')
+  } catch (error) {
+    logger.error('Error archiving community page:', error)
+    return sendError(res, 'SRV_6001', 'Failed to archive community page')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/community-pages/:pageId/content
+ * Get website + subscription content for a community page
+ */
+router.get('/community-pages/:pageId/content', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+      .select('name features websiteContent subscriptionContent')
+      .lean()
+
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    // Resolve image URLs in content blocks
+    for (const block of (page.websiteContent || [])) {
+      if (block.type === 'image' && block.content && !block.content.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(block.content, 'DEFAULT')
+          if (url) block.content = url
+        } catch { /* keep original key */ }
+      }
+    }
+    for (const block of (page.subscriptionContent || [])) {
+      if (block.type === 'image' && block.content && !block.content.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(block.content, 'DEFAULT')
+          if (url) block.content = url
+        } catch { /* keep original key */ }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Content fetched', {
+      name: page.name,
+      features: page.features,
+      websiteContent: page.websiteContent || [],
+      subscriptionContent: page.subscriptionContent || [],
+    })
+  } catch (error) {
+    logger.error('Error fetching community page content:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch content')
+  }
+})
+
+// Multer for content block image uploads
+const contentImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Only image files are allowed'), false)
+  }
+}).single('image')
+
+/**
+ * POST /api/v1/superadmin/community-pages/:pageId/upload-image
+ * Upload an image for use in content blocks, returns the signed URL
+ */
+router.post('/community-pages/:pageId/upload-image', (req, res, next) => {
+  contentImageUpload(req, res, (err) => {
+    if (err) {
+      logger.error('Multer upload error:', err.message)
+      return sendError(res, 'VALIDATION_FAILED', `Upload error: ${err.message}`)
+    }
+    next()
+  })
+}, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const file = req.file
+    if (!file) {
+      logger.warn('No file in request. Content-Type:', req.get('content-type'))
+      return sendError(res, 'VALIDATION_FAILED', 'No image file provided. Ensure the field name is "image".')
+    }
+
+    const ext = file.originalname?.split('.').pop() || 'jpg'
+    const storageKey = buildMediaKey({
+      type: 'connect-content',
+      userId: page.userId.toString(),
+      filename: file.originalname || `content-${Date.now()}.${ext}`,
+      extension: ext
+    })
+    await uploadObject(file.buffer, storageKey, file.mimetype)
+
+    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT')
+    return sendSuccess(res, 200, 'Image uploaded', { storageKey, url: signedUrl })
+  } catch (error) {
+    logger.error('Error uploading content image:', error)
+    return sendError(res, 'SRV_6001', `Failed to upload image: ${error.message}`)
+  }
+})
+
+/**
+ * PUT /api/v1/superadmin/community-pages/:pageId/content
+ * Update website and/or subscription content for a community page
+ * Body: { websiteContent?: ContentBlock[], subscriptionContent?: ContentBlock[] }
+ */
+router.put('/community-pages/:pageId/content', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const { websiteContent, subscriptionContent } = req.body
+
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const sanitizeBlocks = (blocks) => {
+      if (!Array.isArray(blocks)) return []
+      return blocks
+        .filter(b => b.type === 'divider' || (b.content && b.content.trim() !== ''))
+        .map((b, idx) => {
+          const block = {
+            type: b.type,
+            content: b.type === 'divider' ? '---' : b.content,
+            order: idx,
+          }
+          if (b.url) block.url = b.url
+          if (b.embedType) block.embedType = b.embedType
+          return block
+        })
+    }
+
+    if (websiteContent !== undefined) {
+      if (!page.features.website) {
+        return sendError(res, 'VALIDATION_FAILED', 'Website feature is not enabled')
+      }
+      page.websiteContent = sanitizeBlocks(websiteContent)
+    }
+
+    if (subscriptionContent !== undefined) {
+      if (!page.features.subscription) {
+        return sendError(res, 'VALIDATION_FAILED', 'Subscription feature is not enabled')
+      }
+      page.subscriptionContent = sanitizeBlocks(subscriptionContent)
+    }
+
+    await page.save()
+
+    return sendSuccess(res, 200, 'Content updated', {
+      websiteContent: page.websiteContent,
+      subscriptionContent: page.subscriptionContent,
+    })
+  } catch (error) {
+    logger.error('Error updating community page content:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update content')
+  }
+})
+
 module.exports = router

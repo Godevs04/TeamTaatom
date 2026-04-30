@@ -1,4 +1,5 @@
 import { Image } from 'react-native';
+import { imageCacheManager } from './imageCacheManager';
 import logger from './logger';
 
 interface ImageLoadOptions {
@@ -17,11 +18,9 @@ export const loadImageWithFallback = async (
     retryDelay = 1000
   } = options;
 
-  // For R2 signed URLs (Cloudflare R2), skip prefetch as it may fail due to CORS
-  // React Native's Image component will handle loading directly
+  // For R2 signed URLs (Cloudflare R2), use sync cache check — return cached path or direct URL
   if (imageUrl.includes('r2.cloudflarestorage.com') || imageUrl.includes('cloudflarestorage.com')) {
-    // Return URL directly - let Image component handle loading
-    return imageUrl;
+    return imageCacheManager.getCachedPathSync(imageUrl);
   }
 
   // Strategy 1: Try original URL (for Cloudinary and other URLs)

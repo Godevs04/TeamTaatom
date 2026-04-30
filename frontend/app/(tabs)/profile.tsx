@@ -265,7 +265,9 @@ export default function ProfileScreen() {
         if (cachedPosts) {
           const parsed = JSON.parse(cachedPosts);
           const cacheAge = Date.now() - (parsed.timestamp || 0);
-          if (cacheAge < 24 * 60 * 60 * 1000) { // 24 hour cache for posts
+          // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
+          // posts never contain stale URLs that would render blank.
+          if (cacheAge < 50 * 60 * 1000) {
             setPosts(parsed.data);
           }
         }
@@ -352,7 +354,7 @@ export default function ProfileScreen() {
               const parsed = JSON.parse(cachedData);
               if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
                 const cacheAge = Date.now() - (parsed.timestamp || 0);
-                if (cacheAge < 24 * 60 * 60 * 1000) {
+                if (cacheAge < 50 * 60 * 1000) {
                   logger.debug('Loading cached user posts due to network error');
                   setPosts(parsed.data);
                 }

@@ -595,6 +595,7 @@ export default function ConnectHubScreen() {
         renderItem={renderPageItem}
         estimatedItemSize={100}
         keyExtractor={(item: ConnectPageType) => item._id}
+        contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
         ListFooterComponent={
@@ -672,14 +673,16 @@ export default function ConnectHubScreen() {
       {/* Tab Content */}
       {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
 
-      {/* FAB — Create Connect Page */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-        onPress={() => router.push('/connect/create')}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="add" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
+      {/* FAB — Create Connect Page (Connect tab only) */}
+      {activeTab === 'connect' && (
+        <TouchableOpacity
+          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          onPress={() => router.push('/connect/create')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add" size={28} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
 
       {/* User Bottom Sheet (Find tab) */}
       {renderUserBottomSheet()}

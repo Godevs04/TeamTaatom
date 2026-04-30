@@ -498,12 +498,22 @@ exports.getChatByRoomId = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
     }
 
-    // Verify the requesting user is a participant
+    // Filter out null participants (e.g. admin-created pages with SuperAdmin userId)
+    chat.participants = (chat.participants || []).filter(p => p != null);
+
+    // Verify the requesting user is a participant (connect_page chats are open to all)
     const isParticipant = chat.participants.some(
       (p) => (p._id || p).toString() === userId.toString()
     );
     if (!isParticipant) {
-      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+      if (chat.type === 'connect_page') {
+        // Auto-join: add user as participant for connect_page group chats
+        await Chat.findByIdAndUpdate(chatId, { $addToSet: { participants: userId } });
+        const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
+        if (joiningUser) chat.participants.push(joiningUser);
+      } else {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+      }
     }
 
     // Resolve signed URLs for participant profile pictures

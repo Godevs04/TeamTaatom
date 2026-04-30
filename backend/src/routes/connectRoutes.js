@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const connectController = require('../controllers/connectController');
+const subscriptionController = require('../controllers/subscriptionController');
 
 // Multer config for connect page image uploads
 const storage = multer.memoryStorage();
@@ -55,6 +56,26 @@ router.put('/page/:pageId/website', authMiddleware, connectController.updateWebs
 router.get('/page/:pageId/website', optionalAuth, connectController.getWebsiteContent);
 router.put('/page/:pageId/subscription', authMiddleware, connectController.updateSubscriptionContent);
 router.get('/page/:pageId/subscription', optionalAuth, connectController.getSubscriptionContent);
+router.post('/page/:pageId/content-image', authMiddleware, upload.single('image'), connectController.uploadContentImage);
+
+// ─────────────────────────────────────────────
+// Subscriptions (Payment)
+// ─────────────────────────────────────────────
+router.post('/subscribe', authMiddleware, subscriptionController.createSubscription);
+router.get('/subscription/status/:connectPageId', authMiddleware, subscriptionController.getSubscriptionStatus);
+router.post('/subscription/cancel', authMiddleware, subscriptionController.cancelSubscription);
+router.get('/my-subscriptions', authMiddleware, subscriptionController.getMySubscriptions);
+router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.getPageSubscribers);
+router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
+router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
+
+// ─────────────────────────────────────────────
+// Currency Config (public)
+// ─────────────────────────────────────────────
+router.get('/currency-config', (req, res) => {
+  const { CURRENCIES, COUNTRY_TO_CURRENCY, SUPPORTED_CURRENCIES } = require('../utils/currencyConfig');
+  res.json({ success: true, data: { currencies: CURRENCIES, countryToCurrency: COUNTRY_TO_CURRENCY, supportedCurrencies: SUPPORTED_CURRENCIES } });
+});
 
 // ─────────────────────────────────────────────
 // Views & Analytics

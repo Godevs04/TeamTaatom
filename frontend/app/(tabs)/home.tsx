@@ -22,7 +22,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { imageCacheManager } from '../../utils/imageCacheManager';
+import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
@@ -386,30 +386,23 @@ export default function HomeScreen() {
         }
       }
       
-      // Enhanced image preloading with priority strategy
-      if (response.posts.length > 0) {
-        const preloadCount = isWeb ? 8 : 5;
-        // Preload visible posts first (first 3)
-        const visiblePosts = response.posts.slice(0, 3);
-        visiblePosts.forEach((post) => {
-          if (post.imageUrl) {
-            imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
-              // Silently fail
-            });
-          }
-        });
-        
-        // Preload upcoming posts in background (next 5-8)
-        const upcomingPosts = response.posts.slice(3, preloadCount);
+      // Light background caching — don't interfere with Image component's network loads.
+      // Visible posts are cached after display via cacheAfterDisplay() in PostImage.
+      // FlashList drawDistance pre-mounts roughly the first 3 posts, so only pre-cache
+      // posts BEYOND that window — duplicating fetches for posts already mounting was
+      // saturating connections and breaking the first batch on cold start.
+      if (response.posts.length > 6) {
+        const preloadStart = 6;
+        const preloadEnd = isWeb ? 10 : 9;
+        const upcomingPosts = response.posts.slice(preloadStart, preloadEnd);
         setTimeout(() => {
-          upcomingPosts.forEach((post) => {
-            if (post.imageUrl) {
-              imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
-                // Silently fail
-              });
-            }
-          });
-        }, 500); // Delay to not block initial render
+          const urls = upcomingPosts
+            .map((post) => post.imageUrl)
+            .filter((u): u is string => !!u);
+          if (urls.length > 0) {
+            ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' });
+          }
+        }, 1500);
       }
     } catch (error: any) {
       const now = Date.now();
@@ -443,7 +436,9 @@ export default function HomeScreen() {
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
               // Check if cache is not too old (24 hours)
               const cacheAge = Date.now() - (parsed.timestamp || 0);
-              if (cacheAge < 24 * 60 * 60 * 1000) {
+              // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
+              // posts never contain stale URLs that would render blank.
+              if (cacheAge < 50 * 60 * 1000) {
                 logger.debug('Loading cached posts due to network error');
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false); // Can't paginate with cached data
@@ -698,7 +693,9 @@ export default function HomeScreen() {
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
               // Check if cache is not too old (24 hours)
               const cacheAge = Date.now() - (parsed.timestamp || 0);
-              if (cacheAge < 24 * 60 * 60 * 1000) {
+              // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
+              // posts never contain stale URLs that would render blank.
+              if (cacheAge < 50 * 60 * 1000) {
                 logger.debug('Loading cached posts for instant display');
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false);
@@ -1270,7 +1267,7 @@ export default function HomeScreen() {
         extraData={visiblePostId}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        drawDistance={screenHeight * 2}
+        drawDistance={screenHeight}
         estimatedItemSize={450}
       />
       </SafeAreaView>

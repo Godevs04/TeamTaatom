@@ -4,7 +4,7 @@ const { Schema, Types } = mongoose;
 const ContentBlockSchema = new Schema({
   type: {
     type: String,
-    enum: ['heading', 'text', 'image', 'video'],
+    enum: ['heading', 'text', 'image', 'video', 'button', 'divider', 'embed'],
     required: true
   },
   content: {
@@ -14,6 +14,17 @@ const ContentBlockSchema = new Schema({
   order: {
     type: Number,
     required: true
+  },
+  // Button block: label stored in content, url here
+  url: {
+    type: String,
+    default: ''
+  },
+  // Embed block: embed type (youtube, map, etc.)
+  embedType: {
+    type: String,
+    enum: ['youtube', 'map', 'custom', ''],
+    default: ''
   }
 }, { _id: true });
 
@@ -86,9 +97,59 @@ const ConnectPageSchema = new Schema({
   subscriptionContent: [ContentBlockSchema],
   subscriptionPrice: {
     type: Number,
-    min: [100, 'Minimum subscription price is ₹100'],
-    max: [10000, 'Maximum subscription price is ₹10,000'],
     default: null
+  },
+  subscriptionCurrency: {
+    type: String,
+    default: 'INR'
+  },
+  // Admin approval for subscription pricing
+  subscriptionApproval: {
+    status: {
+      type: String,
+      enum: ['none', 'pending', 'approved', 'rejected'],
+      default: 'none'
+    },
+    requestedPrice: {
+      type: Number,
+      default: null
+    },
+    approvedAt: {
+      type: Date,
+      default: null
+    },
+    rejectedAt: {
+      type: Date,
+      default: null
+    },
+    rejectionReason: {
+      type: String,
+      default: ''
+    },
+    reviewedBy: {
+      type: Types.ObjectId,
+      ref: 'User',
+      default: null
+    }
+  },
+  // Creator payout details
+  creatorPayoutInfo: {
+    country: {
+      type: String,
+      default: 'IN'  // ISO country code
+    },
+    isInternational: {
+      type: Boolean,
+      default: false
+    },
+    // Bank details for domestic (India) payouts via Cashfree
+    bankAccountNumber: { type: String, default: '' },
+    bankIfsc: { type: String, default: '' },
+    bankAccountName: { type: String, default: '' },
+    upiId: { type: String, default: '' },
+    // Wise details for international payouts
+    wiseEmail: { type: String, default: '' },
+    wiseCurrency: { type: String, default: 'USD' }
   },
   chatRoomId: {
     type: Types.ObjectId,

@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { theme as themeConstants } from '../constants/theme';
-import { ContentBlock } from '../services/connect';
+import { ContentBlock, uploadContentImage } from '../services/connect';
 import logger from '../utils/logger';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -32,12 +32,14 @@ interface ContentBlockBuilderProps {
   blocks: ContentBlock[];
   onChange: (blocks: ContentBlock[]) => void;
   maxBlocks?: number;
+  pageId?: string;
 }
 
 export default function ContentBlockBuilder({
   blocks,
   onChange,
   maxBlocks = 20,
+  pageId,
 }: ContentBlockBuilderProps) {
   const { theme } = useTheme();
   const [editingTextIndex, setEditingTextIndex] = useState<number | null>(null);
@@ -60,6 +62,29 @@ export default function ContentBlockBuilder({
       pickImage();
     } else if (type === 'video') {
       pickVideo();
+    } else if (type === 'button') {
+      const newBlock: ContentBlock = {
+        type: 'button',
+        content: '',
+        order: blocks.length,
+        url: '',
+      };
+      onChange([...blocks, newBlock]);
+    } else if (type === 'divider') {
+      const newBlock: ContentBlock = {
+        type: 'divider',
+        content: '---',
+        order: blocks.length,
+      };
+      onChange([...blocks, newBlock]);
+    } else if (type === 'embed') {
+      const newBlock: ContentBlock = {
+        type: 'embed',
+        content: '',
+        order: blocks.length,
+        embedType: 'youtube',
+      };
+      onChange([...blocks, newBlock]);
     }
   };
 
@@ -78,12 +103,32 @@ export default function ContentBlockBuilder({
       });
 
       if (!result.canceled && result.assets[0]) {
-        const newBlock: ContentBlock = {
-          type: 'image',
-          content: result.assets[0].uri,
-          order: blocks.length,
-        };
-        onChange([...blocks, newBlock]);
+        const localUri = result.assets[0].uri;
+
+        // Upload to R2 immediately if pageId is available
+        if (pageId) {
+          try {
+            const uploadResult = await uploadContentImage(pageId, localUri);
+            const newBlock: ContentBlock = {
+              type: 'image',
+              content: uploadResult.signedUrl, // Display with signed URL
+              order: blocks.length,
+              _storageKey: uploadResult.storageKey, // Keep storage key for saving
+            } as any;
+            onChange([...blocks, newBlock]);
+          } catch (uploadErr) {
+            logger.error('Failed to upload content image:', uploadErr);
+            Alert.alert('Error', 'Failed to upload image. Please try again.');
+          }
+        } else {
+          // Fallback: store local URI (will be uploaded on save)
+          const newBlock: ContentBlock = {
+            type: 'image',
+            content: localUri,
+            order: blocks.length,
+          };
+          onChange([...blocks, newBlock]);
+        }
       }
     } catch (error) {
       logger.error('Image picker error:', error);
@@ -154,6 +199,11 @@ export default function ContentBlockBuilder({
     onChange(updated);
   };
 
+  const updateBlockField = (index: number, fields: Partial<ContentBlock>) => {
+    const updated = blocks.map((b, i) => (i === index ? { ...b, ...fields } : b));
+    onChange(updated);
+  };
+
   const renderBlock = (block: ContentBlock, index: number) => {
     return (
       <View
@@ -171,13 +221,21 @@ export default function ContentBlockBuilder({
                   ? 'document-text-outline'
                   : block.type === 'image'
                   ? 'image-outline'
-                  : 'videocam-outline'
+                  : block.type === 'video'
+                  ? 'videocam-outline'
+                  : block.type === 'button'
+                  ? 'link-outline'
+                  : block.type === 'divider'
+                  ? 'remove-outline'
+                  : block.type === 'embed'
+                  ? 'code-outline'
+                  : 'help-outline'
               }
               size={16}
               color={theme.colors.textSecondary}
             />
             <Text style={[styles.blockTypeText, { color: theme.colors.textSecondary }]}>
-              {block.type === 'heading' ? 'Heading' : block.type.charAt(0).toUpperCase() + block.type.slice(1)}
+              {block.type.charAt(0).toUpperCase() + block.type.slice(1)}
             </Text>
           </View>
           <View style={styles.blockActions}>
@@ -261,6 +319,77 @@ export default function ContentBlockBuilder({
             </Text>
           </View>
         )}
+
+        {block.type === 'button' && (
+          <View style={styles.buttonBlockEditor}>
+            <TextInput
+              style={[styles.buttonLabelInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
+              value={block.content}
+              onChangeText={(text) => updateTextContent(index, text)}
+              placeholder="Button label..."
+              placeholderTextColor={theme.colors.textSecondary}
+            />
+            <View style={[styles.buttonUrlRow, { borderColor: theme.colors.border }]}>
+              <Ionicons name="link-outline" size={16} color={theme.colors.textSecondary} style={{ marginRight: 8 }} />
+              <TextInput
+                style={[styles.buttonUrlInput, { color: theme.colors.text }]}
+                value={block.url || ''}
+                onChangeText={(text) => updateBlockField(index, { url: text })}
+                placeholder="https://..."
+                placeholderTextColor={theme.colors.textSecondary}
+                keyboardType="url"
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+        )}
+
+        {block.type === 'divider' && (
+          <View style={[styles.dividerPreview, { borderTopColor: theme.colors.border }]} />
+        )}
+
+        {block.type === 'embed' && (
+          <View style={styles.embedBlockEditor}>
+            <View style={styles.embedTypeRow}>
+              {(['youtube', 'map', 'custom'] as const).map((et) => (
+                <TouchableOpacity
+                  key={et}
+                  style={[
+                    styles.embedTypeChip,
+                    { borderColor: theme.colors.border },
+                    block.embedType === et && { backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary },
+                  ]}
+                  onPress={() => updateBlockField(index, { embedType: et })}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.embedTypeChipText,
+                      { color: block.embedType === et ? theme.colors.primary : theme.colors.textSecondary },
+                    ]}
+                  >
+                    {et === 'youtube' ? 'YouTube' : et === 'map' ? 'Map' : 'Custom'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.embedUrlInput, { color: theme.colors.text, borderColor: theme.colors.border }]}
+              value={block.content}
+              onChangeText={(text) => updateTextContent(index, text)}
+              placeholder={
+                block.embedType === 'youtube'
+                  ? 'YouTube URL...'
+                  : block.embedType === 'map'
+                  ? 'Google Maps URL...'
+                  : 'Embed URL...'
+              }
+              placeholderTextColor={theme.colors.textSecondary}
+              keyboardType="url"
+              autoCapitalize="none"
+            />
+          </View>
+        )}
       </View>
     );
   };
@@ -272,39 +401,67 @@ export default function ContentBlockBuilder({
 
       {/* Add Block Buttons */}
       {blocks.length < maxBlocks && (
-        <View style={[styles.addRow, { borderColor: theme.colors.border }]}>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-            onPress={() => addBlock('heading')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="text-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Heading</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-            onPress={() => addBlock('text')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="document-text-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Text</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-            onPress={() => addBlock('image')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="image-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Image</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-            onPress={() => addBlock('video')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="videocam-outline" size={20} color={theme.colors.primary} />
-            <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Video</Text>
-          </TouchableOpacity>
+        <View style={styles.addSection}>
+          <View style={[styles.addRow, { borderColor: theme.colors.border }]}>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('heading')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="text-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Heading</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('text')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="document-text-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Text</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('image')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="image-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Image</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('video')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="videocam-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Video</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.addRow, { borderColor: theme.colors.border }]}>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('button')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="link-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Button</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('divider')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Divider</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.addButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+              onPress={() => addBlock('embed')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="code-outline" size={20} color={theme.colors.primary} />
+              <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>Embed</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -312,7 +469,7 @@ export default function ContentBlockBuilder({
         <View style={styles.emptyHint}>
           <Ionicons name="add-circle-outline" size={32} color={theme.colors.textSecondary + '60'} />
           <Text style={[styles.emptyHintText, { color: theme.colors.textSecondary }]}>
-            Add text, images, or videos using the buttons above
+            Add headings, text, images, buttons, and more using the options above
           </Text>
         </View>
       )}
@@ -400,6 +557,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  addSection: {
+    gap: 8,
+  },
   addRow: {
     flexDirection: 'row',
     gap: 8,
@@ -422,6 +582,84 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  // Button block editor
+  buttonBlockEditor: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  buttonLabelInput: {
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('400'),
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: isTablet ? 10 : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
+    } as any),
+  },
+  buttonUrlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: isTablet ? 10 : 8,
+  },
+  buttonUrlInput: {
+    flex: 1,
+    fontSize: isTablet ? 14 : 13,
+    fontFamily: getFontFamily('400'),
+    paddingVertical: 0,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
+    } as any),
+  },
+  // Divider block
+  dividerPreview: {
+    borderTopWidth: 2,
+    marginHorizontal: 12,
+    marginVertical: 8,
+  },
+  // Embed block editor
+  embedBlockEditor: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  embedTypeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  embedTypeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  embedTypeChipText: {
+    fontSize: 13,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  embedUrlInput: {
+    fontSize: isTablet ? 14 : 13,
+    fontFamily: getFontFamily('400'),
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: isTablet ? 10 : 8,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      outlineStyle: 'none',
     } as any),
   },
   emptyHint: {

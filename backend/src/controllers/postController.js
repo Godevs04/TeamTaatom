@@ -2661,18 +2661,47 @@ const getArchivedPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ 
-      user: req.user._id, 
-      isArchived: true, 
-      isActive: true, 
-      type: 'photo' 
+    const posts = await Post.find({
+      user: req.user._id,
+      isArchived: true,
+      isActive: true,
+      type: 'photo'
     })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Resolve storage keys to signed URLs
+    for (const post of posts) {
+      // Post images
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || post.imageUrl;
+          post.images = imageUrls;
+        } catch { /* keep existing */ }
+      } else if (post.storageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
+        } catch { /* keep existing */ }
+      }
+      // Author profile pic
+      if (post.user?.profilePicStorageKey) {
+        try { post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || post.user.profilePic; } catch { /* keep existing */ }
+      }
+      // Comment user profile pics
+      if (post.comments) {
+        for (const comment of post.comments) {
+          if (comment.user?.profilePicStorageKey) {
+            try { comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE') || comment.user.profilePic; } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
 
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
@@ -2746,18 +2775,47 @@ const getHiddenPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ 
-      user: req.user._id, 
-      isHidden: true, 
-      isActive: true, 
-      type: 'photo' 
+    const posts = await Post.find({
+      user: req.user._id,
+      isHidden: true,
+      isActive: true,
+      type: 'photo'
     })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Resolve storage keys to signed URLs
+    for (const post of posts) {
+      // Post images
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || post.imageUrl;
+          post.images = imageUrls;
+        } catch { /* keep existing */ }
+      } else if (post.storageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
+        } catch { /* keep existing */ }
+      }
+      // Author profile pic
+      if (post.user?.profilePicStorageKey) {
+        try { post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || post.user.profilePic; } catch { /* keep existing */ }
+      }
+      // Comment user profile pics
+      if (post.comments) {
+        for (const comment of post.comments) {
+          if (comment.user?.profilePicStorageKey) {
+            try { comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE') || comment.user.profilePic; } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
 
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
@@ -2766,8 +2824,7 @@ const getHiddenPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'Hidden posts fetched successfully', {
       posts: postsWithLikeStatus,
       page,
       limit,
@@ -2775,10 +2832,7 @@ const getHiddenPosts = async (req, res) => {
     });
   } catch (error) {
     logger.error('Get hidden posts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching hidden posts'
-    });
+    return sendError(res, 'SRV_6001', 'Error fetching hidden posts');
   }
 };
 

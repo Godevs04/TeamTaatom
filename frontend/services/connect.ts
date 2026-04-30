@@ -8,9 +8,11 @@ import { parseError } from '../utils/errorCodes';
 
 export interface ContentBlock {
   _id?: string;
-  type: 'heading' | 'text' | 'image' | 'video';
+  type: 'heading' | 'text' | 'image' | 'video' | 'button' | 'divider' | 'embed';
   content: string;
   order: number;
+  url?: string;
+  embedType?: 'youtube' | 'map' | 'custom' | '';
 }
 
 export interface BuyItem {
@@ -20,6 +22,14 @@ export interface BuyItem {
   price: number;
   imageUrl: string;
   active: boolean;
+}
+
+export interface SubscriptionApproval {
+  status: 'none' | 'pending' | 'approved' | 'rejected';
+  requestedPrice: number | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  rejectionReason: string;
 }
 
 export interface ConnectPageType {
@@ -43,6 +53,8 @@ export interface ConnectPageType {
   websiteContent: ContentBlock[];
   subscriptionContent: ContentBlock[];
   subscriptionPrice: number | null;
+  subscriptionCurrency: string;
+  subscriptionApproval?: SubscriptionApproval;
   chatRoomId: string | null;
   followerCount: number;
   viewCount: number;
@@ -107,6 +119,7 @@ export const createConnectPage = async (data: {
   type: 'public' | 'private';
   bio?: string;
   features: { website: boolean; groupChat: boolean; subscription: boolean };
+  subscriptionPrice?: number;
   profileImage?: { uri: string; type?: string; name?: string } | null;
   bannerImage?: { uri: string; type?: string; name?: string } | null;
 }): Promise<{ page: ConnectPageType }> => {
@@ -116,6 +129,10 @@ export const createConnectPage = async (data: {
     formData.append('type', data.type);
     if (data.bio) formData.append('bio', data.bio);
     formData.append('features', JSON.stringify(data.features));
+    if (data.subscriptionPrice) formData.append('subscriptionPrice', String(data.subscriptionPrice));
+    if ((data as any).subscriptionCurrency) formData.append('subscriptionCurrency', (data as any).subscriptionCurrency);
+    if ((data as any).country) formData.append('country', (data as any).country);
+    if ((data as any).payoutInfo) formData.append('payoutInfo', JSON.stringify((data as any).payoutInfo));
 
     if (data.profileImage) {
       formData.append('profileImage', {
@@ -308,6 +325,25 @@ export const getPageFollowers = async (pageId: string, page = 1, limit = 20): Pr
 // Content (Website & Subscription)
 // ─────────────────────────────────────────────
 
+export const uploadContentImage = async (pageId: string, imageUri: string): Promise<{ storageKey: string; signedUrl: string }> => {
+  try {
+    const formData = new FormData();
+    formData.append('image', {
+      uri: imageUri,
+      type: 'image/jpeg',
+      name: `content_${Date.now()}.jpg`,
+    } as any);
+
+    const response = await api.post(`/api/v1/connect/page/${pageId}/content-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
 export const updateWebsiteContent = async (pageId: string, content: ContentBlock[]): Promise<{ websiteContent: ContentBlock[] }> => {
   try {
     const response = await api.put(`/api/v1/connect/page/${pageId}/website`, { content });
@@ -385,6 +421,174 @@ export const getPageAnalytics = async (pageId: string): Promise<PageAnalyticsRes
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }
+};
+
+// ─────────────────────────────────────────────
+// Subscriptions (Payment)
+// ─────────────────────────────────────────────
+
+export interface CurrencyConfig {
+  code: string;
+  symbol: string;
+  name: string;
+  minPrice: number;
+  maxPrice: number;
+  decimals: number;
+}
+
+export interface CurrencyConfigResponse {
+  currencies: Record<string, CurrencyConfig>;
+  countryToCurrency: Record<string, string>;
+  supportedCurrencies: string[];
+}
+
+export interface SubscriptionResponse {
+  subscriptionId: string;
+  cashfreeSubscriptionId: string;
+  paymentSessionId: string;
+  amount: number;
+  currency: string;
+}
+
+export interface SubscriptionStatus {
+  isSubscribed: boolean;
+  subscription: {
+    _id: string;
+    status: string;
+    amount: number;
+    activatedAt: string | null;
+    currentPeriodEnd: string | null;
+  } | null;
+}
+
+export const createSubscription = async (connectPageId: string): Promise<SubscriptionResponse> => {
+  try {
+    const response = await api.post('/api/v1/connect/subscribe', { connectPageId });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const getSubscriptionStatus = async (connectPageId: string): Promise<SubscriptionStatus> => {
+  try {
+    const response = await api.get(`/api/v1/connect/subscription/status/${connectPageId}`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const cancelSubscription = async (subscriptionId: string): Promise<void> => {
+  try {
+    await api.post('/api/v1/connect/subscription/cancel', { subscriptionId });
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const getMySubscriptions = async (): Promise<{ subscriptions: any[] }> => {
+  try {
+    const response = await api.get('/api/v1/connect/my-subscriptions');
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const getPageSubscribers = async (pageId: string): Promise<{
+  subscribers: any[];
+  totalActiveSubscribers: number;
+  monthlyRevenue: number;
+}> => {
+  try {
+    const response = await api.get(`/api/v1/connect/page/${pageId}/subscribers`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Payout Preview
+// ─────────────────────────────────────────────
+
+export interface PayoutPreview {
+  grossAmount: number;
+  gatewayFee: number;
+  gatewayFeePercent: number;
+  fxCharge: number;
+  netAfterGateway: number;
+  commissionPercent: number;
+  commissionAmount: number;
+  gstPercent: number;
+  gstAmount: number;
+  taatoKeeps: number;
+  wiseFee: number;
+  wiseFeePercent: number;
+  creatorPayout: number;
+  currency: string;
+  currencySymbol: string;
+  isInternational: boolean;
+  feeStructure: {
+    gatewayFeePercent: number;
+    fxChargePercent: number;
+    commissionPercent: number;
+    gstPercent: number;
+    wiseFeePercent: number;
+  };
+  note: string;
+}
+
+export const getPayoutPreview = async (connectPageId: string): Promise<{ preview: PayoutPreview | null }> => {
+  try {
+    const response = await api.get(`/api/v1/connect/subscription/payout-preview/${connectPageId}`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Currency Config
+// ─────────────────────────────────────────────
+
+export const fetchCurrencyConfig = async (): Promise<CurrencyConfigResponse> => {
+  try {
+    const response = await api.get('/api/v1/connect/currency-config');
+    return response.data?.data || response.data;
+  } catch (error: any) {
+    logger.warn('Failed to fetch currency config, using fallback');
+    // Fallback with basic INR/USD
+    return {
+      currencies: {
+        INR: { code: 'INR', symbol: '₹', name: 'Indian Rupee', minPrice: 100, maxPrice: 10000, decimals: 2 },
+        USD: { code: 'USD', symbol: '$', name: 'US Dollar', minPrice: 1, maxPrice: 200, decimals: 2 },
+        EUR: { code: 'EUR', symbol: '€', name: 'Euro', minPrice: 1, maxPrice: 200, decimals: 2 },
+        GBP: { code: 'GBP', symbol: '£', name: 'British Pound', minPrice: 1, maxPrice: 200, decimals: 2 },
+      },
+      countryToCurrency: { IN: 'INR', US: 'USD', GB: 'GBP', DE: 'EUR' },
+      supportedCurrencies: ['INR', 'USD', 'EUR', 'GBP'],
+    };
+  }
+};
+
+/**
+ * Get currency symbol for a currency code
+ */
+export const getCurrencySymbol = (code: string): string => {
+  const symbols: Record<string, string> = {
+    INR: '₹', USD: '$', EUR: '€', GBP: '£',
+    AUD: 'A$', CAD: 'C$', SGD: 'S$', AED: 'د.إ',
+    JPY: '¥', KRW: '₩', THB: '฿',
+  };
+  return symbols[code] || code;
 };
 
 // ─────────────────────────────────────────────
