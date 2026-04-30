@@ -210,17 +210,15 @@ export default function PostComments({
       fullName: 'Unknown User', 
       profilePic: null 
     };
-    const profilePicUri = commentUser.profilePic || 'https://via.placeholder.com/32';
-    
     return (
       <View style={styles.commentItem}>
-        <Image
-          source={{ uri: profilePicUri }}
-          style={styles.commentAvatar}
-          onError={() => {
-            // Image failed to load - fallback handled by placeholder in uri
-          }}
-        />
+        {commentUser.profilePic ? (
+          <Image source={{ uri: commentUser.profilePic }} style={styles.commentAvatar} />
+        ) : (
+          <View style={[styles.commentAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="person" size={16} color={theme.colors.textSecondary} />
+          </View>
+        )}
         <View style={styles.commentContent}>
           <View style={styles.commentHeader}>
             <Text style={[styles.commentUsername, { color: theme.colors.text }]}>
@@ -377,12 +375,13 @@ export default function PostComments({
                     }
                   ]}
                 >
-                  <Image
-                    source={{
-                      uri: currentUser?.profilePic || 'https://via.placeholder.com/32',
-                    }}
-                    style={styles.userAvatar}
-                  />
+                  {currentUser?.profilePic ? (
+                    <Image source={{ uri: currentUser.profilePic }} style={styles.userAvatar} />
+                  ) : (
+                    <View style={[styles.userAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Ionicons name="person" size={16} color={theme.colors.textSecondary} />
+                    </View>
+                  )}
                   <TextInput
                     style={[
                       styles.commentInput,

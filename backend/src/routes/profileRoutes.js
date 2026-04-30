@@ -275,6 +275,49 @@ router.post('/interests', authMiddleware, saveInterests);
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
+// Diagnostic: inspect what resolveProfilePic returns for the current user.
+// Returns the raw User fields plus the resolved URL so we can tell at a glance
+// which case is firing (storage key signed, legacy CDN URL, stale URL recovered, or empty).
+router.get('/_debug/profile-pic', authMiddleware, async (req, res) => {
+  try {
+    const User = require('../models/User');
+    const { resolveProfilePic, isSignedUrl } = require('../services/mediaService');
+    const { objectExists } = require('../services/storage');
+
+    const user = await User.findById(req.user._id)
+      .select('username profilePic profilePicStorageKey')
+      .lean();
+
+    if (!user) return res.status(404).json({ error: 'user not found' });
+
+    const resolved = await resolveProfilePic(user);
+    const keyExistsInBucket = user.profilePicStorageKey
+      ? await objectExists(user.profilePicStorageKey)
+      : null;
+
+    return res.json({
+      userId: req.user._id,
+      username: user.username,
+      raw: {
+        profilePic: user.profilePic || '',
+        profilePicLooksSigned: isSignedUrl(user.profilePic || ''),
+        profilePicStorageKey: user.profilePicStorageKey || '',
+      },
+      resolved,
+      keyExistsInBucket,
+      diagnosis: !user.profilePic && !user.profilePicStorageKey
+        ? 'CASE_3_NO_DATA: User has no profilePic and no profilePicStorageKey. Re-upload the photo.'
+        : keyExistsInBucket === false
+        ? 'CASE_3_FILE_MISSING: storageKey exists but the object is not in the bucket. Re-upload the photo.'
+        : !user.profilePicStorageKey && isSignedUrl(user.profilePic || '')
+        ? 'CASE_2_STALE_URL: legacy expired signed URL stored in DB. Run migration 002 to clean up.'
+        : 'OK: should be loadable; if frontend still shows placeholder, check device network/CORS.',
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/follow-requests', authMiddleware, getFollowRequests);
 router.get('/follow-requests/debug', authMiddleware, async (req, res) => {
   try {

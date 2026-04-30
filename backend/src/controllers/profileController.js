@@ -3,8 +3,8 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { uploadImage, deleteImage } = require('../config/cloudinary');
-const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl } = require('../services/mediaService');
+const { buildMediaKey, uploadObject, deleteObject, objectExists } = require('../services/storage');
+const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
@@ -376,20 +376,8 @@ const getProfile = async (req, res) => {
           profilePic: TAATOM_OFFICIAL_USER.profilePic 
         }).catch(err => logger.debug('Failed to update Taatom Official profilePic:', err));
       }
-    } else if (user.profilePicStorageKey) {
-      try {
-        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
-      } catch (error) {
-        logger.warn('Failed to generate profile picture URL:', { 
-          userId: user._id, 
-          error: error.message 
-        });
-        // Fallback to legacy URL if available
-        profilePicUrl = user.profilePic || null;
-      }
-    } else if (user.profilePic) {
-      // Legacy: use existing profilePic if no storage key
-      profilePicUrl = user.profilePic;
+    } else {
+      profilePicUrl = await resolveProfilePic(user);
     }
 
     const profile = {
@@ -483,8 +471,16 @@ const updateProfile = async (req, res) => {
         });
 
         await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
-        logger.debug('Profile picture uploaded successfully:', { profilePicStorageKey });
-        
+
+        // Defensive: confirm the object actually landed in the bucket before we
+        // persist the key. Prevents silent upload failures from poisoning the DB
+        // with phantom keys that 404 on every read forever after.
+        const exists = await objectExists(profilePicStorageKey);
+        if (!exists) {
+          throw new Error(`Upload verification failed — object not found in bucket: ${profilePicStorageKey}`);
+        }
+        logger.debug('Profile picture uploaded and verified:', { profilePicStorageKey });
+
         // Generate signed URL for response (NOT stored in DB)
         profilePicUrl = await generateSignedUrl(profilePicStorageKey, 'PROFILE');
       } catch (uploadError) {
@@ -500,15 +496,17 @@ const updateProfile = async (req, res) => {
     }
 
     // Update user
+    // IMPORTANT: profilePic field must NEVER hold a signed URL (10-min TTL would expire in DB).
+    // Source of truth is profilePicStorageKey; profilePic is only retained for legacy CDN URLs.
     const updateData = {
       ...(fullName && { fullName }),
       ...(bio !== undefined && { bio }),
-      ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
     };
-    
-    // Add profilePicStorageKey if it was set during upload
-    if (profilePicStorageKey && profilePicStorageKey !== user.profilePicStorageKey) {
+
+    if (req.file) {
+      // New upload: persist storage key, clear any stale URL in profilePic
       updateData.profilePicStorageKey = profilePicStorageKey;
+      updateData.profilePic = '';
     }
     
     const updatedUser = await User.findByIdAndUpdate(
@@ -1022,44 +1020,10 @@ const searchUsers = async (req, res) => {
     }
 
     // Generate signed URLs for profile pictures AFTER cache (fresh URLs each time)
-    // Same pattern as getPosts - generate fresh signed URLs for each request
+    // Resolve fresh profile pic URL for every user (handles storage key, legacy CDN, stale URLs)
     const usersWithProfilePics = await Promise.all(users.map(async (user) => {
-      // Store original profilePic as fallback (same pattern as getPosts)
-      const originalProfilePic = user.profilePic;
-      
-      // Generate signed URL for profile picture (exact same pattern as getPosts line 234-249)
-      if (user.profilePicStorageKey) {
-        try {
-          user.profilePic = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
-          logger.debug('Generated profile picture URL for search result:', {
-            userId: user._id?.toString(),
-            username: user.username,
-            hasUrl: !!user.profilePic
-          });
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for search result:', { 
-            userId: user._id?.toString(),
-            username: user.username,
-            storageKey: user.profilePicStorageKey,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available (same as getPosts)
-          user.profilePic = originalProfilePic || null;
-        }
-      } else if (user.profilePic) {
-        // Legacy: use existing profilePic if no storage key (same as getPosts line 246-249)
-        // Keep the existing profilePic value
-        logger.debug('Using legacy profilePic for search result:', {
-          userId: user._id?.toString(),
-          username: user.username
-        });
-      }
-      // Note: If no profilePicStorageKey and no profilePic, profilePic remains null/undefined
-      // This matches getPosts behavior
-      
-      // Remove profilePicStorageKey from response (not needed by frontend)
+      user.profilePic = await resolveProfilePic(user);
       delete user.profilePicStorageKey;
-      
       return user;
     }));
 
@@ -1158,23 +1122,10 @@ const getFollowersList = async (req, res) => {
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
         profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
-      } else if (f.profilePicStorageKey) {
-        // Generate signed URL for profile picture
-        try {
-          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for follower:', { 
-            userId: f._id, 
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          profilePicUrl = f.profilePic || null;
-        }
-      } else if (f.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        profilePicUrl = f.profilePic;
+      } else {
+        profilePicUrl = await resolveProfilePic(f);
       }
-      
+
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
@@ -1188,7 +1139,7 @@ const getFollowersList = async (req, res) => {
         isFollowing,
       };
     }));
-    
+
     return sendSuccess(res, 200, 'Followers fetched successfully', {
       users: followersWithStatus,
       pagination: {
@@ -1248,21 +1199,8 @@ const getFollowingList = async (req, res) => {
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
         profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
-      } else if (f.profilePicStorageKey) {
-        // Generate signed URL for profile picture
-        try {
-          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for following user:', { 
-            userId: f._id, 
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          profilePicUrl = f.profilePic || null;
-        }
-      } else if (f.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        profilePicUrl = f.profilePic;
+      } else {
+        profilePicUrl = await resolveProfilePic(f);
       }
       
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
@@ -2953,15 +2891,7 @@ const getSuggestedUsers = async (req, res) => {
           user: user._id,
           isActive: true,
         });
-        // Resolve profile pic from R2 storage key
-        if (user.profilePicStorageKey) {
-          try {
-            const signedUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
-            if (signedUrl) user.profilePic = signedUrl;
-          } catch (err) {
-            // keep existing profilePic
-          }
-        }
+        user.profilePic = await resolveProfilePic(user);
         const { interests: _i, profilePicStorageKey: _psk, ...rest } = user;
         return {
           ...rest,

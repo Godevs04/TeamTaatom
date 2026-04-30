@@ -31,6 +31,7 @@ import * as Sentry from '@sentry/react-native';
 import { Audio } from 'expo-av';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
+import { imageCacheManager } from '../utils/imageCacheManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
 import Constants from 'expo-constants';
@@ -303,6 +304,10 @@ function RootLayoutInner() {
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Populate image cache from disk so cached R2 images load instantly
+        imageCacheManager.populateCacheFromDisk().catch(() => {});
+        imageCacheManager.cleanupOldFiles(3).catch(() => {});
 
         // Defer non-critical validation and diagnostics (run after first paint)
         setTimeout(() => {

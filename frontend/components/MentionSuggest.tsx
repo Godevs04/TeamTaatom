@@ -169,10 +169,13 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
                 onPress={() => handleSelectMention(item)}
                 activeOpacity={0.7}
               >
-                <Image
-                  source={{ uri: item.profilePic || 'https://via.placeholder.com/40' }}
-                  style={styles.avatar}
-                />
+                {item.profilePic ? (
+                  <Image source={{ uri: item.profilePic }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="person" size={18} color={theme.colors.textSecondary} />
+                  </View>
+                )}
                 <View style={styles.userInfo}>
                   <Text style={[styles.username, { color: theme.colors.text }]}>
                     @{item.username}

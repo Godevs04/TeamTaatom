@@ -6,7 +6,7 @@ const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const mongoose = require('mongoose');
 const { deleteCache, CacheKeys } = require('../utils/cache');
-const { generateSignedUrl } = require('../services/mediaService');
+const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 
 // @desc    Create a new collection
 // @route   POST /api/v1/collections
@@ -73,22 +73,8 @@ const getCollections = async (req, res) => {
 
     // Update cover images and generate profile picture URLs for collections
     const collectionsWithCovers = await Promise.all(collections.map(async (collection) => {
-      // Generate signed URL for collection owner's profile picture
-      if (collection.user && collection.user.profilePicStorageKey) {
-        try {
-          collection.user.profilePic = await generateSignedUrl(collection.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for collection owner:', { 
-            collectionId: collection._id, 
-            userId: collection.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          collection.user.profilePic = collection.user.profilePic || null;
-        }
-      } else if (collection.user && collection.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (collection.user) {
+        collection.user.profilePic = await resolveProfilePic(collection.user);
       }
 
       // Update cover image if needed
@@ -255,45 +241,16 @@ const getCollection = async (req, res) => {
       }
     }
 
-    // Generate signed URL for collection owner's profile picture
-    if (collection.user && collection.user.profilePicStorageKey) {
-      try {
-        collection.user.profilePic = await generateSignedUrl(collection.user.profilePicStorageKey, 'PROFILE');
-      } catch (error) {
-        logger.warn('Failed to generate profile picture URL for collection owner:', { 
-          collectionId: id, 
-          userId: collection.user._id,
-          error: error.message 
-        });
-        // Fallback to legacy URL if available
-        collection.user.profilePic = collection.user.profilePic || null;
-      }
-    } else if (collection.user && collection.user.profilePic) {
-      // Legacy: use existing profilePic if no storage key
-      // Keep the existing profilePic value
+    if (collection.user) {
+      collection.user.profilePic = await resolveProfilePic(collection.user);
     }
 
     // Generate signed URLs for post authors' profile pictures and add like status
     const userId = req.user?._id?.toString();
     if (collection.posts && collection.posts.length > 0) {
       collection.posts = await Promise.all(collection.posts.map(async (post) => {
-        // Generate signed URL for post author's profile picture
-        if (post.user && post.user.profilePicStorageKey) {
-          try {
-            post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile picture URL for post author in collection:', { 
-              collectionId: id,
-              postId: post._id, 
-              userId: post.user._id,
-              error: error.message 
-            });
-            // Fallback to legacy URL if available
-            post.user.profilePic = post.user.profilePic || null;
-          }
-        } else if (post.user && post.user.profilePic) {
-          // Legacy: use existing profilePic if no storage key
-          // Keep the existing profilePic value
+        if (post.user) {
+          post.user.profilePic = await resolveProfilePic(post.user);
         }
 
         // Add like status

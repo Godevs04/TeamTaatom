@@ -156,12 +156,13 @@ export default function SuggestedUsersOnboarding() {
                   key={user._id}
                   style={[styles.userCard, { backgroundColor: theme.colors.card }]}
                 >
-                  <Image
-                    source={{
-                      uri: user.profilePicture || 'https://via.placeholder.com/60',
-                    }}
-                    style={styles.avatar}
-                  />
+                  {user.profilePicture ? (
+                    <Image source={{ uri: user.profilePicture }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
+                    </View>
+                  )}
                   <View style={styles.userInfo}>
                     <Text style={[styles.username, { color: theme.colors.text }]}>
                       {user.username || 'User'}
