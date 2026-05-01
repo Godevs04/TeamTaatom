@@ -12,20 +12,20 @@ const logger = require('../utils/logger');
  *   User pays ₹100
  *   → Cashfree fee (~2%) = ₹2
  *   → Remaining = ₹98
- *   → Taatom commission (15%) = ₹14.70
- *   → GST on commission (18%) = ₹2.65
- *   → Taatom keeps ≈ ₹12.05
- *   → Creator gets ≈ ₹83.30
+ *   → Taatom commission (20%) = ₹19.60
+ *   → GST on commission (18%) = ₹3.53
+ *   → Taatom keeps ≈ ₹16.07
+ *   → Creator gets ≈ ₹78.40
  *
  * INTERNATIONAL:
  *   User pays ₹100 equivalent
  *   → Cashfree fee (~3.5%) = ₹3.50
  *   → FX charge (~1.5%) = ₹1.50
  *   → Remaining ≈ ₹95
- *   → Taatom commission (15%) = ₹14.25
- *   → GST on commission (18%) = ₹2.57
- *   → Wise fee (~1%) on creator payout = ₹0.80
- *   → Creator gets ≈ ₹77.38
+ *   → Taatom commission (20%) = ₹19.00
+ *   → GST on commission (18%) = ₹3.42
+ *   → Wise fee (~1%) on creator payout = ₹0.76
+ *   → Creator gets ≈ ₹75.24
  */
 
 // Fee percentages
@@ -33,14 +33,14 @@ const FEES = {
   domestic: {
     gatewayFeePercent: 2,
     fxChargePercent: 0,
-    commissionPercent: 15,
+    commissionPercent: 20,
     gstPercent: 18,
     wiseFeePercent: 0,
   },
   international: {
     gatewayFeePercent: 3.5,
     fxChargePercent: 1.5,
-    commissionPercent: 15,
+    commissionPercent: 20,
     gstPercent: 18,
     wiseFeePercent: 1,
   },
