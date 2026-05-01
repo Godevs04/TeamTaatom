@@ -272,10 +272,26 @@ const getPageDetail = async (req, res) => {
       }
     }
 
+    // Compute localized display prices for the subscription, if priced.
+    // INR stays the source of truth (Cashfree only charges INR); the rest are
+    // approximate conversions for fan-facing UI. Failure here must NEVER block
+    // returning the page — wrap it tightly.
+    let subscriptionDisplayPrices = null;
+    try {
+      const inrPrice = page.subscriptionPrice || page.subscriptionApproval?.requestedPrice;
+      if (inrPrice && inrPrice > 0) {
+        const { buildDisplayPrices } = require('../services/fxRateService');
+        subscriptionDisplayPrices = await buildDisplayPrices(inrPrice);
+      }
+    } catch (e) {
+      logger.warn('[connect.getPageDetail] FX display prices failed (non-fatal):', e.message);
+    }
+
     return sendSuccess(res, 200, 'Page detail fetched', {
       page,
       isOwner,
-      isFollowing
+      isFollowing,
+      subscriptionDisplayPrices,
     });
   } catch (error) {
     logger.error('Error fetching page detail:', error);
