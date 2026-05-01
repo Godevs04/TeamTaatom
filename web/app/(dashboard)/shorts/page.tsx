@@ -19,7 +19,7 @@ import {
   UserPlus,
   Volume2,
   VolumeX,
-} from "lucide-react";
+} from "lucide-react";  
 
 type ShortItem = {
   _id: string;
@@ -35,7 +35,7 @@ type ShortItem = {
   viewsCount?: number;
 };
 
-function getThumbnailUrl(short: ShortItem): string {
+function getThumbnailUrl(short: ShortItem): string {  
   const raw =
     short.imageUrl ||
     short.thumbnailUrl ||
