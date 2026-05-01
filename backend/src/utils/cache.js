@@ -4,8 +4,6 @@
  * This maintains API compatibility for future Redis integration
  */
 
-const logger = require('./logger');
-
 // Cache TTL (Time To Live) in seconds
 // Kept for API compatibility
 const CACHE_TTL = {
@@ -26,7 +24,7 @@ const CACHE_TTL = {
  * @param {string} key - Cache key
  * @returns {Promise<null>} - Always returns null (cache disabled)
  */
-const getCache = async (key) => {
+const getCache = async (_key) => {
   // Cache disabled - always return null to fallback to DB
   return null;
 };
@@ -38,7 +36,7 @@ const getCache = async (key) => {
  * @param {number} ttl - Time to live in seconds (optional)
  * @returns {Promise<boolean>} - Always returns false (cache disabled)
  */
-const setCache = async (key, value, ttl = null) => {
+const setCache = async (_key, _value, _ttl = null) => {
   // Cache disabled - always return false
   return false;
 };
@@ -48,7 +46,7 @@ const setCache = async (key, value, ttl = null) => {
  * @param {string} key - Cache key
  * @returns {Promise<boolean>} - Always returns false (cache disabled)
  */
-const deleteCache = async (key) => {
+const deleteCache = async (_key) => {
   // Cache disabled - always return false
   return false;
 };
@@ -58,7 +56,7 @@ const deleteCache = async (key) => {
  * @param {string} pattern - Cache key pattern (e.g., 'post:*')
  * @returns {Promise<number>} - Always returns 0 (cache disabled)
  */
-const deleteCacheByPattern = async (pattern) => {
+const deleteCacheByPattern = async (_pattern) => {
   // Cache disabled - always return 0
   return 0;
 };
@@ -70,7 +68,7 @@ const deleteCacheByPattern = async (pattern) => {
  * @param {number} ttl - Time to live in seconds (ignored)
  * @returns {Promise<any>} - Result from function execution
  */
-const cacheWrapper = async (key, fn, ttl = CACHE_TTL.POST) => {
+const cacheWrapper = async (_key, fn, _ttl = CACHE_TTL.POST) => {
   // Cache disabled - always execute function directly
   return await fn();
 };

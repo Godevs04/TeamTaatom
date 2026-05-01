@@ -33,6 +33,12 @@ export interface Journey {
   autoEndAt?: string; // 24hr countdown timestamp
   createdAt: string;
   updatedAt: string;
+  // Backend-shaped fields surfaced by the API as-is from the Mongoose model
+  distanceTraveled?: number;
+  startedAt?: string;
+  completedAt?: string;
+  pausedAt?: string;
+  lastActiveAt?: string;
 }
 
 export interface JourneyState {

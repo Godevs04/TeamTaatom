@@ -3,14 +3,11 @@ const User = require('../models/User');
 const Post = require('../models/Post');
 const ConnectPage = require('../models/ConnectPage');
 const mongoose = require('mongoose');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 const { generateSignedUrl } = require('../services/mediaService');
 const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
-
-// Import socket and fetch with proper error handling
-let getIO;
 
 // Use dynamic import for fetch to handle CommonJS compatibility
 const fetch = (...args) => import("node-fetch").then(m => m.default(...args));

@@ -47,7 +47,7 @@ const validatePasswordStrength = (password) => {
   }
 
   // Check for special character
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
     feedback.push('Add at least one special character (!@#$%^&*...)');
   } else {
     score += 1;

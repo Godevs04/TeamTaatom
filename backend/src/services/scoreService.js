@@ -127,7 +127,6 @@ const awardTripScore = async (userId, journeyId) => {
     }
 
     // Iterate through waypoints and calculate score for each
-    const locationScores = {};
     const breakdown = [];
 
     // Deduplicate waypoints by location (group by lat/lng with tolerance)

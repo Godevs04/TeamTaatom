@@ -45,7 +45,7 @@ interface LocationPin {
   date: string;
   photo?: string;
   postId?: string;
-  contentType?: 'photo' | 'video';
+  contentType?: string;
 }
 
 interface JourneyPolyline {
@@ -146,7 +146,7 @@ function AllLocationsMapInner() {
         // Filter journeys that have polyline data
         const withPolylines = rawJourneys.filter(
           (j: any) => j.polyline && j.polyline.length > 1
-        );
+        ) as unknown as JourneyPolyline[];
         setJourneys(withPolylines);
       }
     } catch (err: any) {

@@ -190,7 +190,6 @@ const cascadeDeleteUser = async (userId) => {
 
     // Get all user's posts first
     const userPosts = await Post.find({ user: userId });
-    const postIds = userPosts.map((p) => p._id);
 
     // Cascade delete all posts (this will handle post-related data)
     await Promise.all(

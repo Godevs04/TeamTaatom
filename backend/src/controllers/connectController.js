@@ -44,7 +44,7 @@ const createPage = async (req, res) => {
   try {
     const userId = req.user._id;
     const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
-    const { getCurrencyFromCountry, validatePrice, getCurrencyConfig } = require('../utils/currencyConfig');
+    const { getCurrencyFromCountry, validatePrice } = require('../utils/currencyConfig');
 
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
       return sendError(res, 'VALIDATION_FAILED', 'Connect page name must be 3-50 characters');
@@ -573,7 +573,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, current_country, lang, travel_style } = req.query;
+    const { target_country, lang, travel_style } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;

@@ -2,18 +2,18 @@ const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
-const { uploadImage, deleteImage } = require('../config/cloudinary');
+const { deleteImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject, objectExists } = require('../services/storage');
 const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
-const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
+const { VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
@@ -196,7 +196,7 @@ const getProfile = async (req, res) => {
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     // This ensures multiple posts at the same location are grouped together
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       // Round to 2 decimal places (≈ 1.1km precision)
       return Math.round(coord * 100) / 100;
     };
@@ -440,7 +440,6 @@ const updateProfile = async (req, res) => {
     }
 
     const { fullName, bio } = req.body;
-    let profilePicUrl = user.profilePic;
     let profilePicStorageKey = user.profilePicStorageKey; // Track storage key separately
 
     // Handle profile picture upload
@@ -480,9 +479,6 @@ const updateProfile = async (req, res) => {
           throw new Error(`Upload verification failed — object not found in bucket: ${profilePicStorageKey}`);
         }
         logger.debug('Profile picture uploaded and verified:', { profilePicStorageKey });
-
-        // Generate signed URL for response (NOT stored in DB)
-        profilePicUrl = await generateSignedUrl(profilePicStorageKey, 'PROFILE');
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
         logger.error('Upload error details:', {
@@ -995,7 +991,7 @@ const searchUsers = async (req, res) => {
 
       // Remove matchScore from final results (keep profilePicStorageKey for URL generation outside cache)
       const cleanedUsers = users.map(user => {
-        const { matchScore, ...userWithoutScore } = user;
+        const { matchScore: _matchScore, ...userWithoutScore } = user;
         return userWithoutScore;
       });
 
@@ -1578,6 +1574,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 // Helper function to get continent from coordinates
+// eslint-disable-next-line no-unused-vars
 const getContinentFromCoordinates = (latitude, longitude) => {
   // Simplified logic for continent detection based on coordinates
   if (latitude >= -10 && latitude <= 80 && longitude >= 25 && longitude <= 180) return 'Asia';
@@ -1619,7 +1616,7 @@ const getTripScoreContinents = async (req, res) => {
     .limit(1000);
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -1785,7 +1782,7 @@ const getTripScoreCountries = async (req, res) => {
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -1918,7 +1915,7 @@ const getTripScoreCountryDetails = async (req, res) => {
     });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2123,7 +2120,7 @@ const getTripScoreLocations = async (req, res) => {
     });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2275,8 +2272,8 @@ const getTravelMapData = async (req, res) => {
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      lat: { $exists: true, $ne: null, $ne: 0 },
-      lng: { $exists: true, $ne: null, $ne: 0 }
+      lat: { $exists: true, $nin: [null, 0] },
+      lng: { $exists: true, $nin: [null, 0] }
     })
     .select('lat lng address takenAt uploadedAt post contentType')
     .populate({ path: 'post', select: 'imageUrl thumbnailUrl storageKey storageKeys type' })
@@ -2285,7 +2282,7 @@ const getTravelMapData = async (req, res) => {
     .limit(1000); // Limit for performance
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2400,6 +2397,7 @@ const getTravelMapData = async (req, res) => {
 };
 
 // Helper function to determine continent from location
+// eslint-disable-next-line no-unused-vars
 const getContinentFromLocation = (address) => {
   if (!address) return 'Unknown';
   
@@ -2440,6 +2438,7 @@ const getContinentFromLocation = (address) => {
 };
 
 // Helper function to determine country from location
+// eslint-disable-next-line no-unused-vars
 const getCountryFromLocation = (address) => {
   if (!address) return 'Unknown';
   
@@ -2684,6 +2683,7 @@ const getCountriesForContinent = (continent) => {
 };
 
 // Helper function to determine location category
+// eslint-disable-next-line no-unused-vars
 const getLocationCategory = (caption, address) => {
   if (!caption) return { fromYou: 'Unknown', typeOfSpot: 'Unknown' };
   

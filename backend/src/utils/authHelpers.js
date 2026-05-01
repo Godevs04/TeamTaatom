@@ -93,7 +93,7 @@ const getAuthToken = (req) => {
 /**
  * Debug function to log cookie information
  */
-const debugCookies = (req) => {
+const _debugCookies = (req) => {
   const logger = require('./logger');
   logger.debug('Cookies received:', req.cookies);
   logger.debug('Cookie header:', req.headers.cookie);

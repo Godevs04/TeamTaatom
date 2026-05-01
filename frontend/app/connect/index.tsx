@@ -53,7 +53,7 @@ interface FoundUser {
   profilePic: string;
   bio: string;
   language: string;
-  travelStyle: string;
+  travelStyle?: string;
   isFollowing: boolean;
 }
 
@@ -386,7 +386,6 @@ export default function ConnectHubScreen() {
             showFollowButton={false}
           />
         )}
-        estimatedItemSize={100}
         keyExtractor={(item: ConnectPageType) => item._id}
         contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
         refreshControl={
@@ -593,7 +592,6 @@ export default function ConnectHubScreen() {
       <FlashList
         data={pages}
         renderItem={renderPageItem}
-        estimatedItemSize={100}
         keyExtractor={(item: ConnectPageType) => item._id}
         contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
         onEndReached={handleLoadMore}

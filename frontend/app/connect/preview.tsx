@@ -142,7 +142,7 @@ export default function ContentPreviewScreen() {
       const status = await getSubscriptionStatus(pageData._id);
       setSubscriptionStatus(status);
     } catch (error: any) {
-      crashReportingService.recordError(error, { context: 'subscribe_from_preview' });
+      crashReportingService.captureException(error, { context: 'subscribe_from_preview' });
       Alert.alert('Error', error.message || 'Failed to subscribe. Please try again.');
     } finally {
       setSubscribing(false);

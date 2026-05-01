@@ -1,10 +1,7 @@
 const Post = require('../models/Post');
-const User = require('../models/User');
-const Hashtag = require('../models/Hashtag');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const mongoose = require('mongoose');
-const { cacheWrapper, CacheKeys, CACHE_TTL } = require('../utils/cache');
+const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 
 // @desc    Advanced search for posts

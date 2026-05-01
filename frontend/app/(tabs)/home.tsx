@@ -1298,7 +1298,6 @@ export default function HomeScreen() {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         drawDistance={screenHeight}
-        estimatedItemSize={450}
       />
       </SafeAreaView>
     </View>

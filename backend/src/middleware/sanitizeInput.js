@@ -31,7 +31,7 @@ const sanitizeObject = (obj) => {
   if (typeof obj === 'object') {
     const sanitized = {};
     for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         // Skip files and binary data
         // Note: File is a browser API, not available in Node.js
         // In Node.js, file uploads are typically Buffer or Stream objects
