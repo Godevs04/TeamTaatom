@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 /**
  * Debounce utility function
  * Delays the execution of a function until after a specified wait time
@@ -26,9 +28,9 @@ export const debounce = (func, wait = 500) => {
  * @returns {any} - The debounced value
  */
 export const useDebounce = (value, delay = 500) => {
-  const [debouncedValue, setDebouncedValue] = React.useState(value)
+  const [debouncedValue, setDebouncedValue] = useState(value)
   
-  React.useEffect(() => {
+  useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedValue(value)
     }, delay)

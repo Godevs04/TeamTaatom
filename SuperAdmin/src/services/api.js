@@ -256,7 +256,9 @@ api.interceptors.response.use(
         // Show session expired message before redirect
         try {
           toast.error('Session expired. Please sign in again.')
-        } catch (_) {}
+        } catch (_) {
+          // Ignore toast failures so auth recovery still proceeds.
+        }
         // Only redirect if not already on login page to prevent infinite loops
         if (window.location.pathname !== '/login') {
           setTimeout(() => {
