@@ -2,6 +2,31 @@ const https = require('https');
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 
+class CashfreeNotConfiguredError extends Error {
+  constructor(message = 'Payments are not configured on this server.') {
+    super(message);
+    this.name = 'CashfreeNotConfiguredError';
+    this.code = 'CASHFREE_NOT_CONFIGURED';
+  }
+}
+
+const trimEnv = (v) => (typeof v === 'string' ? v.trim() : '');
+
+/** True when Cashfree API credentials are present (non-empty after trim). */
+const isCashfreeConfigured = () => {
+  const appId = trimEnv(process.env.CASHFREE_APP_ID);
+  const secretKey = trimEnv(process.env.CASHFREE_SECRET_KEY);
+  return !!(appId && secretKey);
+};
+
+const assertCashfreeConfigured = () => {
+  if (!isCashfreeConfigured()) {
+    throw new CashfreeNotConfiguredError(
+      'Payments are not configured on this server. Set CASHFREE_APP_ID and CASHFREE_SECRET_KEY.',
+    );
+  }
+};
+
 // Cashfree API configuration
 const getConfig = () => {
   const env = process.env.CASHFREE_ENV || 'sandbox';
@@ -11,13 +36,14 @@ const getConfig = () => {
 
   return {
     baseUrl,
-    appId: process.env.CASHFREE_APP_ID,
-    secretKey: process.env.CASHFREE_SECRET_KEY,
+    appId: trimEnv(process.env.CASHFREE_APP_ID),
+    secretKey: trimEnv(process.env.CASHFREE_SECRET_KEY),
     apiVersion: '2023-08-01',
   };
 };
 
 const getHeaders = () => {
+  assertCashfreeConfigured();
   const config = getConfig();
   return {
     'Content-Type': 'application/json',
@@ -247,6 +273,8 @@ const verifyWebhookSignature = (rawBody, timestamp, signature) => {
 };
 
 module.exports = {
+  CashfreeNotConfiguredError,
+  isCashfreeConfigured,
   createPlan,
   getPlan,
   createSubscription,

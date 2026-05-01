@@ -6,6 +6,23 @@ const cashfreeService = require('../services/cashfreeService');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
+/** Cashfree return URL: HTTPS for web checkout, deep link for native apps. */
+function buildSubscriptionReturnUrl(req, connectPageId) {
+  const platform = (req.get('x-platform') || '').toLowerCase();
+  const webBase = (process.env.WEB_FRONTEND_URL || '').trim().replace(/\/$/, '');
+  if (platform === 'web' && webBase) {
+    return `${webBase}/connect/page/${connectPageId}?subscription_status={subscription_status}`;
+  }
+  return `${process.env.APP_DEEP_LINK_BASE || 'taatom://'}connect/page/${connectPageId}?subscription_status={subscription_status}`;
+}
+
+function isCashfreeNotConfiguredError(error) {
+  return (
+    error instanceof cashfreeService.CashfreeNotConfiguredError ||
+    error?.code === 'CASHFREE_NOT_CONFIGURED'
+  );
+}
+
 // ─────────────────────────────────────────────
 // Create Subscription (initiate payment)
 // POST /api/v1/connect/subscribe
@@ -91,8 +108,7 @@ const createSubscription = async (req, res) => {
     const timestamp = Date.now();
     const cashfreeSubId = `sub_${userId}_${connectPageId}_${timestamp}`;
 
-    // Determine return URL (deep link back to app)
-    const returnUrl = `${process.env.APP_DEEP_LINK_BASE || 'taatom://'}connect/page/${connectPageId}?subscription_status={subscription_status}`;
+    const returnUrl = buildSubscriptionReturnUrl(req, connectPageId);
 
     // Create subscription on Cashfree
     const cashfreeResult = await cashfreeService.createSubscription({
@@ -129,6 +145,10 @@ const createSubscription = async (req, res) => {
       currency: page.subscriptionCurrency || 'INR',
     });
   } catch (error) {
+    if (isCashfreeNotConfiguredError(error)) {
+      logger.warn('Subscribe skipped: Cashfree not configured:', error.message);
+      return sendError(res, 'SERVER_UNAVAILABLE', error.message);
+    }
     logger.error('Error creating subscription:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to create subscription');
   }
@@ -218,6 +238,10 @@ const cancelSubscription = async (req, res) => {
       },
     });
   } catch (error) {
+    if (isCashfreeNotConfiguredError(error)) {
+      logger.warn('Cancel subscription skipped: Cashfree not configured:', error.message);
+      return sendError(res, 'SERVER_UNAVAILABLE', error.message);
+    }
     logger.error('Error cancelling subscription:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to cancel subscription');
   }

@@ -1,5 +1,16 @@
 import { isAxiosError } from "axios";
 
+function getNestedApiMessage(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const o = data as Record<string, unknown>;
+  const err = o.error;
+  if (err && typeof err === "object" && err !== null && "message" in err) {
+    const m = (err as { message?: unknown }).message;
+    if (typeof m === "string" && m.length > 0 && m.length < 400) return m;
+  }
+  return undefined;
+}
+
 /**
  * Returns a user-friendly message for auth API errors (signup, signin, forgot, etc.)
  * so we never show technical text like "Request failed with status code 409".
@@ -55,9 +66,16 @@ export function getFriendlyErrorMessage(error: unknown): string {
   if (isAxiosError(error)) {
     const status = error.response?.status;
     const data = error.response?.data as { message?: string; error?: string } | undefined;
-    const serverMessage = data?.message ?? data?.error;
+    const nested = getNestedApiMessage(error.response?.data);
+    const flat =
+      typeof data?.message === "string"
+        ? data.message
+        : typeof data?.error === "string"
+          ? data.error
+          : undefined;
+    const serverMessage = nested ?? flat;
 
-    if (typeof serverMessage === "string" && serverMessage.length > 0 && serverMessage.length < 200) {
+    if (typeof serverMessage === "string" && serverMessage.length > 0 && serverMessage.length < 400) {
       if (!/^\s*request failed|status code \d+|axios|ECONNREFUSED|ETIMEDOUT/i.test(serverMessage)) {
         return serverMessage;
       }
@@ -76,9 +94,14 @@ export function getFriendlyErrorMessage(error: unknown): string {
         return "This conflicts with existing data. Please try something else.";
       case 429:
         return "Too many attempts. Please wait a moment and try again.";
+      case 503:
+        return (
+          nested ||
+          flat ||
+          "Payments are temporarily unavailable. Please try again later."
+        );
       case 500:
       case 502:
-      case 503:
         return "Something went wrong on our end. Please try again in a few minutes.";
       default:
         if (error.code === "ECONNREFUSED" || error.message?.includes("Network")) {
