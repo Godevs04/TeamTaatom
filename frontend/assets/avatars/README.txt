@@ -1,1 +1,2 @@
-Place your avatar images (e.g., avatar1.png, avatar2.png, etc.) in this folder. These will be used for dynamic avatar assignment during onboarding.
+Avatar assets folder for frontend use.
+Only high-level documentation is provided here for safety.
