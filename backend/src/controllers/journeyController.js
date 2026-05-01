@@ -1,8 +1,7 @@
 const mongoose = require('mongoose');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const Journey = require('../models/Journey');
-const TripVisit = require('../models/TripVisit');
 const Post = require('../models/Post');
 const User = require('../models/User');
 

@@ -26,6 +26,7 @@ interface OptionsState {
 }
 
 interface AlertContextType {
+  showAlert: (title: string, message: string) => void;
   showSuccess: (message: string, title?: string) => void;
   showError: (message: string, title?: string) => void;
   showWarning: (message: string, title?: string) => void;
@@ -111,6 +112,9 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const contextValue: AlertContextType = {
+    showAlert: (title: string, message: string) => {
+      showAlert({ title, message, type: 'info' });
+    },
     showSuccess: (message: string, title?: string) => {
       // Success messages are typically user-friendly, but sanitize just in case
       const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showSuccess');

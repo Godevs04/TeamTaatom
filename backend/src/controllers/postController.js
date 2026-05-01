@@ -5,16 +5,15 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
-const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
+const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls, isSignedUrl, extractStorageKeyFromUrl, resolveProfilePic } = require('../services/mediaService');
-const Song = require('../models/Song');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
@@ -989,9 +988,6 @@ const createPost = async (req, res) => {
       mentionUserIds.push(...mentionedUsers.map(u => u._id));
     }
 
-    // Generate signed URLs for response (NOT stored in DB)
-    const signedUrls = await generateSignedUrls(storageKeys, 'IMAGE');
-    
     // Create post with multiple images - ONLY store storage keys, NOT signed URLs
     const post = new Post({
       user: req.user._id,
@@ -2817,7 +2813,6 @@ const getShorts = async (req, res) => {
 
     // Defensive guard: ensure limit is reasonable
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
-    const safeSkip = Math.max(skip, 0);
 
     const viewerId = req.user?._id?.toString();
     const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
@@ -3154,6 +3149,9 @@ const getShorts = async (req, res) => {
 // @route   POST /shorts
 // @access  Private
 const createShort = async (req, res) => {
+  // Hoisted so the outer catch can reference them for cleanup on failure
+  let videoStorageKey;
+  let videoUploadResult;
   try {
     logger.debug('createShort called');
     logger.debug('req.file:', req.file ? { fieldname: req.file.fieldname, size: req.file.size } : null);
@@ -3243,7 +3241,7 @@ const createShort = async (req, res) => {
     }
 
     // Upload (transcoded or original) video to Sevalla Object Storage
-    const videoStorageKey = buildMediaKey({
+    videoStorageKey = buildMediaKey({
       type: 'short',
       userId: req.user._id.toString(),
       filename: videoFile.originalname,
@@ -3260,7 +3258,6 @@ const createShort = async (req, res) => {
       originalSizeMB: (videoFile.buffer.length / (1024 * 1024)).toFixed(2),
     });
 
-    let videoUploadResult;
     try {
       // uploadObject automatically uses multipart upload for files > 100MB
       const uploadStartTime = Date.now();

@@ -25,7 +25,7 @@ const processCleanupJob = async (job) => {
         });
         logger.info(`Cleaned up ${result.deletedCount} resolved error logs`);
         break;
-      case 'all':
+      case 'all': {
         const analyticsResult = await AnalyticsEvent.deleteMany({
           timestamp: { $lt: cutoffDate },
         });
@@ -39,6 +39,7 @@ const processCleanupJob = async (job) => {
         };
         logger.info(`Cleaned up ${result.analytics} analytics events and ${result.errors} error logs`);
         break;
+      }
       default:
         throw new Error(`Unknown cleanup type: ${cleanupType}`);
     }

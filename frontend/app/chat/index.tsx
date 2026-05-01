@@ -1180,7 +1180,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     if (!input.trim() && pendingAttachments.length === 0) return;
     const messageText = input;
     const attachmentsToSend = [...pendingAttachments];
-    logger.debug('Sending message:', messageText, 'attachments:', attachmentsToSend.length);
+    logger.debug('Sending message', { messageText, attachmentCount: attachmentsToSend.length });
     
     // Mark messages as seen when user sends a message (they're actively viewing the chat)
     markMessagesAsSeenIfNeeded();

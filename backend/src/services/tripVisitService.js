@@ -1,22 +1,14 @@
 const TripVisit = require('../models/TripVisit');
-const Post = require('../models/Post');
-const User = require('../models/User');
 const logger = require('../utils/logger');
-const Chat = require('../models/Chat');
-const mongoose = require('mongoose');
-const { 
-  TRUSTED_TRUST_LEVELS,
+const {
   VERIFIED_STATUSES,
-  MAX_REALISTIC_SPEED_KMH, 
-  MIN_DISTANCE_FOR_SPEED_CHECK_KM 
+  MAX_REALISTIC_SPEED_KMH,
+  MIN_DISTANCE_FOR_SPEED_CHECK_KM
 } = require('../config/tripScoreConfig');
-const { 
-  getOrCreateSupportConversation, 
-  sendSystemMessage 
+const {
+  getOrCreateSupportConversation,
+  sendSystemMessage
 } = require('./adminSupportChatService');
-
-// Static Taatom Official system user ID (must exist in DB for chat system)
-const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
 
 /**
  * TripVisit Service - TripScore v2
@@ -195,7 +187,7 @@ const determineSource = (post, metadata = {}) => {
  * @returns {String} Trust level
  */
 const assignTrustLevel = async (visitData, userPreviousVisits = []) => {
-  const { source, lat, lng, takenAt, uploadedAt } = visitData;
+  const { source, lat, lng, takenAt } = visitData;
   
   // High trust: Taatom camera with live GPS
   if (source === 'taatom_camera_live') {

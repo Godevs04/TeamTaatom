@@ -2,9 +2,8 @@ const Collection = require('../models/Collection');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Activity = require('../models/Activity');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const mongoose = require('mongoose');
 const { deleteCache, CacheKeys } = require('../utils/cache');
 const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 

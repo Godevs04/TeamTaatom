@@ -1311,6 +1311,10 @@ const styles = StyleSheet.create({
     flex: 1,
     letterSpacing: 0.2,
   },
+  sectionDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
   tripScoreContent: {
     alignItems: 'center',
     marginTop: 4,

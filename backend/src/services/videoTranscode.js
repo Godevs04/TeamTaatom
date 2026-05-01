@@ -187,10 +187,10 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
     return { buffer: inputBuffer, mimetype: inputMimetype, transcoded: false };
   } finally {
     if (inputWritten) {
-      try { fs.unlinkSync(inputPath); } catch (_) {}
+      try { fs.unlinkSync(inputPath); } catch (_) { /* tempfile may already be gone */ }
     }
     if (outputWritten) {
-      try { fs.unlinkSync(outputPath); } catch (_) {}
+      try { fs.unlinkSync(outputPath); } catch (_) { /* tempfile may already be gone */ }
     }
   }
 }

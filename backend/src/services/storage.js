@@ -219,6 +219,7 @@ const uploadObjectMultipart = async (buffer, key, contentType) => {
     let nextPartIndex = 0; // 0-based; PartNumber is index+1
 
     const uploadOnePart = async () => {
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const idx = nextPartIndex++;
         if (idx >= totalParts) return;

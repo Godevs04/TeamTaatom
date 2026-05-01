@@ -36,7 +36,7 @@ const uploadLocaleGallery = upload.fields([
 const handleMulterError = (a, b, c, d) => {
   if (typeof d === 'function') {
     const err = a;
-    const req = b;
+    const _req = b;
     const res = c;
     const next = d;
     if (err instanceof multer.MulterError) {

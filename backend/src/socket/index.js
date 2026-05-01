@@ -1,7 +1,5 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
-const { getFollowers } = require('../utils/socketBus');
-const User = require('../models/User');
 const chatController = require('../controllers/chat.controller');
 const logger = require('../utils/logger');
 
@@ -64,7 +62,7 @@ function setupSocket(server) {
 
   nsp.on('connection', (socket) => {
     // Test event
-    socket.on('test', (data) => {
+    socket.on('test', (_data) => {
     });
     // Typing event
     socket.on('typing', ({ to }) => {
@@ -159,7 +157,6 @@ function setupSocket(server) {
         
         // For admin_support conversations, also emit to admin room
         if (chat.type === 'admin_support') {
-          const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
           nsp.to('admin_support').emit('admin_support:message:new', { 
             chatId: chat._id, 
             message,

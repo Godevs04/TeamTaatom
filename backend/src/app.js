@@ -30,7 +30,6 @@ const policyRoutes = require('./routes/policyRoutes');
 const shortUrlRoutes = require('./routes/shortUrlRoutes');
 const supportRoutes = require('./routes/supportRoutes');
 const journeyRoutes = require('./routes/journeyRoutes');
-const { startAutoEndJob } = require('./jobs/journeyAutoEnd');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');

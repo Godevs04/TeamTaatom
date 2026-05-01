@@ -99,7 +99,6 @@ const queryMonitor = (req, res, next) => {
   }
 
   const startTime = Date.now();
-  let requestQueryCount = 0;
 
   // Track request duration
   res.on('finish', () => {

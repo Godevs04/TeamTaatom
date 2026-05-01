@@ -1,6 +1,7 @@
 const express = require('express');
 const { body } = require('express-validator');
 const multer = require('multer');
+const logger = require('../utils/logger');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const {
   getProfile,

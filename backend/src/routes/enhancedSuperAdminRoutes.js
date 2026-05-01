@@ -28,9 +28,7 @@ const {
   loginSuperAdmin,
   verify2FA,
   resend2FA,
-  verifyToken,
   createSuperAdmin,
-  getSecurityLogs,
   changePassword,
   updateProfile,
   logout
@@ -396,7 +394,6 @@ router.patch('/profile', upload.single('avatar'), updateProfile)
 router.get('/notifications', async (req, res) => {
   try {
     const User = require('../models/User')
-    const Post = require('../models/Post')
     const Report = require('../models/Report')
     
     // Get recent notifications for SuperAdmin
@@ -445,16 +442,6 @@ router.get('/notifications', async (req, res) => {
         link: `/reports?id=${report._id}`
       })
     })
-    
-    // Get recent posts that might need moderation
-    const recentPosts = await Post.find({
-      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      flagged: { $ne: true }
-    })
-      .populate('user', 'fullName email')
-      .sort({ createdAt: -1 })
-      .limit(3)
-      .lean()
     
     // Sort all notifications by time (newest first)
     notifications.sort((a, b) => {
@@ -1782,9 +1769,7 @@ router.patch('/reports/:id', authenticateSuperAdmin, async (req, res) => {
 router.get('/analytics', async (req, res) => {
   try {
     const { period = '7d' } = req.query
-    const User = require('../models/User')
-    const Post = require('../models/Post')
-    
+
     let timeFilter = {}
     switch (period) {
       case '1d':
@@ -2987,13 +2972,11 @@ router.get('/audit-logs', async (req, res) => {
   try {
     const { page = 1, limit = 50, action, startDate, endDate, export: exportFormat } = req.query
     const skip = (page - 1) * limit
-    
-    let query = { _id: req.superAdmin._id }
-    
+
     const superAdmin = await SuperAdmin.findById(req.superAdmin._id)
       .select('securityLogs')
       .lean()
-    
+
     if (!superAdmin) {
       return sendError(res, 'RES_3001', 'SuperAdmin not found')
     }
@@ -3209,7 +3192,7 @@ async function getEngagementMetrics(timeFilter) {
   return metrics[0] || { avgLikes: 0, avgComments: 0, avgShares: 0 }
 }
 
-async function getDeviceStats(timeFilter) {
+async function getDeviceStats(_timeFilter) {
   // Mock device stats - replace with real device tracking
   return {
     mobile: 65,
@@ -3218,7 +3201,7 @@ async function getDeviceStats(timeFilter) {
   }
 }
 
-async function getGeographicDistribution(timeFilter) {
+async function getGeographicDistribution(_timeFilter) {
   // Mock geographic distribution - replace with real location data
   return [
     { country: 'United States', users: 45, percentage: 35 },
@@ -3571,8 +3554,7 @@ router.get('/logs', async (req, res) => {
     const skip = (page - 1) * limit
     
     const SuperAdmin = require('../models/SuperAdmin')
-    const User = require('../models/User')
-    
+
     // Get all super admins to aggregate their logs
     const superAdmins = await SuperAdmin.find({}, 'securityLogs email')
     
@@ -4398,7 +4380,7 @@ router.get('/storage-usage', authenticateSuperAdmin, getStorageUsage);
 
 router.delete('/system/cache', authenticateSuperAdmin, async (req, res) => {
   try {
-    const { deleteCache, deleteCacheByPattern } = require('../utils/cache');
+    const { deleteCacheByPattern } = require('../utils/cache');
     const { pattern } = req.query;
     
     if (pattern) {

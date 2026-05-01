@@ -132,11 +132,12 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
+          // unmountOnBlur freed video decoders on tab switch; not in expo-router 6 types but supported at runtime by react-navigation
           unmountOnBlur: true,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={22} color={color} />
           ),
-        }}
+        } as any}
       />
       <Tabs.Screen
         name="post"

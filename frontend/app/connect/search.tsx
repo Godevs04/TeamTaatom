@@ -200,7 +200,6 @@ export default function ConnectSearchScreen() {
         <FlashList
           data={results}
           renderItem={renderItem}
-          estimatedItemSize={100}
           keyExtractor={item => item._id}
           contentContainerStyle={styles.listContent as any}
           onEndReached={handleLoadMore}
