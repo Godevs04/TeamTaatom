@@ -9,3 +9,6 @@ Server-side API and application logic for Taatom.
 
 ## Safety Note
 This README only contains high-level information.
+
+## Environment
+Copy [.env.example](.env.example) to **`.env.local`** (gitignored), set secrets locally, and never commit credential files.

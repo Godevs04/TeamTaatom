@@ -17,10 +17,13 @@ import {
   MapPinned,
   PlayCircle,
   Sparkles,
+  Footprints,
+  Navigation,
   MessageCircle,
   Bell,
   Bookmark,
   Compass,
+  Link2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
@@ -35,6 +38,9 @@ const leftNav = [
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
   { href: "/discover", label: "Discover", icon: Compass },
+  { href: "/connect", label: "Connect", icon: Link2 },
+  { href: "/journeys", label: "Journeys", icon: Footprints },
+  { href: "/navigate", label: "Navigate", icon: Navigation },
   { href: "/create", label: "Create", icon: PlusSquare },
   { href: "/saved", label: "Saved", icon: Bookmark },
   { href: "/profile", label: "Profile", icon: User2 },
