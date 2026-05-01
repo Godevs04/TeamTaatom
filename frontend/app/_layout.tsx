@@ -23,12 +23,15 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
+import JourneyStatusBar from '../components/JourneyStatusBar';
+import { useJourneyTracking } from '../hooks/useJourneyTracking';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
+import { imageCacheManager } from '../utils/imageCacheManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
 import Constants from 'expo-constants';
@@ -99,27 +102,51 @@ function RootLayoutInner() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
+  // Journey tracking hook
+  const {
+    isTracking,
+    isPaused,
+    distance,
+    duration,
+    pauseJourneyRecording,
+    stopJourneyRecording,
+  } = useJourneyTracking();
+
   // Apply web optimizations
   useWebOptimizations();
 
   // Use default Expo splash screen (no longer hiding immediately for Lottie)
   // The native splash screen will show until app is ready
   useEffect(() => {
-    // Keep native splash visible until app initialization is complete
-    // This provides better UX with the default splash icon
+    // expo-image manages its own memory + disk cache lifecycle, so no manual
+    // populate/cleanup is needed at startup.
   }, []);
 
-  // Re-check connectivity when app comes to foreground and periodically when active
+  // Re-check connectivity when app comes to foreground and periodically when active.
+  // Uses a 2-consecutive-failure rule to avoid false-offline from a single slow/cold-start request.
+  const connectivityFailCountRef = useRef(0);
   useEffect(() => {
     const checkAndSetOffline = async () => {
       const ok = await testAPIConnectivity();
-      setIsOffline((prev) => (ok ? false : true));
+      if (ok) {
+        connectivityFailCountRef.current = 0;
+        setIsOffline(false);
+      } else {
+        connectivityFailCountRef.current += 1;
+        if (connectivityFailCountRef.current >= 2) {
+          setIsOffline(true);
+        }
+      }
     };
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkAndSetOffline();
+      if (state === 'active') {
+        // Reset fail count on foreground so a single success immediately clears the banner
+        connectivityFailCountRef.current = 0;
+        checkAndSetOffline();
+      }
     });
-    const interval = setInterval(checkAndSetOffline, 60000);
-    checkAndSetOffline();
+    const interval = setInterval(checkAndSetOffline, 30000);
+    // No immediate check here — auth init already sets the initial offline state
     return () => {
       sub.remove();
       clearInterval(interval);
@@ -270,49 +297,54 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Validate environment variable safety (non-blocking).
-        try {
-          const { validateEnvironmentVariables } = require('../utils/envValidator');
-          const report = validateEnvironmentVariables();
-          if (!report.ok) {
-            logger.error('Environment validation reported critical issues:', report.errors);
-          }
-        } catch (envValidationError: any) {
-          logger.error('Environment validation failed unexpectedly (non-blocking):', envValidationError?.message);
-        }
-
-        // Run startup diagnostics to capture production-only startup conditions.
-        const startupReport = await runStartupDiagnostics();
-        if (!startupReport.ok) {
-          crashReportingService.captureMessage('Startup diagnostics reported errors', 'error', {
-            screen: 'root_layout',
-            action: 'startup_diagnostics',
-            details: startupReport.errors.join(' | '),
-          });
-        }
-
-        // Validate production environment configuration
-        try {
-          const { validateProductionEnvironment } = require('../utils/productionValidator');
-          const validationReport = validateProductionEnvironment();
-          if (!validationReport.ok) {
-            crashReportingService.captureMessage('Production validation errors detected', 'error', {
-              screen: 'root_layout',
-              action: 'production_validation',
-              details: validationReport.errors.join(' | '),
-            });
-          }
-        } catch (validationError: any) {
-          logger.warn('Production validation failed unexpectedly (non-blocking):', validationError?.message);
-        }
-
-        // Initialize analytics, feature flags, crash reporting, service worker, and update service
+        // Initialize analytics, feature flags, crash reporting, service worker first (critical path)
         await Promise.all([
           analyticsService.initialize(),
           featureFlagsService.initialize(),
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
         ]);
+
+        // Populate image cache from disk so cached R2 images load instantly
+        imageCacheManager.populateCacheFromDisk().catch(() => {});
+        imageCacheManager.cleanupOldFiles(3).catch(() => {});
+
+        // Defer non-critical validation and diagnostics (run after first paint)
+        setTimeout(() => {
+          try {
+            const { validateEnvironmentVariables } = require('../utils/envValidator');
+            const report = validateEnvironmentVariables();
+            if (!report.ok) {
+              logger.error('Environment validation reported critical issues:', report.errors);
+            }
+          } catch (envValidationError: any) {
+            logger.error('Environment validation failed unexpectedly (non-blocking):', envValidationError?.message);
+          }
+
+          runStartupDiagnostics().then((startupReport) => {
+            if (!startupReport.ok) {
+              crashReportingService.captureMessage('Startup diagnostics reported errors', 'error', {
+                screen: 'root_layout',
+                action: 'startup_diagnostics',
+                details: startupReport.errors.join(' | '),
+              });
+            }
+          }).catch(() => {});
+
+          try {
+            const { validateProductionEnvironment } = require('../utils/productionValidator');
+            const validationReport = validateProductionEnvironment();
+            if (!validationReport.ok) {
+              crashReportingService.captureMessage('Production validation errors detected', 'error', {
+                screen: 'root_layout',
+                action: 'production_validation',
+                details: validationReport.errors.join(' | '),
+              });
+            }
+          } catch (validationError: any) {
+            logger.warn('Production validation failed unexpectedly (non-blocking):', validationError?.message);
+          }
+        }, 3000); // Run 3 seconds after startup
 
         // Initialize ads (AdMob + UMP) on native only. Skip in Expo Go & web.
         const isExpoGo = Constants.appOwnership === 'expo';
@@ -474,8 +506,8 @@ function RootLayoutInner() {
       }
     };
 
-    // Check every 2 seconds (not too frequent to avoid performance issues)
-    const interval = setInterval(checkAuthState, 2000);
+    // Check every 15 seconds (reduced from 2s to avoid unnecessary AsyncStorage reads)
+    const interval = setInterval(checkAuthState, 15000);
     return () => clearInterval(interval);
   }, [isAuthenticated, isInitializing]);
 
@@ -551,6 +583,9 @@ function RootLayoutInner() {
                               segments[0] === 'saved-posts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
+                              segments[0] === 'navigate' ||
+                              segments[0] === 'journeys' ||
+                              segments[0] === 'connect' ||
                               segments[0] === 'onboarding' ||
                               segments[0] === 'policies' ||
                               segments[0] === 'support' ||
@@ -573,6 +608,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/saved-posts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
+                              normalizedPath.startsWith('/connect') ||
                               normalizedPath.startsWith('/onboarding');
       
       // Double-check storage before trusting isAuthenticated state
@@ -851,6 +887,15 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
+      {/* Journey Status Bar - shown when journey is active or paused */}
+      <JourneyStatusBar
+        isTracking={isTracking}
+        isPaused={isPaused}
+        distance={distance}
+        duration={duration}
+        onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
+        onContinue={() => router.push('/navigate')}
+      />
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >
@@ -870,6 +915,7 @@ function RootLayoutInner() {
           
           {/* Authenticated routes - always defined, access controlled by navigation guard */}
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="navigate" options={{ presentation: 'card' }} />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
           <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
@@ -894,6 +940,10 @@ function RootLayoutInner() {
           <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
           {/* User shorts dynamic route */}
           <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
+          {/* Journeys list */}
+          <Stack.Screen name="journeys" options={{ presentation: 'card' }} />
+          {/* Connect pages */}
+          <Stack.Screen name="connect" options={{ presentation: 'card' }} />
           {/* Map routes */}
           <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
         </Stack>
@@ -964,7 +1014,7 @@ const styles = StyleSheet.create({
   },
   offlineRetryButtonText: {
     color: '#ffb300',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 14,
   },
   sessionExpiredBanner: {
@@ -988,7 +1038,7 @@ const styles = StyleSheet.create({
   },
   sessionExpiredDismissText: {
     color: '#fff',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 16,
   },
 });

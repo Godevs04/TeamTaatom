@@ -178,6 +178,11 @@ export const getPostShareUrl = (postId: string): string => {
   return `${WEB_SHARE_URL}/post/${postId}`;
 };
 
+// Helper function to get share URL for journeys
+export const getJourneyShareUrl = (journeyId: string): string => {
+  return `${WEB_SHARE_URL}/journey/${journeyId}`;
+};
+
 // Helper function to get full API URL
 export const getApiUrl = (endpoint: string): string => {
   const baseUrl = getApiBaseUrl().replace(/\/$/, ''); // Remove trailing slash

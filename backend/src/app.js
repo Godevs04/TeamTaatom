@@ -29,6 +29,7 @@ const mapsRoutes = require('./routes/mapsRoutes');
 const policyRoutes = require('./routes/policyRoutes');
 const shortUrlRoutes = require('./routes/shortUrlRoutes');
 const supportRoutes = require('./routes/supportRoutes');
+const journeyRoutes = require('./routes/journeyRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -231,13 +232,15 @@ app.use(generalLimiter);
 
 // Body parsing middleware with stricter limits per endpoint type
 // Default limits (can be overridden per route)
-app.use(express.json({ 
+app.use(express.json({
   limit: process.env.MAX_JSON_BODY_SIZE || '1mb', // Stricter default: 1MB for JSON
   verify: (req, res, buf) => {
     // Additional validation: reject if body is too large
     if (buf.length > 1 * 1024 * 1024) { // 1MB
       throw new Error('Request body too large');
     }
+    // Store raw body for webhook signature verification (Cashfree, etc.)
+    req.rawBody = buf.toString('utf8');
   }
 }));
 app.use(express.urlencoded({ 
@@ -362,6 +365,7 @@ app.use('/api/v1/support', supportRoutes);
 app.use('/api/v1/songs', songRoutes);
 app.use('/api/v1/locales', localeRoutes);
 app.use('/api/v1/maps', mapsRoutes);
+app.use('/api/v1/journey', journeyRoutes);
 
 // Swagger API Documentation
 // Enable in development or when ENABLE_SWAGGER=true (for production)

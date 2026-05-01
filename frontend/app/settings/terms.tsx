@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
   },
   zeroTolerance: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 22,
     marginBottom: 14,
   },

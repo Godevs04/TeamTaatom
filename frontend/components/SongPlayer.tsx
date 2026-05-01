@@ -30,6 +30,15 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   const soundRef = useRef<Audio.Sound | null>(null);
   const isInitializedRef = useRef(false);
   const isMountedRef = useRef(true); // Track if component is mounted
+  // Mirrors the isVisible prop synchronously so loadAndPlaySong can detect a
+  // nav-during-load (tab switch or scroll to next reel) and abort instead of
+  // starting playback in the background after the user has already navigated.
+  const isVisibleRef = useRef(isVisible);
+  // Token bumped on every loadAndPlaySong invocation. After awaiting loadAsync
+  // we compare the captured token against the current ref — if they differ a
+  // newer load was started or the component unmounted, and this stale load
+  // should silently unload and bail.
+  const loadTokenRef = useRef(0);
 
   // Get song data from post
   const song = post.song?.songId;
@@ -39,16 +48,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
   // Debug: Log song data
   useEffect(() => {
-    if (post.song) {
-      console.warn('[SONGPLAYER] Mount/update:', {
+    if (post.song && __DEV__) {
+      logger.debug('[SONGPLAYER] Mount/update:', {
         postId: String(post._id),
-        hasSong: !!post.song,
-        hasSongId: !!post.song.songId,
-        songIdType: typeof post.song.songId,
-        songId_id: (post.song.songId as any)?._id,
-        title: (post.song.songId as any)?.title,
-        s3Url: (post.song.songId as any)?.s3Url ? String((post.song.songId as any).s3Url).substring(0, 60) + '...' : 'NULL',
-        cloudinaryUrl: (post.song.songId as any)?.cloudinaryUrl ? String((post.song.songId as any).cloudinaryUrl).substring(0, 60) + '...' : 'NULL',
         isVisible,
         autoPlay,
       });
@@ -86,22 +88,30 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     };
   }, []);
 
+  // Keep isVisibleRef aligned with the prop. Assigned in the render body
+  // (NOT a useEffect) so the ref reflects the new value the moment React
+  // hands us the new prop — before commit, before child effects run. A
+  // useEffect-based sync leaves a brief race window during which an
+  // in-flight loadAsync can resolve and decide it's still "visible".
+  isVisibleRef.current = isVisible;
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       isMountedRef.current = false; // Mark as unmounted
+      // Bump the load token so any awaited loadAndPlaySong knows it's stale
+      // and unloads its sound instead of playing it on a dead component.
+      loadTokenRef.current += 1;
       onPlayingChange?.(null);
       if (soundRef.current) {
         // Silently cleanup - cancellations are expected on unmount
         soundRef.current.stopAsync().catch(() => {});
         soundRef.current.unloadAsync().catch(() => {});
         soundRef.current = null;
-        setSound(null);
-        if (isMountedRef.current) {
-          setIsPlaying(false);
-        }
+        // Note: setSound / setIsPlaying intentionally NOT called here —
+        // the component is already unmounted, calling state setters is a no-op
+        // at best and a "can't update unmounted" warning at worst.
       }
-      // Audio manager handles cleanup automatically via stopAll()
       isInitializedRef.current = false;
     };
   }, [post._id, onPlayingChange]);
@@ -133,22 +143,22 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     // Get audio URL - try s3Url first, then cloudinaryUrl, then dynamically fetched URL
     let audioUrlRaw = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
 
-    console.warn('[SONGPLAYER] loadAndPlaySong called:', {
-      postId: String(post._id),
-      hasAudioUrl: !!audioUrlRaw,
-      audioUrl: audioUrlRaw ? String(audioUrlRaw).substring(0, 60) + '...' : 'NULL',
-      autoPlay,
-      forcePlay,
-    });
+    logger.debug('[SONGPLAYER] loadAndPlaySong called:', { postId: String(post._id), hasAudioUrl: !!audioUrlRaw });
 
     if (!audioUrlRaw) {
-      console.warn('[SONGPLAYER] ❌ No URL — cannot play');
+      logger.debug('[SONGPLAYER] No URL — cannot play');
       return;
     }
 
+    // Each load attempt gets a fresh token. After every async step we compare
+    // the captured token to the current ref — if they differ, a newer load was
+    // initiated OR the component unmounted, and this run is stale.
+    const myLoadToken = ++loadTokenRef.current;
+    const isStale = () => myLoadToken !== loadTokenRef.current || !isMountedRef.current || !isVisibleRef.current;
+
     try {
-      // Check if component is still mounted before starting
-      if (!isMountedRef.current) {
+      // Check if component is still mounted/visible before starting
+      if (!isMountedRef.current || !isVisibleRef.current) {
         return;
       }
 
@@ -204,11 +214,32 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         false // 🔴 MUST be false (no preload blocking - enables streaming)
       );
 
+      // ABORT GUARD: If the user navigated away (tab switch / reel scroll)
+      // while loadAsync was in flight, this run is stale. Unload the sound
+      // immediately rather than letting it play in the background. This is
+      // the fix for "song keeps playing after switching to home" and prevents
+      // the orphaned-player crash that follows.
+      if (isStale()) {
+        logger.debug('[SONGPLAYER] Stale load — unloading without play', { postId: String(post._id) });
+        try { await newSound.unloadAsync(); } catch (_) {}
+        return;
+      }
+
       soundRef.current = newSound;
       setSound(newSound);
-      
+
       // Use audioManager.playSound to ensure previous audio stops (only if we're going to play)
       if (shouldPlayNow && post._id) {
+        // Re-check between awaits — playSound starts native playback and
+        // wires the sound into audioManager.currentSound; if we navigated
+        // away during the brief window between loadAsync resolving and now,
+        // we'd start playback for nothing.
+        if (isStale()) {
+          try { await newSound.unloadAsync(); } catch (_) {}
+          soundRef.current = null;
+          if (isMountedRef.current) setSound(null);
+          return;
+        }
         await audioManager.playSound(newSound, post._id.toString());
         onPlayingChange?.(newSound);
       }
@@ -259,7 +290,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         setIsPlaying(true);
       }
 
-      console.warn('[SONGPLAYER] ✅ loadAsync returned — sound loaded:', {
+      logger.debug('[SONGPLAYER] Sound loaded:', {
         postId: String(post._id),
         shouldPlayNow,
       });
@@ -301,7 +332,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       }
       
       // Log error details for debugging (only for actual errors, not cancellations)
-      console.warn('[SONGPLAYER] ❌ Error loading song:', {
+      logger.error('[SONGPLAYER] Error loading song:', {
         postId: String(post._id),
         message: errorMessage,
         code: errorCode,
@@ -325,19 +356,45 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         
         // Critical check: If soundRef exists but audioManager has no current sound,
         // it means stopAll() was called and the sound was unloaded externally.
-        // We need to clear soundRef and reload.
+        // Only reload if the sound was truly unloaded (mute toggle case).
+        // Do NOT reload if stopAll() was called as cleanup (leaving screen) —
+        // detect this by checking if the sound object is still loaded.
         if (soundRef.current && currentPostId === null) {
-          // Sound was stopped externally (e.g., via stopAll when muting)
-          // Clear the ref and reload
-          logger.debug('Sound was unloaded externally (likely after mute), clearing ref and reloading');
-          soundRef.current = null;
-          setSound(null);
-          loadAndPlaySong()
-            .then(() => {
-              setIsPlaying(true);
+          // Check if sound is actually still loaded before reloading
+          soundRef.current.getStatusAsync()
+            .then((status) => {
+              if (!status.isLoaded) {
+                // Sound was fully unloaded by stopAll() cleanup (leaving screen)
+                // Just clear refs, do NOT reload
+                logger.debug('Sound was unloaded by stopAll cleanup, clearing refs without reload');
+                soundRef.current = null;
+                setSound(null);
+                setIsPlaying(false);
+              } else if (isVisible && autoPlay) {
+                // Sound is still loaded but audioManager lost track (mute toggle case)
+                // Safe to reload
+                logger.debug('Sound still loaded but audioManager detached, reloading');
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong()
+                  .then(() => {
+                    setIsPlaying(true);
+                  })
+                  .catch((err) => {
+                    logger.error('Error reloading sound after external stop:', err);
+                  });
+              } else {
+                // Not visible or not autoPlay — just clean up
+                soundRef.current = null;
+                setSound(null);
+                setIsPlaying(false);
+              }
             })
-            .catch((err) => {
-              logger.error('Error reloading and playing sound after external stop:', err);
+            .catch(() => {
+              // Status check failed — sound is gone, clean up
+              soundRef.current = null;
+              setSound(null);
+              setIsPlaying(false);
             });
           return;
         }
@@ -409,23 +466,38 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       } else {
         // autoPlay is false - pause song immediately (muted or not visible)
         if (soundRef.current) {
-          soundRef.current.pauseAsync().catch(err => {
-            logger.error('Error pausing:', err);
-          });
+          // Check if sound is actually loaded before pausing — loadAsync may
+          // still be in-flight, and calling pauseAsync on a loading sound throws.
+          soundRef.current.getStatusAsync()
+            .then((status) => {
+              if (status.isLoaded && soundRef.current) {
+                soundRef.current.pauseAsync().catch(err => {
+                  logger.error('Error pausing:', err);
+                });
+              }
+            })
+            .catch(() => {
+              // Sound not accessible — already unloaded or not yet loaded
+            });
           setIsPlaying(false);
         }
       }
     }
 
     // Stop and unload when component becomes invisible (only for auto-play mode)
-    if (!isVisible && !showPlayPause && soundRef.current) {
-      onPlayingChange?.(null);
-      // Stop + unload instantly to prevent audio bleeding
-      soundRef.current.stopAsync().catch(() => {});
-      soundRef.current.unloadAsync().catch(() => {});
-      soundRef.current = null;
-      setSound(null);
-      setIsPlaying(false);
+    if (!isVisible && !showPlayPause) {
+      // Bump the load token so any in-flight loadAndPlaySong sees a stale
+      // token when its loadAsync resolves and unloads instead of playing.
+      loadTokenRef.current += 1;
+      if (soundRef.current) {
+        onPlayingChange?.(null);
+        // Stop + unload instantly to prevent audio bleeding
+        soundRef.current.stopAsync().catch(() => {});
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+        setSound(null);
+        setIsPlaying(false);
+      }
     }
   }, [isVisible, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
 

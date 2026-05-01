@@ -1,7 +1,35 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const chatController = require('../controllers/chat.controller');
 const { authMiddleware } = require('../middleware/authMiddleware');
+
+// Multer configuration for chat attachments
+const storage = multer.memoryStorage();
+const chatUpload = multer({
+  storage,
+  limits: {
+    files: 5, // Maximum 5 files per message
+    fileSize: 10 * 1024 * 1024, // 10MB per file
+    fieldSize: 10 * 1024 * 1024, // 10MB for field values
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic',
+      'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm',
+      'application/pdf', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/plain'
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('File type not supported for chat attachments'), false);
+    }
+  }
+});
 
 /**
  * @swagger
@@ -17,6 +45,71 @@ const { authMiddleware } = require('../middleware/authMiddleware');
  *         description: Chat thread list
  */
 router.get('/', authMiddleware, chatController.listChats);
+
+/**
+ * @swagger
+ * /api/v1/chat/upload:
+ *   post:
+ *     summary: Upload media/files for chat attachments
+ *     tags: [Chat]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               files:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Upload successful, returns attachment metadata array
+ */
+router.post('/upload', authMiddleware, chatUpload.array('files', 5), chatController.uploadChatMedia);
+
+/**
+ * @swagger
+ * /api/v1/chat/share-post:
+ *   post:
+ *     summary: Share a post to a chat (1:1 or group)
+ *     tags: [Chat]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - postId
+ *             properties:
+ *               postId:
+ *                 type: string
+ *               chatId:
+ *                 type: string
+ *                 description: For group chats (room ID)
+ *               otherUserId:
+ *                 type: string
+ *                 description: For 1:1 chats (recipient user ID)
+ *     responses:
+ *       201:
+ *         description: Post shared successfully
+ */
+router.post('/share-post', authMiddleware, chatController.sharePost);
+
+// Chat-by-ID routes (for connect_page group chats) — must come before /:otherUserId
+router.get('/room/:chatId', authMiddleware, chatController.getChatByRoomId);
+router.get('/room/:chatId/messages', authMiddleware, chatController.getMessagesByRoomId);
+router.post('/room/:chatId/messages', authMiddleware, chatController.sendMessageToRoom);
+router.post('/room/:chatId/mark-all-seen', authMiddleware, chatController.markAllMessagesSeenInRoom);
+router.delete('/room/:chatId', authMiddleware, chatController.deleteChatById);
+
 // Specific routes must come before parameterized routes
 /**
  * @swagger

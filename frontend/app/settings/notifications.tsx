@@ -326,7 +326,7 @@ export default function NotificationsSettingsScreen() {
         onBack={() => router.back()}
       />
       
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -540,8 +540,8 @@ export default function NotificationsSettingsScreen() {
               onPress={() => setQuietHoursModalVisible(true)}
             >
               <View style={styles.settingContent}>
-                <Ionicons name="time-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+                <Ionicons name="time-outline" size={20} color={theme.colors.text} />
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                   Configure Quiet Hours
                 </Text>
               </View>
@@ -775,14 +775,15 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -894,8 +895,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

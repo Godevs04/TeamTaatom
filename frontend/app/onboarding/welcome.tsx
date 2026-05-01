@@ -212,9 +212,9 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.xl : 32,
   },
   title: {
-    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 32,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 28,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     letterSpacing: isIOS ? -0.5 : 0,

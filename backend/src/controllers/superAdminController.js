@@ -2,7 +2,7 @@ const SuperAdmin = require('../models/SuperAdmin')
 const jwt = require('jsonwebtoken')
 const { sendSuperAdmin2FAEmail, sendSuperAdminLoginAlertEmail } = require('../utils/sendOtp')
 const logger = require('../utils/logger')
-const { sendError, sendSuccess } = require('../utils/errorCodes')
+const { sendError } = require('../utils/errorCodes')
 const { getClientIP, getLocationFromIP } = require('../utils/authHelpers')
 
 // Middleware to verify SuperAdmin token
@@ -236,8 +236,6 @@ const getSecurityLogs = async (req, res) => {
     const { page = 1, limit = 50, action } = req.query
     const skip = (page - 1) * limit
     
-    let query = { _id: req.superAdmin._id }
-    
     const superAdmin = await SuperAdmin.findById(req.superAdmin._id)
       .select('securityLogs')
       .lean()
@@ -406,7 +404,7 @@ const logout = async (req, res) => {
 }
 
 // Helper function to log failed attempts
-const logFailedAttempt = async (email, ipAddress, userAgent, details) => {
+const logFailedAttempt = async (_email, _ipAddress, _userAgent, _details) => {
   try {
     // Log to a general security collection or file
   } catch (error) {

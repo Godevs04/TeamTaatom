@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const { sendError, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError } = require('../utils/errorCodes');
 const Sentry = require('../instrument');
 
 /**
@@ -33,7 +33,7 @@ const sanitizeErrorDetails = (details) => {
   return sanitized;
 };
 
-const errorHandler = async (err, req, res, next) => {
+const errorHandler = async (err, req, res, _next) => {
   logger.error('Error:', err);
   
   // Note: Sentry's setupExpressErrorHandler already captures the error

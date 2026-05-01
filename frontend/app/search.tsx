@@ -248,10 +248,13 @@ export default function SearchScreen() {
         router.push(`/profile/${item._id}`);
       }}
     >
-      <Image 
-        source={{ uri: item.profilePic || 'https://via.placeholder.com/50' }} 
-        style={styles.userAvatar}
-      />
+      {item.profilePic ? (
+        <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+      ) : (
+        <View style={[styles.userAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+        </View>
+      )}
       <View style={styles.userInfo}>
         {/* Show fullName as primary, username as secondary below */}
         <Text style={[styles.userName, { color: theme.colors.text }]}>
@@ -754,9 +757,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: isTablet ? theme.spacing.xxl : 32,
   },
   emptyTitle: {
-    fontSize: isTablet ? theme.typography.h2.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h2.fontSize : 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginTop: isTablet ? theme.spacing.lg : 16,
     marginBottom: isTablet ? theme.spacing.md : 8,
     textAlign: 'center',
@@ -796,8 +799,8 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -885,8 +888,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   historyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '600',
   },
   clearAllText: {
     fontSize: 14,

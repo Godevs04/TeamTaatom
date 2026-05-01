@@ -1,13 +1,13 @@
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const Post = require('../models/Post');
+const ConnectPage = require('../models/ConnectPage');
 const mongoose = require('mongoose');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 const { generateSignedUrl } = require('../services/mediaService');
-
-// Import socket and fetch with proper error handling
-let getIO;
+const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
 
 // Use dynamic import for fetch to handle CommonJS compatibility
 const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
@@ -75,14 +75,16 @@ async function canChat(userId, otherId) {
 }
 
 exports.listChats = async (req, res) => {
+  try {
   logger.debug('Request headers:', req.headers);
   logger.debug('req.user in /chat:', req.user);
   const userId = req.user._id;
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
-  
-  // Get all chats (user_chat and admin_support)
+
+  // Get all chats (user_chat, admin_support, connect_page)
   const chats = await Chat.find({ participants: userId })
-    .populate('participants', 'fullName profilePic profilePicStorageKey isVerified')
+    .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
+    .populate('connectPageId', 'name profileImage followerCount')
     .sort('-updatedAt')
     .lean();
   
@@ -94,7 +96,9 @@ exports.listChats = async (req, res) => {
     }
     
     // Generate signed URLs for participant profile pictures
+    // Filter out null participants (deleted users that populate couldn't resolve)
     if (chat.participants && Array.isArray(chat.participants)) {
+      chat.participants = chat.participants.filter(p => p != null);
       for (const participant of chat.participants) {
         // Special handling for Taatom Official user
         const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
@@ -127,16 +131,88 @@ exports.listChats = async (req, res) => {
     }
   }
   
+  // Resolve connectPageId for connect_page chats
+  for (const chat of chats) {
+    if (chat.type === 'connect_page') {
+      // If populate already resolved it, connectPageId will be an object with name
+      if (chat.connectPageId && chat.connectPageId.name) {
+        // Already populated — resolve signed URL if needed
+        if (chat.connectPageId.profileImage && !chat.connectPageId.profileImage.startsWith('http')) {
+          try {
+            chat.connectPageId.profileImage = await generateSignedUrl(chat.connectPageId.profileImage, 'PROFILE');
+          } catch { chat.connectPageId.profileImage = ''; }
+        }
+        continue;
+      }
+      // Backfill: look up ConnectPage by chatRoomId
+      try {
+        const page = await ConnectPage.findOne({ chatRoomId: chat._id })
+          .select('name profileImage followerCount')
+          .lean();
+        if (page) {
+          // Resolve signed URL for profileImage
+          if (page.profileImage && !page.profileImage.startsWith('http')) {
+            try {
+              page.profileImage = await generateSignedUrl(page.profileImage, 'PROFILE');
+            } catch { page.profileImage = ''; }
+          }
+          chat.connectPageId = page;
+          // Persist so populate works next time
+          Chat.updateOne({ _id: chat._id }, { connectPageId: page._id }).catch(() => {});
+        }
+      } catch (err) {
+        logger.warn('Failed to backfill connectPageId for chat:', chat._id);
+      }
+    }
+  }
+
+  // Filter out orphaned chats:
+  // 1. connect_page chats whose pages have been deleted/archived
+  // 2. user_chat chats where the other participant doesn't exist (ghost chats)
+  const filteredChats = [];
+  for (const chat of chats) {
+    if (chat.type === 'connect_page') {
+      // If connectPageId wasn't resolved (page deleted), skip this chat
+      if (!chat.connectPageId || !chat.connectPageId.name) {
+        try {
+          const pageExists = await ConnectPage.findOne({
+            $or: [{ _id: chat.connectPageId?._id || chat.connectPageId }, { chatRoomId: chat._id }],
+            status: 'active'
+          }).select('_id').lean();
+          if (!pageExists) {
+            logger.debug('[listChats] Skipping connect_page chat with deleted/archived page:', chat._id);
+            continue;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } else if (chat.type === 'user_chat') {
+      // Skip ghost chats where the other participant wasn't populated (user doesn't exist)
+      const otherParticipant = chat.participants?.find(
+        p => p._id && p._id.toString() !== userId.toString()
+      );
+      if (!otherParticipant || !otherParticipant.fullName) {
+        logger.debug('[listChats] Skipping ghost user_chat with missing participant:', chat._id);
+        continue;
+      }
+    }
+    filteredChats.push(chat);
+  }
+
   // Deduplicate chats: Group by participants (sorted) and keep only the most recent one
   // BUT: Keep admin_support chats separate from user_chat chats
   const chatMap = new Map();
-  chats.forEach(chat => {
+  filteredChats.forEach(chat => {
     // For admin_support, use type + user as key to keep separate
     // For user_chat, use participants as key
     let key;
     if (chat.type === 'admin_support') {
       // Admin support chats: key by type + user
       key = `admin_support_${userId}`;
+    } else if (chat.type === 'connect_page') {
+      // Connect page chats: key by chat ID to keep each page separate
+      key = `connect_page_${chat._id}`;
     } else {
       // User chats: key by sorted participant IDs
       const participantIds = chat.participants
@@ -161,6 +237,10 @@ exports.listChats = async (req, res) => {
   
   logger.debug('Chats found:', chats.length, 'Unique chats:', uniqueChats.length);
   return sendSuccess(res, 200, 'Chats fetched successfully', { chats: uniqueChats });
+  } catch (error) {
+    logger.error('Error in listChats:', error);
+    return sendError(res, 'SRV_6001', 'Failed to fetch chats');
+  }
 };
 
 exports.getChat = async (req, res) => {
@@ -229,7 +309,7 @@ exports.getChat = async (req, res) => {
         type: 'admin_support',
         participants: { $all: [userIdObj, officialUserIdObj] }
       })
-        .populate('participants', 'fullName profilePic profilePicStorageKey')
+        .populate('participants', 'fullName username profilePic profilePicStorageKey')
         .select('+messages')
         .lean();
       
@@ -237,18 +317,21 @@ exports.getChat = async (req, res) => {
         // Try general query (might be user_chat that needs conversion)
         logger.info('🔍 [getChat] Admin support not found, trying general query');
         chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
-          .populate('participants', 'fullName profilePic profilePicStorageKey')
+          .populate('participants', 'fullName username profilePic profilePicStorageKey')
           .select('+messages')
           .lean();
       }
     } else {
-      // Regular user chat
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
-        .populate('participants', 'fullName profilePic profilePicStorageKey')
+      // Regular user chat - exclude connect_page chats
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      })
+        .populate('participants', 'fullName username profilePic profilePicStorageKey')
         .select('+messages')
         .lean();
     }
-    
+
     logger.info('🔍 [getChat] Query result', {
       found: !!chat,
       chatId: chat?._id?.toString(),
@@ -278,7 +361,7 @@ exports.getChat = async (req, res) => {
             refId: null
           });
           chat = await Chat.findById(convo._id)
-            .populate('participants', 'fullName profilePic profilePicStorageKey')
+            .populate('participants', 'fullName username profilePic profilePicStorageKey')
             .lean();
           logger.info('✅ [getChat] Created admin_support chat', {
             chatId: chat._id.toString(),
@@ -290,7 +373,7 @@ exports.getChat = async (req, res) => {
           const newChat = await Chat.create({ participants: [userIdObj, otherUserIdObj], messages: [] });
           // Populate the newly created chat
           chat = await Chat.findById(newChat._id)
-            .populate('participants', 'fullName profilePic profilePicStorageKey')
+            .populate('participants', 'fullName username profilePic profilePicStorageKey')
             .lean();
           logger.info('✅ [getChat] Created user_chat', {
             chatId: chat._id.toString()
@@ -392,11 +475,331 @@ exports.getChat = async (req, res) => {
   }
 };
 
+// Fetch a chat directly by its _id (used for connect_page group chats)
+exports.getChatByRoomId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    let chat = await Chat.findById(chatId)
+      .populate('participants', 'fullName username profilePic profilePicStorageKey')
+      .populate('connectPageId', 'name profileImage followerCount')
+      .select('+messages')
+      .lean();
+
+    if (!chat) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+    }
+
+    // Filter out null participants (e.g. admin-created pages with SuperAdmin userId)
+    chat.participants = (chat.participants || []).filter(p => p != null);
+
+    // Verify the requesting user is a participant (connect_page chats are open to all)
+    const isParticipant = chat.participants.some(
+      (p) => (p._id || p).toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      if (chat.type === 'connect_page') {
+        // Auto-join: add user as participant for connect_page group chats
+        await Chat.findByIdAndUpdate(chatId, { $addToSet: { participants: userId } });
+        const joiningUser = await mongoose.model('User').findById(userId).select('fullName username profilePic profilePicStorageKey').lean();
+        if (joiningUser) chat.participants.push(joiningUser);
+      } else {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+      }
+    }
+
+    // Resolve signed URLs for participant profile pictures
+    if (chat.participants && Array.isArray(chat.participants)) {
+      const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+      for (const participant of chat.participants) {
+        if (participant._id && participant._id.toString() === officialId) {
+          participant.isVerified = true;
+          participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
+          participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
+        } else if (participant._id && participant.profilePicStorageKey) {
+          try {
+            participant.profilePic = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
+          } catch (error) {
+            logger.warn('Failed to generate profile pic URL in getChatByRoomId:', { userId: participant._id, error: error.message });
+          }
+        }
+      }
+    }
+
+    // Resolve connectPageId profile image signed URL (only if it's an S3 key, not already a URL)
+    if (chat.connectPageId && chat.connectPageId.profileImage && !chat.connectPageId.profileImage.startsWith('http')) {
+      try {
+        const signedUrl = await generateSignedUrl(chat.connectPageId.profileImage, 'DEFAULT');
+        if (signedUrl) {
+          chat.connectPageId.profileImage = signedUrl;
+        }
+      } catch (err) {
+        logger.warn('Failed to resolve connect page profile image:', err.message);
+      }
+    }
+
+    // Build participants map for sender info in group chat messages
+    const participantsMap = {};
+    const isGroupChat = chat.type === 'connect_page';
+    if (isGroupChat && chat.participants) {
+      for (const p of chat.participants) {
+        const pId = (p._id || p).toString();
+        participantsMap[pId] = { fullName: p.fullName || '', profilePic: p.profilePic || '' };
+      }
+    }
+
+    // Format messages
+    const rawMessages = chat.messages || [];
+    chat.messages = rawMessages.map((msg) => {
+      const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
+      const formatted = {
+        _id: msg._id ? msg._id.toString() : null,
+        sender: senderId,
+        text: msg.text || '',
+        timestamp: msg.timestamp || new Date(),
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+      };
+      // Include sender info and seenBy for group chats
+      if (isGroupChat) {
+        const senderInfo = participantsMap[senderId] || {};
+        formatted.senderName = senderInfo.fullName || '';
+        formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
+      }
+      return formatted;
+    });
+
+    logger.info('✅ [getChatByRoomId] Returning chat', { chatId: chat._id.toString(), type: chat.type, messageCount: chat.messages.length });
+    return sendSuccess(res, 200, 'Chat fetched successfully', { chat });
+  } catch (error) {
+    logger.error('Error in getChatByRoomId:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get chat');
+  }
+};
+
+// Fetch messages for a chat by its _id (used for connect_page group chats)
+exports.getMessagesByRoomId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId)
+      .select('messages participants type')
+      .populate('participants', 'fullName username profilePic profilePicStorageKey')
+      .lean();
+
+    if (!chat) {
+      return sendSuccess(res, 200, 'Messages fetched successfully', { messages: [] });
+    }
+
+    // Verify the requesting user is a participant
+    const isParticipant = chat.participants.some(
+      (p) => (p._id || p).toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'You are not a participant of this chat');
+    }
+
+    // Build participants map for sender info lookup (group chats)
+    const participantsMap = {};
+    if (chat.type === 'connect_page' && chat.participants) {
+      for (const p of chat.participants) {
+        const pId = (p._id || p).toString();
+        let profilePic = p.profilePic || null;
+        if (!profilePic && p.profilePicStorageKey) {
+          try {
+            profilePic = await generateSignedUrl(p.profilePicStorageKey, 'PROFILE');
+          } catch (err) {
+            logger.warn('Failed to generate profile pic URL in getMessagesByRoomId:', { userId: pId, error: err.message });
+          }
+        }
+        participantsMap[pId] = { fullName: p.fullName || '', profilePic: profilePic || '' };
+      }
+    }
+
+    const rawMessages = chat.messages || [];
+    const isGroupChat = chat.type === 'connect_page';
+    const messages = rawMessages.map((msg) => {
+      const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
+      const formatted = {
+        _id: msg._id ? msg._id.toString() : null,
+        sender: senderId,
+        text: msg.text || '',
+        attachments: msg.attachments || [],
+        timestamp: msg.timestamp || new Date(),
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+      };
+      // Include sender info and seenBy for group chats
+      if (isGroupChat) {
+        const senderInfo = participantsMap[senderId] || {};
+        formatted.senderName = senderInfo.fullName || '';
+        formatted.senderProfilePic = senderInfo.profilePic || '';
+        formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
+      }
+      return formatted;
+    });
+
+    logger.info('✅ [getMessagesByRoomId] Returning messages', { chatId, messageCount: messages.length });
+    return sendSuccess(res, 200, 'Messages fetched successfully', { messages });
+  } catch (error) {
+    logger.error('Error in getMessagesByRoomId:', error);
+    return sendError(res, 'SRV_6001', 'Failed to get messages');
+  }
+};
+
+/**
+ * Send a message to a chat room (for connect_page group chats).
+ * POST /chat/room/:chatId/messages  { text: string }
+ */
+exports.sendMessageToRoom = async (req, res) => {
+  const userId = req.user._id;
+  const { chatId } = req.params;
+  const { text, attachments } = req.body;
+
+  try {
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+    if (!text && (!attachments || attachments.length === 0)) {
+      return sendError(res, 'VAL_2001', 'Text or attachments required');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+    }
+
+    // Verify user is a participant
+    const participantIds = chat.participants.map(p => p.toString());
+    if (!participantIds.includes(userId.toString())) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    // Add message
+    const message = { sender: userId, text: text || '', timestamp: new Date() };
+    if (attachments && attachments.length > 0) {
+      message.attachments = attachments;
+    }
+    chat.messages.push(message);
+    await chat.save();
+
+    // Get the saved message with its _id
+    const savedChat = await Chat.findById(chatId);
+    let savedMessage = savedChat.messages[savedChat.messages.length - 1];
+
+    if (!savedMessage || !savedMessage._id) {
+      logger.warn('[sendMessageToRoom] Message _id not found after save, creating fallback');
+      savedMessage = { ...message, _id: new mongoose.Types.ObjectId() };
+    }
+
+    const chatIdStr = chat._id.toString();
+
+    // Fetch sender info for group chat message display
+    let senderName = '';
+    let senderProfilePic = '';
+    try {
+      const senderUser = await User.findById(userId).select('fullName profilePic profilePicStorageKey').lean();
+      if (senderUser) {
+        senderName = senderUser.fullName || '';
+        senderProfilePic = senderUser.profilePic || '';
+        if (!senderProfilePic && senderUser.profilePicStorageKey) {
+          senderProfilePic = await generateSignedUrl(senderUser.profilePicStorageKey, 'PROFILE') || '';
+        }
+      }
+    } catch (err) {
+      logger.warn('[sendMessageToRoom] Failed to fetch sender info:', err.message);
+    }
+
+    const messageToEmit = {
+      _id: savedMessage._id.toString(),
+      sender: savedMessage.sender.toString(),
+      text: savedMessage.text || '',
+      attachments: savedMessage.attachments || [],
+      timestamp: savedMessage.timestamp,
+      seen: savedMessage.seen || false,
+      senderName,
+      senderProfilePic,
+      seenBy: [],
+    };
+
+    // Emit socket events to ALL participants (group chat)
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        for (const participantId of participantIds) {
+          if (participantId === userId.toString()) {
+            // Sender gets message:sent
+            nsp.to(`user:${participantId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+          } else {
+            // Other participants get message:new
+            nsp.to(`user:${participantId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+          }
+          const roomLastMsg = messageToEmit.text || (messageToEmit.attachments.length > 0 ? `📎 ${messageToEmit.attachments[0].type === 'image' ? 'Photo' : messageToEmit.attachments[0].type === 'video' ? 'Video' : 'Attachment'}` : '');
+          nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: roomLastMsg, timestamp: messageToEmit.timestamp });
+        }
+        logger.info('✅ [sendMessageToRoom] Socket events emitted to all participants', { chatId: chatIdStr, participantCount: participantIds.length });
+      }
+    } catch (socketError) {
+      logger.error('[sendMessageToRoom] Socket error:', socketError);
+    }
+
+    // Push notifications to other participants
+    try {
+      const otherParticipantIds = participantIds.filter(p => p !== userId.toString());
+      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken').lean();
+
+      // Get page name for notification title
+      let pageName = 'Group Chat';
+      if (chat.connectPageId) {
+        const page = await ConnectPage.findById(chat.connectPageId).select('name').lean();
+        if (page) pageName = page.name;
+      }
+
+      for (const recipient of recipients) {
+        if (recipient.expoPushToken) {
+          try {
+            await fetch('https://exp.host/--/api/v2/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: recipient.expoPushToken,
+                sound: 'default',
+                title: pageName,
+                body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
+                data: { chatId: chatIdStr, type: 'connect_page' },
+              }),
+            });
+          } catch (pushErr) {
+            logger.error('[sendMessageToRoom] Push notification failed for', recipient._id, pushErr);
+          }
+        }
+      }
+    } catch (pushError) {
+      logger.error('[sendMessageToRoom] Push notifications error:', pushError);
+    }
+
+    return sendSuccess(res, 200, 'Message sent successfully', { message: savedMessage });
+  } catch (error) {
+    logger.error('Error in sendMessageToRoom:', error);
+    return sendError(res, 'SRV_6001', 'Failed to send message');
+  }
+};
+
 exports.getMessages = async (req, res) => {
   try {
     const userId = req.user._id;
     const { otherUserId } = req.params;
-    
+
     const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
     logger.info('🔍 [getMessages] Request received', {
       userId: userId.toString(),
@@ -465,12 +868,15 @@ exports.getMessages = async (req, res) => {
           .lean();
       }
     } else {
-      // Regular user chat
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } })
+      // Regular user chat - exclude connect_page chats
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      })
         .select('messages type participants')
         .lean();
     }
-    
+
     logger.info('🔍 [getMessages] Query result', {
       found: !!chat,
       chatId: chat?._id?.toString(),
@@ -506,14 +912,15 @@ exports.getMessages = async (req, res) => {
         _id: msg._id ? msg._id.toString() : null,
         sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
         text: msg.text || '',
+        attachments: msg.attachments || [],
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false
       };
-      
+
       if (index < 3) {
         logger.debug(`📨 [getMessages] Message ${index}:`, formatted);
       }
-      
+
       return formatted;
     });
     
@@ -534,29 +941,30 @@ exports.getMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
-  const { text } = req.body;
-  
+  const { text, attachments } = req.body;
+
   try {
     const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
     const userIdStr = userId.toString();
     const otherUserIdStr = otherUserId ? otherUserId.toString() : null;
-    
+
     logger.info('📤 [sendMessage] Request received', {
       userId: userIdStr,
       otherUserId: otherUserId,
       textLength: text?.length,
+      attachmentCount: attachments?.length || 0,
       officialId,
       userRole: req.user.role,
       isSuperAdmin: !!req.superAdmin
     });
-    
+
     if (!otherUserId || !mongoose.Types.ObjectId.isValid(otherUserId)) {
       logger.warn('❌ [sendMessage] Invalid otherUserId:', otherUserId);
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
-    if (!text) {
-      logger.warn('❌ [sendMessage] Text required');
-      return sendError(res, 'VAL_2001', 'Text required');
+    if (!text && (!attachments || attachments.length === 0)) {
+      logger.warn('❌ [sendMessage] Text or attachments required');
+      return sendError(res, 'VAL_2001', 'Text or attachments required');
     }
     
     // Use constant from imports (handles fallback logic)
@@ -645,8 +1053,11 @@ exports.sendMessage = async (req, res) => {
         }
       }
     } else {
-      // Regular user chat - find by participants only
-      chat = await Chat.findOne({ participants: { $all: [userIdObj, otherUserIdObj] } });
+      // Regular user chat - find by participants AND type (exclude connect_page chats)
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      });
     }
     
     logger.info('🔍 [sendMessage] Query result', {
@@ -734,11 +1145,15 @@ exports.sendMessage = async (req, res) => {
     
     logger.info('📝 [sendMessage] Creating message', {
       sender: userId.toString(),
-      textLength: text.length,
+      textLength: (text || '').length,
+      attachmentCount: attachments?.length || 0,
       chatId: chat._id.toString()
     });
-    
-    const message = { sender: userId, text, timestamp: new Date() };
+
+    const message = { sender: userId, text: text || '', timestamp: new Date() };
+    if (attachments && attachments.length > 0) {
+      message.attachments = attachments;
+    }
     chat.messages.push(message);
     
     // Update conversation status for admin_support chats
@@ -809,7 +1224,8 @@ exports.sendMessage = async (req, res) => {
         const messageToEmit = {
           _id: savedMessage._id.toString(),
           sender: savedMessage.sender.toString(),
-          text: savedMessage.text,
+          text: savedMessage.text || '',
+          attachments: savedMessage.attachments || [],
           timestamp: savedMessage.timestamp,
           seen: savedMessage.seen || false
         };
@@ -833,14 +1249,15 @@ exports.sendMessage = async (req, res) => {
         nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
         
         // Emit chat list update to both users
+        const lastMessagePreview = messageToEmit.text || (messageToEmit.attachments.length > 0 ? `📎 ${messageToEmit.attachments[0].type === 'image' ? 'Photo' : messageToEmit.attachments[0].type === 'video' ? 'Video' : 'Attachment'}` : '');
         logger.info('📡 [sendMessage] Emitting chat:update to both users', {
           recipient: otherUserId.toString(),
           sender: userId.toString(),
           chatId: chatIdStr,
-          lastMessage: messageToEmit.text.substring(0, 50)
+          lastMessage: lastMessagePreview.substring(0, 50)
         });
-        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
-        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: messageToEmit.text, timestamp: messageToEmit.timestamp });
+        nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: lastMessagePreview, timestamp: messageToEmit.timestamp });
+        nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: lastMessagePreview, timestamp: messageToEmit.timestamp });
         
         // For admin_support conversations, also emit to admin rooms
         if (chat.type === 'admin_support') {
@@ -856,9 +1273,9 @@ exports.sendMessage = async (req, res) => {
             userId: userId.toString(),
             otherUserId: otherUserId.toString()
           });
-          nsp.to('admin_support').emit('admin_support:chat:update', { 
-            chatId: chatIdStr, 
-            lastMessage: messageToEmit.text, 
+          nsp.to('admin_support').emit('admin_support:chat:update', {
+            chatId: chatIdStr,
+            lastMessage: lastMessagePreview,
             timestamp: messageToEmit.timestamp,
             userId: userId.toString()
           });
@@ -892,13 +1309,13 @@ exports.sendMessage = async (req, res) => {
             to: recipient.expoPushToken,
             sound: 'default',
             title: 'New Message',
-            body: `${req.user.fullName || 'Someone'}: ${text}`,
+            body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
             data: { chatWith: userId }
           })
         });
         logger.debug('Push notification sent successfully');
       } else {
-        logger.debug('Push notification skipped:', { 
+        logger.debug('Push notification skipped:', {
           hasRecipient: !!recipient, 
           hasToken: !!recipient?.expoPushToken, 
           hasFetch: !!fetch,
@@ -926,17 +1343,40 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
     return;
   }
   // Only allow if user is a participant
-  if (!chat.participants.map(id => id.toString()).includes(userId.toString())) {
+  const participantIds = chat.participants.map(id => id.toString());
+  if (!participantIds.includes(userId.toString())) {
     logger.debug('[markMessageSeen] user not a participant');
     return;
   }
   const msg = chat.messages.id(messageId);
-  if (msg && !msg.seen) {
+  if (!msg) {
+    logger.debug('[markMessageSeen] message not found');
+    return;
+  }
+
+  // For group chats (connect_page): use seenBy array
+  if (chat.type === 'connect_page') {
+    if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
+    const alreadySeen = msg.seenBy.some(id => id.toString() === userId.toString());
+    if (!alreadySeen) {
+      msg.seenBy.push(userId);
+      // Mark boolean seen as true when ALL other participants have seen it
+      const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
+      const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
+      if (allSeen) msg.seen = true;
+      await chat.save();
+      logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
+    } else {
+      logger.debug('[markMessageSeen] user already in seenBy');
+    }
+    return;
+  }
+
+  // For 1:1 chats: use boolean seen (existing behavior)
+  if (!msg.seen) {
     msg.seen = true;
     await chat.save();
     logger.debug('[markMessageSeen] message marked as seen:', { messageId });
-  } else if (!msg) {
-    logger.debug('[markMessageSeen] message not found');
   } else {
     logger.debug('[markMessageSeen] message already seen');
   }
@@ -946,8 +1386,8 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
 exports.markAllMessagesSeen = async (req, res) => {
   const userId = req.user._id;
   const { otherUserId } = req.params;
-  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
-  if (!chat) return sendError(res, 'RES_3001', 'Chat not found');
+  const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
+  if (!chat) return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
   const seenMessageIds = [];
   chat.messages.forEach(msg => {
     if (msg.sender.toString() === otherUserId && !msg.seen) {
@@ -968,6 +1408,94 @@ exports.markAllMessagesSeen = async (req, res) => {
   return sendSuccess(res, 200, 'Messages marked as seen');
 };
 
+/**
+ * Mark all messages as seen in a group/room chat
+ * POST /api/v1/chat/room/:chatId/mark-all-seen
+ */
+exports.markAllMessagesSeenInRoom = async (req, res) => {
+  const userId = req.user._id;
+  const { chatId } = req.params;
+
+  try {
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
+    }
+
+    // Verify user is a participant
+    const participantIds = chat.participants.map(p => p.toString());
+    if (!participantIds.includes(userId.toString())) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    const seenMessageIds = [];
+    const userIdStr = userId.toString();
+
+    chat.messages.forEach(msg => {
+      // Skip own messages
+      if (msg.sender.toString() === userIdStr) return;
+
+      // Initialize seenBy if needed
+      if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
+
+      // Add user to seenBy if not already there
+      const alreadySeen = msg.seenBy.some(id => id.toString() === userIdStr);
+      if (!alreadySeen) {
+        msg.seenBy.push(userId);
+        seenMessageIds.push(msg._id.toString());
+
+        // Check if ALL other participants have now seen it
+        const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
+        const allSeen = otherParticipants.every(pId =>
+          msg.seenBy.some(sId => sId.toString() === pId)
+        );
+        if (allSeen) msg.seen = true;
+      }
+    });
+
+    if (seenMessageIds.length > 0) {
+      await chat.save();
+
+      // Notify all other participants via socket so their read receipts update
+      try {
+        const io = getSocketInstance();
+        if (io && io.of('/app')) {
+          const nsp = io.of('/app');
+          const chatIdStr = chat._id.toString();
+
+          for (const messageId of seenMessageIds) {
+            // Build current seenBy for this message
+            const msg = chat.messages.find(m => m._id.toString() === messageId);
+            const seenBy = msg ? (msg.seenBy || []).map(id => id.toString()) : [userIdStr];
+
+            for (const pId of participantIds) {
+              if (pId !== userIdStr) {
+                nsp.to(`user:${pId}`).emit('seen', {
+                  from: userIdStr,
+                  messageId,
+                  chatId: chatIdStr,
+                  seenBy
+                });
+              }
+            }
+          }
+        }
+      } catch (socketError) {
+        logger.error('[markAllMessagesSeenInRoom] Socket error:', socketError);
+      }
+    }
+
+    return sendSuccess(res, 200, 'Messages marked as seen', { markedCount: seenMessageIds.length });
+  } catch (error) {
+    logger.error('Error in markAllMessagesSeenInRoom:', error);
+    return sendError(res, 'SRV_6001', 'Failed to mark messages as seen');
+  }
+};
+
 // Clear all messages in a chat
 exports.clearChat = async (req, res) => {
   try {
@@ -978,11 +1506,11 @@ exports.clearChat = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
       return sendError(res, 'RES_3001', 'Chat not found');
     }
-    
+
     // Clear all messages
     chat.messages = [];
     await chat.save();
@@ -1006,6 +1534,43 @@ exports.clearChat = async (req, res) => {
   }
 };
 
+/**
+ * Delete a chat entirely by its ID.
+ * DELETE /chat/room/:chatId
+ * Only participants can delete. Removes the chat document from the database.
+ */
+exports.deleteChatById = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatId } = req.params;
+
+    if (!chatId || !mongoose.Types.ObjectId.isValid(chatId)) {
+      return sendError(res, 'VAL_2001', 'Invalid chat ID');
+    }
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      return sendError(res, 'RES_3001', 'Chat not found');
+    }
+
+    // Verify user is a participant
+    const isParticipant = chat.participants.some(
+      p => p.toString() === userId.toString()
+    );
+    if (!isParticipant) {
+      return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+    }
+
+    await Chat.findByIdAndDelete(chatId);
+    logger.info('[deleteChatById] Chat deleted:', chatId, 'by user:', userId.toString());
+
+    return sendSuccess(res, 200, 'Chat deleted successfully');
+  } catch (error) {
+    logger.error('Error deleting chat:', error);
+    return sendError(res, 'SRV_6001', 'Failed to delete chat');
+  }
+};
+
 // Mute or unmute chat notifications
 exports.toggleMuteChat = async (req, res) => {
   try {
@@ -1016,11 +1581,11 @@ exports.toggleMuteChat = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
       return sendError(res, 'RES_3001', 'Chat not found');
     }
-    
+
     const user = await User.findById(userId);
     const muteIndex = user.mutedChats.findIndex(
       m => m.chatId.toString() === chat._id.toString()
@@ -1053,19 +1618,243 @@ exports.getMuteStatus = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user');
     }
     
-    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] } });
+    const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
     if (!chat) {
-      return sendError(res, 'RES_3001', 'Chat not found');
+      // No 1:1 chat exists yet — default to not muted
+      return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: false });
     }
-    
+
     const user = await User.findById(userId);
     const isMuted = user.mutedChats.some(
       m => m.chatId.toString() === chat._id.toString()
     );
-    
+
     return sendSuccess(res, 200, 'Mute status fetched successfully', { muted: isMuted });
   } catch (error) {
     logger.error('Error getting mute status:', error);
     return sendError(res, 'SRV_6001', 'Failed to get mute status');
+  }
+};
+
+/**
+ * Upload media/files for chat attachments
+ * POST /api/v1/chat/upload
+ * Accepts multipart form data with up to 5 files
+ * Returns array of attachment metadata objects ready to include in a message
+ */
+exports.uploadChatMedia = async (req, res) => {
+  const userId = req.user._id;
+
+  try {
+    if (!req.files || req.files.length === 0) {
+      return sendError(res, 'VAL_2001', 'No files provided');
+    }
+
+    logger.info('[uploadChatMedia] Uploading files', {
+      userId: userId.toString(),
+      fileCount: req.files.length
+    });
+
+    const attachments = [];
+
+    for (const file of req.files) {
+      const extension = file.originalname.split('.').pop() || 'bin';
+      const storageKey = buildMediaKey({
+        type: 'chat',
+        userId: userId.toString(),
+        filename: file.originalname,
+        extension
+      });
+
+      // Upload to storage
+      const { key } = await uploadObject(file.buffer, storageKey, file.mimetype);
+
+      // Generate a download URL (7 day expiry for chat media)
+      const url = await getDownloadUrl(key, 604800);
+
+      // Determine attachment type from mimetype
+      let attachmentType = 'file';
+      if (file.mimetype.startsWith('image/')) {
+        attachmentType = 'image';
+      } else if (file.mimetype.startsWith('video/')) {
+        attachmentType = 'video';
+      }
+
+      const attachment = {
+        type: attachmentType,
+        url,
+        storageKey: key,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype
+      };
+
+      attachments.push(attachment);
+
+      logger.info('[uploadChatMedia] File uploaded', {
+        type: attachmentType,
+        fileName: file.originalname,
+        size: file.size,
+        key
+      });
+    }
+
+    return sendSuccess(res, 200, 'Files uploaded successfully', { attachments });
+  } catch (error) {
+    logger.error('Error in uploadChatMedia:', error);
+    return sendError(res, 'SRV_6001', 'Failed to upload files');
+  }
+};
+
+/**
+ * Share/forward a post to a chat
+ * POST /api/v1/chat/share-post
+ * Body: { postId, otherUserId (for 1:1) OR chatId (for group) }
+ */
+exports.sharePost = async (req, res) => {
+  const userId = req.user._id;
+  const { postId, otherUserId, chatId } = req.body;
+
+  try {
+    if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+      return sendError(res, 'VAL_2001', 'Invalid post ID');
+    }
+
+    if (!otherUserId && !chatId) {
+      return sendError(res, 'VAL_2001', 'Must provide either otherUserId or chatId');
+    }
+
+    // Fetch the post
+    const post = await Post.findById(postId)
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .lean();
+
+    if (!post) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Post not found');
+    }
+
+    // Build post preview for attachment
+    let authorProfilePic = post.user?.profilePic || '';
+    if (!authorProfilePic && post.user?.profilePicStorageKey) {
+      authorProfilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || '';
+    }
+
+    // Get first image URL from post media
+    let postImageUrl = '';
+    if (post.media && post.media.length > 0) {
+      const firstMedia = post.media[0];
+      if (firstMedia.storageKey) {
+        postImageUrl = await generateSignedUrl(firstMedia.storageKey, 'IMAGE') || '';
+      } else if (firstMedia.url) {
+        postImageUrl = firstMedia.url;
+      }
+    }
+
+    const attachment = {
+      type: 'post',
+      postId: post._id,
+      postPreview: {
+        caption: (post.caption || '').substring(0, 150),
+        imageUrl: postImageUrl,
+        authorName: post.user?.fullName || 'Unknown',
+        authorProfilePic
+      }
+    };
+
+    const message = {
+      sender: userId,
+      text: '',
+      attachments: [attachment],
+      timestamp: new Date()
+    };
+
+    let chat;
+
+    if (chatId) {
+      // Group chat
+      if (!mongoose.Types.ObjectId.isValid(chatId)) {
+        return sendError(res, 'VAL_2001', 'Invalid chat ID');
+      }
+      chat = await Chat.findById(chatId);
+      if (!chat) {
+        return sendError(res, 'RESOURCE_NOT_FOUND', 'Chat not found');
+      }
+      const participantIds = chat.participants.map(p => p.toString());
+      if (!participantIds.includes(userId.toString())) {
+        return sendError(res, 'AUTH_1006', 'You are not a participant of this chat');
+      }
+    } else {
+      // 1:1 chat
+      if (!mongoose.Types.ObjectId.isValid(otherUserId)) {
+        return sendError(res, 'VAL_2001', 'Invalid user ID');
+      }
+
+      const userIdObj = new mongoose.Types.ObjectId(userId);
+      const otherUserIdObj = new mongoose.Types.ObjectId(otherUserId);
+
+      chat = await Chat.findOne({
+        participants: { $all: [userIdObj, otherUserIdObj] },
+        type: { $ne: 'connect_page' }
+      });
+
+      if (!chat) {
+        chat = await Chat.create({
+          type: 'user_chat',
+          participants: [userIdObj, otherUserIdObj],
+          messages: []
+        });
+      }
+    }
+
+    chat.messages.push(message);
+    await chat.save();
+
+    // Get saved message with _id
+    const savedChat = await Chat.findById(chat._id);
+    const savedMessage = savedChat.messages[savedChat.messages.length - 1];
+
+    const chatIdStr = chat._id.toString();
+
+    // Emit socket events
+    try {
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        const messageToEmit = {
+          _id: savedMessage._id.toString(),
+          sender: savedMessage.sender.toString(),
+          text: savedMessage.text || '',
+          attachments: savedMessage.attachments || [],
+          timestamp: savedMessage.timestamp,
+          seen: savedMessage.seen || false
+        };
+
+        if (chatId) {
+          // Group chat - emit to all participants
+          const participantIds = chat.participants.map(p => p.toString());
+          for (const participantId of participantIds) {
+            if (participantId === userId.toString()) {
+              nsp.to(`user:${participantId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+            } else {
+              nsp.to(`user:${participantId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+            }
+            nsp.to(`user:${participantId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+          }
+        } else {
+          // 1:1 chat
+          nsp.to(`user:${otherUserId}`).emit('message:new', { chatId: chatIdStr, message: messageToEmit });
+          nsp.to(`user:${userId}`).emit('message:sent', { chatId: chatIdStr, message: messageToEmit });
+          nsp.to(`user:${otherUserId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+          nsp.to(`user:${userId}`).emit('chat:update', { chatId: chatIdStr, lastMessage: '📷 Shared a post', timestamp: messageToEmit.timestamp });
+        }
+      }
+    } catch (socketError) {
+      logger.error('[sharePost] Socket error:', socketError);
+    }
+
+    return sendSuccess(res, 201, 'Post shared successfully', { message: savedMessage });
+  } catch (error) {
+    logger.error('Error in sharePost:', error);
+    return sendError(res, 'SRV_6001', 'Failed to share post');
   }
 };

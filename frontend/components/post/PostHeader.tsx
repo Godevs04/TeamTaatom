@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { PostType } from '../../types/post';
 import PostLocation from './PostLocation';
+import { imageCacheManager } from '../../utils/imageCacheManager';
+
+const DEFAULT_AVATAR = require('../../assets/avatars/male_avatar.png');
 
 interface PostHeaderProps {
   post: PostType;
@@ -18,11 +21,20 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
   const router = useRouter();
 
   // Handle case where user might be undefined (from fallback user object)
-  const user = post.user || { 
-    _id: 'unknown', 
-    fullName: 'Unknown User', 
-    profilePic: 'https://via.placeholder.com/40' 
+  const user = post.user || {
+    _id: 'unknown',
+    fullName: 'Unknown User',
+    profilePic: ''
   };
+
+  const profileUrl = user.profilePic || '';
+  const cachedProfilePic = profileUrl ? imageCacheManager.getCachedPathSync(profileUrl) : '';
+  const [imageFailed, setImageFailed] = useState(false);
+
+  // Reset failed state when the post changes (handles FlashList recycling)
+  useEffect(() => { setImageFailed(false); }, [post._id, profileUrl]);
+
+  const showPlaceholder = !cachedProfilePic || imageFailed;
 
   return (
     <View style={styles.header}>
@@ -35,12 +47,19 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
         }}
         disabled={!user._id || user._id === 'unknown'}
       >
-        <Image
-          source={{
-            uri: user.profilePic || 'https://via.placeholder.com/40',
-          }}
-          style={styles.profilePic}
-        />
+        {showPlaceholder ? (
+          <Image
+            source={DEFAULT_AVATAR}
+            style={styles.profilePic}
+          />
+        ) : (
+          <Image
+            source={{ uri: cachedProfilePic }}
+            style={styles.profilePic}
+            onLoad={() => imageCacheManager.cacheAfterDisplay(profileUrl)}
+            onError={() => setImageFailed(true)}
+          />
+        )}
         <View style={styles.userDetails}>
           <Text style={[styles.username, { color: theme.colors.text }]}>
             {user.fullName || 'Unknown User'}
@@ -96,12 +115,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profilePic: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 12,
     borderWidth: 1,
     borderColor: '#e1e5e9',
+  },
+  profilePicPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   username: {
     fontSize: 14,

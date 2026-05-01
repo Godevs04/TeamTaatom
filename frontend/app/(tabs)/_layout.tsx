@@ -11,6 +11,14 @@ const isWeb = Platform.OS === 'web';
 const isTablet = screenWidth >= 768;
 const isIOS = Platform.OS === 'ios';
 
+const TAB_NAMES = new Set(['home', 'shorts', 'post', 'locale', 'profile']);
+const isTabPath = (p: string | null) => {
+  if (!p) return false;
+  const segment = p.split('/').pop() || '';
+  return TAB_NAMES.has(segment);
+};
+const isShorts = (p: string | null) => p ? p.endsWith('/shorts') : false;
+
 export default function TabsLayout() {
   const { theme } = useTheme();
   const pathname = usePathname();
@@ -41,20 +49,15 @@ export default function TabsLayout() {
 
     previousPathnameRef.current = pathname;
 
-    // Only handle tab navigation within tabs layout (not full route changes)
-    // Check if both paths are within tabs - be more specific to avoid false matches
-    const isCurrentTab = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname === '/(tabs)/post' || pathname === '/(tabs)/locale' || pathname === '/(tabs)/profile' ||
-                        pathname?.endsWith('/home') || pathname?.endsWith('/shorts') || pathname?.endsWith('/post') || pathname?.endsWith('/locale') || pathname?.endsWith('/profile');
-    const wasTab = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath === '/(tabs)/post' || previousPath === '/(tabs)/locale' || previousPath === '/(tabs)/profile' ||
-                   previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts') || previousPath?.endsWith('/post') || previousPath?.endsWith('/locale') || previousPath?.endsWith('/profile');
-    
+    // Only handle tab navigation within tabs layout
+    const isCurrentTab = isTabPath(pathname);
+    const wasTab = isTabPath(previousPath);
+
     // Only handle tab-to-tab navigation here
     if (isCurrentTab && wasTab) {
-      const isHomeOrShorts = pathname === '/(tabs)/home' || pathname === '/(tabs)/shorts' || pathname?.endsWith('/home') || pathname?.endsWith('/shorts');
-      const wasHomeOrShorts = previousPath === '/(tabs)/home' || previousPath === '/(tabs)/shorts' || previousPath?.endsWith('/home') || previousPath?.endsWith('/shorts');
-      
-      // If leaving home or shorts, stop audio
-      if (wasHomeOrShorts && !isHomeOrShorts) {
+      // If leaving shorts, stop audio
+      const wasShorts = isShorts(previousPath);
+      if (wasShorts) {
         isStoppingAudioRef.current = true;
         logger.debug('[TabsLayout] Stopping all audio - navigating away from home/shorts');
         audioManager.stopAll()
@@ -98,17 +101,19 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        lazy: true,
         tabBarStyle: tabBarStyle as any,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
-          fontSize: isTablet ? (isWeb ? 14 : 13) : (isWeb ? 12 : 11),
+          fontSize: isTablet ? (isWeb ? 11 : 10) : (isWeb ? 10 : 10),
           fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
           fontWeight: '600',
-          letterSpacing: isIOS ? 0.2 : 0,
+          letterSpacing: 0.1,
+          marginTop: -2,
         },
         tabBarIconStyle: {
-          marginBottom: isWeb ? 0 : 4,
+          marginBottom: isWeb ? 0 : 2,
         },
       }}
     >
@@ -117,8 +122,8 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarAccessibilityLabel: 'Home tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -127,18 +132,20 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="play-circle" size={size} color={color} />
+          // unmountOnBlur freed video decoders on tab switch; not in expo-router 6 types but supported at runtime by react-navigation
+          unmountOnBlur: true,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={22} color={color} />
           ),
-        }}
+        } as any}
       />
       <Tabs.Screen
         name="post"
         options={{
           title: 'Post',
           tabBarAccessibilityLabel: 'Create post tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'add-circle' : 'add-circle-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -147,8 +154,8 @@ export default function TabsLayout() {
         options={{
           title: 'Locale',
           tabBarAccessibilityLabel: 'Locale tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="location" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'location' : 'location-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -157,8 +164,8 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile tab',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={22} color={color} />
           ),
         }}
       />

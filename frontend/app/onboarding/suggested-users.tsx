@@ -156,12 +156,13 @@ export default function SuggestedUsersOnboarding() {
                   key={user._id}
                   style={[styles.userCard, { backgroundColor: theme.colors.card }]}
                 >
-                  <Image
-                    source={{
-                      uri: user.profilePicture || 'https://via.placeholder.com/60',
-                    }}
-                    style={styles.avatar}
-                  />
+                  {user.profilePicture ? (
+                    <Image source={{ uri: user.profilePicture }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
+                    </View>
+                  )}
                   <View style={styles.userInfo}>
                     <Text style={[styles.username, { color: theme.colors.text }]}>
                       {user.username || 'User'}
@@ -262,9 +263,9 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.xl : 24,
   },
   title: {
-    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 28,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 26,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     letterSpacing: isIOS ? -0.5 : 0,
     ...(isWeb && {
@@ -303,15 +304,6 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
     marginBottom: isTablet ? theme.spacing.sm : 8,
-    ...(isAndroid && {
-      elevation: 2,
-    }),
-    ...(isIOS && {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-    }),
   },
   avatar: {
     width: isTablet ? 80 : 60,
@@ -356,7 +348,6 @@ const styles = StyleSheet.create({
     } as any),
   },
   followButtonAndroid: {
-    elevation: 2,
     overflow: 'hidden',
   },
   followButtonText: {
@@ -398,7 +389,7 @@ const styles = StyleSheet.create({
   },
   continueButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
 });

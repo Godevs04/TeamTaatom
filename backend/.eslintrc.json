@@ -4,7 +4,7 @@
   "parserOptions": { "ecmaVersion": 2022, "sourceType": "script" },
   "ignorePatterns": ["node_modules/", "coverage/", "*.min.js"],
   "rules": {
-    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
     "no-undef": "warn",
     "no-empty": "warn",
     "no-dupe-keys": "warn",

@@ -417,8 +417,8 @@ export default function AboutSettingsScreen() {
             onPress={() => router.push('/support/contact')}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="help-circle-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="help-circle-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Contact Support
               </Text>
             </View>
@@ -430,8 +430,8 @@ export default function AboutSettingsScreen() {
             onPress={() => router.push('/support/help')}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="book-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="book-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Help Center
               </Text>
             </View>
@@ -458,8 +458,8 @@ export default function AboutSettingsScreen() {
             onPress={handleRateApp}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="star-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="star-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Rate Taatom
               </Text>
             </View>
@@ -471,8 +471,8 @@ export default function AboutSettingsScreen() {
             onPress={handleShareApp}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="share-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="share-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Share Taatom
               </Text>
             </View>
@@ -484,8 +484,8 @@ export default function AboutSettingsScreen() {
             onPress={handleCheckForUpdates}
           >
             <View style={styles.settingContent}>
-              <Ionicons name="refresh-outline" size={20} color={theme.colors.primary} />
-              <Text style={[styles.settingLabel, { color: theme.colors.primary }]}>
+              <Ionicons name="refresh-outline" size={20} color={theme.colors.text} />
+              <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
                 Check for Updates
               </Text>
             </View>
@@ -567,14 +567,15 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   section: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderRadius: theme.borderRadius.md,
   },
   sectionTitle: {
-    fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h3.fontSize : 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -591,20 +592,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: isTablet ? theme.spacing.lg : 16,
     borderWidth: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   appIconImage: {
     width: '100%',
     height: '100%',
   },
   appName: {
-    fontSize: isTablet ? theme.typography.h2.fontSize : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? theme.typography.h2.fontSize : 22,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -642,8 +638,8 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginLeft: isTablet ? theme.spacing.md : 12,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

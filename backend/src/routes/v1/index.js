@@ -18,6 +18,8 @@ const reportRoutes = require('../reportRoutes');
 const healthRoutes = require('../healthRoutes');
 const userManagementRoutes = require('../userManagementRoutes');
 const userRoutes = require('../userRoutes');
+const connectRoutes = require('../connectRoutes');
+const geoRoutes = require('../geoRoutes');
 
 const router = express.Router();
 
@@ -43,6 +45,8 @@ router.use('/activity', activityRoutes);
 router.use('/reports', reportRoutes);
 router.use('/users', userManagementRoutes);
 router.use('/user', userRoutes);
+router.use('/connect', connectRoutes);
+router.use('/geo', geoRoutes);
 router.use('/', userManagementRoutes.syncRoute); // For /sync route
 
 module.exports = router;

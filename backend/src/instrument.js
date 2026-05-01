@@ -27,7 +27,7 @@ if (SENTRY_DSN) {
     debug: process.env.SENTRY_DEBUG === 'true' || false,
     
     // Before send hook - ensure errors are properly formatted
-    beforeSend(event, hint) {
+    beforeSend(event, _hint) {
       // Ensure error is properly formatted
       if (event.exception && event.exception.values) {
         event.exception.values.forEach(exception => {

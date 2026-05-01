@@ -45,6 +45,7 @@ import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
+import { SongBar } from '../../components/SongBar';
 import { Song } from '../../services/songs';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
@@ -845,6 +846,14 @@ export default function PostScreen() {
           aspect: [9, 16], // Vertical aspect ratio for shorts
           quality: 0.8,
           exif: true, // Preserve EXIF data including location
+          // PERMANENT FIX FOR PLAYBACK CRASHES: force H.264 + AAC export so the
+          // uploaded file is universally decodable. Without this, iPhone hands
+          // us HEVC (default since iOS 11) which crashes on many older Android
+          // decoders and some lower-end iOS chipsets — that was the dominant
+          // "crashes when I play a short" signature.
+          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
+          videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
       } catch (pickerError: any) {
         logger.debug('Video ImagePicker error:', pickerError);
@@ -858,7 +867,23 @@ export default function PostScreen() {
       
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        
+
+        // Defense in depth: even with VideoExportPreset.MediumQuality, the
+        // gallery may surface pre-existing oversized HEVC/4K files. Reject
+        // anything over 200MB to keep decoder pressure (and upload time)
+        // bounded — a 60s H.264 medium-quality short is well under 50MB, so
+        // this only trips on files that were going to crash playback anyway.
+        const fileSizeBytes = (asset as any).fileSize as number | undefined;
+        if (typeof fileSizeBytes === 'number' && fileSizeBytes > 200 * 1024 * 1024) {
+          const sizeMB = (fileSizeBytes / (1024 * 1024)).toFixed(0);
+          Alert.alert(
+            'Video Too Large',
+            `This video is ${sizeMB}MB. Shorts must be under 200MB so they play smoothly on all devices. Please pick a shorter or lower-resolution video.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         // Check video duration (max 60 minutes = 3600 seconds for upload, but max 60 seconds for shorts)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
         let durationInSeconds: number | null = null;
@@ -867,14 +892,14 @@ export default function PostScreen() {
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
           durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
-          
+
           // Log for debugging
           logger.debug('Video duration check:', {
             rawDuration: asset.duration,
             durationInSeconds: durationInSeconds,
             isMilliseconds: asset.duration > 100
           });
-          
+
           if (durationInSeconds > MAX_VIDEO_DURATION) {
             const minutes = Math.floor(durationInSeconds / 60);
             const seconds = Math.floor(durationInSeconds % 60);
@@ -886,7 +911,7 @@ export default function PostScreen() {
             return;
           }
         }
-        
+
         clearUploadState();
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
@@ -1171,6 +1196,14 @@ export default function PostScreen() {
           aspect: [9, 16], // Vertical aspect ratio for shorts
           quality: 0.8,
           exif: true, // Preserve EXIF data including location
+          // PERMANENT FIX FOR PLAYBACK CRASHES: force H.264 + AAC at capture
+          // time. iPhones record HEVC by default — the resulting file decodes
+          // fine on the original device but crashes expo-av on many Android
+          // devices and lower-end iPads, which is the root cause of the
+          // "shorts page crashes on play" reports.
+          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
+          videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
       } catch (pickerError: any) {
         logger.debug('Camera video ImagePicker error:', pickerError);
@@ -1184,7 +1217,22 @@ export default function PostScreen() {
       
       if (result && !result.canceled && result.assets?.[0]) {
         const asset = result.assets[0];
-        
+
+        // Defense in depth: reject oversized files even if they came through
+        // the camera (e.g. user disabled the export preset, or 4K capture on
+        // future SDK changes). A 60s H.264-medium short is < 50MB; 200MB is
+        // already well into "going to crash playback" territory.
+        const fileSizeBytes = (asset as any).fileSize as number | undefined;
+        if (typeof fileSizeBytes === 'number' && fileSizeBytes > 200 * 1024 * 1024) {
+          const sizeMB = (fileSizeBytes / (1024 * 1024)).toFixed(0);
+          Alert.alert(
+            'Video Too Large',
+            `This video is ${sizeMB}MB. Shorts must be under 200MB so they play smoothly on all devices. Please record a shorter clip.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         // Check video duration (max 60 minutes = 3600 seconds)
         // Note: asset.duration from ImagePicker is typically in seconds, but can be in milliseconds on some platforms
         let durationInSeconds: number | null = null;
@@ -1193,14 +1241,14 @@ export default function PostScreen() {
           // Detect if duration is in milliseconds (if > 100 seconds, it's likely milliseconds for a normal video)
           // For example: 9 seconds = 9000ms, which is > 100, so we convert
           durationInSeconds = asset.duration > 100 ? asset.duration / 1000 : asset.duration;
-          
+
           // Log for debugging
           logger.debug('Video duration check:', {
             rawDuration: asset.duration,
             durationInSeconds: durationInSeconds,
             isMilliseconds: asset.duration > 100
           });
-          
+
           if (durationInSeconds > MAX_VIDEO_DURATION) {
             const minutes = Math.floor(durationInSeconds / 60);
             const seconds = Math.floor(durationInSeconds % 60);
@@ -1212,7 +1260,7 @@ export default function PostScreen() {
             return;
           }
         }
-        
+
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
           setSelectedVideo(asset.uri);
@@ -2394,28 +2442,28 @@ export default function PostScreen() {
           />
         </View>
         {/* Post Type Selector */}
-        <View style={{ 
-          flexDirection: 'row', 
-          backgroundColor: theme.colors.surface, 
-          borderRadius: theme.borderRadius.xl, 
-          padding: 6, 
+        <View style={{
+          flexDirection: 'row',
+          backgroundColor: theme.colors.surface,
+          borderRadius: theme.borderRadius.xl,
+          padding: 4,
           marginBottom: theme.spacing.md,
           ...theme.shadows.small,
           borderWidth: 1,
-          borderColor: theme.colors.border + '40'
+          borderColor: theme.colors.border
         }}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              { 
-                flex: 1, 
-                paddingVertical: theme.spacing.md, 
-                alignItems: 'center', 
+              {
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: theme.borderRadius.lg,
                 flexDirection: 'row',
                 gap: 8
               },
-              postType === 'photo' && { 
+              postType === 'photo' && {
                 backgroundColor: theme.colors.primary,
                 ...theme.shadows.small
               }
@@ -2423,30 +2471,30 @@ export default function PostScreen() {
             onPress={() => setPostType('photo')}
             activeOpacity={0.7}
           >
-            <Ionicons 
-              name={postType === 'photo' ? "image" : "image-outline"} 
-              size={20} 
-              color={postType === 'photo' ? 'white' : theme.colors.textSecondary} 
+            <Ionicons
+              name={postType === 'photo' ? "image" : "image-outline"}
+              size={20}
+              color={postType === 'photo' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '700' },
+              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
               postType === 'photo' ? { color: 'white' } : { color: theme.colors.textSecondary }
             ]}>
               Photo
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
-              { 
-                flex: 1, 
-                paddingVertical: theme.spacing.md, 
-                alignItems: 'center', 
+              {
+                flex: 1,
+                paddingVertical: 10,
+                alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: theme.borderRadius.lg,
                 flexDirection: 'row',
                 gap: 8
               },
-              postType === 'short' && { 
+              postType === 'short' && {
                 backgroundColor: theme.colors.primary,
                 ...theme.shadows.small
               }
@@ -2454,13 +2502,13 @@ export default function PostScreen() {
             onPress={() => setPostType('short')}
             activeOpacity={0.7}
           >
-            <Ionicons 
-              name={postType === 'short' ? "videocam" : "videocam-outline"} 
-              size={20} 
-              color={postType === 'short' ? 'white' : theme.colors.textSecondary} 
+            <Ionicons
+              name={postType === 'short' ? "videocam" : "videocam-outline"}
+              size={20}
+              color={postType === 'short' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '700' },
+              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
               postType === 'short' ? { color: 'white' } : { color: theme.colors.textSecondary }
             ]}>
               Short
@@ -2491,12 +2539,12 @@ export default function PostScreen() {
                   color={theme.colors.primary} 
               />
               </View>
-              <Text style={{ 
-                color: theme.colors.text, 
-                fontSize: theme.typography.h2.fontSize, 
-                fontWeight: '800', 
-                marginBottom: theme.spacing.xs, 
-                textAlign: 'center' 
+              <Text style={{
+                color: theme.colors.text,
+                fontSize: theme.typography.h2.fontSize,
+                fontWeight: '600',
+                marginBottom: theme.spacing.xs,
+                textAlign: 'center'
               }}>
                 {(() => {
                   if (postType === 'photo' && hasExistingPosts === false) {
@@ -2560,11 +2608,11 @@ export default function PostScreen() {
                 }}>
                   <Ionicons name={postType === 'photo' ? "images" : "film"} size={32} color={theme.colors.primary} />
                 </View>
-                <Text style={{ 
-                  color: theme.colors.text, 
-                  fontSize: theme.typography.body.fontSize, 
-                  fontWeight: '700',
-                  textAlign: "center" 
+                <Text style={{
+                  color: theme.colors.text,
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: '600',
+                  textAlign: "center"
                 }}>
                   Choose from Library
                 </Text>
@@ -2595,11 +2643,11 @@ export default function PostScreen() {
                 }}>
                   <Ionicons name={postType === 'photo' ? "camera" : "videocam"} size={32} color={theme.colors.primary} />
                 </View>
-                <Text style={{ 
-                  color: theme.colors.text, 
-                  fontSize: theme.typography.body.fontSize, 
-                  fontWeight: '700',
-                  textAlign: "center" 
+                <Text style={{
+                  color: theme.colors.text,
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: '600',
+                  textAlign: "center"
                 }}>
                   Take {postType === 'photo' ? 'Photo' : 'Video'}
                 </Text>
@@ -2738,7 +2786,7 @@ export default function PostScreen() {
                                 justifyContent: 'center',
                                 alignItems: 'center'
                               }}>
-                                <Text style={{ color: 'white', fontSize: theme.typography.h3.fontSize, fontWeight: '700' }}>
+                                <Text style={{ color: 'white', fontSize: theme.typography.h3.fontSize, fontWeight: '600' }}>
                                   +{selectedImages.length - 5}
                                 </Text>
                               </View>
@@ -2781,7 +2829,7 @@ export default function PostScreen() {
                     gap: 6
                   }}>
                     <Ionicons name="images" size={16} color="white" />
-                    <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: '700' }}>
+                    <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: '600' }}>
                       {selectedImages.length} photos
                     </Text>
                   </View>
@@ -2816,7 +2864,7 @@ export default function PostScreen() {
                     }}
                   >
                     <Ionicons name="create" size={18} color="white" />
-                    <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Edit</Text>
+                    <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize }}>Edit</Text>
                   </TouchableOpacity>
                   {selectedImages.length < 10 && (
                     <TouchableOpacity
@@ -2834,7 +2882,7 @@ export default function PostScreen() {
                       }}
                     >
                       <Ionicons name="add" size={20} color="white" />
-                      <Text style={{ color: 'white', fontWeight: '700', fontSize: theme.typography.body.fontSize }}>Add More</Text>
+                      <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize }}>Add More</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -3011,7 +3059,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Caption</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
@@ -3139,7 +3187,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
                           <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <TouchableOpacity
@@ -3263,7 +3311,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="leaf" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3309,7 +3357,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="car" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3358,35 +3406,55 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{uploadError}</Text>
                       </View>
                     )}
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: theme.colors.surfaceSecondary,
-                        borderRadius: theme.borderRadius.md,
-                        paddingVertical: theme.spacing.md,
-                        paddingHorizontal: theme.spacing.md,
-                        marginTop: theme.spacing.md,
-                        borderWidth: 1,
-                        borderColor: selectedSong ? theme.colors.primary : theme.colors.border,
-                      }}
-                      onPress={() => setShowSongSelector(true)}
-                    >
-                      <Ionicons 
-                        name={selectedSong ? "musical-notes" : "musical-notes-outline"} 
-                        size={20} 
-                        color={selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
-                        style={{ marginRight: theme.spacing.xs }}
+                    {selectedSong ? (
+                      <SongBar
+                        song={selectedSong}
+                        startTime={songStartTime}
+                        endTime={songEndTime}
+                        songDuration={selectedSong.duration}
+                        onTrimChange={(newStart, newEnd) => {
+                          setSongStartTime(newStart);
+                          setSongEndTime(newEnd);
+                        }}
+                        onOpenSelector={() => setShowSongSelector(true)}
+                        onRemove={() => {
+                          setSelectedSong(null);
+                          setAudioChoice(null);
+                          setSongStartTime(0);
+                          setSongEndTime(60);
+                        }}
                       />
-                      <Text style={{ 
-                        color: selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
-                        fontSize: theme.typography.body.fontSize,
-                        fontWeight: selectedSong ? '600' : '400'
-                      }}>
-                        {selectedSong ? `${selectedSong.title} - ${selectedSong.artist}` : 'Add Music'}
-                      </Text>
-                    </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.colors.surfaceSecondary,
+                          borderRadius: theme.borderRadius.md,
+                          paddingVertical: theme.spacing.md,
+                          paddingHorizontal: theme.spacing.md,
+                          marginTop: theme.spacing.md,
+                          borderWidth: 1,
+                          borderColor: theme.colors.border,
+                        }}
+                        onPress={() => setShowSongSelector(true)}
+                      >
+                        <Ionicons
+                          name="musical-notes-outline"
+                          size={20}
+                          color={theme.colors.textSecondary}
+                          style={{ marginRight: theme.spacing.xs }}
+                        />
+                        <Text style={{
+                          color: theme.colors.textSecondary,
+                          fontSize: theme.typography.body.fontSize,
+                          fontWeight: '400'
+                        }}>
+                          Add Music
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[
                         { 
@@ -3420,12 +3488,12 @@ export default function PostScreen() {
                       {isLoading ? (
                         <>
                           <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Sharing...</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Sharing...</Text>
                         </>
                       ) : (
                         <>
                           <Ionicons name="send" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Share Post</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Share Post</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -3522,7 +3590,7 @@ export default function PostScreen() {
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Caption</Text>
+                          <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Caption</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
                         <View style={{ position: 'relative' }}>
@@ -3654,7 +3722,7 @@ export default function PostScreen() {
                     <View style={{ marginBottom: theme.spacing.lg }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                         <Ionicons name="pricetag-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Tags</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Tags</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TextInput
@@ -3681,7 +3749,7 @@ export default function PostScreen() {
                     <View style={{ marginBottom: theme.spacing.lg }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
                         <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Place Name</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3803,14 +3871,14 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="leaf" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Spot Type</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
-                        style={{ 
-                          backgroundColor: theme.colors.surface, 
-                          borderRadius: theme.borderRadius.lg, 
-                          borderWidth: 2, 
+                        style={{
+                          backgroundColor: theme.colors.surface,
+                          borderRadius: theme.borderRadius.lg,
+                          borderWidth: 2,
                           borderColor: spotType ? theme.colors.primary : theme.colors.border,
                           paddingHorizontal: theme.spacing.lg,
                           paddingVertical: theme.spacing.md,
@@ -3849,7 +3917,7 @@ export default function PostScreen() {
                         }}>
                           <Ionicons name="car" size={18} color={theme.colors.primary} />
                         </View>
-                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "700", color: theme.colors.text }}>Travel Info</Text>
+                        <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
                       <TouchableOpacity
@@ -3898,62 +3966,75 @@ export default function PostScreen() {
                         <Text style={{ color: theme.colors.error, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{uploadError}</Text>
                       </View>
                     )}
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: audioChoice === 'background' && selectedSong ? theme.colors.primary + '15' : theme.colors.surfaceSecondary,
-                        borderRadius: theme.borderRadius.lg,
-                        paddingVertical: theme.spacing.md,
-                        paddingHorizontal: theme.spacing.md,
-                        marginTop: theme.spacing.md,
-                        marginBottom: theme.spacing.md,
-                        borderWidth: 2,
-                        borderColor: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.border,
-                      }}
-                      onPress={() => setShowSongSelector(true)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 18,
-                        backgroundColor: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.border + '40',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginRight: theme.spacing.sm
-                      }}>
-                        <Ionicons 
-                          name={audioChoice === 'background' && selectedSong ? "musical-notes" : "musical-notes-outline"} 
-                          size={20} 
-                          color={audioChoice === 'background' && selectedSong ? 'white' : theme.colors.textSecondary} 
+                    {audioChoice === 'background' && selectedSong ? (
+                      <View style={{ marginTop: theme.spacing.md, marginBottom: theme.spacing.md }}>
+                        <SongBar
+                          song={selectedSong}
+                          startTime={songStartTime}
+                          endTime={songEndTime}
+                          songDuration={selectedSong.duration}
+                          onTrimChange={(newStart, newEnd) => {
+                            setSongStartTime(newStart);
+                            setSongEndTime(newEnd);
+                          }}
+                          onOpenSelector={() => setShowSongSelector(true)}
+                          onRemove={() => {
+                            setSelectedSong(null);
+                            setAudioChoice(null);
+                            setSongStartTime(0);
+                            setSongEndTime(60);
+                          }}
                         />
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ 
-                          color: audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.textSecondary, 
-                          fontSize: theme.typography.body.fontSize,
-                          fontWeight: audioChoice === 'background' && selectedSong ? '700' : '500'
+                    ) : (
+                      <TouchableOpacity
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: theme.colors.surfaceSecondary,
+                          borderRadius: theme.borderRadius.lg,
+                          paddingVertical: theme.spacing.md,
+                          paddingHorizontal: theme.spacing.md,
+                          marginTop: theme.spacing.md,
+                          marginBottom: theme.spacing.md,
+                          borderWidth: 2,
+                          borderColor: theme.colors.border,
+                        }}
+                        onPress={() => setShowSongSelector(true)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: theme.colors.border + '40',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginRight: theme.spacing.sm
                         }}>
-                          {audioChoice === 'background' && selectedSong ? 'Background Music Selected' : audioChoice === 'original' ? 'Using Original Audio' : 'Add Background Music'}
-                        </Text>
-                        {audioChoice === 'background' && selectedSong && (
-                          <Text style={{ 
-                            color: theme.colors.textSecondary, 
-                            fontSize: theme.typography.small.fontSize,
-                            marginTop: 2
+                          <Ionicons
+                            name="musical-notes-outline"
+                            size={20}
+                            color={theme.colors.textSecondary}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{
+                            color: theme.colors.textSecondary,
+                            fontSize: theme.typography.body.fontSize,
+                            fontWeight: '500'
                           }}>
-                            {selectedSong.title} - {selectedSong.artist}
+                            {audioChoice === 'original' ? 'Using Original Audio' : 'Add Background Music'}
                           </Text>
-                        )}
-                      </View>
-                      <Ionicons 
-                        name="chevron-forward" 
-                        size={20} 
-                        color={audioChoice === 'background' && selectedSong ? theme.colors.primary : theme.colors.textSecondary} 
-                      />
-                    </TouchableOpacity>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={20}
+                          color={theme.colors.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
                       style={[
                         { 
@@ -3982,12 +4063,12 @@ export default function PostScreen() {
                       {isLoading ? (
                         <>
                           <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Uploading...</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Uploading...</Text>
                         </>
                       ) : (
                         <>
                           <Ionicons name="cloud-upload" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Upload Short</Text>
+                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Upload Short</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -4000,12 +4081,18 @@ export default function PostScreen() {
         )}
       </ScrollView>
       
-      {/* Progress Alert */}
+      {/* Progress Alert.
+          For shorts: bytes-uploaded progress goes 0→95% (frontend cap), then
+          the bar hovers there while the backend pushes the file to R2 and
+          writes the DB record. Without an explicit "Processing on server..."
+          message users assumed it was frozen. */}
       <ProgressAlert
         visible={isUploading}
-        message={postType === 'short' 
-          ? `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`
-          : uploadProgress.total > 1 
+        message={postType === 'short'
+          ? (uploadProgress.percentage >= 95
+              ? 'Processing on server... almost done'
+              : `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`)
+          : uploadProgress.total > 1
           ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
           : "Please wait while your media is being uploaded..."}
         progress={uploadProgress.percentage || 0}
@@ -4083,9 +4170,9 @@ export default function PostScreen() {
                   }}>
                     <Ionicons name="leaf" size={16} color={theme.colors.primary} />
                   </View>
-                  <Text style={{ 
-                    fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '700', 
+                  <Text style={{
+                    fontSize: theme.typography.h3.fontSize,
+                    fontWeight: '600',
                     color: theme.colors.text,
                     letterSpacing: 0.2
                   }}>
@@ -4260,9 +4347,9 @@ export default function PostScreen() {
                   }}>
                     <Ionicons name="car" size={16} color={theme.colors.primary} />
                   </View>
-                  <Text style={{ 
-                    fontSize: theme.typography.h3.fontSize, 
-                    fontWeight: '700', 
+                  <Text style={{
+                    fontSize: theme.typography.h3.fontSize,
+                    fontWeight: '600',
                     color: theme.colors.text,
                     letterSpacing: 0.2
                   }}>
@@ -4629,7 +4716,7 @@ export default function PostScreen() {
                 </View>
                 <Text style={{
                   fontSize: theme.typography.h3.fontSize,
-                  fontWeight: '700',
+                  fontWeight: '600',
                   color: theme.colors.text,
                 }}>
                   Detect Place
@@ -4864,8 +4951,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: isTablet ? theme.typography.h1.fontSize : 24,
-    fontFamily: getFontFamily('800'),
-    fontWeight: '800',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
     letterSpacing: isIOS ? -0.5 : 0,
@@ -4899,8 +4986,8 @@ const styles = StyleSheet.create({
   },
   audioChoiceTitle: {
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: 'white',
     marginBottom: isTablet ? 8 : 6,
     ...(isWeb && {
@@ -4928,8 +5015,8 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

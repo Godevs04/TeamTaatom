@@ -1,5 +1,5 @@
 const logger = require('../../utils/logger');
-const { buildMediaKey, uploadObject, getDownloadUrl } = require('../../services/storage');
+const { buildMediaKey, uploadObject } = require('../../services/storage');
 const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
 
 /**
@@ -12,7 +12,7 @@ const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
  * before uploading, or implement a separate image processing service.
  */
 const processImageJob = async (job) => {
-  const { imageUrl, transformations, publicId } = job.data;
+  const { imageUrl, publicId } = job.data;
 
   try {
     // Download image from URL

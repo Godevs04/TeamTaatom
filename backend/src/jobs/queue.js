@@ -9,7 +9,7 @@ const logger = require('../utils/logger');
 // No-op queue objects that maintain API compatibility
 const createNoOpQueue = (name) => {
   return {
-    add: async (jobName, data, options) => {
+    add: async (jobName, data, _options) => {
       logger.warn(`Queue disabled: Attempted to add job "${jobName}" to "${name}" queue. Job data:`, data);
       return Promise.resolve({ id: 'disabled', name: jobName });
     },

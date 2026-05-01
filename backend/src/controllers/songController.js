@@ -1,7 +1,7 @@
 const Song = require('../models/Song');
-const { uploadSong, deleteSong } = require('../config/cloudinary');
+const { deleteSong } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, getStorageKeyFromDocument } = require('../services/mediaService');
+const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 

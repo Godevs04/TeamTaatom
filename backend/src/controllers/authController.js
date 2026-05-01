@@ -46,7 +46,6 @@ const signup = async (req, res) => {
     });
     if (existingUser) {
       const isSameEmail = existingUser.email === email;
-      const isSameUsername = existingUser.username === username;
       if (existingUser.isVerified) {
         const errorCode = isSameEmail ? 'RES_3003' : 'RES_3004';
         const message = isSameEmail
@@ -275,27 +274,27 @@ const signin = async (req, res) => {
       logger.debug('Signin - Token returned in response (cross-origin fallback)');
     }
 
+    // Fire-and-forget login notification email (geo lookup + send happens after response)
+    const device = req.headers['user-agent'] || 'Unknown device';
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
+    (async () => {
+      let location = 'Unknown location';
+      try {
+        const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
+        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
+        if (geoRes.ok) {
+          const geo = await geoRes.json();
+          location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country_name || ''}`.replace(/^, |, $/g, '');
+        }
+      } catch (_e) { /* geo lookup is best-effort */ }
+      sendLoginNotificationEmail(user.email, user.fullName, device, location)
+        .catch(err => logger.error('Login notification email failed:', err));
+    })();
+
     return sendSuccess(res, 200, 'Sign in successful', {
       ...tokenResponse, // Only includes token for mobile
       user: user.getPublicProfile()
     });
-
-    // --- Send login notification email (do not await) ---
-    const device = req.headers['user-agent'] || 'Unknown device';
-    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
-    let location = 'Unknown location';
-    try {
-      const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
-      const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
-      if (geoRes.ok) {
-        const geo = await geoRes.json();
-        location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country_name || ''}`.replace(/^, |, $/g, '');
-      }
-    } catch (e) {
-      // Ignore location errors
-    }
-    sendLoginNotificationEmail(user.email, user.fullName, device, location).catch(err => logger.error('Login notification email failed:', err));
-    // --- End login notification ---
 
   } catch (error) {
     logger.error('Signin error:', error);

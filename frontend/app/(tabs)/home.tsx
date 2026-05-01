@@ -1,18 +1,18 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  StyleSheet, 
-  ActivityIndicator, 
-  Image, 
-  RefreshControl, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Image,
+  RefreshControl,
   TouchableOpacity,
   StatusBar,
   ScrollView,
   Platform,
   Dimensions
 } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -22,7 +22,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { imageCacheManager } from '../../utils/imageCacheManager';
+import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
@@ -191,7 +191,7 @@ export default function HomeScreen() {
   const { showError } = useAlert();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<FeedItem>>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -199,8 +199,12 @@ export default function HomeScreen() {
   const isFetchingMessagesRef = useRef(false);
   const lastMessageFetchRef = useRef(0);
   
-  // Request guards for pull-to-refresh and pagination race safety
-  const isRefreshingRef = useRef(false);
+  // Request guards for pull-to-refresh and pagination race safety.
+  // fetchingTabsRef tracks which feed tabs currently have a first-page fetch
+  // in flight — we allow concurrent fetches across DIFFERENT tabs (so a tab
+  // switch never gets blocked by a previous tab's still-running request) but
+  // de-duplicate concurrent first-page fetches WITHIN the same tab.
+  const fetchingTabsRef = useRef<Set<FeedMode>>(new Set());
   const isPaginatingRef = useRef(false);
   
   // View tracking de-duplication: track last viewed post ID and timestamp
@@ -210,6 +214,8 @@ export default function HomeScreen() {
   
   // Track visible index for conditional image rendering
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
+  // Only apply lazy-load distance restriction after user has scrolled (not on initial render)
+  const hasScrolledRef = useRef(false);
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
@@ -225,11 +231,25 @@ export default function HomeScreen() {
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
 
-  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap }> = useMemo(
+  // In-memory cache of posts per feed tab — switching tabs restores instantly without image reload
+  const feedCacheRef = useRef<Record<FeedMode, { posts: PostType[]; page: number; hasMore: boolean }>>({
+    recents: { posts: [], page: 1, hasMore: true },
+    friends: { posts: [], page: 1, hasMore: true },
+    popular: { posts: [], page: 1, hasMore: true },
+  });
+
+  // Tracks the currently-active feed tab so in-flight fetches can detect tab switches
+  // and discard stale responses (prevents writing recents data into friends cache, etc).
+  const feedModeRef = useRef<FeedMode>(feedMode);
+  useEffect(() => {
+    feedModeRef.current = feedMode;
+  }, [feedMode]);
+
+  const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
     () => [
-      { id: 'recents', label: 'Recent', icon: 'time-outline' },
-      { id: 'friends', label: 'Friends', icon: 'people-outline' },
-      { id: 'popular', label: 'Popular', icon: 'flame-outline' },
+      { id: 'recents', label: 'Recent', icon: 'time-outline', activeIcon: 'time' },
+      { id: 'friends', label: 'Friends', icon: 'people-outline', activeIcon: 'people' },
+      { id: 'popular', label: 'Popular', icon: 'flame-outline', activeIcon: 'flame' },
     ],
     []
   );
@@ -248,41 +268,44 @@ export default function HomeScreen() {
   }, []);
 
   const fetchPosts = useCallback(async (pageNum: number = 1, shouldAppend: boolean = false) => {
-    // Request guards: prevent overlapping refresh and pagination
+    // Capture feedMode at request time so the response can only be applied to
+    // the tab that asked for it. Tab switches mid-flight produce stale responses
+    // that must be discarded (otherwise friends data lands in popular cache, etc).
+    const requestFeedMode = feedMode;
+
+    // Request guards. Tab switches must be allowed to fetch even while a
+    // previous tab's request is still in flight — fetchingTabsRef is keyed
+    // per-tab so we only de-duplicate WITHIN the same tab. Pagination is
+    // blocked if any first-page fetch is in flight for the current tab.
     if (shouldAppend) {
-      // Pagination request
-      if (isPaginatingRef.current || isRefreshingRef.current) {
+      if (isPaginatingRef.current || fetchingTabsRef.current.has(requestFeedMode)) {
         logger.debug('Pagination blocked: refresh or pagination already in progress');
         return;
       }
       isPaginatingRef.current = true;
     } else {
-      // Refresh request
-      if (isRefreshingRef.current || isPaginatingRef.current) {
-        logger.debug('Refresh blocked: refresh or pagination already in progress');
+      if (fetchingTabsRef.current.has(requestFeedMode)) {
+        logger.debug('Refresh blocked: same-tab refresh already in progress', requestFeedMode);
         return;
       }
-      isRefreshingRef.current = true;
+      fetchingTabsRef.current.add(requestFeedMode);
     }
-    
-    // Prevent multiple simultaneous calls
-    if (isFetchingRef.current && !shouldAppend) {
-      logger.debug('Already fetching posts, skipping...');
-      if (shouldAppend) {
-        isPaginatingRef.current = false;
-      } else {
-        isRefreshingRef.current = false;
-      }
-      return;
-    }
-    
+
     isFetchingRef.current = true;
     try {
-      logger.debug('Fetching posts for page:', pageNum);
-      
+      logger.debug(`Fetching posts page=${pageNum} feed=${requestFeedMode}`);
+
       // Web: Fetch more posts per page for better UX
       const postsPerPage = isWeb ? 15 : 10;
-      const response = await getPosts(pageNum, postsPerPage, feedMode);
+      const response = await getPosts(pageNum, postsPerPage, requestFeedMode);
+
+      // Stale-response guard: if user switched tabs while this request was in
+      // flight, drop the result. Otherwise we would overwrite the new tab's
+      // posts and corrupt feedCacheRef for the wrong tab.
+      if (feedModeRef.current !== requestFeedMode) {
+        logger.debug(`Discarding stale ${requestFeedMode} response (current tab is ${feedModeRef.current})`);
+        return;
+      }
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -291,27 +314,45 @@ export default function HomeScreen() {
           setPosts([]);
           setHasMore(false);
           setPage(1);
+          // Persist the empty/finished state into the per-tab cache so revisiting
+          // this tab restores instantly with the empty state instead of refetching.
+          feedCacheRef.current[requestFeedMode] = { posts: [], page: 1, hasMore: false };
           logger.debug('No posts returned (may be filtered or empty database)');
         } else {
           // Pagination with no more posts
           setHasMore(false);
+          if (feedCacheRef.current[requestFeedMode]) {
+            feedCacheRef.current[requestFeedMode].hasMore = false;
+          }
         }
         return;
       }
-      
+
       if (shouldAppend) {
         // Feed de-duplication: merge items by unique _id, never append duplicates
         setPosts(prev => {
           const existingIds = new Set(prev.map(p => p._id));
           const newPosts = response.posts.filter(p => !existingIds.has(p._id));
-          return mergeLikedIntoPosts([...prev, ...newPosts]);
+          const merged = mergeLikedIntoPosts([...prev, ...newPosts]);
+          // Update in-memory cache for this tab (using captured request mode)
+          feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
+          return merged;
         });
       } else {
-        setPosts(mergeLikedIntoPosts(response.posts));
+        const merged = mergeLikedIntoPosts(response.posts);
+        setPosts(merged);
+        feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
       }
-      
-      setHasMore(response.pagination?.hasNextPage ?? false);
+
+      // If fewer posts returned than requested, we've reached the end regardless
+      // of what the backend pagination says (e.g. friends feed with few posts).
+      const receivedLessThanRequested = response.posts.length < postsPerPage;
+      const newHasMore = receivedLessThanRequested ? false : (response.pagination?.hasNextPage ?? false);
+      setHasMore(newHasMore);
       setPage(pageNum);
+      // Sync hasMore into cache (using captured request mode)
+      feedCacheRef.current[requestFeedMode].hasMore = newHasMore;
+      feedCacheRef.current[requestFeedMode].page = pageNum;
       
       // Scroll to specific post if postId is provided in params
       if (params.postId && typeof params.postId === 'string' && response.posts.length > 0) {
@@ -352,10 +393,10 @@ export default function HomeScreen() {
         }
       }
       
-      // Cache posts for offline support
+      // Cache posts for offline support (per-tab key)
       if (pageNum === 1 && !shouldAppend) {
         try {
-          await AsyncStorage.setItem(`cachedPosts_${feedMode}`, JSON.stringify({
+          await AsyncStorage.setItem(`cachedPosts_${requestFeedMode}`, JSON.stringify({
             data: response.posts,
             timestamp: Date.now()
           }));
@@ -364,30 +405,23 @@ export default function HomeScreen() {
         }
       }
       
-      // Enhanced image preloading with priority strategy
-      if (response.posts.length > 0) {
-        const preloadCount = isWeb ? 8 : 5;
-        // Preload visible posts first (first 3)
-        const visiblePosts = response.posts.slice(0, 3);
-        visiblePosts.forEach((post) => {
-          if (post.imageUrl) {
-            imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
-              // Silently fail
-            });
-          }
-        });
-        
-        // Preload upcoming posts in background (next 5-8)
-        const upcomingPosts = response.posts.slice(3, preloadCount);
+      // Light background caching — don't interfere with Image component's network loads.
+      // Visible posts are cached after display via cacheAfterDisplay() in PostImage.
+      // FlashList drawDistance pre-mounts roughly the first 3 posts, so only pre-cache
+      // posts BEYOND that window — duplicating fetches for posts already mounting was
+      // saturating connections and breaking the first batch on cold start.
+      if (response.posts.length > 6) {
+        const preloadStart = 6;
+        const preloadEnd = isWeb ? 10 : 9;
+        const upcomingPosts = response.posts.slice(preloadStart, preloadEnd);
         setTimeout(() => {
-          upcomingPosts.forEach((post) => {
-            if (post.imageUrl) {
-              imageCacheManager.prefetchImage(post.imageUrl).catch(() => {
-                // Silently fail
-              });
-            }
-          });
-        }, 500); // Delay to not block initial render
+          const urls = upcomingPosts
+            .map((post) => post.imageUrl)
+            .filter((u): u is string => !!u);
+          if (urls.length > 0) {
+            ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' });
+          }
+        }, 1500);
       }
     } catch (error: any) {
       const now = Date.now();
@@ -412,16 +446,20 @@ export default function HomeScreen() {
         error?.code === 'ERR_NETWORK' ||
         error?.message === 'Network Error';
       
-      // Load cached posts on network error (only for first page, not pagination)
+      // Load cached posts on network error (only for first page, not pagination).
+      // Must use the per-tab key — falling back to a global 'cachedPosts' key would
+      // mix recents data into friends/popular tabs after offline recovery.
       if (isNetworkError && pageNum === 1 && !shouldAppend) {
         try {
-          const cachedData = await AsyncStorage.getItem('cachedPosts');
+          const cachedData = await AsyncStorage.getItem(`cachedPosts_${requestFeedMode}`);
           if (cachedData) {
             const parsed = JSON.parse(cachedData);
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
               // Check if cache is not too old (24 hours)
               const cacheAge = Date.now() - (parsed.timestamp || 0);
-              if (cacheAge < 24 * 60 * 60 * 1000) {
+              // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
+              // posts never contain stale URLs that would render blank.
+              if (cacheAge < 50 * 60 * 1000) {
                 logger.debug('Loading cached posts due to network error');
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false); // Can't paginate with cached data
@@ -456,11 +494,11 @@ export default function HomeScreen() {
       // For pagination errors, silently fail - user can retry by scrolling
     } finally {
       isFetchingRef.current = false;
-      // Clear request guards
+      // Clear request guards (release the per-tab lock with the same key we acquired)
       if (shouldAppend) {
         isPaginatingRef.current = false;
       } else {
-        isRefreshingRef.current = false;
+        fetchingTabsRef.current.delete(requestFeedMode);
       }
     }
   }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
@@ -638,8 +676,12 @@ export default function HomeScreen() {
     const loadInitialData = async () => {
       if (hasInitializedRef.current) return;
       hasInitializedRef.current = true;
-      
-      setLoading(true);
+
+      // Capture feed mode at load start. If the user switches tabs while we're
+      // loading, this run is "stale" and must not setLoading(false) (the new run
+      // owns that state) and must not write the wrong tab's AsyncStorage cache.
+      const requestFeedMode = feedMode;
+
       try {
         // Load persisted liked post IDs first so mergeLikedIntoPosts is correct
         try {
@@ -663,47 +705,54 @@ export default function HomeScreen() {
         // Load current user first
         const user = await getUserFromStorage();
         setCurrentUser(user);
-        
-        // Try to load cached posts first for instant display
+
+        // Try to load AsyncStorage-cached posts first for instant display.
+        // Only honor if user is still on the tab we started loading for.
         try {
-          const cachedData = await AsyncStorage.getItem(`cachedPosts_${feedMode}`);
-          if (cachedData) {
+          const cachedData = await AsyncStorage.getItem(`cachedPosts_${requestFeedMode}`);
+          if (cachedData && feedModeRef.current === requestFeedMode) {
             const parsed = JSON.parse(cachedData);
             if (parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
-              // Check if cache is not too old (24 hours)
               const cacheAge = Date.now() - (parsed.timestamp || 0);
-              if (cacheAge < 24 * 60 * 60 * 1000) {
+              // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
+              // posts never contain stale URLs that would render blank.
+              if (cacheAge < 50 * 60 * 1000) {
                 logger.debug('Loading cached posts for instant display');
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false);
                 setPage(1);
-                setLoading(false); // Show cached data immediately
+                setLoading(false);
               }
             }
           }
         } catch (cacheError) {
           logger.debug('No cached posts available or cache error', cacheError);
         }
-        
+
         // Fetch unseen message count (non-blocking)
         fetchUnseenMessageCount().catch(err => {
           logger.debug('Failed to fetch message count (non-critical)', err);
         });
-        
+
         // Try to load fresh posts (will update cache if successful)
-        logger.debug('Loading fresh posts...');
+        logger.debug('Loading fresh posts for', requestFeedMode);
         await fetchPosts(1, false);
       } catch (error) {
         logger.error('Error loading initial data', error);
         // If we don't have cached data, show error
-        if (posts.length === 0) {
+        if (posts.length === 0 && feedModeRef.current === requestFeedMode) {
           setTimeout(() => {
             showError('Failed to load content. Please pull down to refresh.');
           }, 100);
         }
         hasInitializedRef.current = false; // Allow retry
       } finally {
-        setLoading(false);
+        // Only clear the loader if this run is still the current tab's run.
+        // Otherwise the next loadInitialData (started by handleFeedTabPress)
+        // owns the loading state and will clear it when its own fetch lands.
+        if (feedModeRef.current === requestFeedMode) {
+          setLoading(false);
+        }
       }
     };
 
@@ -719,6 +768,7 @@ export default function HomeScreen() {
       // Clear visible index when screen loses focus
       return () => {
         setVisibleIndex(null);
+        hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
         // Stop all audio when leaving home page
@@ -815,8 +865,8 @@ export default function HomeScreen() {
   }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
-    // Request guard: prevent refresh if already refreshing or paginating
-    if (isRefreshingRef.current || isPaginatingRef.current) {
+    // Request guard: prevent refresh if a same-tab refresh or pagination is in flight.
+    if (fetchingTabsRef.current.has(feedMode) || isPaginatingRef.current) {
       logger.debug('Refresh blocked: already in progress');
       return;
     }
@@ -827,63 +877,80 @@ export default function HomeScreen() {
     // Trigger haptic feedback for better UX
     triggerRefreshHaptic();
     
-    // Scroll to top immediately for better UX
+    // Animated scroll to top for visual feedback (scrolls the old list).
     if (flatListRef.current && posts.length > 0) {
       try {
         flatListRef.current.scrollToOffset({ offset: 0, animated: true });
       } catch (error) {
         logger.debug('Error scrolling to top:', error);
-        // Fallback: try scrolling to index 0
-        try {
-          flatListRef.current.scrollToIndex({ index: 0, animated: true });
-        } catch (indexError) {
-          logger.debug('Error scrolling to index 0:', indexError);
-        }
       }
     }
-    
+
     setRefreshing(true);
     try {
       await Promise.all([
         fetchPosts(1, false),
         fetchUnseenMessageCount()
       ]);
-      
-      // Ensure scroll to top after posts are loaded
-      if (flatListRef.current) {
-        setTimeout(() => {
-          try {
-            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-          } catch (error) {
-            logger.debug('Error scrolling to top after refresh:', error);
-          }
-        }, 100);
-      }
+
+      // After the new posts have been applied to state, defer a final scroll-to-top
+      // to the next frame so FlashList lands at offset 0 on the fresh data instead
+      // of preserving its prior scroll offset.
+      requestAnimationFrame(() => {
+        try {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        } catch (error) {
+          logger.debug('Error scrolling to top after refresh:', error);
+        }
+      });
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount, posts.length]);
+  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
-    setFeedMode(mode);
-    setPosts([]);
-    setPage(1);
-    setHasMore(true);
-    setLoading(true);
-    hasInitializedRef.current = false;
-    hasScrolledToPostIdRef.current = null;
-  }, [feedMode]);
 
-  // Throttle load more for web performance
-  // Request guard: prevent pagination if already paginating or refreshing
+    // Save current tab's posts into cache before switching
+    feedCacheRef.current[feedMode] = { posts, page, hasMore };
+
+    // Restore cached posts for the new tab (instant, no image reload)
+    const cached = feedCacheRef.current[mode];
+    if (cached.posts.length > 0 || cached.hasMore === false) {
+      // Have cache OR previously confirmed empty — restore instantly, no fetch.
+      setPosts(cached.posts);
+      setPage(cached.page);
+      setHasMore(cached.hasMore);
+      setLoading(false);
+      hasInitializedRef.current = true;
+    } else {
+      // No cache yet for this tab — clear stale content from the previous tab
+      // immediately so the user does NOT see e.g. recents posts under the
+      // friends header, and show a loader until the fresh fetch lands.
+      setPosts([]);
+      setPage(1);
+      setHasMore(true);
+      setLoading(true);
+      hasInitializedRef.current = false;
+    }
+
+    setFeedMode(mode);
+    hasScrolledToPostIdRef.current = null;
+    // Scroll-to-top is handled by the `key={feedMode}` prop on FlashList:
+    // changing feedMode remounts the list, which guarantees offset 0 on the new tab.
+    // FlashList v2's scrollToOffset is unreliable across data-swap re-renders.
+  }, [feedMode, posts, page, hasMore]);
+
+  // Throttle load more for web performance.
+  // Pagination is blocked while a same-tab refresh is in flight (resetting to
+  // page 1 mid-pagination would corrupt the list ordering).
   const handleLoadMore = useCallback(
     throttle(async () => {
-      if (!loading && hasMore && !isPaginatingRef.current && !isRefreshingRef.current) {
+      if (!loading && hasMore && !isPaginatingRef.current && !fetchingTabsRef.current.has(feedMode)) {
         await fetchPosts(page + 1, true);
       }
     }, 1000),
-    [loading, hasMore, page, fetchPosts]
+    [loading, hasMore, page, fetchPosts, feedMode]
   );
 
   const styles = StyleSheet.create({
@@ -922,7 +989,6 @@ export default function HomeScreen() {
       padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
       marginBottom: theme.spacing.lg,
       alignItems: 'center',
-      ...theme.shadows.medium,
     },
     emptyImage: {
       width: isTablet ? 160 : 120,
@@ -932,8 +998,8 @@ export default function HomeScreen() {
     },
     emptyTitle: {
       fontSize: isTablet ? theme.typography.h1.fontSize : theme.typography.h2.fontSize,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
       marginBottom: theme.spacing.sm,
       textAlign: 'center',
@@ -960,37 +1026,29 @@ export default function HomeScreen() {
       marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
       marginTop: theme.spacing.sm,
       marginBottom: theme.spacing.md,
-      borderRadius: 18,
-      padding: 6,
       flexDirection: 'row',
       backgroundColor: theme.colors.surface,
+      borderRadius: theme.borderRadius.xl,
+      padding: 4,
       borderWidth: 1,
       borderColor: theme.colors.border,
-      ...theme.shadows.small,
     },
     feedTabButton: {
       flex: 1,
-      borderRadius: 14,
-      paddingVertical: isTablet ? 11 : 9,
+      paddingVertical: 9,
       alignItems: 'center',
       justifyContent: 'center',
+      borderRadius: theme.borderRadius.lg,
       flexDirection: 'row',
       gap: 6,
     },
     feedTabButtonActive: {
-      backgroundColor: theme.colors.primary + '16',
-      borderWidth: 1,
-      borderColor: theme.colors.primary + '2E',
-      ...theme.shadows.small,
+      backgroundColor: theme.colors.primary,
     },
     feedTabText: {
-      fontSize: isTablet ? theme.typography.body.fontSize : 13,
-      fontFamily: getFontFamily('600'),
-      fontWeight: '600',
+      fontSize: 14,
+      fontWeight: '600' as const,
       letterSpacing: 0.2,
-      ...(isWeb && {
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-      } as any),
     },
     postsList: {
       paddingHorizontal: 0,
@@ -1049,21 +1107,21 @@ export default function HomeScreen() {
         return (
           <TouchableOpacity
             key={tab.id}
-            activeOpacity={0.85}
+            activeOpacity={0.7}
             onPress={() => handleFeedTabPress(tab.id)}
             style={[styles.feedTabButton, active && styles.feedTabButtonActive]}
           >
+            <Ionicons
+              name={active ? tab.activeIcon : tab.icon}
+              size={18}
+              color={active ? 'white' : theme.colors.textSecondary}
+            />
             <Text
               style={[
                 styles.feedTabText,
-                { color: active ? theme.colors.primary : theme.colors.textSecondary },
+                { color: active ? 'white' : theme.colors.textSecondary },
               ]}
             >
-              <Ionicons
-                name={tab.icon}
-                size={14}
-                color={active ? theme.colors.primary : theme.colors.textSecondary}
-              />{' '}
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -1088,6 +1146,9 @@ export default function HomeScreen() {
       const item = visibleItem.item as FeedItem;
       if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
         setVisibleIndex(newVisibleIndex);
+        if (!hasScrolledRef.current && newVisibleIndex > 0) {
+          hasScrolledRef.current = true;
+        }
         if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
           hasSetScrollThresholdRef.current = true;
           setHasScrolledPastFifthPost(true);
@@ -1118,34 +1179,34 @@ export default function HomeScreen() {
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
-  // Conditional image rendering: only render images within 2 indices of visible
-  // Renders either a post card or a native ad card (one ad after every ADS_AFTER_EVERY posts)
+  // Stable renderItem — does NOT depend on visiblePostId so it won't recreate on every scroll.
+  // isCurrentlyVisible is passed via extraData + the memo comparator inside OptimizedPhotoCard.
+  const visiblePostIdRef = useRef<string | null>(visiblePostId);
+  visiblePostIdRef.current = visiblePostId;
+
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     if (isAdItem(item)) {
       return <NativeAdCard adIndex={item.adIndex} />;
     }
-    const distanceFromVisible = visibleIndex !== null ? Math.abs(index - visibleIndex) : 0;
-    const shouldRenderImage = distanceFromVisible <= 2;
-    const isCurrentlyVisible = visiblePostId === item._id;
     return (
       <OptimizedPhotoCard
         post={item}
         onRefresh={handleRefresh}
-        isVisible={shouldRenderImage}
-        isCurrentlyVisible={isCurrentlyVisible}
+        isCurrentlyVisible={visiblePostIdRef.current === item._id}
         key={item._id}
       />
     );
-  }, [visibleIndex, visiblePostId, handleRefresh]);
+  }, [handleRefresh]);
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+        <StatusBar
+          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+          backgroundColor={theme.colors.background}
         />
         {renderTopHeader()}
+        {renderFeedTabs()}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
@@ -1184,13 +1245,13 @@ export default function HomeScreen() {
       />
       <SafeAreaView style={styles.safeArea}>
         {renderTopHeader()}
-        
-        <FlatList
+        {renderFeedTabs()}
+
+        <FlashList
+        key={feedMode}
         ref={flatListRef}
         data={feedData}
         keyExtractor={keyExtractor}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
         renderItem={renderItem}
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
@@ -1209,16 +1270,13 @@ export default function HomeScreen() {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.1}
         ListHeaderComponent={
-          <>
-            {renderFeedTabs()}
-            {!isOnline && (
+          !isOnline ? (
               <View style={styles.offlineBanner}>
                 <Text style={styles.offlineText}>
                   You're offline. Some features may be limited.
                 </Text>
               </View>
-            )}
-          </>
+          ) : null
         }
         ListFooterComponent={
           hasMore ? (
@@ -1236,19 +1294,10 @@ export default function HomeScreen() {
             </View>
           ) : null
         }
-        // Track viewable items for conditional image rendering and analytics
-        // View tracking de-duplication: prevent duplicate view events within 2 seconds
+        extraData={visiblePostId}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        // Virtual scrolling: limit rendered items to avoid too many native ad mounts and keep scroll smooth
-        removeClippedSubviews={true}
-        initialNumToRender={6}
-        maxToRenderPerBatch={5}
-        windowSize={5}
-        getItemLayout={undefined} // Let FlatList calculate dynamically (variable height items)
-        // Performance optimizations
-        maintainVisibleContentPosition={undefined}
-        legacyImplementation={false}
+        drawDistance={screenHeight}
       />
       </SafeAreaView>
     </View>

@@ -18,10 +18,10 @@ export default function PostCaption({ post }: PostCaptionProps) {
   if (!post.caption) return null;
 
   // Handle case where user might be undefined
-  const user = post.user || { 
-    _id: 'unknown', 
-    fullName: 'Unknown User', 
-    profilePic: 'https://via.placeholder.com/40' 
+  const user = post.user || {
+    _id: 'unknown',
+    fullName: 'Unknown User',
+    profilePic: ''
   };
 
   const handleUserPress = () => {

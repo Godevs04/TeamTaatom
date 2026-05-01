@@ -5,16 +5,15 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
-const { uploadImage, deleteImage, getOptimizedImageUrl, getVideoThumbnailUrl, cloudinary } = require('../config/cloudinary');
+const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
-const Song = require('../models/Song');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
 const { extractHashtags } = require('../utils/hashtagExtractor');
 const { extractMentions } = require('../utils/mentionExtractor');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
@@ -245,12 +244,9 @@ const getPosts = async (req, res) => {
         }
       ]);
 
-      const totalPosts = await Post.countDocuments({ 
-        isActive: true, 
-        isArchived: { $ne: true },
-        isHidden: { $ne: true },
-        type: 'photo' 
-      }).lean();
+      // Use the same matchQuery so the count reflects the actual filtered feed
+      // (e.g. friends-only posts, not all posts in the database)
+      const totalPosts = await Post.countDocuments(matchQuery).lean();
 
       // Generate signed URLs dynamically for posts and songs
       const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {
@@ -296,43 +292,14 @@ const getPosts = async (req, res) => {
           }
         }
 
-        // Generate signed URL for post author's profile picture
-        if (post.user && post.user.profilePicStorageKey) {
-          try {
-            post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile picture URL for post author:', { 
-              postId: post._id, 
-              userId: post.user._id,
-              error: error.message 
-            });
-            // Fallback to legacy URL if available
-            post.user.profilePic = post.user.profilePic || null;
-          }
-        } else if (post.user && post.user.profilePic) {
-          // Legacy: use existing profilePic if no storage key
-          // Keep the existing profilePic value
+        // Resolve fresh profile pic URL for post author and all commenters
+        if (post.user) {
+          post.user.profilePic = await resolveProfilePic(post.user);
         }
-
-        // Generate signed URLs for comment users' profile pictures
         if (post.comments && post.comments.length > 0) {
           for (const comment of post.comments) {
-            if (comment.user && comment.user.profilePicStorageKey) {
-              try {
-                comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-              } catch (error) {
-                logger.warn('Failed to generate profile picture URL for comment user:', { 
-                  postId: post._id, 
-                  commentId: comment._id,
-                  userId: comment.user._id,
-                  error: error.message 
-                });
-                // Fallback to legacy URL if available
-                comment.user.profilePic = comment.user.profilePic || null;
-              }
-            } else if (comment.user && comment.user.profilePic) {
-              // Legacy: use existing profilePic if no storage key
-              // Keep the existing profilePic value
+            if (comment.user) {
+              comment.user.profilePic = await resolveProfilePic(comment.user);
             }
           }
         }
@@ -577,7 +544,8 @@ const getPostById = async (req, res) => {
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: 1, // Include followers for follow status check
-                  'settings.privacy.showLocation': 1
+                  'settings.privacy.showLocation': 1,
+                  'settings.privacy.profileVisibility': 1
                 }
               }
             ]
@@ -691,6 +659,22 @@ const getPostById = async (req, res) => {
       return sendError(res, 'RES_3001', 'The requested post does not exist or has been deleted');
     }
 
+    // Privacy check: ensure viewer is allowed to see this post based on author's profileVisibility
+    const postAuthorId = post.user?._id?.toString();
+    const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
+    if (visibility !== 'public' && postAuthorId !== userId) {
+      const viewerObjId = userId ? new mongoose.Types.ObjectId(userId) : null;
+      const authorFollowers = (post.user?.followers || []).map(f => f.toString());
+      const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
+
+      if (visibility === 'followers' && !isFollower) {
+        return sendError(res, 'AUTH_1003', 'This post is not available');
+      }
+      if (visibility === 'private' && !isFollower) {
+        return sendError(res, 'AUTH_1003', 'This post is not available');
+      }
+    }
+
     // Use incremented views if we incremented earlier, otherwise use post viewsCount
     const finalViewsCount = incrementedViews !== null ? incrementedViews : (post.viewsCount !== undefined ? post.viewsCount : (post.views !== undefined ? post.views : 0));
     
@@ -754,43 +738,14 @@ const getPostById = async (req, res) => {
       }
     }
 
-    // Generate signed URL for post author's profile picture
-    if (post.user && post.user.profilePicStorageKey) {
-      try {
-        post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-      } catch (error) {
-        logger.warn('Failed to generate profile picture URL for post author:', { 
-          postId: post._id, 
-          userId: post.user._id,
-          error: error.message 
-        });
-        // Fallback to legacy URL if available
-        post.user.profilePic = post.user.profilePic || null;
-      }
-    } else if (post.user && post.user.profilePic) {
-      // Legacy: use existing profilePic if no storage key
-      // Keep the existing profilePic value
+    // Resolve fresh profile pic URL for post author and all commenters
+    if (post.user) {
+      post.user.profilePic = await resolveProfilePic(post.user);
     }
-
-    // Generate signed URLs for comment users' profile pictures
     if (post.comments && post.comments.length > 0) {
       for (const comment of post.comments) {
-        if (comment.user && comment.user.profilePicStorageKey) {
-          try {
-            comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile picture URL for comment user:', { 
-              postId: post._id, 
-              commentId: comment._id,
-              userId: comment.user._id,
-              error: error.message 
-            });
-            // Fallback to legacy URL if available
-            comment.user.profilePic = comment.user.profilePic || null;
-          }
-        } else if (comment.user && comment.user.profilePic) {
-          // Legacy: use existing profilePic if no storage key
-          // Keep the existing profilePic value
+        if (comment.user) {
+          comment.user.profilePic = await resolveProfilePic(comment.user);
         }
       }
     }
@@ -1033,9 +988,6 @@ const createPost = async (req, res) => {
       mentionUserIds.push(...mentionedUsers.map(u => u._id));
     }
 
-    // Generate signed URLs for response (NOT stored in DB)
-    const signedUrls = await generateSignedUrls(storageKeys, 'IMAGE');
-    
     // Create post with multiple images - ONLY store storage keys, NOT signed URLs
     const post = new Post({
       user: req.user._id,
@@ -1104,6 +1056,32 @@ const createPost = async (req, res) => {
     } catch (tripVisitError) {
       logger.warn('TripVisit creation failed (non-critical):', tripVisitError);
       // Don't fail post creation if TripVisit fails
+    }
+
+    // Auto-attach post to active journey as waypoint (non-blocking)
+    try {
+      const Journey = require('../models/Journey');
+      const postLat = post.location?.coordinates?.latitude || parseFloat(req.body.latitude);
+      const postLng = post.location?.coordinates?.longitude || parseFloat(req.body.longitude);
+      if (req.user && postLat && postLng && !isNaN(postLat) && !isNaN(postLng)) {
+        const activeJourney = await Journey.findOne({
+          user: req.user._id,
+          status: { $in: ['active', 'paused'] }
+        });
+        if (activeJourney) {
+          activeJourney.waypoints.push({
+            post: post._id,
+            lat: postLat,
+            lng: postLng,
+            timestamp: new Date(),
+            contentType: 'photo'
+          });
+          await activeJourney.save();
+          logger.info(`Auto-attached post ${post._id} to journey ${activeJourney._id}`);
+        }
+      }
+    } catch (journeyError) {
+      logger.warn('Failed to attach post to journey (non-critical):', journeyError);
     }
 
     // Increment song usage count if song is attached
@@ -1423,22 +1401,8 @@ const getUserShorts = async (req, res) => {
 
     // Generate signed URLs for profile pictures and short thumbnails
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
-      // Generate signed URL for short author's profile picture
-      if (short.user && short.user.profilePicStorageKey) {
-        try {
-          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for short author:', { 
-            shortId: short._id, 
-            userId: short.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          short.user.profilePic = short.user.profilePic || null;
-        }
-      } else if (short.user && short.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (short.user) {
+        short.user.profilePic = await resolveProfilePic(short.user);
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -1676,25 +1640,10 @@ const getUserShorts = async (req, res) => {
         short.thumbnailUrl = null;
       }
 
-      // Generate signed URLs for comment users' profile pictures
       if (short.comments && short.comments.length > 0) {
         for (const comment of short.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                shortId: short._id, 
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -2017,43 +1966,13 @@ const getUserPosts = async (req, res) => {
         }
       }
 
-      // Generate signed URL for post author's profile picture
-      if (post.user && post.user.profilePicStorageKey) {
-        try {
-          post.user.profilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for post author:', { 
-            postId: post._id, 
-            userId: post.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          post.user.profilePic = post.user.profilePic || null;
-        }
-      } else if (post.user && post.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
       }
-
-      // Generate signed URLs for comment users' profile pictures
       if (post.comments && post.comments.length > 0) {
         for (const comment of post.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', {
-                postId: post._id,
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -2089,6 +2008,23 @@ const toggleLike = async (req, res) => {
     const post = await Post.findById(req.params.id).lean();
     if (!post) {
       return sendError(res, 'RES_3001', 'Post does not exist');
+    }
+
+    // Privacy check: ensure viewer is allowed to interact with this post
+    const postOwnerId = post.user?.toString();
+    if (postOwnerId && postOwnerId !== req.user._id.toString()) {
+      const postAuthor = await User.findById(postOwnerId)
+        .select('settings.privacy.profileVisibility followers')
+        .lean();
+      const vis = postAuthor?.settings?.privacy?.profileVisibility || 'public';
+      if (vis !== 'public') {
+        const isFollower = (postAuthor?.followers || []).some(
+          f => f.toString() === req.user._id.toString()
+        );
+        if (!isFollower) {
+          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+        }
+      }
     }
 
     // Check current like status BEFORE update
@@ -2253,6 +2189,23 @@ const addComment = async (req, res) => {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
+    // Privacy check: ensure viewer is allowed to interact with this post
+    const commentPostOwnerId = post.user?._id?.toString();
+    if (commentPostOwnerId && commentPostOwnerId !== req.user._id.toString()) {
+      const commentPostAuthor = await User.findById(commentPostOwnerId)
+        .select('settings.privacy.profileVisibility followers')
+        .lean();
+      const commentVis = commentPostAuthor?.settings?.privacy?.profileVisibility || 'public';
+      if (commentVis !== 'public') {
+        const isCommentFollower = (commentPostAuthor?.followers || []).some(
+          f => f.toString() === req.user._id.toString()
+        );
+        if (!isCommentFollower) {
+          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+        }
+      }
+    }
+
     // Check if comments are disabled
     if (post.commentsDisabled) {
       return sendError(res, 'BIZ_7001', 'Comments are disabled for this post');
@@ -2294,25 +2247,8 @@ const addComment = async (req, res) => {
     await post.populate('comments.user', 'fullName profilePic profilePicStorageKey');
     const populatedComment = post.comments.id(newComment._id);
     
-    // Generate signed URL for commenter's profile picture
     if (populatedComment && populatedComment.user) {
-      if (populatedComment.user.profilePicStorageKey) {
-        try {
-          populatedComment.user.profilePic = await generateSignedUrl(populatedComment.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for new comment user:', { 
-            postId: post._id, 
-            commentId: populatedComment._id,
-            userId: populatedComment.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          populatedComment.user.profilePic = populatedComment.user.profilePic || null;
-        }
-      } else if (populatedComment.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
-      }
+      populatedComment.user.profilePic = await resolveProfilePic(populatedComment.user);
     }
 
     // Create mention notifications for comment
@@ -2587,18 +2523,46 @@ const getArchivedPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ 
-      user: req.user._id, 
-      isArchived: true, 
-      isActive: true, 
-      type: 'photo' 
+    const posts = await Post.find({
+      user: req.user._id,
+      isArchived: true,
+      isActive: true,
+      type: 'photo'
     })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Resolve storage keys to signed URLs
+    for (const post of posts) {
+      // Post images
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || post.imageUrl;
+          post.images = imageUrls;
+        } catch { /* keep existing */ }
+      } else if (post.storageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
+        } catch { /* keep existing */ }
+      }
+      // Author + comment profile pics
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
+      }
+      if (post.comments) {
+        for (const comment of post.comments) {
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
+          }
+        }
+      }
+    }
 
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
@@ -2672,18 +2636,46 @@ const getHiddenPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const posts = await Post.find({ 
-      user: req.user._id, 
-      isHidden: true, 
-      isActive: true, 
-      type: 'photo' 
+    const posts = await Post.find({
+      user: req.user._id,
+      isHidden: true,
+      isActive: true,
+      type: 'photo'
     })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
+      .populate('user', 'fullName profilePic profilePicStorageKey')
+      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Resolve storage keys to signed URLs
+    for (const post of posts) {
+      // Post images
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || post.imageUrl;
+          post.images = imageUrls;
+        } catch { /* keep existing */ }
+      } else if (post.storageKey) {
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          if (imageUrl) { post.imageUrl = imageUrl; post.images = [imageUrl]; }
+        } catch { /* keep existing */ }
+      }
+      // Author + comment profile pics
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
+      }
+      if (post.comments) {
+        for (const comment of post.comments) {
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
+          }
+        }
+      }
+    }
 
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
@@ -2692,8 +2684,7 @@ const getHiddenPosts = async (req, res) => {
       commentsCount: post.comments.length
     }));
 
-    res.status(200).json({
-      success: true,
+    return sendSuccess(res, 200, 'Hidden posts fetched successfully', {
       posts: postsWithLikeStatus,
       page,
       limit,
@@ -2701,10 +2692,7 @@ const getHiddenPosts = async (req, res) => {
     });
   } catch (error) {
     logger.error('Get hidden posts error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error fetching hidden posts'
-    });
+    return sendError(res, 'SRV_6001', 'Error fetching hidden posts');
   }
 };
 
@@ -2825,7 +2813,6 @@ const getShorts = async (req, res) => {
 
     // Defensive guard: ensure limit is reasonable
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
-    const safeSkip = Math.max(skip, 0);
 
     const viewerId = req.user?._id?.toString();
     const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
@@ -2979,43 +2966,13 @@ const getShorts = async (req, res) => {
         }
       }
       
-      // Generate signed URL for short author's profile picture
-      if (short.user && short.user.profilePicStorageKey) {
-        try {
-          short.user.profilePic = await generateSignedUrl(short.user.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for short author:', { 
-            shortId: short._id, 
-            userId: short.user._id,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          short.user.profilePic = short.user.profilePic || null;
-        }
-      } else if (short.user && short.user.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        // Keep the existing profilePic value
+      if (short.user) {
+        short.user.profilePic = await resolveProfilePic(short.user);
       }
-      
-      // Generate signed URLs for comment users' profile pictures
       if (short.comments && short.comments.length > 0) {
         for (const comment of short.comments) {
-          if (comment.user && comment.user.profilePicStorageKey) {
-            try {
-              comment.user.profilePic = await generateSignedUrl(comment.user.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for comment user:', { 
-                shortId: short._id, 
-                commentId: comment._id,
-                userId: comment.user._id,
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              comment.user.profilePic = comment.user.profilePic || null;
-            }
-          } else if (comment.user && comment.user.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            // Keep the existing profilePic value
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
           }
         }
       }
@@ -3192,6 +3149,9 @@ const getShorts = async (req, res) => {
 // @route   POST /shorts
 // @access  Private
 const createShort = async (req, res) => {
+  // Hoisted so the outer catch can reference them for cleanup on failure
+  let videoStorageKey;
+  let videoUploadResult;
   try {
     logger.debug('createShort called');
     logger.debug('req.file:', req.file ? { fieldname: req.file.fieldname, size: req.file.size } : null);
@@ -3255,29 +3215,53 @@ const createShort = async (req, res) => {
       finalCopyrightAcceptedAt = new Date();
     }
 
-    // Upload video to Sevalla Object Storage
-    const extension = videoFile.originalname.split('.').pop() || 'mp4';
-    const videoStorageKey = buildMediaKey({
+    // PERMANENT FIX FOR ANDROID HEAP-OOM CRASHES ON SHORTS PLAYBACK:
+    // Re-encode incoming videos to H.264 720p / AAC before uploading to
+    // storage. iPhones default to recording HEVC (H.265); HEVC decoders
+    // allocate 3-4× more native heap than H.264 and aren't present on every
+    // Android device — those two facts together produced the
+    // "GC tried cleanup, allocating 240 bytes failed" crash reports.
+    // Transcoding fails open: any error returns the original buffer
+    // unchanged, so a missing/broken ffmpeg never blocks an upload.
+    const { transcodeIfNeeded } = require('../services/videoTranscode');
+    let workingBuffer = videoFile.buffer;
+    let workingMimetype = videoFile.mimetype;
+    let workingExtension = videoFile.originalname.split('.').pop() || 'mp4';
+    try {
+      const transcodeResult = await transcodeIfNeeded(workingBuffer, workingMimetype);
+      workingBuffer = transcodeResult.buffer;
+      workingMimetype = transcodeResult.mimetype;
+      if (transcodeResult.transcoded) {
+        workingExtension = 'mp4'; // we always emit H.264 in an .mp4 container
+      }
+    } catch (e) {
+      // transcodeIfNeeded itself doesn't throw, but defend in depth so a
+      // bug here can't break uploads.
+      logger.error('Unexpected transcode error — passthrough', e);
+    }
+
+    // Upload (transcoded or original) video to Sevalla Object Storage
+    videoStorageKey = buildMediaKey({
       type: 'short',
       userId: req.user._id.toString(),
       filename: videoFile.originalname,
-      extension
+      extension: workingExtension
     });
-    
+
     // Log file size for monitoring large uploads
-    const fileSizeMB = (videoFile.buffer.length / (1024 * 1024)).toFixed(2);
+    const fileSizeMB = (workingBuffer.length / (1024 * 1024)).toFixed(2);
     logger.info('Starting video upload:', {
       key: videoStorageKey,
       size: `${fileSizeMB}MB`,
-      mimetype: videoFile.mimetype,
-      userId: req.user._id.toString()
+      mimetype: workingMimetype,
+      userId: req.user._id.toString(),
+      originalSizeMB: (videoFile.buffer.length / (1024 * 1024)).toFixed(2),
     });
-    
-    let videoUploadResult;
+
     try {
       // uploadObject automatically uses multipart upload for files > 100MB
       const uploadStartTime = Date.now();
-      videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
+      videoUploadResult = await uploadObject(workingBuffer, videoStorageKey, workingMimetype);
       const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
       
       logger.info('Video upload completed:', {
@@ -3466,6 +3450,32 @@ const createShort = async (req, res) => {
     } catch (tripVisitError) {
       logger.warn('TripVisit creation failed (non-critical):', tripVisitError);
       // Don't fail short creation if TripVisit fails
+    }
+
+    // Auto-attach short to active journey as waypoint (non-blocking)
+    try {
+      const Journey = require('../models/Journey');
+      const shortLat = short.location?.coordinates?.latitude || parseFloat(req.body.latitude);
+      const shortLng = short.location?.coordinates?.longitude || parseFloat(req.body.longitude);
+      if (req.user && shortLat && shortLng && !isNaN(shortLat) && !isNaN(shortLng)) {
+        const activeJourney = await Journey.findOne({
+          user: req.user._id,
+          status: { $in: ['active', 'paused'] }
+        });
+        if (activeJourney) {
+          activeJourney.waypoints.push({
+            post: short._id,
+            lat: shortLat,
+            lng: shortLng,
+            timestamp: new Date(),
+            contentType: short.mediaType === 'video' ? 'video' : 'short'
+          });
+          await activeJourney.save();
+          logger.info(`Auto-attached short ${short._id} to journey ${activeJourney._id}`);
+        }
+      }
+    } catch (journeyError) {
+      logger.warn('Failed to attach short to journey (non-critical):', journeyError);
     }
 
     // Increment song usage count if song is attached

@@ -1,9 +1,6 @@
 const TripVisit = require('../models/TripVisit');
-const User = require('../models/User');
-const Post = require('../models/Post');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
-const mongoose = require('mongoose');
 const { TRUSTED_TRUST_LEVELS } = require('../config/tripScoreConfig');
 
 /**
@@ -627,7 +624,7 @@ const getDetailedLocations = async (req, res) => {
         },
         {
           $match: {
-            state: { $exists: true, $ne: null, $ne: '' }
+            state: { $exists: true, $nin: [null, ''] }
           }
         },
         {

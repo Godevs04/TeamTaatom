@@ -142,29 +142,10 @@ export default function LocationDetailScreen() {
   const isTabletLocal = screenWidth >= 768;
   const isAndroidLocal = Platform.OS === 'android';
   const isWebLocal = Platform.OS === 'web';
-  
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<LocationDetail | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
-  const [distance, setDistance] = useState<number | null>(null);
-  const [isBookmarked, setIsBookmarked] = useState(false);
-  const [bookmarkLoading, setBookmarkLoading] = useState(false);
-  const [localeData, setLocaleData] = useState<Locale | null>(null);
-  const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
-  const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
-  
-  // Navigation & Lifecycle Safety: Track mounted state
-  const isMountedRef = useRef(true);
-  
-  // Bookmark Stability: Track in-flight bookmark operations
-  const bookmarkingRef = useRef(false);
-  
-  // Distance Calculation Guards: Cache calculated distances per session
-  const distanceCacheRef = useRef<Map<string, number>>(new Map());
-  
+
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -173,6 +154,38 @@ export default function LocationDetailScreen() {
   const isAdminLocale = userIdParam === 'admin-locale';
   // TripScore flow: when country is not 'general' and userId is not 'admin-locale'
   const isTripScoreFlow = !isFromLocaleFlow && !isAdminLocale;
+
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<LocationDetail | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  // Pre-seed distance from list param so detail shows the same value.
+  // useLocalSearchParams() MUST be called above this so distanceKmParam is available.
+  const hasPreSeededDistanceRef = useRef(false);
+  const [distance, setDistance] = useState<number | null>(() => {
+    const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
+    if (paramVal && paramVal !== '') {
+      const parsed = parseFloat(paramVal as string);
+      if (!isNaN(parsed)) {
+        hasPreSeededDistanceRef.current = true;
+        return parsed;
+      }
+    }
+    return null;
+  });
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
+  const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
+
+  // Navigation & Lifecycle Safety: Track mounted state
+  const isMountedRef = useRef(true);
+
+  // Bookmark Stability: Track in-flight bookmark operations
+  const bookmarkingRef = useRef(false);
+
+  // Distance Calculation Guards: Cache calculated distances per session
+  const distanceCacheRef = useRef<Map<string, number>>(new Map());
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -213,9 +226,11 @@ export default function LocationDetailScreen() {
   );
 
   // Calculate distance when coordinates are available
+  // SKIP if distance was already passed from the list page (pre-seeded) to avoid mismatch
   useEffect(() => {
     if (!isMountedRef.current) return;
-    
+    if (hasPreSeededDistanceRef.current) return; // Distance from list — never override
+
     if (data?.coordinates && data.coordinates.latitude && data.coordinates.longitude) {
       const lat = data.coordinates.latitude;
       const lng = data.coordinates.longitude;
@@ -798,16 +813,12 @@ export default function LocationDetailScreen() {
         
         setLoading(false);
         
-        // CRITICAL: Calculate distance immediately with EXACT coordinates from locale
-        // This ensures accurate distance calculation for locale flow
-        if (coordinates && coordinates.latitude && coordinates.longitude && 
+        // Distance: Use the pre-seeded value from the list (passed via route params).
+        // Only recalculate if no distance was passed (e.g. deep link / direct navigation).
+        if (!hasPreSeededDistanceRef.current && coordinates && coordinates.latitude && coordinates.longitude &&
             coordinates.latitude !== 0 && coordinates.longitude !== 0) {
-          logger.debug('Immediately calculating distance with EXACT coordinates:', coordinates);
-          // Reset distance to null first to force recalculation
-          setDistance(null);
+          logger.debug('No pre-seeded distance, calculating with coordinates:', coordinates);
           calculateDistanceAsync(coordinates.latitude, coordinates.longitude);
-        } else {
-          logger.warn('Cannot calculate distance: coordinates missing or invalid', coordinates);
         }
         
         return;
@@ -1462,14 +1473,6 @@ const createStyles = () => {
       paddingTop: isAndroidLocal ? (isTabletLocal ? 20 : 18) : (isTabletLocal ? 16 : 14),
       paddingBottom: isTabletLocal ? 18 : 14,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 1,
-      },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 2,
       minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
     },
     backButton: {
@@ -1488,7 +1491,7 @@ const createStyles = () => {
     },
   headerTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     flex: 1,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -1580,19 +1583,11 @@ const createStyles = () => {
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 5,
   },
   locationBadgeText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     marginLeft: 8,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
@@ -1614,21 +1609,13 @@ const createStyles = () => {
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.3)',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 5,
     minWidth: 70,
     overflow: 'hidden',
   },
   statValue: {
     color: '#fff',
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '600',
     marginTop: 4,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 2 },
@@ -1656,14 +1643,6 @@ const createStyles = () => {
     flex: 1,
     padding: 16,
     borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 6,
     minHeight: 120,
     justifyContent: 'space-between',
     borderWidth: StyleSheet.hairlineWidth,
@@ -1681,17 +1660,17 @@ const createStyles = () => {
   },
   quickInfoTitle: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     marginLeft: 8,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     opacity: 0.85,
   },
   quickInfoValue: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '600',
     marginBottom: 4,
-    lineHeight: 28,
+    lineHeight: 26,
     letterSpacing: -0.5,
   },
   quickInfoSubtext: {
@@ -1724,14 +1703,6 @@ const createStyles = () => {
   detailedCard: {
     padding: 18,
     borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 6,
     borderWidth: 0,
   },
   cardHeader: {
@@ -1741,7 +1712,7 @@ const createStyles = () => {
   },
   cardTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     marginLeft: 10,
   },
   infoGrid: {

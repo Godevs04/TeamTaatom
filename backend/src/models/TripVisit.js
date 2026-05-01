@@ -146,6 +146,36 @@ const tripVisitSchema = new mongoose.Schema({
       type: String,
       required: false
     }
+  },
+  // Polyline GPS trace for completed visits (for journey tracking)
+  polyline: [
+    {
+      lat: {
+        type: Number,
+        required: false
+      },
+      lng: {
+        type: Number,
+        required: false
+      },
+      timestamp: {
+        type: Date,
+        required: false
+      }
+    }
+  ],
+  // Content type from journey (photo, short, or video)
+  contentTypeFromJourney: {
+    type: String,
+    enum: ['photo', 'short', 'video'],
+    required: false
+  },
+  // Reference to journey if this visit came from tracked journey
+  journey: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Journey',
+    required: false,
+    sparse: true
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt
